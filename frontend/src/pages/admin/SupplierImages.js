@@ -26,10 +26,18 @@ export default function SupplierImages() {
   const [uploadingFor, setUploadingFor] = useState(null);
   const [deletingImages, setDeletingImages] = useState(new Set());
   
-  // Search and filter state — initialise from URL query (?series=…&search=…)
+  // Search and filter state — initialise from URL query (?series=…&search=…&skus=…)
   // so the page lands on the same view the user had on SupplierProducts.
   const [searchQuery, setSearchQuery] = useState(() => searchParams.get('search') || '');
   const [seriesFilter, setSeriesFilter] = useState(() => searchParams.get('series') || '');
+  // Manual selection from SupplierProducts Smart Select. Comma-separated
+  // SKUs in the URL → Set<string> here. Cleared via the active-filter pill.
+  const [selectedSkusFilter, setSelectedSkusFilter] = useState(() => {
+    const raw = searchParams.get('skus');
+    if (!raw) return null;
+    const set = new Set(raw.split(',').map(s => s.trim()).filter(Boolean));
+    return set.size > 0 ? set : null;
+  });
 
   // Mirror the active filters back into the URL so:
   //  - F5 / hard refresh keeps the same view
@@ -40,11 +48,14 @@ export default function SupplierImages() {
     const next = new URLSearchParams();
     if (searchQuery) next.set('search', searchQuery);
     if (seriesFilter) next.set('series', seriesFilter);
+    if (selectedSkusFilter && selectedSkusFilter.size > 0) {
+      next.set('skus', Array.from(selectedSkusFilter).join(','));
+    }
     const nextStr = next.toString();
     const currentStr = searchParams.toString();
     if (nextStr !== currentStr) setSearchParams(next, { replace: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchQuery, seriesFilter]);
+  }, [searchQuery, seriesFilter, selectedSkusFilter]);
   
   // Bulk delete state for images
   const [selectedImages, setSelectedImages] = useState({}); // { productId: [imageUrl, imageUrl] }
@@ -162,8 +173,18 @@ export default function SupplierImages() {
       filtered = filtered.filter(p => getSeriesName(p) === seriesFilter);
     }
 
+    // Apply manual SKU selection (Smart Select carry-over from
+    // SupplierProducts page). Most specific filter — wins over series
+    // and search if the user explicitly picked products.
+    if (selectedSkusFilter && selectedSkusFilter.size > 0) {
+      filtered = filtered.filter(p => {
+        const sku = p.sku || p.supplier_code || '';
+        return selectedSkusFilter.has(sku);
+      });
+    }
+
     return filtered;
-  }, [products, searchQuery, seriesFilter]);
+  }, [products, searchQuery, seriesFilter, selectedSkusFilter]);
 
   // Group filtered products by size
   const filteredProductsBySize = useMemo(() => {
@@ -649,9 +670,26 @@ export default function SupplierImages() {
                   is in effect so the user can spot at a glance whether
                   their filter from SupplierProducts came through. Click ×
                   to clear. */}
-              {(seriesFilter || searchQuery) && (
+              {(seriesFilter || searchQuery || (selectedSkusFilter && selectedSkusFilter.size > 0)) && (
                 <div className="flex items-center flex-wrap gap-2 mt-2" data-testid="active-filters-bar">
                   <span className="text-xs text-gray-500">Showing only:</span>
+                  {selectedSkusFilter && selectedSkusFilter.size > 0 && (
+                    <span
+                      className="inline-flex items-center gap-1 px-2 py-1 bg-purple-50 border border-purple-200 text-purple-800 rounded-md text-xs font-semibold"
+                      data-testid="active-filter-skus"
+                    >
+                      {selectedSkusFilter.size} hand-picked product{selectedSkusFilter.size > 1 ? 's' : ''}
+                      <button
+                        type="button"
+                        onClick={() => setSelectedSkusFilter(null)}
+                        className="hover:bg-purple-100 rounded p-0.5"
+                        title="Clear product selection"
+                        aria-label="Clear product selection"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </span>
+                  )}
                   {seriesFilter && (
                     <span
                       className="inline-flex items-center gap-1 px-2 py-1 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-md text-xs font-semibold"

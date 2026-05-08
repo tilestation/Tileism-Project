@@ -7872,13 +7872,15 @@ export default function SupplierProducts() {
             </Button>
           )}
           {/* Upload Images - Available for all suppliers except 'all'.
-              Pass the current series + search filter to the destination
-              page so it lands on the same view (e.g. only the 20
-              "Moonstone Series" products) instead of dumping the
-              entire 250-product supplier catalogue.
-              The button label includes the active series so it's obvious
-              what filter is about to carry through ("Upload Images (Modis)")
-              vs unfiltered ("Upload Images (All series)"). */}
+              Pass the current series + search + manual-selection state
+              to the destination page so it lands on the same view the
+              user prepared. Three filters can carry through:
+                ?series=Modis      — series dropdown
+                ?search=moonstone  — search bar
+                ?skus=Plus39|||SKU1,Plus39|||SKU2  — manual selection
+                                                     (Smart Select / checkboxes)
+              The label adapts so the user can see which filter will
+              carry BEFORE clicking. */}
           {selectedSupplier !== 'all' && (
             <Button 
               variant="default"
@@ -7887,18 +7889,36 @@ export default function SupplierProducts() {
                 const params = new URLSearchParams();
                 if (seriesFilter) params.set('series', seriesFilter);
                 if (searchTerm) params.set('search', searchTerm);
+                // If the user has manually selected specific products
+                // (via Smart Select / checkboxes), carry those product
+                // IDs through too — they're the most specific filter.
+                const selectedKeys = Array.from(selectedProducts);
+                if (selectedKeys.length > 0) {
+                  // SKUs only, supplier is in the URL path already
+                  const skus = selectedKeys
+                    .map(k => k.split('|||').pop())
+                    .filter(Boolean)
+                    .join(',');
+                  if (skus) params.set('skus', skus);
+                }
                 const qs = params.toString();
                 navigate(`/admin/supplier-images/${encodeURIComponent(selectedSupplier)}${qs ? '?' + qs : ''}`);
               }}
               data-testid="supplier-images-btn"
-              title={seriesFilter
-                ? `Upload images filtered to ${seriesFilter} series only`
-                : 'Upload images for ALL series of this supplier — pick a series in the dropdown to narrow the list'}
+              title={
+                selectedProducts.size > 0
+                  ? `Upload images for ${selectedProducts.size} selected product${selectedProducts.size > 1 ? 's' : ''}`
+                  : seriesFilter
+                    ? `Upload images filtered to ${seriesFilter} series only`
+                    : 'Upload images for ALL series of this supplier — pick a series in the dropdown to narrow the list'
+              }
             >
               <Upload className="w-4 h-4 mr-2" />
               Upload Images
               <span className="ml-2 text-xs opacity-90 font-normal">
-                ({seriesFilter || 'all series'})
+                ({selectedProducts.size > 0
+                    ? `${selectedProducts.size} selected`
+                    : seriesFilter || 'all series'})
               </span>
             </Button>
           )}
