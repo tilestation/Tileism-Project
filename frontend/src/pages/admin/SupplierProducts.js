@@ -2221,6 +2221,14 @@ export default function SupplierProducts() {
       if (showNewOnly) {
         url += `&new_only=true`;
       }
+      // Apply series filter at the DB layer — without this, the local
+      // filter would only see the current 50-product page and could
+      // return zero matches even when 13 products exist for the series
+      // (just on later pages). Critical when "All Suppliers" is selected
+      // and the catalogue is 1700+ products long.
+      if (seriesFilter) {
+        url += `&series=${encodeURIComponent(seriesFilter)}`;
+      }
 
       const response = await fetch(url);
       if (response.ok) {
@@ -2249,7 +2257,7 @@ export default function SupplierProducts() {
       setLoading(false);
     }
     return null;
-  }, [currentPage, selectedSupplier, searchTerm, showNewOnly, productsPerPage]);
+  }, [currentPage, selectedSupplier, searchTerm, showNewOnly, productsPerPage, seriesFilter]);
 
   // Fetch stats for all suppliers
   const fetchStats = async () => {
@@ -6232,7 +6240,7 @@ export default function SupplierProducts() {
   // Reset page when filter changes
   useEffect(() => {
     setCurrentPage(1);
-  }, [selectedSupplier, searchTerm]);
+  }, [selectedSupplier, searchTerm, seriesFilter]);
 
   // Handle supplier tab click
   const handleSupplierChange = (supplierId) => {

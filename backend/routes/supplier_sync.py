@@ -4013,7 +4013,8 @@ def get_all_supplier_products(
     limit: int = 50, 
     supplier: Optional[str] = None,
     search: Optional[str] = None,
-    new_only: Optional[bool] = False
+    new_only: Optional[bool] = False,
+    series: Optional[str] = None
 ):
     """
     Get products from all suppliers with optional filtering
@@ -4033,6 +4034,16 @@ def get_all_supplier_products(
                 {"category": {"$regex": search, "$options": "i"}},
                 {"supplier_product_name": {"$regex": search, "$options": "i"}}
             ]
+        
+        # Series filter — match `series` field exactly. Required so the
+        # frontend dropdown ("Metallique (13)") returns ONLY those 13
+        # products even when the supplier dropdown is "All". Without
+        # this, the frontend was applying the series filter to only the
+        # 50-product paginated page returned by the API, which usually
+        # contained zero matches → "No products found".
+        series = normalise_filter_value(series) if series else None
+        if series:
+            query["series"] = series
         
         # Filter for new products (not yet added to Products database)
         if new_only:
