@@ -645,6 +645,49 @@ export default function SupplierImages() {
               <p className="text-sm text-gray-500">
                 {stats.withImages} of {stats.total} products have images ({stats.totalImages} total images)
               </p>
+              {/* Active filter pill — makes it OBVIOUS when a series filter
+                  is in effect so the user can spot at a glance whether
+                  their filter from SupplierProducts came through. Click ×
+                  to clear. */}
+              {(seriesFilter || searchQuery) && (
+                <div className="flex items-center flex-wrap gap-2 mt-2" data-testid="active-filters-bar">
+                  <span className="text-xs text-gray-500">Showing only:</span>
+                  {seriesFilter && (
+                    <span
+                      className="inline-flex items-center gap-1 px-2 py-1 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-md text-xs font-semibold"
+                      data-testid="active-filter-series"
+                    >
+                      Series: {seriesFilter}
+                      <button
+                        type="button"
+                        onClick={() => setSeriesFilter('')}
+                        className="hover:bg-emerald-100 rounded p-0.5"
+                        title="Clear series filter"
+                        aria-label="Clear series filter"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </span>
+                  )}
+                  {searchQuery && (
+                    <span
+                      className="inline-flex items-center gap-1 px-2 py-1 bg-blue-50 border border-blue-200 text-blue-800 rounded-md text-xs font-semibold"
+                      data-testid="active-filter-search"
+                    >
+                      Search: "{searchQuery}"
+                      <button
+                        type="button"
+                        onClick={() => setSearchQuery('')}
+                        className="hover:bg-blue-100 rounded p-0.5"
+                        title="Clear search"
+                        aria-label="Clear search"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </span>
+                  )}
+                </div>
+              )}
             </div>
           </div>
           <div className="flex items-center gap-2">

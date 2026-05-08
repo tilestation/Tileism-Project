@@ -7875,7 +7875,10 @@ export default function SupplierProducts() {
               Pass the current series + search filter to the destination
               page so it lands on the same view (e.g. only the 20
               "Moonstone Series" products) instead of dumping the
-              entire 250-product supplier catalogue. */}
+              entire 250-product supplier catalogue.
+              The button label includes the active series so it's obvious
+              what filter is about to carry through ("Upload Images (Modis)")
+              vs unfiltered ("Upload Images (All series)"). */}
           {selectedSupplier !== 'all' && (
             <Button 
               variant="default"
@@ -7888,9 +7891,15 @@ export default function SupplierProducts() {
                 navigate(`/admin/supplier-images/${encodeURIComponent(selectedSupplier)}${qs ? '?' + qs : ''}`);
               }}
               data-testid="supplier-images-btn"
+              title={seriesFilter
+                ? `Upload images filtered to ${seriesFilter} series only`
+                : 'Upload images for ALL series of this supplier — pick a series in the dropdown to narrow the list'}
             >
               <Upload className="w-4 h-4 mr-2" />
               Upload Images
+              <span className="ml-2 text-xs opacity-90 font-normal">
+                ({seriesFilter || 'all series'})
+              </span>
             </Button>
           )}
           {/* Canopy Stock Update - Quick access to update stock from supplier page */}
