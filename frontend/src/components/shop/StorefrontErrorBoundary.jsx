@@ -10,15 +10,22 @@ import * as Sentry from '@sentry/react';
  *   • Renders a recoverable fallback that links back to the shop
  *   • Reports the actual error name + stack to Sentry with a tag
  *     so we can filter for storefront crashes specifically
+ *   • POSTs the error to /api/client-errors/log so it shows up in
+ *     the admin Customer Issues panel without needing Sentry creds
+ *   • Auto-retries ONCE after 1.5s (handles transient race-condition
+ *     crashes during data hydration — common with React 19 strict mode)
  *   • Prints the stack in development
  *
  * Wrap individual pages where a crash on ONE product/collection
  * shouldn't take down the rest of the user's session.
  */
+const API_URL = process.env.REACT_APP_BACKEND_URL;
+
 export class StorefrontErrorBoundary extends React.Component {
   constructor(props) {
     super(props);
-    this.state = { error: null };
+    this.state = { error: null, retried: false };
+    this._autoRetryTimer = null;
   }
 
   static getDerivedStateFromError(error) {
@@ -26,8 +33,7 @@ export class StorefrontErrorBoundary extends React.Component {
   }
 
   componentDidCatch(error, errorInfo) {
-    // Report with structured context so Sentry groups storefront
-    // crashes together rather than mixing them with admin / API ones.
+    // 1. Report to Sentry with structured context (admin/dev visibility)
     try {
       Sentry.withScope((scope) => {
         scope.setTag('boundary', 'storefront');
@@ -39,14 +45,60 @@ export class StorefrontErrorBoundary extends React.Component {
     } catch (_) {
       // Sentry may not be initialised in dev — silently no-op.
     }
+
+    // 2. Report to backend Customer Issues panel via the existing
+    //    /api/client-errors/log endpoint. Best-effort — never throws.
+    try {
+      const url = typeof window !== 'undefined' ? window.location.href : 'ssr';
+      const sessionId = (typeof window !== 'undefined' && (window.localStorage?.getItem?.('session_id') || ''))
+        || `boundary-${Date.now()}`;
+      fetch(`${API_URL}/api/client-errors/log`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        keepalive: true,
+        body: JSON.stringify({
+          session_id: sessionId,
+          error_type: error?.name || 'BoundaryCrash',
+          message: String(error?.message || error || 'Unknown error'),
+          stack: String(error?.stack || ''),
+          url,
+          breadcrumbs: [
+            { type: 'route', value: this.props.routeName || 'unknown' },
+            { type: 'componentStack', value: errorInfo?.componentStack || '' },
+          ],
+        }),
+      }).catch(() => { /* swallow */ });
+    } catch (_) {
+      // never let telemetry break the fallback
+    }
+
     if (typeof console !== 'undefined') {
       // eslint-disable-next-line no-console
       console.error('[storefront] crash on route', this.props.routeName, error, errorInfo);
     }
+
+    // 3. Auto-retry ONCE after 1.5s. This handles transient errors
+    //    during data hydration (e.g. an API field arrives in the wrong
+    //    shape on first render but is normalised on the second). If the
+    //    error fires again after retry, we stop retrying and show the
+    //    fallback for real.
+    if (!this.state.retried && !this.props.disableAutoRetry) {
+      this._autoRetryTimer = setTimeout(() => {
+        this.setState({ error: null, retried: true });
+      }, 1500);
+    }
+  }
+
+  componentWillUnmount() {
+    if (this._autoRetryTimer) clearTimeout(this._autoRetryTimer);
   }
 
   reset = () => {
-    this.setState({ error: null });
+    if (this._autoRetryTimer) {
+      clearTimeout(this._autoRetryTimer);
+      this._autoRetryTimer = null;
+    }
+    this.setState({ error: null, retried: false });
   };
 
   render() {
@@ -98,4 +150,48 @@ export class StorefrontErrorBoundary extends React.Component {
   }
 }
 
+/**
+ * SafeSection — lightweight per-section boundary for use INSIDE a page
+ * already wrapped in StorefrontErrorBoundary. If one panel crashes
+ * (e.g. price block), the rest of the page (image gallery, description,
+ * tier table) keeps rendering. Used to make the PDP fault-tolerant.
+ *
+ * Renders nothing on crash by default — pass `fallback` to override.
+ */
+export class SafeSection extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { error: null };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { error };
+  }
+
+  componentDidCatch(error, errorInfo) {
+    try {
+      Sentry.withScope?.((scope) => {
+        scope.setTag('boundary', 'storefront-section');
+        scope.setTag('section', this.props.name || 'unknown');
+        scope.setExtra('componentStack', errorInfo?.componentStack);
+        Sentry.captureException(error);
+      });
+    } catch (_) { /* ignore */ }
+
+    if (typeof console !== 'undefined') {
+      // eslint-disable-next-line no-console
+      console.warn('[SafeSection] crash in', this.props.name, error?.message);
+    }
+  }
+
+  render() {
+    if (this.state.error) {
+      if (this.props.fallback !== undefined) return this.props.fallback;
+      return null; // section silently disappears, page keeps working
+    }
+    return this.props.children;
+  }
+}
+
 export default StorefrontErrorBoundary;
+

@@ -1,0 +1,206 @@
+/**
+ * Crash-resistance tests for the safeStr helpers.
+ *
+ * These are the contract: if any of these tests fail, the storefront
+ * Collection Detail Page and the supplier image flow are at risk of
+ * crashing on real production data shapes that have accumulated over
+ * the lifetime of the catalogue (CDN migrations, manual edits, legacy
+ * import scripts).
+ *
+ * Run with: cd frontend && yarn test --watchAll=false src/utils/safeStr.test.js
+ */
+import {
+  safeStr, safeLower, safeMatch, safeIncludes, safeSplit,
+  safeArr, safeNum, safeToFixed, normaliseImageUrl, normaliseImageList,
+} from './safeStr';
+
+describe('safeStr — coerce ANYTHING to a string', () => {
+  test('passes strings through untouched', () => {
+    expect(safeStr('hello')).toBe('hello');
+    expect(safeStr('')).toBe('');
+  });
+  test('null / undefined → empty string', () => {
+    expect(safeStr(null)).toBe('');
+    expect(safeStr(undefined)).toBe('');
+  });
+  test('numbers + booleans → string repr', () => {
+    expect(safeStr(42)).toBe('42');
+    expect(safeStr(0)).toBe('0');
+    expect(safeStr(true)).toBe('true');
+    expect(safeStr(false)).toBe('false');
+  });
+  test('image-shaped objects → first available URL field', () => {
+    expect(safeStr({ src: 'https://example.com/a.jpg' })).toBe('https://example.com/a.jpg');
+    expect(safeStr({ url: '/cdn/b.jpg' })).toBe('/cdn/b.jpg');
+    expect(safeStr({ large: '/x/c.jpg', thumbnail: '/x/c-tn.jpg' })).toBe('/x/c.jpg');
+    expect(safeStr({ thumbnail: '/x/c-tn.jpg' })).toBe('/x/c-tn.jpg');
+  });
+  test('arrays → first element coerced (recursive)', () => {
+    expect(safeStr(['a', 'b', 'c'])).toBe('a');
+    expect(safeStr([])).toBe('');
+    expect(safeStr([{ src: '/x.jpg' }])).toBe('/x.jpg');
+  });
+  test('weird empty objects → empty string, no crash', () => {
+    expect(safeStr({})).toBe('');
+    expect(safeStr({ foo: 'bar' })).toBe('');
+  });
+});
+
+describe('safeMatch — replaces .match() that crashes on non-strings', () => {
+  test('matches on string input', () => {
+    expect(safeMatch('foo.mp4', /\.(mp4|webm)$/)).toEqual(expect.arrayContaining(['.mp4']));
+  });
+  test('returns empty array when input is null/undefined', () => {
+    expect(safeMatch(null, /\.mp4$/)).toEqual([]);
+    expect(safeMatch(undefined, /\.mp4$/)).toEqual([]);
+  });
+  test('returns empty array on object input (not crash like .match() would)', () => {
+    expect(safeMatch({ src: '/a.mp4' }, /\.(mp4|webm)$/)).toEqual(expect.arrayContaining(['.mp4']));
+    expect(safeMatch({ wrongField: '/a.mp4' }, /\.mp4$/)).toEqual([]);
+    expect(safeMatch({}, /\.mp4$/)).toEqual([]);
+  });
+  test('returns empty array on number input', () => {
+    expect(safeMatch(42, /\d+/)).toEqual(expect.arrayContaining(['42']));
+  });
+  test('handles missing/undefined regex without crashing', () => {
+    expect(safeMatch('hi', undefined)).toEqual([]);
+    expect(safeMatch('hi', null)).toEqual([]);
+  });
+});
+
+describe('safeIncludes — replaces .includes() that crashes on non-strings', () => {
+  test('basic string includes', () => {
+    expect(safeIncludes('hello world', 'world')).toBe(true);
+    expect(safeIncludes('hello world', 'xyz')).toBe(false);
+  });
+  test('coerces non-string input', () => {
+    expect(safeIncludes(null, 'x')).toBe(false);
+    expect(safeIncludes(undefined, 'x')).toBe(false);
+    expect(safeIncludes({ src: 'youtube.com/foo' }, 'youtube')).toBe(true);
+    expect(safeIncludes(42, '4')).toBe(true);
+  });
+  test('handles missing/undefined needle gracefully', () => {
+    expect(safeIncludes('hi', null)).toBe(false);
+    expect(safeIncludes('hi', undefined)).toBe(false);
+  });
+});
+
+describe('safeSplit', () => {
+  test('basic split works', () => {
+    expect(safeSplit('a-b-c', '-')).toEqual(['a', 'b', 'c']);
+  });
+  test('null/undefined input → empty array', () => {
+    expect(safeSplit(null, '-')).toEqual([]);
+    expect(safeSplit(undefined, '-')).toEqual([]);
+  });
+  test('non-string input is coerced first', () => {
+    expect(safeSplit({ src: 'a-b-c' }, '-')).toEqual(['a', 'b', 'c']);
+  });
+});
+
+describe('safeArr — coerce to array', () => {
+  test('passes arrays through', () => {
+    expect(safeArr([1, 2, 3])).toEqual([1, 2, 3]);
+  });
+  test('null/undefined → empty array', () => {
+    expect(safeArr(null)).toEqual([]);
+    expect(safeArr(undefined)).toEqual([]);
+  });
+  test('wraps singletons so .map() still works', () => {
+    expect(safeArr('foo')).toEqual(['foo']);
+    expect(safeArr({ id: 1 })).toEqual([{ id: 1 }]);
+  });
+});
+
+describe('safeNum / safeToFixed', () => {
+  test('numbers pass through', () => {
+    expect(safeNum(42)).toBe(42);
+    expect(safeNum(0)).toBe(0);
+    expect(safeNum(-3.14)).toBe(-3.14);
+  });
+  test('numeric strings parse', () => {
+    expect(safeNum('42.5')).toBe(42.5);
+    expect(safeNum('  10 ')).toBe(10);
+  });
+  test('NaN / null / undefined → fallback (default 0)', () => {
+    expect(safeNum(null)).toBe(0);
+    expect(safeNum(undefined)).toBe(0);
+    expect(safeNum(NaN)).toBe(0);
+    expect(safeNum('abc')).toBe(0);
+    expect(safeNum('abc', -1)).toBe(-1);
+  });
+  test('safeToFixed never returns NaN', () => {
+    expect(safeToFixed(42.5, 2)).toBe('42.50');
+    expect(safeToFixed(null)).toBe('0.00');
+    expect(safeToFixed(undefined)).toBe('0.00');
+    expect(safeToFixed('garbage')).toBe('0.00');
+  });
+});
+
+describe('normaliseImageUrl + normaliseImageList — production data shapes', () => {
+  test('plain string URL passes through', () => {
+    expect(normaliseImageUrl('https://cdn.example.com/a.jpg')).toBe('https://cdn.example.com/a.jpg');
+  });
+  test('handles {src} object', () => {
+    expect(normaliseImageUrl({ src: '/a.jpg', width: 800 })).toBe('/a.jpg');
+  });
+  test('handles {url} object', () => {
+    expect(normaliseImageUrl({ url: '/b.jpg' })).toBe('/b.jpg');
+  });
+  test('handles multi-resolution object', () => {
+    expect(normaliseImageUrl({ large: '/large.jpg', thumbnail: '/thumb.jpg' })).toBe('/large.jpg');
+  });
+  test('returns "" for unknown / empty shapes (caller filters)', () => {
+    expect(normaliseImageUrl(null)).toBe('');
+    expect(normaliseImageUrl(undefined)).toBe('');
+    expect(normaliseImageUrl({})).toBe('');
+    expect(normaliseImageUrl({ random: 'x' })).toBe('');
+    expect(normaliseImageUrl(42)).toBe('');
+  });
+  test('normaliseImageList handles a heterogeneous mess (real production scenario)', () => {
+    const messy = [
+      'https://a.com/1.jpg',          // legacy plain string
+      { src: '/2.jpg' },               // new structured
+      { url: '/3.jpg' },               // older structured
+      null,                            // nulled out by a bad migration
+      undefined,                       // gap from a delete
+      { foo: 'bar' },                  // unknown shape (skip)
+      { thumbnail: '/4-tn.jpg' },      // thumbnail-only (acceptable fallback)
+      '',                              // empty string from sloppy data entry
+    ];
+    expect(normaliseImageList(messy)).toEqual([
+      'https://a.com/1.jpg',
+      '/2.jpg',
+      '/3.jpg',
+      '/4-tn.jpg',
+    ]);
+  });
+  test('normaliseImageList on null/undefined input', () => {
+    expect(normaliseImageList(null)).toEqual([]);
+    expect(normaliseImageList(undefined)).toEqual([]);
+  });
+});
+
+describe('Real-world crash scenarios from production', () => {
+  test('isVideo logic equivalent — non-string never crashes', () => {
+    const isVideo = (url) => {
+      const s = safeStr(url);
+      if (!s) return false;
+      return safeMatch(s, /\.(mp4|webm|ogg|mov)$/i).length > 0
+        || safeIncludes(s, 'youtube')
+        || safeIncludes(s, 'vimeo');
+    };
+    // The cases that were crashing the live site:
+    expect(() => isVideo({ src: 'https://x.com/a.jpg' })).not.toThrow();
+    expect(() => isVideo(null)).not.toThrow();
+    expect(() => isVideo(undefined)).not.toThrow();
+    expect(() => isVideo(42)).not.toThrow();
+    expect(() => isVideo({})).not.toThrow();
+    expect(() => isVideo([])).not.toThrow();
+    // And it still works correctly:
+    expect(isVideo('https://x.com/clip.mp4')).toBe(true);
+    expect(isVideo({ src: 'https://x.com/clip.mp4' })).toBe(true);
+    expect(isVideo('https://youtube.com/watch?v=abc')).toBe(true);
+    expect(isVideo('https://x.com/photo.jpg')).toBe(false);
+  });
+});

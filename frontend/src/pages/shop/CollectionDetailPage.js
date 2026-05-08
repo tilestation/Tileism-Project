@@ -53,6 +53,15 @@ import { RecentlyViewedSection, YouMayAlsoNeed, trackRecentView } from '../../co
 import { usePageTracking } from '../../hooks/usePageTracking';
 import { useTradeUser } from '../../hooks/useTradeUser';
 import { useTrustBadges } from '../../hooks/useTrustBadges';
+// Crash-proof string + array helpers — see /utils/safeStr.js for full
+// rationale. The collection detail page has 90+ string operations on
+// fields that can be null/undefined/objects/numbers in production data.
+// Without these helpers, ANY ONE bad value crashes the whole PDP.
+import {
+  safeStr, safeLower, safeMatch, safeIncludes, safeSplit,
+  safeArr, safeNum, safeToFixed, normaliseImageList,
+} from '../../utils/safeStr';
+import { SafeSection } from '../../components/shop/StorefrontErrorBoundary';
 import { DeliveryInfoCompact } from './InfoPage';
 import AdvancedTileCalculator from '../../components/shop/AdvancedTileCalculator';
 import { TradeLoginBox } from '../../components/shop/TradeLoginPrompt';
@@ -548,15 +557,14 @@ const CollectionDetailPage = () => {
   const materialProductOptions = useMemo(() => {
     if (products.length <= 1 || isSurfaceProduct) return [];
     // Check if products use the " - " naming convention (materials/tools/accessories)
-    const withSeparator = products.filter(p => {
-      const name = p.display_name || p.name || '';
-      return name.includes(' - ');
-    });
+    const withSeparator = products.filter(p => safeIncludes(p?.display_name || p?.name, ' - '));
     if (withSeparator.length < 2) return [];
     // Extract unique product labels (the part after " - ")
     return products.map((p, idx) => {
-      const name = p.display_name || p.name || '';
-      const label = name.includes(' - ') ? name.split(' - ').slice(1).join(' - ').trim() : name;
+      const name = safeStr(p?.display_name || p?.name);
+      const label = safeIncludes(name, ' - ')
+        ? safeSplit(name, ' - ').slice(1).join(' - ').trim()
+        : name;
       return { label, index: idx, product: p };
     });
   }, [products, isSurfaceProduct]);
@@ -1546,20 +1554,10 @@ const CollectionDetailPage = () => {
   //   2. {src: 'https://...'} object
   //   3. {url: 'https://...'} object
   //   4. {large: 'https://...', thumbnail: '...'} multi-resolution object
-  // If we render an object directly via <img src={...}>, the browser
-  // shows the broken-image icon — which is what's been showing on the
-  // collection cards. Coerce everything to string here so the whole
-  // page renders consistently and our defensive isVideo() doesn't even
-  // need to handle objects upstream.
-  const productImages = (selectedProduct?.images || [])
-    .map((img) => {
-      if (typeof img === 'string') return img;
-      if (img && typeof img === 'object') {
-        return img.src || img.url || img.large || img.thumbnail || img.path || '';
-      }
-      return '';
-    })
-    .filter(Boolean);
+  // normaliseImageList handles all 4 + filters out blanks. Without this,
+  // <img src={...}> on a non-string entry shows the broken-image icon
+  // and string ops on it crash the whole page.
+  const productImages = normaliseImageList(selectedProduct?.images);
 
   // Lightbox handlers
   const openLightbox = (index) => {
@@ -1595,21 +1593,13 @@ const CollectionDetailPage = () => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [showLightbox, nextImage, prevImage]);
 
-  // Check if media is video
-  // Defensive: production has had cases where productImages[i] is an
-  // object (e.g. {src, width, height} from a CDN-import migration) or
-  // even null/undefined — direct .match() on those throws "e.match is
-  // not a function" and crashes the whole CollectionDetailPage via the
-  // error boundary ("We couldn't load this collection"). Coerce to a
-  // string first so non-string entries simply don't match the video
-  // regex and fall through to image rendering.
+  // Check if media is video — fully defensive, never throws.
   const isVideo = (url) => {
-    if (!url) return false;
-    const s = typeof url === 'string'
-      ? url
-      : (url && typeof url === 'object' && typeof url.src === 'string' ? url.src : '');
+    const s = safeStr(url);
     if (!s) return false;
-    return s.match(/\.(mp4|webm|ogg|mov)$/i) || s.includes('youtube') || s.includes('vimeo');
+    return safeMatch(s, /\.(mp4|webm|ogg|mov)$/i).length > 0
+      || safeIncludes(s, 'youtube')
+      || safeIncludes(s, 'vimeo');
   };
 
   // Get lifestyle/room images (for "View in Room" feature)
