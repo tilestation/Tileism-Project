@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { X, Upload, Image, Trash2, RefreshCw, Plus, Check, ZoomIn, Package, CheckSquare, Square, Star, GripVertical, ArrowLeft, Search } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -8,6 +8,12 @@ const API_URL = process.env.REACT_APP_BACKEND_URL;
 export default function SupplierImages() {
   const { supplier } = useParams();
   const navigate = useNavigate();
+  // Pre-fill filters from the URL query string when arriving from the
+  // SupplierProducts "Upload Images" button. Without this the page
+  // ignored the user's series + search filter and dumped the entire
+  // 250-product catalogue, even when they came in with 20 specific
+  // products selected.
+  const [searchParams, setSearchParams] = useSearchParams();
   const supplierName = supplier || 'Unknown';
   
   const [products, setProducts] = useState([]);
@@ -20,9 +26,25 @@ export default function SupplierImages() {
   const [uploadingFor, setUploadingFor] = useState(null);
   const [deletingImages, setDeletingImages] = useState(new Set());
   
-  // Search and filter state
-  const [searchQuery, setSearchQuery] = useState('');
-  const [seriesFilter, setSeriesFilter] = useState('');
+  // Search and filter state — initialise from URL query (?series=…&search=…)
+  // so the page lands on the same view the user had on SupplierProducts.
+  const [searchQuery, setSearchQuery] = useState(() => searchParams.get('search') || '');
+  const [seriesFilter, setSeriesFilter] = useState(() => searchParams.get('series') || '');
+
+  // Mirror the active filters back into the URL so:
+  //  - F5 / hard refresh keeps the same view
+  //  - Browser back button returns to the same view
+  //  - The page can be deep-linked / bookmarked
+  // Using `replace` to avoid cluttering the browser history.
+  useEffect(() => {
+    const next = new URLSearchParams();
+    if (searchQuery) next.set('search', searchQuery);
+    if (seriesFilter) next.set('series', seriesFilter);
+    const nextStr = next.toString();
+    const currentStr = searchParams.toString();
+    if (nextStr !== currentStr) setSearchParams(next, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchQuery, seriesFilter]);
   
   // Bulk delete state for images
   const [selectedImages, setSelectedImages] = useState({}); // { productId: [imageUrl, imageUrl] }

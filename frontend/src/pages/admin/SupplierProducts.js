@@ -7871,12 +7871,22 @@ export default function SupplierProducts() {
               )}
             </Button>
           )}
-          {/* Upload Images - Available for all suppliers except 'all' */}
+          {/* Upload Images - Available for all suppliers except 'all'.
+              Pass the current series + search filter to the destination
+              page so it lands on the same view (e.g. only the 20
+              "Moonstone Series" products) instead of dumping the
+              entire 250-product supplier catalogue. */}
           {selectedSupplier !== 'all' && (
             <Button 
               variant="default"
               className="bg-emerald-600 hover:bg-emerald-700"
-              onClick={() => navigate(`/admin/supplier-images/${encodeURIComponent(selectedSupplier)}`)}
+              onClick={() => {
+                const params = new URLSearchParams();
+                if (seriesFilter) params.set('series', seriesFilter);
+                if (searchTerm) params.set('search', searchTerm);
+                const qs = params.toString();
+                navigate(`/admin/supplier-images/${encodeURIComponent(selectedSupplier)}${qs ? '?' + qs : ''}`);
+              }}
               data-testid="supplier-images-btn"
             >
               <Upload className="w-4 h-4 mr-2" />
