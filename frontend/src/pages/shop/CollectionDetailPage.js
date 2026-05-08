@@ -2523,7 +2523,42 @@ const CollectionDetailPage = () => {
                     >
                       {color.image ? (
                         <div className="w-20 h-20 rounded-lg overflow-hidden">
-                          <img src={color.image} alt={formatColorName(color.name)} className="w-full h-full object-cover" />
+                          <img
+                            src={color.image}
+                            alt={formatColorName(color.name)}
+                            className="w-full h-full object-cover"
+                            loading="lazy"
+                            onError={(e) => {
+                              // Production has had broken swatch URLs from
+                              // an old CDN migration. 2-stage fallback:
+                              //   1) Try the placeholder asset
+                              //   2) Hide image, show coloured square w/ initials
+                              // Without this we get the broken-image icon
+                              // sitting next to a perfectly working text label.
+                              if (!e.target.dataset.fallbackTried) {
+                                e.target.dataset.fallbackTried = '1';
+                                e.target.src = '/images/swatch-placeholder.svg';
+                              } else {
+                                e.target.style.display = 'none';
+                                const parent = e.target.parentElement;
+                                if (parent && !parent.dataset.placeholderApplied) {
+                                  parent.dataset.placeholderApplied = '1';
+                                  // Use the colour's own hex if we have it,
+                                  // otherwise a neutral gradient.
+                                  if (color.hex) {
+                                    parent.style.backgroundColor = color.hex;
+                                  } else {
+                                    parent.classList.add('bg-gradient-to-br', 'from-gray-100', 'to-gray-200');
+                                  }
+                                  parent.classList.add('flex', 'items-center', 'justify-center', 'border', 'border-gray-200');
+                                  const span = document.createElement('span');
+                                  span.className = 'text-xs text-gray-500 font-semibold uppercase tracking-wide';
+                                  span.textContent = (color.name || 'Variant').slice(0, 2).toUpperCase();
+                                  parent.appendChild(span);
+                                }
+                              }
+                            }}
+                          />
                         </div>
                       ) : (
                         <div 
