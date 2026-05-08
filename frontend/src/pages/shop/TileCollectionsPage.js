@@ -798,6 +798,29 @@ export const CollectionCard = ({
                         alt={colorName}
                         className="w-full h-full object-cover"
                         loading="lazy"
+                        onError={(e) => {
+                          // Production has had broken swatch URLs from
+                          // an old CDN migration. Fall back to a neutral
+                          // placeholder so the card stays clean instead
+                          // of showing the broken-image icon. After
+                          // failing once we hide the <img> entirely
+                          // (the colour name below still labels it).
+                          if (!e.target.dataset.fallbackTried) {
+                            e.target.dataset.fallbackTried = '1';
+                            e.target.src = '/images/swatch-placeholder.svg';
+                          } else {
+                            e.target.style.display = 'none';
+                            const parent = e.target.parentElement;
+                            if (parent && !parent.dataset.placeholderApplied) {
+                              parent.dataset.placeholderApplied = '1';
+                              parent.classList.add('bg-gradient-to-br', 'from-gray-100', 'to-gray-200', 'flex', 'items-center', 'justify-center');
+                              const span = document.createElement('span');
+                              span.className = 'text-[10px] text-gray-400 font-semibold';
+                              span.textContent = (colorName || 'Variant').slice(0, 2).toUpperCase();
+                              parent.appendChild(span);
+                            }
+                          }
+                        }}
                       />
                     </div>
                     <span className="text-[11px] text-gray-500 mt-1 leading-tight text-center max-w-[60px] truncate">

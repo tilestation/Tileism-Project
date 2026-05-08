@@ -1539,7 +1539,27 @@ const CollectionDetailPage = () => {
   };
 
   // Product images array (defined early for use in callbacks)
-  const productImages = selectedProduct?.images || [];
+  // Normalise to string URLs.
+  // Production data has accumulated 4 different image entry shapes over
+  // time (legacy migrations, CDN re-imports, manual edits):
+  //   1. plain string URL
+  //   2. {src: 'https://...'} object
+  //   3. {url: 'https://...'} object
+  //   4. {large: 'https://...', thumbnail: '...'} multi-resolution object
+  // If we render an object directly via <img src={...}>, the browser
+  // shows the broken-image icon — which is what's been showing on the
+  // collection cards. Coerce everything to string here so the whole
+  // page renders consistently and our defensive isVideo() doesn't even
+  // need to handle objects upstream.
+  const productImages = (selectedProduct?.images || [])
+    .map((img) => {
+      if (typeof img === 'string') return img;
+      if (img && typeof img === 'object') {
+        return img.src || img.url || img.large || img.thumbnail || img.path || '';
+      }
+      return '';
+    })
+    .filter(Boolean);
 
   // Lightbox handlers
   const openLightbox = (index) => {
@@ -1576,9 +1596,20 @@ const CollectionDetailPage = () => {
   }, [showLightbox, nextImage, prevImage]);
 
   // Check if media is video
+  // Defensive: production has had cases where productImages[i] is an
+  // object (e.g. {src, width, height} from a CDN-import migration) or
+  // even null/undefined — direct .match() on those throws "e.match is
+  // not a function" and crashes the whole CollectionDetailPage via the
+  // error boundary ("We couldn't load this collection"). Coerce to a
+  // string first so non-string entries simply don't match the video
+  // regex and fall through to image rendering.
   const isVideo = (url) => {
     if (!url) return false;
-    return url.match(/\.(mp4|webm|ogg|mov)$/i) || url.includes('youtube') || url.includes('vimeo');
+    const s = typeof url === 'string'
+      ? url
+      : (url && typeof url === 'object' && typeof url.src === 'string' ? url.src : '');
+    if (!s) return false;
+    return s.match(/\.(mp4|webm|ogg|mov)$/i) || s.includes('youtube') || s.includes('vimeo');
   };
 
   // Get lifestyle/room images (for "View in Room" feature)
