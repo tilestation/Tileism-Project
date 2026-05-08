@@ -17,6 +17,7 @@ import {
 import { toast } from 'sonner';
 import { useTradeUser } from '../../hooks/useTradeUser';
 import { useTrustBadges } from '../../hooks/useTrustBadges';
+import { normaliseImageList, normaliseImageUrl } from '../../utils/safeStr';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
 
@@ -86,7 +87,13 @@ const QuickViewModal = ({
 
   if (!isOpen || !collection) return null;
 
-  const images = selectedProduct?.images || collection.product_images?.map(p => p.image) || [collection.hero_image];
+  // Image entries from the API may be strings or {url, alt} objects.
+  // normaliseImageList unwraps both shapes and filters blanks.
+  const images = normaliseImageList(
+    selectedProduct?.images
+    || collection.product_images?.map(p => p.image)
+    || [collection.hero_image]
+  );
   const currentImage = images[currentImageIndex] || images[0];
 
   const nextImage = () => {

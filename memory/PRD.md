@@ -10,6 +10,31 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 
 ## Recent Sessions (most recent first)
 
+### [Feb 8, 2026 — evening] 🖼️ Production swatch images broken on Moonstone/Bluestone — FIXED
+
+**User-reported bug** (with screenshots): On `/tiles` collection cards and on PDPs like `/shop/collection/Moonstone`, the colour swatch thumbnails were showing the browser's broken-image icon (or the placeholder mountain SVG) instead of real tile images. Affected newer collections only — Moonstone, Bluestone — but NOT older ones like Travertine. Main product images on the PDP were unaffected.
+
+**Root cause** — May 2026 SEO migration on the backend started auto-attaching alt-text via a nightly cron, changing the API contract for image fields:
+| Before | After |
+|---|---|
+| `swatch.image = "https://cdn/x.jpg"` (string) | `swatch.image = {url: "...", alt: "...", alt_generated_at: "..."}` (object) |
+| `product.images = ["https://...", ...]` (string[]) | `product.images = [{url, alt, alt_generated_at}, ...]` (object[]) |
+
+The frontend fed `swatch.image` directly into `<img src={...}>`. React stringifies objects to `[object Object]` → browser tries to load that as a URL → 404 → broken-image icon. Older collections (Travertine, etc.) hadn't been processed by the cron yet so their swatches still rendered as plain strings — explaining why the bug looked random.
+
+**Fix** — leverage the existing `normaliseImageUrl()` helper in `utils/safeStr.js` (already shipped to handle the same problem on the main PDP gallery in the previous session, just never propagated to the swatch builders or ancillary components):
+
+- `pages/shop/CollectionDetailPage.js` — wrapped 8 callsites that read `p.images?.[0]`/`item.image`/`rec.images?.[0]` in `normaliseImageUrl(...)`. Most importantly the `colorOptions` builder (lines 750, 764) which feeds the PDP colour selector chips.
+- `pages/shop/TileCollectionsPage.js` — `rawThumbnailImages` builder now unwraps both `product_images` and `color_swatches` shapes (`{color, image: {url,alt}|string}`) into `{color, image: stringURL}`. Also normalised `displayImage` for non-lifestyle hero rendering.
+- `components/ProductCard.js`, `components/shop/QuickViewModal.jsx`, `components/shop/CrossSellSections.jsx`, `components/shop/RecentlyViewedProducts.js` — same surgical wrapper applied wherever `<img src=...>` consumed an API image field.
+
+**Tests** — 3 new regression tests in `safeStr.test.js` pinned to the EXACT shape returned by `/api/tiles/collections` for Moonstone (incl. `alt_generated_at` field), legacy string-URL passthrough, and a mixed-shape collection scenario. **35/35 pass**, lint clean.
+
+**Verified end-to-end on preview**: `/tiles` listing shows real swatch images on Dolomite Onyx (was: broken icon); `/shop/collection/Dolomite Onyx` PDP shows real Bianco swatch with check-mark selection state; zero console errors.
+
+**Why this won't regress** — the `normaliseImageUrl()` helper handles 6 image-object shapes (`src`, `url`, `large`, `thumbnail`, `path`, `href`) plus plain strings. Any future backend schema migration that adds another wrapper key just needs one line in the helper.
+
+
 ### [Feb 7, 2026 — late-evening] 🚛 Half + Full Pallet pricing — admin → tiles DB → storefront PDP → cart end-to-end
 
 User's last open task — wire the half/full pallet pricing through the entire stack. Pure-function service (`services/pallet_pricing.py`) + 22 unit tests already shipped in a previous session, but ZERO of it was reaching the customer.

@@ -3,6 +3,7 @@ import { Card } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
 import { Plus, Layers, Truck, Package } from 'lucide-react';
+import { normaliseImageUrl } from '../utils/safeStr';
 
 export const ProductCard = ({ product, onAddToCart, isClearance = false }) => {
   const [selectedTier, setSelectedTier] = useState('piece');
@@ -62,7 +63,7 @@ export const ProductCard = ({ product, onAddToCart, isClearance = false }) => {
         {product.images && product.images.length > 0 && (
           <div className="relative w-full h-48 bg-secondary rounded-md overflow-hidden">
             <img 
-              src={product.images[0]} 
+              src={normaliseImageUrl(product.images[0])} 
               alt={product.name}
               className="w-full h-full object-cover"
               onError={(e) => {

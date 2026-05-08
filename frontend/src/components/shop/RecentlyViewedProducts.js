@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { Clock, X } from 'lucide-react';
+import { normaliseImageUrl } from '../../utils/safeStr';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
 
@@ -80,9 +81,9 @@ export const RecentlyViewedProducts = ({ currentProductId, maxItems = 6 }) => {
                   className="flex-shrink-0 group"
                 >
                   <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-lg overflow-hidden border border-gray-200 group-hover:border-amber-400 transition">
-                    {product.images?.[0] ? (
+                    {normaliseImageUrl(product.images?.[0]) ? (
                       <img
-                        src={product.images[0]}
+                        src={normaliseImageUrl(product.images[0])}
                         alt={product.display_name || product.name}
                         className="w-full h-full object-cover"
                       />

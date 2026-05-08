@@ -31,6 +31,7 @@ import { useTradeUser } from '../../hooks/useTradeUser';
 import { useCart } from '../../contexts/TileCartContext';
 import { useSampleCart } from '../../contexts/SampleCartContext';
 import LiveChatWidget from '../../components/shop/LiveChatWidget';
+import { normaliseImageUrl } from '../../utils/safeStr';
 import { toast } from 'sonner';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
@@ -380,7 +381,7 @@ export const CollectionCard = ({
   
   const displayImage = useLifestyleImages 
     ? getLifestyleImage(series_name)
-    : (hero_image || getLifestyleImage(series_name));
+    : (normaliseImageUrl(hero_image) || getLifestyleImage(series_name));
 
   const colorCount = variant_count || color_swatches.length + (additional_colors || 0);
   const badgeLabel = variant_type === 'color' 
@@ -388,9 +389,13 @@ export const CollectionCard = ({
     : (colorCount === 1 ? 'VARIANT' : 'VARIANTS');
   const sizeCount = sizes?.length || 0;
   
-  const rawThumbnailImages = product_images?.length > 0 
-    ? product_images 
-    : color_swatches.filter(s => s.image).map(s => ({ image: s.image, color: s.color }));
+  // Both product_images and color_swatches are { color, image } where
+  // `image` may be a string URL (legacy) or {url, alt, alt_generated_at}
+  // (post-May-2026 SEO migration). normaliseImageUrl unwraps both shapes
+  // so React never gets src={Object} (= [object Object] = 404 = broken icon).
+  const rawThumbnailImages = (product_images?.length > 0 ? product_images : color_swatches)
+    .map(s => ({ image: normaliseImageUrl(s.image), color: s.color || '' }))
+    .filter(item => item.image);
 
   // Deduplicate thumbnails by extracted color/size label, keeping the first image per unique label
   const thumbnailImages = useMemo(() => {

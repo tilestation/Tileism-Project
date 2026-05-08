@@ -204,3 +204,45 @@ describe('Real-world crash scenarios from production', () => {
     expect(isVideo('https://x.com/photo.jpg')).toBe(false);
   });
 });
+
+describe('Swatch image regression — May 2026 SEO migration', () => {
+  // This pins the EXACT shape returned by /api/tiles/collections after the
+  // backend started auto-attaching alt-text + alt_generated_at. Before this
+  // session the frontend rendered <img src={Object}> -> [object Object]
+  // -> 404 -> broken-image icon on Moonstone/Bluestone collection cards
+  // and PDP color swatches.
+  test('post-migration {url, alt, alt_generated_at} swatch unwraps cleanly', () => {
+    const swatch = {
+      color: 'Ivory',
+      hex: '#FFFFF0',
+      image: {
+        url: 'https://images.tilestation.co.uk/products/Plus39/x.jpg',
+        alt: 'Moonstone Ivory 60x120cm Matt — Tile Station UK',
+        alt_generated_at: '2026-05-07T03:00:28.688000',
+      },
+      product_slug: 'moonstone-ivory-60x120cm-matt',
+      variant_type: 'color',
+    };
+    expect(normaliseImageUrl(swatch.image)).toBe('https://images.tilestation.co.uk/products/Plus39/x.jpg');
+  });
+  test('legacy string-URL swatch still passes through unchanged', () => {
+    const swatch = { color: 'silver', image: 'https://images.tilestation.co.uk/x.jpg' };
+    expect(normaliseImageUrl(swatch.image)).toBe('https://images.tilestation.co.uk/x.jpg');
+  });
+  test('mixed collection (Moonstone + Rivertine) — both shapes rendered', () => {
+    const swatches = [
+      { color: 'a', image: { url: '/new.jpg', alt: '...' } },
+      { color: 'b', image: '/legacy.jpg' },
+      { color: 'c', image: null },              // missing
+      { color: 'd' },                            // no image key at all
+    ];
+    const rendered = swatches
+      .map(s => ({ image: normaliseImageUrl(s.image), color: s.color }))
+      .filter(s => s.image);
+    expect(rendered).toEqual([
+      { image: '/new.jpg', color: 'a' },
+      { image: '/legacy.jpg', color: 'b' },
+    ]);
+  });
+});
+

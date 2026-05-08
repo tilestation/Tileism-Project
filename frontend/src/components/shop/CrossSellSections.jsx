@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { Clock, Package, ArrowRight } from 'lucide-react';
 import { CollectionCard } from '../../pages/shop/TileCollectionsPage';
+import { normaliseImageUrl } from '../../utils/safeStr';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
 const STORAGE_KEY = 'tile_station_recently_viewed';
@@ -61,7 +62,7 @@ export const trackRecentView = (product) => {
       id: product.id,
       slug: product.slug,
       display_name: product.display_name || product.name || product.series_name,
-      image: product.images?.[0] || product.hero_image || product.image,
+      image: normaliseImageUrl(product.images?.[0] || product.hero_image || product.image),
       price: product.price || product.prices_from,
       product_group: product.product_group || 'tiles',
       is_surface_product: product.is_surface_product !== false,

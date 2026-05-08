@@ -59,7 +59,7 @@ import { useTrustBadges } from '../../hooks/useTrustBadges';
 // Without these helpers, ANY ONE bad value crashes the whole PDP.
 import {
   safeStr, safeLower, safeMatch, safeIncludes, safeSplit,
-  safeArr, safeNum, safeToFixed, normaliseImageList,
+  safeArr, safeNum, safeToFixed, normaliseImageList, normaliseImageUrl,
 } from '../../utils/safeStr';
 import { SafeSection } from '../../components/shop/StorefrontErrorBoundary';
 import { DeliveryInfoCompact } from './InfoPage';
@@ -305,7 +305,7 @@ const CollectionDetailPage = () => {
           trackRecentView({
             slug: encodeURIComponent(decodedSeriesName),
             display_name: decodedSeriesName,
-            image: first?.images?.[0],
+            image: normaliseImageUrl(first?.images?.[0]),
             price: first?.room_lot_price || first?.price,
             product_group: first?.product_group || 'tiles',
             is_surface_product: first?.is_surface_product,
@@ -747,7 +747,11 @@ const CollectionDetailPage = () => {
         if (color && color.trim() && !variantMap.has(color)) {
           variantMap.set(color, {
             name: color,
-            image: p.images?.[0] || null,
+            // p.images[0] may be either a string URL (legacy) or
+            // {url, alt, alt_generated_at} (post-May-2026 SEO migration).
+            // normaliseImageUrl returns a clean string URL or '' so React
+            // never tries to render src={Object} (= [object Object] = 404).
+            image: normaliseImageUrl(p.images?.[0]) || null,
             hex: getColorHex(color),
             variantType: 'color'
           });
@@ -761,7 +765,7 @@ const CollectionDetailPage = () => {
         if (firstWord && !variantMap.has(firstWord.toLowerCase())) {
           variantMap.set(firstWord.toLowerCase(), {
             name: firstWord.toLowerCase(),
-            image: p.images?.[0] || null,
+            image: normaliseImageUrl(p.images?.[0]) || null,
             hex: '#CCCCCC',
             variantType: 'name'
           });
@@ -1417,7 +1421,7 @@ const CollectionDetailPage = () => {
       id: selectedProduct.id,
       name: selectedProduct.display_name || selectedProduct.name,
       slug: selectedProduct.slug,
-      image: selectedProduct.images?.[0],
+      image: normaliseImageUrl(selectedProduct.images?.[0]),
       price: displayPrice,
       // Canonical retail (inc-VAT) for cart re-pricing on trade login/logout.
       // currentPrice is always the retail inc-VAT figure (trade discount + ex-VAT
@@ -1473,7 +1477,7 @@ const CollectionDetailPage = () => {
       id: selectedProduct.id,
       name: selectedProduct.display_name || selectedProduct.name,
       slug: selectedProduct.slug,
-      image: selectedProduct.images?.[0],
+      image: normaliseImageUrl(selectedProduct.images?.[0]),
       size: selectedProduct.size,
       finish: selectedProduct.finish,
       color: selectedProduct.color
@@ -1496,7 +1500,7 @@ const CollectionDetailPage = () => {
         id: item.id,
         name: item.display_name || item.name,
         slug: item.slug,
-        image: item.images?.[0] || item.image,
+        image: normaliseImageUrl(item.images?.[0] || item.image),
         size: item.size,
         finish: item.finish,
         color: item.color,
@@ -1687,7 +1691,7 @@ const CollectionDetailPage = () => {
     .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
     .slice(0, 250)
     || `${decodedSeriesName} tiles${seoSize ? ' in ' + seoSize : ''}${seoFinish ? ', ' + seoFinish + ' finish' : ''}. Free UK delivery on orders over £500. Free samples available.`;
-  const seoImage = seoProduct?.images?.[0] || seoProduct?.thumbnail || seoProduct?.product_images?.[0];
+  const seoImage = normaliseImageUrl(seoProduct?.images?.[0]) || normaliseImageUrl(seoProduct?.thumbnail) || normaliseImageUrl(seoProduct?.product_images?.[0]);
   const seoSlug = seoProduct?.slug || selectedProduct?.slug || '';
   const seoCanonical = seoSlug ? `/tiles/${seoSlug}` : `/shop/collection/${encodeURIComponent(decodedSeriesName || '')}`;
   const seoPrice = Number(seoProduct?.price_per_unit || seoProduct?.price || 0).toFixed(2);
@@ -3683,8 +3687,8 @@ const CollectionDetailPage = () => {
                       data-testid={`fbt-rec-${rec.id}`}
                     >
                       <div className="aspect-square rounded-lg overflow-hidden mb-2 bg-gray-100">
-                        {rec.images?.[0] ? (
-                          <img src={rec.images[0]} alt={rec.display_name || rec.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
+                        {normaliseImageUrl(rec.images?.[0]) ? (
+                          <img src={normaliseImageUrl(rec.images[0])} alt={rec.display_name || rec.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
                         ) : (
                           <div className="w-full h-full flex items-center justify-center text-gray-400 text-xs">No image</div>
                         )}
@@ -3741,7 +3745,7 @@ const CollectionDetailPage = () => {
                           name: rec.display_name || rec.name,
                           price: Number(rec.room_lot_price ?? rec.price ?? 0),
                           quantity: 1,
-                          image: rec.images?.[0],
+                          image: normaliseImageUrl(rec.images?.[0]),
                           slug: rec.slug,
                         });
                       });
@@ -3827,9 +3831,9 @@ const CollectionDetailPage = () => {
                     <div className="bg-white rounded-lg border border-gray-200 overflow-hidden hover:shadow-lg transition-shadow">
                       {/* Product Image */}
                       <div className="aspect-square bg-gray-100 relative overflow-hidden">
-                        {item.image || item.sample_product?.images?.[0] ? (
+                        {(normaliseImageUrl(item.image) || normaliseImageUrl(item.sample_product?.images?.[0])) ? (
                           <img
-                            src={item.image || item.sample_product?.images?.[0]}
+                            src={normaliseImageUrl(item.image) || normaliseImageUrl(item.sample_product?.images?.[0])}
                             alt={item.series_name}
                             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                           />
