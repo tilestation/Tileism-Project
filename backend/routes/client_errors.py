@@ -122,9 +122,23 @@ async def log_client_error(payload: ClientErrorPayload, request: Request):
         "service-worker.js') : an unknown error",
         "service-worker.js'): an unknown error",
         "service worker registration failed",
+        # Preview-environment SW noise: the proxy returns the React HTML
+        # fallback for /service-worker.js, so the browser bails with
+        # "unsupported MIME type ('text/html')". Production serves the
+        # real JS file so this never fires there — but admins working
+        # on the preview environment shouldn't see it in the Customer
+        # Issues panel either.
+        "unsupported mime type ('text/html')",
+        "unsupported mime type (\"text/html\")",
         "the user aborted a request",
         "networkerror when attempting to fetch resource",
         "resizeobserver loop ",
+        # Background admin-poll endpoints that return 404 on preview
+        # because those routes aren't deployed there. Production has
+        # them. Filter avoids the panel filling up with benign 404s
+        # whenever an admin opens DevTools on preview.
+        "/api/admin/health/active",
+        "/api/shop/admin/online",
     )
     if any(p in msg_lower for p in BENIGN_PATTERNS):
         return {"ok": True, "skipped": "benign_browser_internal"}
