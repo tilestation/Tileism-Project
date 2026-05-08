@@ -170,11 +170,43 @@ export default function SupplierImages() {
     await uploadImages(productId, files);
   };
 
+  // Backend supports JPG/PNG/WEBP/GIF/TIF. Anything else (HEIC from
+  // iPhones, AVIF, SVG, BMP, ICO) is rejected — surface it client-side
+  // so the user gets one clear toast instead of one 400 per file.
+  const SUPPORTED_TYPES = new Set([
+    'image/jpeg', 'image/jpg', 'image/png',
+    'image/webp', 'image/gif', 'image/tiff', 'image/tif',
+  ]);
+  const SUPPORTED_EXTS = new Set(['jpg', 'jpeg', 'png', 'webp', 'gif', 'tif', 'tiff']);
+
+  const partitionImageFiles = (files) => {
+    const accepted = [];
+    const rejected = [];
+    for (const f of Array.from(files)) {
+      const type = (f.type || '').toLowerCase();
+      const ext = (f.name || '').toLowerCase().split('.').pop();
+      const ok = type.startsWith('image/') && (SUPPORTED_TYPES.has(type) || SUPPORTED_EXTS.has(ext));
+      if (ok) accepted.push(f);
+      else rejected.push(f);
+    }
+    return { accepted, rejected };
+  };
+
+  const warnRejectedFiles = (rejected) => {
+    if (rejected.length === 0) return;
+    const names = rejected.slice(0, 3).map(f => f.name).join(', ');
+    const rest = rejected.length > 3 ? ` (+${rejected.length - 3} more)` : '';
+    toast.error(
+      `Skipped ${rejected.length} unsupported file${rejected.length > 1 ? 's' : ''}: ${names}${rest}. ` +
+      `Supported: JPG, PNG, WEBP, GIF, TIF/TIFF. (HEIC/AVIF not supported — convert first.)`
+    );
+  };
+
   const handleFileSelect = async (productId, files) => {
-    const imageFiles = Array.from(files).filter(f => f.type.startsWith('image/'));
-    if (imageFiles.length === 0) return;
-    
-    await uploadImages(productId, imageFiles);
+    const { accepted, rejected } = partitionImageFiles(files);
+    warnRejectedFiles(rejected);
+    if (accepted.length === 0) return;
+    await uploadImages(productId, accepted);
   };
 
   const uploadImages = async (productId, files) => {
@@ -195,17 +227,40 @@ export default function SupplierImages() {
           body: formData
         });
 
+        // Clone the response BEFORE reading. The Emergent preview's
+        // error-capture script (emergent-main.js) consumes the body of
+        // failed responses for logging — leaving the original stream
+        // empty. Without this clone, .json() throws "body stream already
+        // read" instead of giving us the real backend error.
+        // On production (Railway) emergent-main.js isn't loaded so this
+        // is a no-op — but it makes preview-mode debugging actually work.
+        let payload = null;
+        try {
+          payload = await response.clone().json();
+        } catch {
+          try {
+            payload = { detail: await response.clone().text() };
+          } catch {
+            payload = null;
+          }
+        }
+
         if (!response.ok) {
-          const error = await response.json();
-          toast.error(error.detail || 'Failed to upload image');
+          const detail = payload?.detail || `Upload failed (HTTP ${response.status})`;
+          // Friendlier copy for the most common backend reason —
+          // unsupported image type (HEIC, AVIF etc. on iPhone).
+          if (response.status === 400 && /file type|invalid|format/i.test(detail)) {
+            toast.error(`${file.name}: ${detail}. Please convert to JPG, PNG, WEBP or TIFF.`);
+          } else {
+            toast.error(`${file.name}: ${detail}`);
+          }
         } else {
           uploadedCount++;
           // Optimistically update the local state with the new image
-          const result = await response.json();
-          if (result.image_url) {
+          if (payload?.image_url) {
             setProducts(prev => prev.map(p => {
               if (p._id === productId) {
-                return { ...p, images: [...(p.images || []), result.image_url] };
+                return { ...p, images: [...(p.images || []), payload.image_url] };
               }
               return p;
             }));
@@ -213,7 +268,7 @@ export default function SupplierImages() {
         }
       } catch (error) {
         console.error('Upload failed:', error);
-        toast.error('Failed to upload image');
+        toast.error(`${file.name}: upload failed — ${error.message || 'check connection'}`);
       }
     }
     
@@ -226,7 +281,8 @@ export default function SupplierImages() {
   };
 
   const handleBulkUpload = async (files) => {
-    const imageFiles = Array.from(files).filter(f => f.type.startsWith('image/'));
+    const { accepted: imageFiles, rejected } = partitionImageFiles(files);
+    warnRejectedFiles(rejected);
     if (imageFiles.length === 0) return;
 
     toast.info(`Processing ${imageFiles.length} images for auto-matching...`);
@@ -791,7 +847,7 @@ export default function SupplierImages() {
                             <input
                               type="file"
                               multiple
-                              accept="image/*"
+                              accept=".jpg,.jpeg,.png,.webp,.gif,.tif,.tiff,image/jpeg,image/png,image/webp,image/gif,image/tiff"
                               className="hidden"
                               onChange={(e) => handleFileSelect(product._id, e.target.files)}
                               disabled={uploadingFor === product._id}
@@ -945,7 +1001,7 @@ export default function SupplierImages() {
                 ref={bulkInputRef}
                 type="file"
                 multiple
-                accept="image/*"
+                accept=".jpg,.jpeg,.png,.webp,.gif,.tif,.tiff,image/jpeg,image/png,image/webp,image/gif,image/tiff"
                 className="hidden"
                 onChange={(e) => handleBulkUpload(e.target.files)}
               />

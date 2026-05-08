@@ -13037,15 +13037,28 @@ async def upload_product_image(
         
         logger.info(f"Uploading image for product {product_id}, supplier: {supplier}")
         
-        # Validate file type - support common image formats including TIF
+        # Validate file type - support common image formats including TIF.
+        # Also check file extension for TIF files (some browsers may not
+        # send correct MIME type) and to give a CLEAR rejection reason
+        # for HEIC/AVIF/SVG which we can't process.
         allowed_types = ["image/jpeg", "image/png", "image/webp", "image/gif", "image/tiff", "image/tif"]
+        allowed_exts = {"jpg", "jpeg", "png", "webp", "gif", "tif", "tiff"}
+        rejected_exts = {"heic", "heif", "avif", "svg", "bmp", "ico"}
         content_type = image.content_type or ""
-        # Also check file extension for TIF files (some browsers may not send correct MIME type)
         file_ext = (image.filename or "").lower().split(".")[-1] if image.filename else ""
-        is_tif = file_ext in ["tif", "tiff"]
+        is_supported_ext = file_ext in allowed_exts
+        is_rejected_ext = file_ext in rejected_exts
         
-        if content_type not in allowed_types and not is_tif:
-            raise HTTPException(status_code=400, detail="Invalid file type. Allowed: JPEG, PNG, WebP, GIF, TIF/TIFF")
+        if is_rejected_ext:
+            raise HTTPException(
+                status_code=400,
+                detail=f"{file_ext.upper()} is not supported. Please convert to JPG, PNG, WEBP or TIFF and try again."
+            )
+        if content_type not in allowed_types and not is_supported_ext:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unsupported file type ({content_type or file_ext or 'unknown'}). Allowed: JPG, PNG, WEBP, GIF, TIF/TIFF."
+            )
         
         # Read the image data
         image_data = await image.read()
