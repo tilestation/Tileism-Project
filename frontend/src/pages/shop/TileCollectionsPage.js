@@ -1007,6 +1007,10 @@ const TileCollectionsPage = () => {
   const [quickViewCollection, setQuickViewCollection] = useState(null);
   const [heroSlideIndex, setHeroSlideIndex] = useState(0);
   const [sortBy, setSortBy] = useState('default');
+  // In-page narrow-search — lets customers find a specific tile/collection
+  // within the current category (e.g. "matt large format" inside Wall Tiles)
+  // without scoping out to the whole catalogue.
+  const [inPageQuery, setInPageQuery] = useState('');
   
   // Page settings from admin
   const [pageSettings, setPageSettings] = useState(null);
@@ -1049,6 +1053,31 @@ const TileCollectionsPage = () => {
         return sorted;
     }
   }, [collections, sortBy]);
+
+  // Build a single haystack string per collection so a tokenised query can
+  // match against name + supplier + sizes + finishes + colours + labels.
+  // All tokens must match (AND) so "wood matt" requires both "wood" AND "matt"
+  // to appear somewhere — same UX as the global tile search.
+  const displayedCollections = useMemo(() => {
+    const q = inPageQuery.trim().toLowerCase();
+    if (!q) return sortedCollections;
+    const tokens = q.split(/\s+/).filter(Boolean);
+    return sortedCollections.filter(c => {
+      const swatchColors = (c.color_swatches || []).map(s => s.color || '').join(' ');
+      const colours = (c.colors || []).map(x => typeof x === 'string' ? x : (x?.name || '')).join(' ');
+      const haystack = [
+        c.series_name,
+        c.supplier,
+        c.made_in,
+        (c.sizes || []).join(' '),
+        (c.finishes || []).join(' '),
+        colours,
+        swatchColors,
+        (c.labels || []).join(' '),
+      ].filter(Boolean).join(' ').toLowerCase();
+      return tokens.every(t => haystack.includes(t));
+    });
+  }, [sortedCollections, inPageQuery]);
 
   usePageTracking();
 
@@ -1224,6 +1253,13 @@ const TileCollectionsPage = () => {
     };
     fetchNavigation();
   }, [currentFilters.group]);
+
+  // Reset the in-page narrow-search whenever the customer navigates to
+  // a different category/group. Otherwise a stale query from "Wall Tiles"
+  // would silently filter "Floor Tiles" and feel broken.
+  useEffect(() => {
+    setInPageQuery('');
+  }, [currentFilters.category, currentFilters.group, currentFilters.sale]);
 
   // Fetch collections — with auto-retry + graceful failure. We retry up
   // to 3 times with exponential backoff if the backend returns 503 or
@@ -1663,7 +1699,7 @@ const TileCollectionsPage = () => {
           <div className="flex-1 min-w-0">
             {/* Results Header */}
             <div className="mb-8 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-              <div>
+              <div className="flex-shrink-0">
                 <h2 className="text-2xl font-light text-gray-900 mb-1">
                   {currentFilters.sale === 'true'
                     ? 'Sale'
@@ -1672,10 +1708,49 @@ const TileCollectionsPage = () => {
                       : 'All Collections'}
                 </h2>
                 <p className="text-sm text-gray-500">
-                  {totalCollections} collections • {totalProducts.toLocaleString()} products
+                  {inPageQuery.trim()
+                    ? `${displayedCollections.length} of ${totalCollections} collections match "${inPageQuery.trim()}"`
+                    : `${totalCollections} collections • ${totalProducts.toLocaleString()} products`}
                 </p>
               </div>
-              <div className="flex items-center gap-3">
+
+              {/* Spacer + In-page narrow-search input */}
+              <div className="flex-1 w-full sm:max-w-md sm:mx-4">
+                <div className="relative">
+                  <svg
+                    className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 pointer-events-none"
+                    fill="none" viewBox="0 0 24 24" stroke="currentColor"
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-4.35-4.35M16 10a6 6 0 11-12 0 6 6 0 0112 0z" />
+                  </svg>
+                  <input
+                    type="search"
+                    value={inPageQuery}
+                    onChange={(e) => setInPageQuery(e.target.value)}
+                    placeholder={`Search ${(currentFilters.sale === 'true'
+                      ? 'Sale'
+                      : currentFilters.category
+                        ? currentFilters.category.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase())
+                        : 'all collections')}…`}
+                    className="w-full pl-10 pr-10 py-2 text-sm border border-gray-300 rounded-lg bg-white text-gray-700 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-amber-400 focus:border-amber-400"
+                    data-testid="in-page-search-input"
+                    aria-label="Search within this category"
+                  />
+                  {inPageQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setInPageQuery('')}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 flex items-center justify-center rounded-full text-gray-400 hover:text-gray-700 hover:bg-gray-100"
+                      data-testid="in-page-search-clear"
+                      aria-label="Clear search"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3 flex-shrink-0">
                 {Object.keys(activeFilters).length > 0 && (
                   <button 
                     onClick={() => setActiveFilters({})}
@@ -1755,9 +1830,39 @@ const TileCollectionsPage = () => {
                   View All Collections
                 </button>
               </div>
+            ) : displayedCollections.length === 0 ? (
+              // In-page query produced no matches — give the customer a clear
+              // escape hatch to the global search instead of a dead-end.
+              <div className="text-center py-20" data-testid="in-page-search-empty">
+                <Sparkles className="w-12 h-12 text-gray-300 mx-auto mb-4" />
+                <h3 className="text-xl font-medium text-gray-900 mb-2">
+                  No matches for &ldquo;{inPageQuery.trim()}&rdquo; in {currentFilters.category
+                    ? currentFilters.category.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase())
+                    : 'this section'}
+                </h3>
+                <p className="text-gray-500 mb-6">
+                  We couldn&apos;t find anything in this category matching your search. Try a wider search across the whole site.
+                </p>
+                <div className="flex flex-col sm:flex-row gap-3 items-center justify-center">
+                  <button
+                    onClick={() => setInPageQuery('')}
+                    className="px-6 py-3 border border-gray-300 hover:border-gray-400 text-gray-700 font-semibold rounded-full transition-all"
+                    data-testid="in-page-search-empty-clear"
+                  >
+                    Clear search
+                  </button>
+                  <Link
+                    to={`/shop/search?q=${encodeURIComponent(inPageQuery.trim())}`}
+                    className="px-6 py-3 bg-amber-500 hover:bg-amber-600 text-white font-semibold rounded-full transition-all"
+                    data-testid="in-page-search-empty-global"
+                  >
+                    Search all of Tile Station →
+                  </Link>
+                </div>
+              </div>
             ) : (
               <div className={`grid ${gridColsClass[gridCols]}`}>
-                {sortedCollections.map((collection, idx) => (
+                {displayedCollections.map((collection, idx) => (
                   <CollectionCard 
                     key={idx} 
                     collection={collection} 
