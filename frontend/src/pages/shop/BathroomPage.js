@@ -17,18 +17,34 @@ export default function BathroomPage() {
   const [showSignIn, setShowSignIn] = useState(false);
   const navigate = useNavigate();
 
-  // Check if user is logged in (shop users only, not admin)
-  const getUser = () => {
-    const token = localStorage.getItem('shopToken');
-    const userStr = localStorage.getItem('shopUser');
+  // Check if user is logged in (shop customer or trade — both store on the
+  // SAME canonical keys: tile_shop_token + tile_shop_customer; written by
+  // TradeLoginPage / CustomerRegisterPage / etc. The previous version of
+  // this code read `shopToken`/`shopUser` which are NEVER written anywhere
+  // in the codebase, so signed-in users were always treated as logged out.
+  const readUser = () => {
+    const token = localStorage.getItem('tile_shop_token');
+    const userStr = localStorage.getItem('tile_shop_customer');
     if (token && userStr) {
       try { return { ...JSON.parse(userStr), token }; } catch { return null; }
     }
     return null;
   };
+  const [user, setUser] = useState(readUser);
 
-  const user = getUser();
-  const isTrade = user?.account_type === 'trade' || user?.is_trade;
+  // Reactively pick up sign-in/sign-out events from other tabs (`storage`)
+  // and same-tab auth changes (`trade-auth-change` — fired by login pages).
+  useEffect(() => {
+    const refresh = () => setUser(readUser());
+    window.addEventListener('storage', refresh);
+    window.addEventListener('trade-auth-change', refresh);
+    return () => {
+      window.removeEventListener('storage', refresh);
+      window.removeEventListener('trade-auth-change', refresh);
+    };
+  }, []);
+
+  const isTrade = !!(user?.is_trade || user?.account_type === 'trade');
   const discount = isTrade ? (content?.trade_discount || '50') : (content?.public_discount || '35');
 
   useEffect(() => {
