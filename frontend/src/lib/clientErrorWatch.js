@@ -105,12 +105,21 @@ function shouldSkipDuplicate(message) {
 }
 
 function customerEmail() {
-  // Customer-facing pages set this on login. Admin pages don't.
-  return (
-    localStorage.getItem('customer_email') ||
-    localStorage.getItem('shop_customer_email') ||
-    null
-  );
+  // Customer-facing pages set tile_shop_customer (canonical key, see
+  // useTradeUser + TradeLoginPage + CustomerRegisterPage). The previous
+  // `customer_email` / `shop_customer_email` keys were never actually
+  // written by any code path, so this function always returned null —
+  // every error log was anonymous, even for signed-in customers.
+  try {
+    const raw = localStorage.getItem('tile_shop_customer');
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed.email === 'string' && parsed.email) {
+        return parsed.email;
+      }
+    }
+  } catch {}
+  return null;
 }
 
 function isAdminPath() {
