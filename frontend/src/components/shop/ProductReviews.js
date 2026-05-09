@@ -8,6 +8,7 @@ import { Label } from '../../components/ui/label';
 import { Textarea } from '../../components/ui/textarea';
 import { useShopAuth } from '../../contexts/ShopAuthContext';
 import { toast } from 'sonner';
+import { safeToFixed } from '../../utils/safeStr';
 
 export const ProductReviews = ({ productId }) => {
   const { isAuthenticated } = useShopAuth();
@@ -116,7 +117,7 @@ export const ProductReviews = ({ productId }) => {
           <div className="flex items-center gap-2 mt-1">
             {renderStars(Math.round(stats.avg_rating))}
             <span className="text-sm text-slate-500">
-              {stats.avg_rating.toFixed(1)} out of 5 ({stats.review_count} reviews)
+              {safeToFixed(stats.avg_rating, 1)} out of 5 ({stats.review_count} reviews)
             </span>
           </div>
         </div>

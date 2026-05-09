@@ -2266,8 +2266,8 @@ const CollectionDetailPage = () => {
                         <div>
                           <div className="text-red-200 text-xs font-bold uppercase tracking-widest mb-1">Sale Price</div>
                           <div className="flex items-baseline gap-3">
-                            <span className="text-white/60 text-base line-through">WAS £{wasPrice.toFixed(2)}</span>
-                            <span className="text-white text-3xl font-black tracking-tight">NOW £{nowPrice.toFixed(2)}</span>
+                            <span className="text-white/60 text-base line-through">WAS £{safeToFixed(wasPrice, 2)}</span>
+                            <span className="text-white text-3xl font-black tracking-tight">NOW £{safeToFixed(nowPrice, 2)}</span>
                             <span className="text-white/70 text-sm font-medium">{isSurfaceProduct ? '/m²' : '/each'}</span>
                             {isTrade && <span className="text-white/50 text-xs">ex. VAT</span>}
                           </div>
@@ -2360,7 +2360,7 @@ const CollectionDetailPage = () => {
                         <div>
                           <div className="text-red-200 text-xs font-bold uppercase tracking-widest mb-1">Sale Price</div>
                           <div className="flex items-baseline gap-3">
-                            <span className="text-white text-3xl font-black tracking-tight">£{nowPrice.toFixed(2)}</span>
+                            <span className="text-white text-3xl font-black tracking-tight">£{safeToFixed(nowPrice, 2)}</span>
                             <span className="text-white/70 text-sm font-medium">{isSurfaceProduct ? '/m²' : '/each'}</span>
                             {isTrade && <span className="text-white/50 text-xs">ex. VAT</span>}
                           </div>
@@ -3117,7 +3117,7 @@ const CollectionDetailPage = () => {
                     {/* Main Price - Large and bold */}
                     <div className="flex items-center justify-end gap-3 flex-wrap">
                       <span className={`text-3xl font-extrabold tracking-tight ${isOnSale ? 'text-red-600' : 'text-gray-900'}`}>
-                        £{displayPrice.toFixed(2)}
+                        £{safeToFixed(displayPrice, 2)}
                         <span className="text-lg font-semibold text-gray-500">{isSurfaceProduct ? '/m²' : '/each'}</span>
                       </span>
                       {isTrade && <span className="text-[10px] text-gray-400 font-normal">ex. VAT</span>}
@@ -3131,7 +3131,7 @@ const CollectionDetailPage = () => {
                     {/* WAS price for sale items */}
                     {isOnSale && displayOriginalPrice > displayPrice && (
                       <div className="text-base text-gray-400 line-through mt-1">
-                        Was £{displayOriginalPrice.toFixed(2)}{isSurfaceProduct ? '/m²' : '/each'}
+                        Was £{safeToFixed(displayOriginalPrice, 2)}{isSurfaceProduct ? '/m²' : '/each'}
                       </div>
                     )}
                     {/* Box price - smaller, secondary - only for surface products */}
@@ -3661,7 +3661,7 @@ const CollectionDetailPage = () => {
                   )}
                 </div>
                 <p className="font-medium text-sm text-gray-900 line-clamp-2">{selectedProduct?.display_name || decodedSeriesName}</p>
-                <p className="text-amber-600 font-bold mt-1">£{displayPrice.toFixed(2)}{isSurfaceProduct ? '/m²' : '/each'}{isTrade && <span className="text-[10px] text-gray-400 font-normal ml-1">ex. VAT</span>}</p>
+                <p className="text-amber-600 font-bold mt-1">£{safeToFixed(displayPrice, 2)}{isSurfaceProduct ? '/m²' : '/each'}{isTrade && <span className="text-[10px] text-gray-400 font-normal ml-1">ex. VAT</span>}</p>
                 <span className="inline-block mt-2 text-xs bg-amber-100 text-amber-700 px-2 py-1 rounded-full">Selected</span>
               </div>
 
@@ -4049,13 +4049,13 @@ const CollectionDetailPage = () => {
             <div className="flex-1">
               <div className="flex items-baseline gap-2">
                 <span className={`text-xl font-bold ${isOnSale ? 'text-red-600' : 'text-gray-900'}`}>
-                  £{displayPrice.toFixed(2)}
+                  £{safeToFixed(displayPrice, 2)}
                 </span>
                 <span className="text-sm text-gray-500">{isSurfaceProduct ? '/m²' : '/each'}</span>
                 {isTrade && <span className="text-[10px] text-gray-400">ex. VAT</span>}
                 {isOnSale && displayOriginalPrice > displayPrice && (
                   <span className="text-xs text-gray-400 line-through">
-                    £{displayOriginalPrice.toFixed(2)}
+                    £{safeToFixed(displayOriginalPrice, 2)}
                   </span>
                 )}
               </div>

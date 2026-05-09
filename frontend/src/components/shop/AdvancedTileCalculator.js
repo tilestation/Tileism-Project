@@ -6,6 +6,7 @@ import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
 import { toast } from 'sonner';
+import { safeToFixed } from '../../utils/safeStr';
 
 // Sloped Wall Measurement Guide Component
 const SlopedWallGuide = ({ isOpen, onClose }) => {
@@ -1292,7 +1293,7 @@ export const AdvancedTileCalculator = ({ product, onAddToCart }) => {
               {result.breakdown.map((item, idx) => (
                 <div key={idx} className={`flex justify-between ${item.isSubtraction ? 'text-red-600' : 'text-slate-600'}`}>
                   <span>{item.label}</span>
-                  <span>{item.value.toFixed(2)}m²</span>
+                  <span>{safeToFixed(item.value, 2)}m²</span>
                 </div>
               ))}
             </div>

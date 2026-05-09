@@ -9,6 +9,7 @@ import { Badge } from '../../components/ui/badge';
 import { OTPVerification } from '../../components/OTPVerification';
 import { BulkInquiryModal } from '../../components/BulkInquiryModal';
 import { useAuth } from '../../contexts/AuthContext';
+import { safeToFixed } from '../../utils/safeStr';
 
 export const CustomerProducts = () => {
   const { user } = useAuth();
@@ -288,9 +289,9 @@ export const CustomerProducts = () => {
                             <div>
                               {product.clearance_price ? (
                                 <div>
-                                  <p className="text-sm line-through text-muted-foreground">£{product.price.toFixed(2)}</p>
+                                  <p className="text-sm line-through text-muted-foreground">£{safeToFixed(product.price, 2)}</p>
                                   <p className="text-2xl font-heading font-bold tracking-tightest tabular-nums text-red-600">
-                                    £{product.clearance_price.toFixed(2)}
+                                    £{safeToFixed(product.clearance_price, 2)}
                                   </p>
                                   <p className="text-xs text-red-600 font-medium">
                                     Save £{(product.price - product.clearance_price).toFixed(2)}
@@ -298,12 +299,12 @@ export const CustomerProducts = () => {
                                 </div>
                               ) : (
                                 <p className="text-2xl font-heading font-bold tracking-tightest tabular-nums text-red-600">
-                                  £{product.price.toFixed(2)}
+                                  £{safeToFixed(product.price, 2)}
                                 </p>
                               )}
                               <p className="text-xs text-muted-foreground">{product.stock} in stock</p>
                               {product.m2_quantity && (
-                                <p className="text-xs text-accent font-medium">{product.m2_quantity.toFixed(2)} m²</p>
+                                <p className="text-xs text-accent font-medium">{safeToFixed(product.m2_quantity, 2)} m²</p>
                               )}
                             </div>
                             <Button 
@@ -374,10 +375,10 @@ export const CustomerProducts = () => {
                           {/* Base Piece Price */}
                           <div className="flex items-center justify-between">
                             <div>
-                              <p className="text-xl font-heading font-bold tracking-tightest tabular-nums">£{product.price.toFixed(2)}<span className="text-sm font-normal text-muted-foreground">/m²</span></p>
+                              <p className="text-xl font-heading font-bold tracking-tightest tabular-nums">£{safeToFixed(product.price, 2)}<span className="text-sm font-normal text-muted-foreground">/m²</span></p>
                               <p className="text-xs text-muted-foreground">{product.stock} in stock</p>
                               {product.m2_quantity && (
-                                <p className="text-xs text-accent font-medium">{product.m2_quantity.toFixed(2)} m² per piece</p>
+                                <p className="text-xs text-accent font-medium">{safeToFixed(product.m2_quantity, 2)} m² per piece</p>
                               )}
                             </div>
                             <Button 
@@ -409,7 +410,7 @@ export const CustomerProducts = () => {
                                     </div>
                                   </div>
                                   <div className="text-right">
-                                    <span className="font-bold text-blue-700">£{product.room_lot_price.toFixed(2)}</span>
+                                    <span className="font-bold text-blue-700">£{safeToFixed(product.room_lot_price, 2)}</span>
                                     <span className="text-xs text-blue-600">/m²</span>
                                     <p className="text-xs text-green-600 font-medium">
                                       Save £{((product.price - product.room_lot_price) * product.room_lot_quantity).toFixed(2)}
@@ -432,7 +433,7 @@ export const CustomerProducts = () => {
                                     </div>
                                   </div>
                                   <div className="text-right">
-                                    <span className="font-bold text-green-700">£{product.pallet_price.toFixed(2)}</span>
+                                    <span className="font-bold text-green-700">£{safeToFixed(product.pallet_price, 2)}</span>
                                     <span className="text-xs text-green-600">/m²</span>
                                     <p className="text-xs text-green-600 font-medium">
                                       Save £{((product.price - product.pallet_price) * product.pallet_quantity).toFixed(2)}
@@ -514,7 +515,7 @@ export const CustomerProducts = () => {
                         </div>
                         <div className="text-right">
                           <p className="font-mono tabular-nums text-sm">£{(item.price * item.quantity).toFixed(2)}</p>
-                          <p className="text-xs text-muted-foreground">£{item.price.toFixed(2)}/m²</p>
+                          <p className="text-xs text-muted-foreground">£{safeToFixed(item.price, 2)}/m²</p>
                         </div>
                       </div>
                     </div>

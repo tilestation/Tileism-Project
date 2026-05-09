@@ -11,7 +11,7 @@ import { Button } from '../../components/ui/button';
 import { ShopHeader, ShopFooter } from './TileStationHome';
 import { useCart } from '../../contexts/TileCartContext';
 import { toast } from 'sonner';
-import { normaliseImageUrl } from '../../utils/safeStr';
+import { normaliseImageUrl, safeToFixed} from '../../utils/safeStr';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
 
@@ -114,10 +114,10 @@ const TradeAccountPage = () => {
       const rate = Number(r.rate) || 0;
       const net = Number(r.net) || 0;
       const credit = Number(r.credit) || 0;
-      const rateTxt = `${rate.toFixed(rate % 1 === 0 ? 0 : 1)}% × £${net.toFixed(2)}`;
+      const rateTxt = `${rate.toFixed(rate % 1 === 0 ? 0 : 1)}% × £${safeToFixed(net, 2)}`;
       const namePart =
         name.length > nameCol ? `${name.slice(0, nameCol - 1)}…` : name.padEnd(nameCol);
-      return `${namePart}  ${rateTxt.padEnd(calcCol)} £${credit.toFixed(2)}`;
+      return `${namePart}  ${rateTxt.padEnd(calcCol)} £${safeToFixed(credit, 2)}`;
     });
     const total = Number(ev.amount || 0).toFixed(2);
     const totalLine = `${'Total credit'.padEnd(nameCol)}  ${' '.padEnd(calcCol)} £${total}`;
@@ -567,7 +567,7 @@ const TradeAccountPage = () => {
                     icon: Wallet,
                     color: 'bg-emerald-50 text-emerald-700 border-emerald-200',
                     iconColor: 'text-emerald-600',
-                    label: `£${credit.toFixed(2)} credit ready`,
+                    label: `£${safeToFixed(credit, 2)} credit ready`,
                     sub: 'apply at checkout',
                   });
                   if (shipped.length > 0) highlights.push({
@@ -940,7 +940,7 @@ const TradeAccountPage = () => {
                             <> on <span className="font-semibold">{new Date(savings.last_order.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</span></>
                           ) : null}
                           {' '}saved you{' '}
-                          <span className="font-bold text-emerald-700 tabular-nums">£{savings.last_order.saved.toFixed(2)}</span>
+                          <span className="font-bold text-emerald-700 tabular-nums">£{savings.last_order.safeToFixed(saved, 2)}</span>
                           {' '}vs retail.
                         </p>
                         {savings.last_order.order_number && (
@@ -1549,10 +1549,10 @@ const TradeAccountPage = () => {
                                         >
                                           <td className="px-3 py-1.5 text-gray-900" title={name}>{truncated}</td>
                                           <td className="px-3 py-1.5 text-gray-600 tabular-nums whitespace-nowrap text-right">
-                                            {rate.toFixed(rate % 1 === 0 ? 0 : 1)}% × £{net.toFixed(2)}
+                                            {rate.toFixed(rate % 1 === 0 ? 0 : 1)}% × £{safeToFixed(net, 2)}
                                           </td>
                                           <td className="px-3 py-1.5 text-right font-semibold text-emerald-800 tabular-nums whitespace-nowrap">
-                                            £{credit.toFixed(2)}
+                                            £{safeToFixed(credit, 2)}
                                           </td>
                                         </tr>
                                       );

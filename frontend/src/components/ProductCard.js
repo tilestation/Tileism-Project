@@ -3,7 +3,7 @@ import { Card } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
 import { Plus, Layers, Truck, Package } from 'lucide-react';
-import { normaliseImageUrl } from '../utils/safeStr';
+import { normaliseImageUrl, safeToFixed} from '../utils/safeStr';
 
 export const ProductCard = ({ product, onAddToCart, isClearance = false }) => {
   const [selectedTier, setSelectedTier] = useState('piece');
@@ -120,7 +120,7 @@ export const ProductCard = ({ product, onAddToCart, isClearance = false }) => {
                   <Package className="h-4 w-4 text-muted-foreground" />
                   <span className="text-sm font-medium">Single Piece</span>
                 </div>
-                <span className="font-bold">£{product.price.toFixed(2)}</span>
+                <span className="font-bold">£{safeToFixed(product.price, 2)}</span>
               </button>
 
               {/* Room Lot */}
@@ -142,7 +142,7 @@ export const ProductCard = ({ product, onAddToCart, isClearance = false }) => {
                     </div>
                   </div>
                   <div className="text-right">
-                    <span className="font-bold text-blue-700">£{product.room_lot_price.toFixed(2)}</span>
+                    <span className="font-bold text-blue-700">£{safeToFixed(product.room_lot_price, 2)}</span>
                     <span className="text-xs text-blue-600">/pc</span>
                     <p className="text-xs text-green-600">
                       Save £{getSavings(product.room_lot_price, product.room_lot_quantity).toFixed(2)}
@@ -170,7 +170,7 @@ export const ProductCard = ({ product, onAddToCart, isClearance = false }) => {
                     </div>
                   </div>
                   <div className="text-right">
-                    <span className="font-bold text-green-700">£{product.pallet_price.toFixed(2)}</span>
+                    <span className="font-bold text-green-700">£{safeToFixed(product.pallet_price, 2)}</span>
                     <span className="text-xs text-green-600">/pc</span>
                     <p className="text-xs text-green-600">
                       Save £{getSavings(product.pallet_price, product.pallet_quantity).toFixed(2)}
@@ -188,9 +188,9 @@ export const ProductCard = ({ product, onAddToCart, isClearance = false }) => {
             <div>
               {isClearance && product.clearance_price ? (
                 <div>
-                  <p className="text-sm line-through text-muted-foreground">£{product.price.toFixed(2)}</p>
+                  <p className="text-sm line-through text-muted-foreground">£{safeToFixed(product.price, 2)}</p>
                   <p className={`text-2xl font-heading font-bold tracking-tightest tabular-nums ${isClearance ? 'text-red-600' : ''}`}>
-                    £{product.clearance_price.toFixed(2)}
+                    £{safeToFixed(product.clearance_price, 2)}
                   </p>
                   <p className="text-xs text-red-600 font-medium">
                     Save £{(product.price - product.clearance_price).toFixed(2)}
@@ -198,12 +198,12 @@ export const ProductCard = ({ product, onAddToCart, isClearance = false }) => {
                 </div>
               ) : (
                 <p className="text-2xl font-heading font-bold tracking-tightest tabular-nums">
-                  £{product.price.toFixed(2)}
+                  £{safeToFixed(product.price, 2)}
                 </p>
               )}
               <p className="text-xs text-muted-foreground">{product.stock} in stock</p>
               {product.m2_quantity && (
-                <p className="text-xs text-accent font-medium">{product.m2_quantity.toFixed(2)} m² per piece</p>
+                <p className="text-xs text-accent font-medium">{safeToFixed(product.m2_quantity, 2)} m² per piece</p>
               )}
             </div>
             <Button 
@@ -223,7 +223,7 @@ export const ProductCard = ({ product, onAddToCart, isClearance = false }) => {
             <div>
               <p className="text-xs text-muted-foreground">{product.stock} in stock</p>
               {product.m2_quantity && (
-                <p className="text-xs text-accent font-medium">{product.m2_quantity.toFixed(2)} m² per piece</p>
+                <p className="text-xs text-accent font-medium">{safeToFixed(product.m2_quantity, 2)} m² per piece</p>
               )}
               {selectedTier !== 'piece' && (
                 <p className="text-sm font-medium mt-1">

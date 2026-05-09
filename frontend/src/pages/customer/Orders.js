@@ -3,6 +3,7 @@ import { api } from '../../lib/api';
 import { toast } from 'sonner';
 import { ShoppingCart, Package } from 'lucide-react';
 import { Card } from '../../components/ui/card';
+import { safeToFixed } from '../../utils/safeStr';
 
 export const CustomerOrders = () => {
   const [orders, setOrders] = useState([]);
@@ -86,7 +87,7 @@ export const CustomerOrders = () => {
                   <div className="p-4 bg-secondary rounded-md">
                     <p className="text-xs font-mono uppercase tracking-widest text-muted-foreground mb-2">Total Amount</p>
                     <p className="text-3xl font-heading font-bold tracking-tightest tabular-nums" data-testid={`order-total-${order.id}`}>
-                      £{order.total_amount.toFixed(2)}
+                      £{safeToFixed(order.total_amount, 2)}
                     </p>
                   </div>
 

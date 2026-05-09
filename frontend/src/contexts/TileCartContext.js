@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useRef } from 'r
 import { toast } from 'sonner';
 import { useTradeUser } from '../hooks/useTradeUser';
 import { getEffectiveSubtotal } from '../utils/cartPricing';
+import { safeToFixed } from '../utils/safeStr';
 
 const CartContext = createContext();
 
@@ -287,7 +288,7 @@ const TradeRepriceWatcher = ({ cart }) => {
       const saved = Math.round((retail - trade) * 100) / 100;
       if (saved > 0) {
         const text = (cfg.text || DEFAULT_LOGIN_MSG.text)
-          .replace('{savings}', saved.toFixed(2));
+          .replace('{savings}', safeToFixed(saved, 2));
         toast.success(text, {
           duration: cfg.duration_ms || DEFAULT_LOGIN_MSG.duration_ms,
           id: 'trade-cart-reprice-in',

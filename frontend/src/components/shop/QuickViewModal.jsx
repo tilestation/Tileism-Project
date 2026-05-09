@@ -17,7 +17,7 @@ import {
 import { toast } from 'sonner';
 import { useTradeUser } from '../../hooks/useTradeUser';
 import { useTrustBadges } from '../../hooks/useTrustBadges';
-import { normaliseImageList, normaliseImageUrl } from '../../utils/safeStr';
+import { normaliseImageList, normaliseImageUrl, safeToFixed} from '../../utils/safeStr';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
 
@@ -287,7 +287,7 @@ const QuickViewModal = ({
                   {isTrade && <span className="text-[10px] text-gray-400 ml-1">ex. VAT</span>}
                   {isOnSale && wasPrice && (
                     <span className="text-lg text-gray-400 line-through">
-                      £{wasPrice.toFixed(2)}
+                      £{safeToFixed(wasPrice, 2)}
                     </span>
                   )}
                 </div>

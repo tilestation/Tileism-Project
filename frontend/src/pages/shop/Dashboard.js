@@ -3,6 +3,7 @@ import { api } from '../../lib/api';
 import { toast } from 'sonner';
 import { Package, ShoppingCart, Eye } from 'lucide-react';
 import { Card } from '../../components/ui/card';
+import { safeToFixed } from '../../utils/safeStr';
 
 export const CustomerDashboard = () => {
   const [products, setProducts] = useState([]);
@@ -78,7 +79,7 @@ export const CustomerDashboard = () => {
                     <p className="text-xs text-muted-foreground">{product.category_name || 'Uncategorized'}</p>
                   </div>
                   <div className="text-right">
-                    <p className="font-bold tabular-nums">£{product.price.toFixed(2)}</p>
+                    <p className="font-bold tabular-nums">£{safeToFixed(product.price, 2)}</p>
                     <p className="text-xs text-muted-foreground">{product.stock} in stock</p>
                   </div>
                 </div>
@@ -102,7 +103,7 @@ export const CustomerDashboard = () => {
                     <p className="text-xs text-muted-foreground">{order.items.length} items</p>
                   </div>
                   <div className="text-right">
-                    <p className="font-bold tabular-nums text-sm">£{order.total_amount.toFixed(2)}</p>
+                    <p className="font-bold tabular-nums text-sm">£{safeToFixed(order.total_amount, 2)}</p>
                     <span className={`text-xs px-2 py-0.5 rounded-full ${
                       order.status === 'pending' ? 'bg-yellow-100 text-yellow-800' :
                       order.status === 'completed' ? 'bg-emerald-100 text-emerald-800' :

@@ -17,7 +17,7 @@ import PaymentMethodCards from '../../components/shop/PaymentMethodCards';
 import useAbandonedCartTracker from '../../hooks/useAbandonedCartTracker';
 import CheckoutMaintenanceWarning from '../../components/shop/CheckoutMaintenanceWarning';
 import { useCheckoutMaintenanceCountdown } from '../../contexts/MaintenanceContext';
-import { normaliseImageUrl } from '../../utils/safeStr';
+import { normaliseImageUrl, safeToFixed} from '../../utils/safeStr';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
 
@@ -740,14 +740,14 @@ const TileCheckoutPage = () => {
                           <Input value={delivery.postcode} onChange={(e) => setDelivery(p => ({ ...p, postcode: e.target.value }))} placeholder="TN9 1PP" className="mt-1" />
                           {delivery.postcode && deliveryFee !== null && deliveryFee > 0 && (
                             <p className="text-xs text-gray-500 mt-1">
-                              Delivery to {delivery.postcode.toUpperCase()}: <strong>£{deliveryFee.toFixed(2)}</strong>
-                              {congestionCharge > 0 && <span className="text-red-600"> + £{congestionCharge.toFixed(2)} congestion charge</span>}
+                              Delivery to {delivery.postcode.toUpperCase()}: <strong>£{safeToFixed(deliveryFee, 2)}</strong>
+                              {congestionCharge > 0 && <span className="text-red-600"> + £{safeToFixed(congestionCharge, 2)} congestion charge</span>}
                             </p>
                           )}
                           {delivery.postcode && deliveryFee === 0 && delivery.method === 'delivery' && (
                             <p className="text-xs mt-1 font-medium">
                               <span className="text-green-600">Free delivery on this order!</span>
-                              {congestionCharge > 0 && <span className="text-red-600"> + £{congestionCharge.toFixed(2)} congestion charge payable</span>}
+                              {congestionCharge > 0 && <span className="text-red-600"> + £{safeToFixed(congestionCharge, 2)} congestion charge payable</span>}
                             </p>
                           )}
                         </div>
@@ -1006,7 +1006,7 @@ const TileCheckoutPage = () => {
                     ) : placing ? (
                       <><Loader2 className="w-5 h-5 mr-2 animate-spin" /> Processing...</>
                     ) : (
-                      <><Lock className="w-5 h-5 mr-2" /> Pay £{total.toFixed(2)}{selectedMethod === 'paypal' ? ' with PayPal' : selectedMethod === 'klarna' ? ' with Klarna' : selectedMethod === 'wallet' ? ' with Apple/Google Pay' : ''}</>
+                      <><Lock className="w-5 h-5 mr-2" /> Pay £{safeToFixed(total, 2)}{selectedMethod === 'paypal' ? ' with PayPal' : selectedMethod === 'klarna' ? ' with Klarna' : selectedMethod === 'wallet' ? ' with Apple/Google Pay' : ''}</>
                     )}
                   </Button>
                 </div>
@@ -1035,7 +1035,7 @@ const TileCheckoutPage = () => {
                     <div className="flex items-center justify-between text-[12px] font-medium text-[#1C1917] mb-2">
                       <span className="flex items-center gap-1.5">
                         <Truck className="w-3.5 h-3.5 text-[#78716C]" />
-                        <span>Spend <strong>£{amountToFree.toFixed(2)}</strong> more for</span>
+                        <span>Spend <strong>£{safeToFixed(amountToFree, 2)}</strong> more for</span>
                       </span>
                       <span className="text-emerald-700 font-bold">FREE delivery</span>
                     </div>
@@ -1133,13 +1133,13 @@ const TileCheckoutPage = () => {
                     ) : deliveryFee === 0 ? (
                       <span className="text-emerald-600 font-bold tracking-wide text-xs uppercase">FREE</span>
                     ) : (
-                      <span className="font-semibold text-[#1C1917] tabular-nums">£{deliveryFee.toFixed(2)}</span>
+                      <span className="font-semibold text-[#1C1917] tabular-nums">£{safeToFixed(deliveryFee, 2)}</span>
                     )}
                   </div>
                   {congestionCharge > 0 && (
                     <div className="flex justify-between text-sm">
                       <span className="text-red-700">{settings.delivery.congestion_charge?.label || 'Congestion Charge'}</span>
-                      <span className="font-semibold text-red-700 tabular-nums">£{congestionCharge.toFixed(2)}</span>
+                      <span className="font-semibold text-red-700 tabular-nums">£{safeToFixed(congestionCharge, 2)}</span>
                     </div>
                   )}
                   {expressFee > 0 && (
@@ -1237,12 +1237,12 @@ const TileCheckoutPage = () => {
                     <p className="text-[11px] text-[#A8A29E] mt-0.5">Including VAT</p>
                   </div>
                   <motion.p
-                    key={total.toFixed(2)}
+                    key={safeToFixed(total, 2)}
                     initial={{ scale: 0.9, opacity: 0 }}
                     animate={{ scale: 1, opacity: 1 }}
                     className="text-3xl font-bold text-[#1C1917] tracking-tight tabular-nums"
                   >
-                    £{total.toFixed(2)}
+                    £{safeToFixed(total, 2)}
                   </motion.p>
                 </div>
 

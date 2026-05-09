@@ -246,3 +246,36 @@ describe('Swatch image regression — May 2026 SEO migration', () => {
   });
 });
 
+
+describe('Price/number rendering crash-resistance — Feb 2026 sweep', () => {
+  // Pins the "page-blanking" failure modes that would crash the storefront
+  // if a backend field came back null/undefined/string instead of a number.
+  // Before this sweep, `product.price.toFixed(2)` would throw if the supplier
+  // import had skipped the price column. With safeToFixed, the row renders
+  // £0.00 instead — visible to the customer, fixable in admin, but never
+  // a blank page.
+  test('null product price → "0.00", not crash', () => {
+    expect(safeToFixed(null, 2)).toBe('0.00');
+    expect(safeToFixed(undefined, 2)).toBe('0.00');
+  });
+  test('string-priced product (legacy CSV import) → coerced to number', () => {
+    expect(safeToFixed('29.99', 2)).toBe('29.99');
+    expect(safeToFixed(' 12.5 ', 2)).toBe('12.50');
+  });
+  test('NaN/Infinity from bad arithmetic → fallback', () => {
+    expect(safeToFixed(NaN, 2)).toBe('0.00');
+    expect(safeToFixed(Infinity, 2)).toBe('0.00');
+    expect(safeToFixed(0/0, 2)).toBe('0.00');
+  });
+  test('valid numeric prices pass through unchanged', () => {
+    expect(safeToFixed(0, 2)).toBe('0.00');
+    expect(safeToFixed(29.99, 2)).toBe('29.99');
+    expect(safeToFixed(1234.5, 2)).toBe('1234.50');
+  });
+  test('custom precision works for ratings/percentages', () => {
+    expect(safeToFixed(4.234, 1)).toBe('4.2');
+    expect(safeToFixed(null, 1)).toBe('0.00');  // fallback ignores precision
+    expect(safeToFixed(99.999, 0)).toBe('100');
+  });
+});
+

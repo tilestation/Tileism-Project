@@ -14,6 +14,7 @@ import WalletExpressButton from '../../components/shop/WalletExpressButton';
 import CartSaveBanner from '../../components/shop/CartSaveBanner';
 import CheckoutMaintenanceWarning from '../../components/shop/CheckoutMaintenanceWarning';
 import { useCheckoutMaintenanceCountdown } from '../../contexts/MaintenanceContext';
+import { safeToFixed } from '../../utils/safeStr';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
 
@@ -295,7 +296,7 @@ const TileCartPage = () => {
     ? (freeSample.unlocked_text_separate || freeSample.unlocked_text_pack || '')
     : (freeSample.unlocked_text_pack || '');
   const renderSampleText = (tpl) =>
-    (tpl || '').replace('{remaining}', sampleRemaining.toFixed(2));
+    (tpl || '').replace('{remaining}', safeToFixed(sampleRemaining, 2));
 
   return (
     <div className="min-h-screen bg-[#F9F8F6]">
@@ -319,7 +320,7 @@ const TileCartPage = () => {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-baseline justify-between gap-3 mb-1.5">
                       <span className="text-[12px] sm:text-[13px] font-medium truncate">
-                        You're <span className="font-bold text-[#F7EA1C] tabular-nums">£{amountToFree.toFixed(2)}</span> away from <span className="font-bold">FREE delivery</span>
+                        You're <span className="font-bold text-[#F7EA1C] tabular-nums">£{safeToFixed(amountToFree, 2)}</span> away from <span className="font-bold">FREE delivery</span>
                       </span>
                       <span className="text-[11px] text-white/60 tabular-nums flex-shrink-0 hidden sm:inline">{Math.round(progressPct)}%</span>
                     </div>
@@ -349,7 +350,7 @@ const TileCartPage = () => {
                     <Gift className="w-4 h-4" />
                   </motion.div>
                   <span className="text-[12px] sm:text-[13px] font-semibold">
-                    You qualify for <span className="font-bold">FREE delivery</span> · Saved £{defaultDeliveryFee.toFixed(2)}
+                    You qualify for <span className="font-bold">FREE delivery</span> · Saved £{safeToFixed(defaultDeliveryFee, 2)}
                   </span>
                 </div>
               </motion.div>
@@ -681,7 +682,7 @@ const TileCartPage = () => {
                     <div className="flex items-center justify-between text-[12px] font-medium text-[#1C1917] mb-2">
                       <span className="flex items-center gap-1.5">
                         <Truck className="w-3.5 h-3.5 text-[#78716C]" />
-                        <span>Spend <strong>£{amountToFree.toFixed(2)}</strong> more for</span>
+                        <span>Spend <strong>£{safeToFixed(amountToFree, 2)}</strong> more for</span>
                       </span>
                       <span className="text-emerald-700 font-bold">FREE delivery</span>
                     </div>
@@ -708,7 +709,7 @@ const TileCartPage = () => {
                     </motion.div>
                     <div>
                       <p className="text-sm font-semibold text-emerald-900">You qualify for FREE delivery</p>
-                      <p className="text-[11px] text-emerald-700/80">Saved £{defaultDeliveryFee.toFixed(2)} on shipping</p>
+                      <p className="text-[11px] text-emerald-700/80">Saved £{safeToFixed(defaultDeliveryFee, 2)} on shipping</p>
                     </div>
                   </motion.div>
                 )}
@@ -733,7 +734,7 @@ const TileCartPage = () => {
                       {subtotal >= deliveryThreshold ? (
                         <span className="text-emerald-600">FREE</span>
                       ) : (
-                        <span className="text-[#1C1917] tabular-nums">&pound;{defaultDeliveryFee.toFixed(2)}</span>
+                        <span className="text-[#1C1917] tabular-nums">&pound;{safeToFixed(defaultDeliveryFee, 2)}</span>
                       )}
                     </span>
                   </button>
@@ -928,7 +929,7 @@ const TileCartPage = () => {
                             {savingsBreakdown.map((row) => (
                               <div key={row.name} className="flex justify-between gap-3">
                                 <span className="text-white/70 truncate max-w-[180px]">{row.name}</span>
-                                <span className="text-amber-300 shrink-0">−£{row.saved.toFixed(2)}</span>
+                                <span className="text-amber-300 shrink-0">−£{row.safeToFixed(saved, 2)}</span>
                               </div>
                             ))}
                             {cart.length > savingsBreakdown.length && (

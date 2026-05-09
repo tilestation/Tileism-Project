@@ -7,6 +7,7 @@ import { Label } from '../../components/ui/label';
 import { useSampleCart } from '../../contexts/SampleCartContext';
 import { ShopHeader, ShopFooter } from './TileStationHome';
 import { toast } from 'sonner';
+import { safeToFixed } from '../../utils/safeStr';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
 
@@ -260,7 +261,7 @@ const TileSampleCartPage = () => {
 
         <h1 className="text-2xl md:text-3xl font-bold text-gray-900 mb-2">Free Tile Samples</h1>
         <p className="text-gray-500 mb-8">
-          {sampleCount} of {maxSamples} free samples selected • £{postage.toFixed(2)} delivery
+          {sampleCount} of {maxSamples} free samples selected • £{safeToFixed(postage, 2)} delivery
         </p>
 
         {!showCheckout ? (
@@ -273,7 +274,7 @@ const TileSampleCartPage = () => {
                 <div>
                   <p className="font-medium text-[#F7EA1C]">Free Cut Samples</p>
                   <p className="text-sm text-gray-300 mt-1">
-                    Order up to {maxSamples} free tile samples per delivery — only £{postage.toFixed(2)} postage. Need more? Place another order.
+                    Order up to {maxSamples} free tile samples per delivery — only £{safeToFixed(postage, 2)} postage. Need more? Place another order.
                     Samples typically arrive within 3-5 working days.
                   </p>
                 </div>
@@ -363,12 +364,12 @@ const TileSampleCartPage = () => {
                   </div>
                   <div className="flex justify-between">
                     <span className="text-gray-600">Delivery</span>
-                    <span className="font-medium">£{postage.toFixed(2)}</span>
+                    <span className="font-medium">£{safeToFixed(postage, 2)}</span>
                   </div>
                   <div className="border-t pt-3 mt-3">
                     <div className="flex justify-between text-lg font-semibold">
                       <span>Total</span>
-                      <span className="text-[#333333]">£{postage.toFixed(2)}</span>
+                      <span className="text-[#333333]">£{safeToFixed(postage, 2)}</span>
                     </div>
                   </div>
                 </div>
@@ -495,7 +496,7 @@ const TileSampleCartPage = () => {
                 </div>
                 <div className="flex justify-between items-center font-semibold">
                   <span>Total (Delivery only)</span>
-                  <span className="text-[#333333]">£{postage.toFixed(2)}</span>
+                  <span className="text-[#333333]">£{safeToFixed(postage, 2)}</span>
                 </div>
               </div>
 
@@ -514,7 +515,7 @@ const TileSampleCartPage = () => {
                   disabled={loading}
                   data-testid="place-sample-order-btn"
                 >
-                  {loading ? 'Processing...' : `Pay £${postage.toFixed(2)}`}
+                  {loading ? 'Processing...' : `Pay £${safeToFixed(postage, 2)}`}
                 </Button>
               </div>
             </div>

@@ -12,6 +12,7 @@ import RenderProductDescription from '../../components/shop/RenderProductDescrip
 import { TradeLoginBox } from '../../components/shop/TradeLoginPrompt';
 import { toast } from 'sonner';
 import { TileCalculator } from '../../components/shop/TileCalculator';
+import { safeToFixed } from '../../utils/safeStr';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
 
@@ -188,8 +189,8 @@ export const ShopProductDetail = () => {
                       <div>
                         <div className="text-red-200 text-xs font-bold uppercase tracking-widest mb-1">Sale Price</div>
                         <div className="flex items-baseline gap-3">
-                          <span className="text-white/60 text-base line-through">WAS £{wasPrice.toFixed(2)}</span>
-                          <span className="text-white text-3xl font-black tracking-tight">NOW £{nowPrice.toFixed(2)}</span>
+                          <span className="text-white/60 text-base line-through">WAS £{safeToFixed(wasPrice, 2)}</span>
+                          <span className="text-white text-3xl font-black tracking-tight">NOW £{safeToFixed(nowPrice, 2)}</span>
                           <span className="text-white/70 text-sm font-medium">/{product.unit}</span>
                           {isTrade && <span className="text-white/50 text-xs">ex. VAT</span>}
                         </div>
