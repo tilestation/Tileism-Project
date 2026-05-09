@@ -5,6 +5,7 @@ import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
 import { Textarea } from '../../components/ui/textarea';
 import { toast } from 'sonner';
+import { normaliseImageUrl } from '../../utils/safeStr';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
 
@@ -204,7 +205,7 @@ const WebsiteSettingsEditor = () => {
                   </label>
                 </div>
                 {settings.favicon_url && (
-                  <img src={settings.favicon_url} alt="Favicon" className="mt-2 h-8 w-8 object-contain" />
+                  <img src={normaliseImageUrl(settings.favicon_url)} alt="Favicon" className="mt-2 h-8 w-8 object-contain" />
                 )}
               </div>
             </div>

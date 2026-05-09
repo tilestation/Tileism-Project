@@ -17,6 +17,7 @@ import {
   AlertTriangle, Check, ExternalLink, Zap, Maximize2, X, Download,
   Video,
 } from 'lucide-react';
+import { normaliseImageUrl } from '../../utils/safeStr';
 
 const API = process.env.REACT_APP_BACKEND_URL;
 const tokenHdr = () => {
@@ -1102,7 +1103,7 @@ const MarketingStudio = () => {
               )}
               {lifestyleTilePicked && (
                 <div className="mt-2 flex items-center gap-2 bg-emerald-50 border border-emerald-200 rounded-lg p-2 text-xs">
-                  {lifestyleTilePicked.image && <img src={lifestyleTilePicked.image} alt="" className="w-12 h-12 rounded object-cover" />}
+                  {lifestyleTilePicked.image && <img src={normaliseImageUrl(lifestyleTilePicked.image)} alt="" className="w-12 h-12 rounded object-cover" />}
                   <div className="flex-1">
                     <div className="font-bold text-emerald-900">Reference: {lifestyleTilePicked.name}</div>
                     <div className="text-emerald-700">This catalogue photo will be used as the source-of-truth for the tile pattern.</div>

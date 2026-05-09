@@ -6,6 +6,7 @@ import { Button } from '../../components/ui/button';
 import { Card } from '../../components/ui/card';
 import { Badge } from '../../components/ui/badge';
 import { useShopAuth } from '../../contexts/ShopAuthContext';
+import { normaliseImageUrl } from '../../utils/safeStr';
 
 export const ShopOrders = () => {
   const { isAuthenticated } = useShopAuth();
@@ -186,7 +187,7 @@ export const ShopOrders = () => {
               {order.items?.slice(0, 4).map((item, idx) => (
                 <div key={idx} className="w-16 h-16 bg-gray-100 rounded flex-shrink-0">
                   {item.image ? (
-                    <img src={item.image} alt="" className="w-full h-full object-cover rounded" />
+                    <img src={normaliseImageUrl(item.image)} alt="" className="w-full h-full object-cover rounded" />
                   ) : (
                     <div className="w-full h-full flex items-center justify-center text-gray-400 text-sm">🪨</div>
                   )}

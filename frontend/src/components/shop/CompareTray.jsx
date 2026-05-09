@@ -4,6 +4,7 @@ import axios from 'axios';
 import { useCompare } from '../../contexts/CompareContext';
 import { Button } from '../ui/button';
 import { X, GitCompare } from 'lucide-react';
+import { normaliseImageUrl } from '../../utils/safeStr';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -47,7 +48,7 @@ export default function CompareTray() {
               data-testid={`compare-tray-item-${t.slug}`}
             >
               {t.image
-                ? <img src={t.image} alt="" className="w-9 h-9 rounded object-cover" />
+                ? <img src={normaliseImageUrl(t.image)} alt="" className="w-9 h-9 rounded object-cover" />
                 : <div className="w-9 h-9 rounded bg-gray-200" />}
               <span className="text-xs font-medium text-gray-700 max-w-[140px] truncate">{t.name}</span>
               <button

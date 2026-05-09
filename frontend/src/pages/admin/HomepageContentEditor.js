@@ -5,6 +5,7 @@ import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
 import { Textarea } from '../../components/ui/textarea';
 import { toast } from 'sonner';
+import { normaliseImageUrl } from '../../utils/safeStr';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
 
@@ -274,7 +275,7 @@ const HomepageContentEditor = () => {
                 </label>
               </div>
               {content.hero_image && (
-                <img src={content.hero_image} alt="" className="mt-2 w-full h-40 object-cover rounded" />
+                <img src={normaliseImageUrl(content.hero_image)} alt="" className="mt-2 w-full h-40 object-cover rounded" />
               )}
             </div>
           </div>
@@ -353,7 +354,7 @@ const HomepageContentEditor = () => {
                 }`}
               >
                 {product.images?.[0] ? (
-                  <img src={product.images[0]} alt="" className="w-full h-16 object-cover rounded mb-1" />
+                  <img src={normaliseImageUrl(product.images[0])} alt="" className="w-full h-16 object-cover rounded mb-1" />
                 ) : (
                   <div className="w-full h-16 bg-gray-100 rounded mb-1 flex items-center justify-center">
                     <Image className="h-6 w-6 text-gray-400" />
@@ -430,7 +431,7 @@ const HomepageContentEditor = () => {
                 </label>
               </div>
               {content.about_image && (
-                <img src={content.about_image} alt="" className="mt-2 w-48 h-32 object-cover rounded" />
+                <img src={normaliseImageUrl(content.about_image)} alt="" className="mt-2 w-48 h-32 object-cover rounded" />
               )}
             </div>
           </div>

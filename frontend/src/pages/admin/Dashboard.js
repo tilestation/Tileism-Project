@@ -13,6 +13,7 @@ import QuoteConversionWidget from '../../components/dashboard/QuoteConversionWid
 import AbandonedCartRecoveryCard from '../../components/dashboard/AbandonedCartRecoveryCard';
 import MarketingFunnelCard from '../../components/dashboard/MarketingFunnelCard';
 import ConversionFunnelCard from './ConversionFunnelCard';
+import { normaliseImageUrl } from '../../utils/safeStr';
 
 const COLORS = ['#f97316', '#3b82f6', '#22c55e', '#a855f7', '#ef4444', '#06b6d4'];
 
@@ -2839,7 +2840,7 @@ export const AdminDashboard = () => {
                         {idx + 1}
                       </div>
                       {product.image ? (
-                        <img src={product.image} alt={product.name} className="w-10 h-10 rounded object-cover" />
+                        <img src={normaliseImageUrl(product.image)} alt={product.name} className="w-10 h-10 rounded object-cover" />
                       ) : (
                         <div className="w-10 h-10 rounded bg-muted flex items-center justify-center">
                           <Package className="h-5 w-5 text-muted-foreground" />
@@ -2882,7 +2883,7 @@ export const AdminDashboard = () => {
                         {idx + 1}
                       </div>
                       {product.image ? (
-                        <img src={product.image} alt={product.name} className="w-10 h-10 rounded object-cover" />
+                        <img src={normaliseImageUrl(product.image)} alt={product.name} className="w-10 h-10 rounded object-cover" />
                       ) : (
                         <div className="w-10 h-10 rounded bg-muted flex items-center justify-center">
                           <Package className="h-5 w-5 text-muted-foreground" />

@@ -27,6 +27,7 @@ import { usePageTracking } from '../../hooks/usePageTracking';
 import LiveChatWidget from '../../components/shop/LiveChatWidget';
 import { useTrustBadges } from '../../hooks/useTrustBadges';
 import SeoHead from '../../components/seo/SeoHead';
+import { normaliseImageUrl } from '../../utils/safeStr';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
 
@@ -1252,7 +1253,7 @@ const TileDetailPage = () => {
             {/* Product Summary */}
             <div className="bg-gray-50 rounded-lg p-3 flex items-center gap-3">
               {tile?.images?.[0] && (
-                <img src={tile.images[0]} alt={tile.display_name} className="w-16 h-16 object-cover rounded" />
+                <img src={normaliseImageUrl(tile.images[0])} alt={tile.display_name} className="w-16 h-16 object-cover rounded" />
               )}
               <div>
                 <p className="font-medium text-gray-900">{tile?.display_name}</p>

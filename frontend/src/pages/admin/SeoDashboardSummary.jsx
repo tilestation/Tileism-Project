@@ -30,6 +30,7 @@ import {
   Loader2, RefreshCw, TrendingUp, TrendingDown, Trophy, Award,
   Sparkles, Activity, AlertCircle, CheckCircle2, Zap, Package, Target,
 } from 'lucide-react';
+import { normaliseImageUrl } from '../../utils/safeStr';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
 const token = () => localStorage.getItem('token') || localStorage.getItem('access_token') || '';
@@ -255,7 +256,7 @@ const ProductTile = ({ p }) => {
       </div>
       <div className="flex items-center gap-2 mt-1.5">
         {p.image_url && (
-          <img src={p.image_url} alt="" className="w-12 h-12 rounded object-cover border border-violet-200 shrink-0" loading="lazy" />
+          <img src={normaliseImageUrl(p.image_url)} alt="" className="w-12 h-12 rounded object-cover border border-violet-200 shrink-0" loading="lazy" />
         )}
         <div className="min-w-0 flex-1">
           <div className="font-semibold text-slate-900 text-sm truncate" title={p.name}>{p.name}</div>

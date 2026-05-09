@@ -8,6 +8,7 @@ import { useCart } from '../../contexts/TileCartContext';
 import { useTradeUser } from '../../hooks/useTradeUser';
 import AnnouncementRibbon from './AnnouncementRibbon';
 import { OrganizationSchema, LocalBusinessSchema } from '../seo/StructuredData';
+import { normaliseImageUrl } from '../../utils/safeStr';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
 
@@ -199,7 +200,7 @@ export const ShopLayout = () => {
                       onClick={() => setShowSearch(false)}
                     >
                       {result.image && (
-                        <img src={result.image} alt="" className="w-16 h-16 object-cover rounded-lg" />
+                        <img src={normaliseImageUrl(result.image)} alt="" className="w-16 h-16 object-cover rounded-lg" />
                       )}
                       <div className="flex-1">
                         <p className="font-medium">{result.name}</p>

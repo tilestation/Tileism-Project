@@ -8,6 +8,7 @@ import {
 import { Badge } from '../../../../components/ui/badge';
 import { Input } from '../../../../components/ui/input';
 import ScopeSummaryPanel from './ScopeSummaryPanel';
+import { normaliseImageUrl } from '../../../../utils/safeStr';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
 
@@ -410,7 +411,7 @@ const AttributeScopePopover = ({
                 {checked && <Check className="w-2.5 h-2.5" />}
               </div>
               {(product.image || product.images?.[0]) ? (
-                <img src={product.image || product.images?.[0]} alt="" className="w-6 h-6 object-cover rounded border shrink-0" />
+                <img src={normaliseImageUrl(product.image || product.images?.[0])} alt="" className="w-6 h-6 object-cover rounded border shrink-0" />
               ) : (
                 <div className="w-6 h-6 bg-gray-100 rounded border flex items-center justify-center shrink-0">
                   <Package className="w-3 h-3 text-gray-400" />
@@ -1189,7 +1190,7 @@ const BulkCategoryEditorSections = ({
                           return (
                             <div key={productKey} className="flex items-center gap-2 p-2 hover:bg-gray-50">
                               {product.image || product.images?.[0] ? (
-                                <img src={product.image || product.images?.[0]} alt="" className="w-8 h-8 object-cover rounded border" />
+                                <img src={normaliseImageUrl(product.image || product.images?.[0])} alt="" className="w-8 h-8 object-cover rounded border" />
                               ) : (
                                 <div className="w-8 h-8 bg-gray-100 rounded border flex items-center justify-center">
                                   <Package className="w-3 h-3 text-gray-400" />
@@ -1281,7 +1282,7 @@ const BulkCategoryEditorSections = ({
                             isSubSelected ? 'bg-amber-500 border-amber-500 text-white' : 'border-gray-300 bg-white'
                           }`}>{isSubSelected && <Check className="w-3 h-3" />}</div>
                           {product.image || product.images?.[0] ? (
-                            <img src={product.image || product.images?.[0]} alt="" className="w-10 h-10 object-cover rounded border" />
+                            <img src={normaliseImageUrl(product.image || product.images?.[0])} alt="" className="w-10 h-10 object-cover rounded border" />
                           ) : (
                             <div className="w-10 h-10 bg-gray-100 rounded border flex items-center justify-center">
                               <Package className="w-4 h-4 text-gray-400" />

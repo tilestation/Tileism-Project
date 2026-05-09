@@ -5,6 +5,7 @@ import { useCompare } from '../../contexts/CompareContext';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent } from '../../components/ui/card';
 import { GitCompare, X, ArrowLeft } from 'lucide-react';
+import { normaliseImageUrl } from '../../utils/safeStr';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -128,7 +129,7 @@ export default function ComparePage() {
                             data-testid={`compare-tile-link-${items[i].slug}`}
                           >
                             {(t.image_url || t.image || items[i].image)
-                              ? <img src={t.image_url || t.image || items[i].image} alt="" className="w-full aspect-square object-cover rounded-lg group-hover:opacity-90" />
+                              ? <img src={normaliseImageUrl(t.image_url || t.image || items[i].image)} alt="" className="w-full aspect-square object-cover rounded-lg group-hover:opacity-90" />
                               : <div className="w-full aspect-square rounded-lg bg-gray-200" />}
                             <p className="font-semibold text-gray-900 mt-3 text-left">{t.product_name || t.name || items[i].name}</p>
                             {(t.price || items[i].price) && (

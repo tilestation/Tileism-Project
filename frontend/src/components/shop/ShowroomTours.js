@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Play, X, Film } from 'lucide-react';
+import { normaliseImageUrl } from '../../utils/safeStr';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
 
@@ -114,7 +115,7 @@ export const ShowroomTours = () => {
                   <div className="w-32 sm:w-40">
                     <div className="aspect-video bg-slate-700 relative overflow-hidden">
                       {video.thumbnail_url ? (
-                        <img src={video.thumbnail_url} alt={video.title} className="w-full h-full object-cover" />
+                        <img src={normaliseImageUrl(video.thumbnail_url)} alt={video.title} className="w-full h-full object-cover" />
                       ) : (
                         <div className="w-full h-full flex items-center justify-center">
                           <Film className="w-6 h-6 text-slate-500" />

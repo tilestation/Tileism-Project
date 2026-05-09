@@ -11,6 +11,7 @@ import { Button } from '../../components/ui/button';
 import { ShopHeader, ShopFooter } from './TileStationHome';
 import { useCart } from '../../contexts/TileCartContext';
 import { toast } from 'sonner';
+import { normaliseImageUrl } from '../../utils/safeStr';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
 
@@ -747,7 +748,7 @@ const TradeAccountPage = () => {
                                 {visible.map((it, idx) => (
                                   <div key={idx} className="w-12 h-12 rounded-lg border-2 border-white bg-gray-100 overflow-hidden flex-shrink-0 ring-1 ring-gray-200">
                                     {it.image ? (
-                                      <img src={it.image} alt={it.name} className="w-full h-full object-cover" loading="lazy" />
+                                      <img src={normaliseImageUrl(it.image)} alt={it.name} className="w-full h-full object-cover" loading="lazy" />
                                     ) : (
                                       <div className="w-full h-full flex items-center justify-center text-gray-300">
                                         <Package className="w-5 h-5" />

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Download, X, Sparkles, Percent, Truck, Shield, Building2, MessageSquare, Mail, Star, ArrowRight, Lock, CheckCircle } from 'lucide-react';
 import { ShopHeader, ShopFooter } from './TileStationHome';
+import { normaliseImageUrl } from '../../utils/safeStr';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
 
@@ -301,7 +302,7 @@ export default function BathroomPage() {
             <div className={`grid grid-cols-1 md:grid-cols-2 gap-12 items-center ${i % 2 !== 0 ? 'md:[direction:rtl] md:[&>*]:[direction:ltr]' : ''}`}>
               {section.image_url && (
                 <div className="rounded-2xl overflow-hidden">
-                  <img src={section.image_url} alt={section.title} className="w-full h-auto object-cover" />
+                  <img src={normaliseImageUrl(section.image_url)} alt={section.title} className="w-full h-auto object-cover" />
                 </div>
               )}
               <div>

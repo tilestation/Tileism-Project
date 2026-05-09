@@ -19,6 +19,7 @@ import { Button } from '../../components/ui/button';
 import {
   Loader2, TrendingUp, RefreshCw, Eye, Award, Zap, Package2,
 } from 'lucide-react';
+import { normaliseImageUrl } from '../../utils/safeStr';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
 const token = () => localStorage.getItem('token') || localStorage.getItem('access_token') || '';
@@ -171,7 +172,7 @@ const MarginIntelligenceCard = () => {
                       <td className="pr-2">
                         <div className="flex items-center gap-2 min-w-0">
                           {r.image_url && (
-                            <img src={r.image_url} alt="" className="w-8 h-8 rounded object-cover border shrink-0" loading="lazy" />
+                            <img src={normaliseImageUrl(r.image_url)} alt="" className="w-8 h-8 rounded object-cover border shrink-0" loading="lazy" />
                           )}
                           <div className="min-w-0">
                             <div className="font-medium truncate max-w-[220px]">{r.name}</div>

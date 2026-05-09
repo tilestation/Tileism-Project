@@ -3,6 +3,7 @@ import { Megaphone, Loader2, Save, Eye, EyeOff, Image, Link2, Mail, Clock, Type,
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
 import { toast } from 'sonner';
+import { normaliseImageUrl } from '../../utils/safeStr';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL || '';
 
@@ -309,7 +310,7 @@ export default function WelcomePopupAdmin() {
               <div className="bg-white rounded-2xl shadow-xl overflow-hidden max-w-sm w-full">
                 {config.image_url && (
                   <div className="w-full h-36 overflow-hidden bg-gray-100">
-                    <img src={config.image_url} alt="" className="w-full h-full object-cover" onError={(e) => { e.target.style.display = 'none'; }} />
+                    <img src={normaliseImageUrl(config.image_url)} alt="" className="w-full h-full object-cover" onError={(e) => { e.target.style.display = 'none'; }} />
                   </div>
                 )}
                 <div className="p-5">

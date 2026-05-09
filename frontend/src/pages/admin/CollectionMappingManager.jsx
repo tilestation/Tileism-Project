@@ -26,6 +26,7 @@ import {
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
 import { toast } from 'sonner';
+import { normaliseImageUrl } from '../../utils/safeStr';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL || '';
 
@@ -197,7 +198,7 @@ function CollectionListItem({ collection, isSelected, onClick, onRefresh }) {
         {/* Thumbnail */}
         <div className="w-14 h-14 rounded-lg overflow-hidden bg-gray-100 flex-shrink-0">
           {collection.hero_image ? (
-            <img src={collection.hero_image} alt="" className="w-full h-full object-cover" />
+            <img src={normaliseImageUrl(collection.hero_image)} alt="" className="w-full h-full object-cover" />
           ) : (
             <div className="w-full h-full flex items-center justify-center text-gray-400">
               <Image className="w-6 h-6" />
@@ -367,7 +368,7 @@ function CollectionProductsPanel({ collection, onClose, onAddProducts, onRefresh
                 {/* Thumbnail */}
                 <div className="w-12 h-12 rounded overflow-hidden bg-gray-100 flex-shrink-0">
                   {product.image ? (
-                    <img src={product.image} alt="" className="w-full h-full object-cover" />
+                    <img src={normaliseImageUrl(product.image)} alt="" className="w-full h-full object-cover" />
                   ) : (
                     <div className="w-full h-full flex items-center justify-center text-gray-400">
                       <Image className="w-5 h-5" />
@@ -781,7 +782,7 @@ function AddProductsModal({ collection, onClose, onAdded }) {
                     {/* Thumbnail */}
                     <div className="w-14 h-14 rounded overflow-hidden bg-gray-100 flex-shrink-0">
                       {product.image ? (
-                        <img src={product.image} alt="" className="w-full h-full object-cover" />
+                        <img src={normaliseImageUrl(product.image)} alt="" className="w-full h-full object-cover" />
                       ) : (
                         <div className="w-full h-full flex items-center justify-center text-gray-400">
                           <Image className="w-5 h-5" />

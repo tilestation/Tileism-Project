@@ -11,6 +11,7 @@ import { RadioGroup, RadioGroupItem } from '../../components/ui/radio-group';
 import { Checkbox } from '../../components/ui/checkbox';
 import { useShopAuth } from '../../contexts/ShopAuthContext';
 import { toast } from 'sonner';
+import { normaliseImageUrl } from '../../utils/safeStr';
 
 export const ShopCheckout = () => {
   const { cart, cartTotal, customer, isAuthenticated, clearCart } = useShopAuth();
@@ -471,7 +472,7 @@ export const ShopCheckout = () => {
                   <div key={item.product_id} className="flex gap-3">
                     <div className="w-12 h-12 bg-gray-100 rounded flex-shrink-0">
                       {item.image ? (
-                        <img src={item.image} alt="" className="w-full h-full object-cover rounded" />
+                        <img src={normaliseImageUrl(item.image)} alt="" className="w-full h-full object-cover rounded" />
                       ) : (
                         <div className="w-full h-full flex items-center justify-center text-gray-400 text-sm">🪨</div>
                       )}

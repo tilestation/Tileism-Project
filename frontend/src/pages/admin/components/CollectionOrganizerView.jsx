@@ -8,6 +8,7 @@ import { Button } from '../../../components/ui/button';
 import { Input } from '../../../components/ui/input';
 import { toast } from 'sonner';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
+import { normaliseImageUrl } from '../../../utils/safeStr';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
 
@@ -517,7 +518,7 @@ export default function CollectionOrganizerView() {
                                 </button>
                                 <GripVertical className="w-3.5 h-3.5 text-gray-300 mt-0.5 flex-shrink-0" />
                                 {s.sample_image ? (
-                                  <img src={s.sample_image} alt="" className="w-8 h-8 rounded object-cover flex-shrink-0" />
+                                  <img src={normaliseImageUrl(s.sample_image)} alt="" className="w-8 h-8 rounded object-cover flex-shrink-0" />
                                 ) : (
                                   <div className="w-8 h-8 rounded bg-gray-100 flex items-center justify-center flex-shrink-0">
                                     <Image className="w-4 h-4 text-gray-300" />

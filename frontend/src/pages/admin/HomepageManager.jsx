@@ -14,6 +14,7 @@ import { Textarea } from '../../components/ui/textarea';
 import { toast } from 'sonner';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import InfoPagesEditor from './components/InfoPagesEditor';
+import { normaliseImageUrl } from '../../utils/safeStr';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
 
@@ -578,7 +579,7 @@ function HeroSlidesEditor({ slides, setSlides }) {
                         </div>
                         <div className="aspect-video bg-gray-100">
                           {slide.image ? (
-                            <img src={slide.image} alt={slide.title} className="w-full h-full object-cover" />
+                            <img src={normaliseImageUrl(slide.image)} alt={slide.title} className="w-full h-full object-cover" />
                           ) : (
                             <div className="w-full h-full flex items-center justify-center text-gray-400">
                               <ImageIcon className="w-12 h-12" />
@@ -768,7 +769,7 @@ function HeroSlidesEditor({ slides, setSlides }) {
                 data-testid="hero-image-dropzone"
               >
                 {editingSlide.image ? (
-                  <img src={editingSlide.image} alt="Preview" className="w-full h-full object-cover" />
+                  <img src={normaliseImageUrl(editingSlide.image)} alt="Preview" className="w-full h-full object-cover" />
                 ) : (
                   <div className="w-full h-full flex flex-col items-center justify-center text-gray-400">
                     <Upload className="w-8 h-8 mb-2" />
@@ -1233,7 +1234,7 @@ function HomepageCategoriesEditor({ categories, setCategories, onRefresh }) {
         )}
         <div className="aspect-square bg-gray-100">
           {cat.image_url ? (
-            <img src={cat.image_url} alt={cat.name} className={`w-full h-full object-cover ${!isOnHomepage ? 'opacity-60' : ''}`} />
+            <img src={normaliseImageUrl(cat.image_url)} alt={cat.name} className={`w-full h-full object-cover ${!isOnHomepage ? 'opacity-60' : ''}`} />
           ) : (
             <div className="w-full h-full flex items-center justify-center text-gray-400">
               <ImageIcon className="w-8 h-8" />
@@ -1750,7 +1751,7 @@ function HomepageStylesEditor() {
       >
         <div className="aspect-[4/3] bg-gray-100">
           {style.image_url ? (
-            <img src={style.image_url} alt={style.label} className={`w-full h-full object-cover ${!isOnHomepage ? 'opacity-60' : ''}`} />
+            <img src={normaliseImageUrl(style.image_url)} alt={style.label} className={`w-full h-full object-cover ${!isOnHomepage ? 'opacity-60' : ''}`} />
           ) : (
             <div className="w-full h-full flex items-center justify-center text-gray-400">
               <ImageIcon className="w-8 h-8" />
@@ -2699,7 +2700,7 @@ function PageBannersEditor({
                 {/* Banner Preview */}
                 <div className="w-40 h-24 rounded-lg overflow-hidden bg-gray-100 flex-shrink-0 relative">
                   {banner.image ? (
-                    <img src={banner.image} alt={banner.title} className="w-full h-full object-cover" />
+                    <img src={normaliseImageUrl(banner.image)} alt={banner.title} className="w-full h-full object-cover" />
                   ) : (
                     <div className="w-full h-full flex items-center justify-center text-gray-400">
                       <Image className="w-8 h-8" />
@@ -2986,7 +2987,7 @@ function PageBannersEditor({
                   <Label>Preview</Label>
                   <div className="relative h-32 rounded-lg overflow-hidden bg-gray-100 mt-2">
                     {bannerForm.image && (
-                      <img src={bannerForm.image} alt="Preview" className="w-full h-full object-cover" />
+                      <img src={normaliseImageUrl(bannerForm.image)} alt="Preview" className="w-full h-full object-cover" />
                     )}
                     <div className="absolute inset-0" style={{ background: bannerForm.overlay || 'rgba(0,0,0,0.3)' }}></div>
                     <div className="absolute inset-0 flex flex-col items-center justify-center text-white">
@@ -3841,7 +3842,7 @@ function ShowroomToursEditor() {
                   />
                   {video.thumbnail_url ? (
                     <div className="flex items-center gap-2">
-                      <img src={video.thumbnail_url} alt="" className="w-16 h-10 object-cover rounded" />
+                      <img src={normaliseImageUrl(video.thumbnail_url)} alt="" className="w-16 h-10 object-cover rounded" />
                       <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => thumbInputRefs.current[i]?.click()}>
                         Replace
                       </Button>
@@ -3893,7 +3894,7 @@ function ShowroomToursEditor() {
                 <div className="max-w-2xl mx-auto">
                   <div className="aspect-video rounded-xl overflow-hidden bg-slate-800 relative mb-4">
                     {previewVideo?.thumbnail_url ? (
-                      <img src={previewVideo.thumbnail_url} alt={previewVideo.title} className="w-full h-full object-cover" />
+                      <img src={normaliseImageUrl(previewVideo.thumbnail_url)} alt={previewVideo.title} className="w-full h-full object-cover" />
                     ) : previewVideo?.video_url ? (
                       <video src={previewVideo.video_url} className="w-full h-full object-cover" />
                     ) : (
@@ -3923,7 +3924,7 @@ function ShowroomToursEditor() {
                         >
                           <div className="aspect-video bg-slate-700">
                             {v.thumbnail_url ? (
-                              <img src={v.thumbnail_url} alt={v.title} className="w-full h-full object-cover" />
+                              <img src={normaliseImageUrl(v.thumbnail_url)} alt={v.title} className="w-full h-full object-cover" />
                             ) : (
                               <div className="w-full h-full flex items-center justify-center">
                                 <Film className="w-4 h-4 text-slate-500" />
@@ -4273,7 +4274,7 @@ function VideoShowroomEditor() {
 
         {thumbnailUrl && (
           <div className="relative rounded-lg overflow-hidden max-w-md aspect-video">
-            <img src={thumbnailUrl} alt="Thumbnail" className="w-full h-full object-cover" />
+            <img src={normaliseImageUrl(thumbnailUrl)} alt="Thumbnail" className="w-full h-full object-cover" />
           </div>
         )}
 

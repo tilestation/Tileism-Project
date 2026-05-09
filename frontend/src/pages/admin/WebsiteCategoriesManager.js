@@ -11,6 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/ca
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../../components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
 import { toast } from 'sonner';
+import { normaliseImageUrl } from '../../utils/safeStr';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
 
@@ -442,7 +443,7 @@ const WebsiteCategoriesManager = () => {
                               <div className="flex items-center gap-3">
                                 <GripVertical className="w-4 h-4 text-gray-400" />
                                 {cat.image_url ? (
-                                  <img src={cat.image_url} alt={cat.name} className="w-10 h-10 rounded object-cover" />
+                                  <img src={normaliseImageUrl(cat.image_url)} alt={cat.name} className="w-10 h-10 rounded object-cover" />
                                 ) : (
                                   <div className="w-10 h-10 bg-gray-200 rounded flex items-center justify-center">
                                     <Image className="w-5 h-5 text-gray-400" />
@@ -523,7 +524,7 @@ const WebsiteCategoriesManager = () => {
                     <div className="flex items-center gap-3">
                       <GripVertical className="w-4 h-4 text-gray-400" />
                       {cat.image_url ? (
-                        <img src={cat.image_url} alt={cat.name} className="w-10 h-10 rounded object-cover" />
+                        <img src={normaliseImageUrl(cat.image_url)} alt={cat.name} className="w-10 h-10 rounded object-cover" />
                       ) : (
                         <div className="w-10 h-10 bg-gray-100 rounded flex items-center justify-center">
                           <Image className="w-5 h-5 text-gray-400" />
@@ -577,7 +578,7 @@ const WebsiteCategoriesManager = () => {
                       <div key={cat.id} className="bg-white rounded-lg overflow-hidden shadow-sm hover:shadow-md transition-shadow">
                         <div className="aspect-square bg-gray-100 relative">
                           {cat.image_url ? (
-                            <img src={cat.image_url} alt={cat.name} className="w-full h-full object-cover" />
+                            <img src={normaliseImageUrl(cat.image_url)} alt={cat.name} className="w-full h-full object-cover" />
                           ) : (
                             <div className="w-full h-full flex items-center justify-center">
                               <Image className="w-8 h-8 text-gray-300" />
@@ -706,7 +707,7 @@ const WebsiteCategoriesManager = () => {
                   <div key={cat.id} className="group relative bg-white rounded-lg overflow-hidden border hover:shadow-lg transition-all cursor-pointer">
                     <div className="aspect-[4/3] bg-gray-100 relative overflow-hidden">
                       {cat.image_url ? (
-                        <img src={cat.image_url} alt={cat.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+                        <img src={normaliseImageUrl(cat.image_url)} alt={cat.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
                       ) : (
                         <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-gray-100 to-gray-200">
                           <Image className="w-12 h-12 text-gray-300" />

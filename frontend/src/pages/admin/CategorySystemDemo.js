@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Button } from '../../components/ui/button';
 import { Check, Tag, Layers, Filter, Grid3X3, ChevronRight, X } from 'lucide-react';
+import { normaliseImageUrl } from '../../utils/safeStr';
 
 // Demo component to show different category system options
 export default function CategorySystemDemo() {
@@ -105,7 +106,7 @@ export default function CategorySystemDemo() {
             {['Floor Tiles', 'Wall Tiles', 'Polished'].map(category => (
               <div key={category} className="bg-white rounded-lg p-3 shadow">
                 <p className="text-xs text-gray-500 mb-2">Found in: {category}</p>
-                <img src={sampleProduct.image} alt="" className="w-full h-24 object-cover rounded mb-2" />
+                <img src={normaliseImageUrl(sampleProduct.image)} alt="" className="w-full h-24 object-cover rounded mb-2" />
                 <p className="text-sm font-medium truncate">{sampleProduct.name}</p>
                 <p className="text-green-600 font-bold">£{sampleProduct.price}/m²</p>
               </div>
@@ -177,7 +178,7 @@ export default function CategorySystemDemo() {
           <div className="grid grid-cols-2 gap-4">
             {collections.map(col => (
               <div key={col.name} className="bg-white rounded-lg overflow-hidden shadow hover:shadow-lg transition-shadow cursor-pointer">
-                <img src={col.image} alt={col.name} className="w-full h-32 object-cover" />
+                <img src={normaliseImageUrl(col.image)} alt={col.name} className="w-full h-32 object-cover" />
                 <div className="p-4">
                   <h4 className="font-bold">{col.name}</h4>
                   <p className="text-sm text-gray-600">{col.description}</p>

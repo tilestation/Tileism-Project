@@ -15,6 +15,7 @@ import {
   Layers
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { normaliseImageUrl } from '../../utils/safeStr';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
 
@@ -502,7 +503,7 @@ const CollectionsPageSettings = ({ embedded = false }) => {
 
                     <div className="w-24 h-16 rounded-lg overflow-hidden bg-gray-100 flex-shrink-0">
                       {slide.image ? (
-                        <img src={slide.image} alt="" className="w-full h-full object-cover" />
+                        <img src={normaliseImageUrl(slide.image)} alt="" className="w-full h-full object-cover" />
                       ) : (
                         <div className="w-full h-full flex items-center justify-center text-gray-400">
                           <ImageIcon className="w-6 h-6" />
@@ -539,7 +540,7 @@ const CollectionsPageSettings = ({ embedded = false }) => {
             </h2>
             <div className="relative aspect-[16/9] rounded-xl overflow-hidden bg-gray-900 shadow-2xl">
               {currentPreviewSlide?.image ? (
-                <img src={currentPreviewSlide.image} alt="" className="w-full h-full object-cover" />
+                <img src={normaliseImageUrl(currentPreviewSlide.image)} alt="" className="w-full h-full object-cover" />
               ) : (
                 <div className="w-full h-full flex items-center justify-center text-gray-500">
                   <ImageIcon className="w-16 h-16" />

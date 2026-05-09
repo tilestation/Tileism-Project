@@ -17,6 +17,7 @@ import PaymentMethodCards from '../../components/shop/PaymentMethodCards';
 import useAbandonedCartTracker from '../../hooks/useAbandonedCartTracker';
 import CheckoutMaintenanceWarning from '../../components/shop/CheckoutMaintenanceWarning';
 import { useCheckoutMaintenanceCountdown } from '../../contexts/MaintenanceContext';
+import { normaliseImageUrl } from '../../utils/safeStr';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
 
@@ -1083,7 +1084,7 @@ const TileCheckoutPage = () => {
                       >
                         <div className="h-16 w-16 rounded-lg bg-[#F9F8F6] border border-[#E7E5E4] overflow-hidden flex-shrink-0 flex items-center justify-center">
                           {item.image ? (
-                            <img src={item.image} alt={item.name} className="w-full h-full object-cover" />
+                            <img src={normaliseImageUrl(item.image)} alt={item.name} className="w-full h-full object-cover" />
                           ) : (
                             <Package className="w-6 h-6 text-[#D6D3D1]" />
                           )}

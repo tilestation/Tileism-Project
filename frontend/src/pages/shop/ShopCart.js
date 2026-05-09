@@ -5,6 +5,7 @@ import { Button } from '../../components/ui/button';
 import { Card } from '../../components/ui/card';
 import { useShopAuth } from '../../contexts/ShopAuthContext';
 import { toast } from 'sonner';
+import { normaliseImageUrl } from '../../utils/safeStr';
 
 export const ShopCart = () => {
   const { cart, cartTotal, updateCartItem, removeFromCart, clearCart, isAuthenticated } = useShopAuth();
@@ -75,7 +76,7 @@ export const ShopCart = () => {
                 {/* Product Image */}
                 <div className="w-24 h-24 bg-gray-100 rounded-lg overflow-hidden flex-shrink-0">
                   {item.image ? (
-                    <img src={item.image} alt={item.name} className="w-full h-full object-cover" />
+                    <img src={normaliseImageUrl(item.image)} alt={item.name} className="w-full h-full object-cover" />
                   ) : (
                     <div className="w-full h-full flex items-center justify-center text-gray-400">
                       <span className="text-2xl">🪨</span>

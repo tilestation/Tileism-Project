@@ -16,6 +16,7 @@ import { Loader2, Sparkles, ShoppingBag, ArrowRight } from 'lucide-react';
 import { Button } from '../../components/ui/button';
 import { Card } from '../../components/ui/card';
 import { ShopHeader, ShopFooter } from './TileStationHome';
+import { normaliseImageUrl } from '../../utils/safeStr';
 
 const API = process.env.REACT_APP_BACKEND_URL;
 
@@ -88,7 +89,7 @@ const VisualizerSharePage = () => {
             <Card className="p-5 flex items-start justify-between gap-4 flex-wrap" data-testid="visualizer-share-cta-card">
               <div className="flex items-center gap-3">
                 {data.tile?.image && (
-                  <img src={data.tile.image} alt="" className="w-16 h-16 rounded-lg object-cover border border-slate-200" />
+                  <img src={normaliseImageUrl(data.tile.image)} alt="" className="w-16 h-16 rounded-lg object-cover border border-slate-200" />
                 )}
                 <div>
                   <div className="font-bold text-slate-900">{data.tile?.name}</div>

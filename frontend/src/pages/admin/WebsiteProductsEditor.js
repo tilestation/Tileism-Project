@@ -6,6 +6,7 @@ import { Label } from '../../components/ui/label';
 import { Textarea } from '../../components/ui/textarea';
 import { Switch } from '../../components/ui/switch';
 import { toast } from 'sonner';
+import { normaliseImageUrl } from '../../utils/safeStr';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
 
@@ -268,7 +269,7 @@ const WebsiteProductsEditor = () => {
                     className={`flex items-center gap-3 p-3 cursor-pointer hover:bg-gray-50 ${selectedProduct?.id === product.id ? 'bg-amber-50' : ''}`}
                   >
                     {product.images?.[0] ? (
-                      <img src={product.images[0]} alt="" className="w-14 h-14 rounded object-cover" />
+                      <img src={normaliseImageUrl(product.images[0])} alt="" className="w-14 h-14 rounded object-cover" />
                     ) : (
                       <div className="w-14 h-14 rounded bg-gray-200 flex items-center justify-center">
                         <Image className="h-6 w-6 text-gray-400" />
