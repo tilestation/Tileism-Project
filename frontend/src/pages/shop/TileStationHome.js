@@ -18,6 +18,7 @@ import { useTradeUser } from '../../hooks/useTradeUser';
 import LiveChatWidget from '../../components/shop/LiveChatWidget';
 import WelcomePopup from '../../components/shop/WelcomePopup';
 import SeoHead from '../../components/seo/SeoHead';
+import { normaliseImageUrl } from '../../utils/safeStr';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
 
@@ -239,8 +240,8 @@ const ShopHeader = ({ cartCount: propCartCount }) => {
                       className="flex items-center gap-4 p-4 hover:bg-gray-50 border-b last:border-0"
                       onClick={() => setShowSearch(false)}
                     >
-                      {result.image && (
-                        <img src={result.image} alt="" className="w-16 h-16 object-cover rounded-lg" />
+                      {normaliseImageUrl(result.image) && (
+                        <img src={normaliseImageUrl(result.image)} alt="" className="w-16 h-16 object-cover rounded-lg" />
                       )}
                       <div className="flex-1">
                         <p className="font-medium">{result.name}</p>
@@ -1371,9 +1372,9 @@ const TileStationHome = () => {
                   data-testid={`featured-collection-${collection.series_name}`}
                 >
                   <div className="aspect-square bg-gray-100 rounded-xl overflow-hidden mb-3 relative shadow-sm group-hover:shadow-lg transition-shadow">
-                    {collection.hero_image ? (
+                    {normaliseImageUrl(collection.hero_image) ? (
                       <img
-                        src={collection.hero_image}
+                        src={normaliseImageUrl(collection.hero_image)}
                         alt={collection.custom_title || collection.series_name}
                         className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                       />
@@ -1408,9 +1409,9 @@ const TileStationHome = () => {
                   data-testid={`featured-tile-${tile.id}`}
                 >
                   <div className="aspect-square bg-gray-100 rounded-xl overflow-hidden mb-3 relative shadow-sm group-hover:shadow-lg transition-shadow">
-                    {tile.images?.[0] ? (
+                    {normaliseImageUrl(tile.images?.[0]) ? (
                       <img
-                        src={tile.images[0]}
+                        src={normaliseImageUrl(tile.images[0])}
                         alt={tile.display_name}
                         className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                       />
