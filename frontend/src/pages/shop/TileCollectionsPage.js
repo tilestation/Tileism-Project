@@ -31,7 +31,7 @@ import { useTradeUser } from '../../hooks/useTradeUser';
 import { useCart } from '../../contexts/TileCartContext';
 import { useSampleCart } from '../../contexts/SampleCartContext';
 import LiveChatWidget from '../../components/shop/LiveChatWidget';
-import { normaliseImageUrl } from '../../utils/safeStr';
+import { normaliseImageUrl, safeArr} from '../../utils/safeStr';
 import { toast } from 'sonner';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
@@ -1313,7 +1313,7 @@ const TileCollectionsPage = () => {
             setTotalCollections(data.total || 0);
             setTotalProducts(data.total_products || 0);
             if (trendingCollections.length === 0 && data.collections?.length > 0) {
-              setTrendingCollections(data.collections.slice(0, 8));
+              setTrendingCollections(safeArr(data.collections).slice(0, 8));
             }
             setLoadError(null);
             return;

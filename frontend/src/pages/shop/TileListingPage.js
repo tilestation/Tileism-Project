@@ -7,6 +7,7 @@ import { Checkbox } from '../../components/ui/checkbox';
 import { ShopHeader, ShopFooter } from './TileStationHome';
 import { useTradeUser } from '../../hooks/useTradeUser';
 import SeoHead from '../../components/seo/SeoHead';
+import { safeArr } from '../../utils/safeStr';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
 
@@ -191,7 +192,7 @@ const TileListingPage = () => {
                   />
                   <FilterSection 
                     title="Size" 
-                    options={filters.sizes.slice(0, 15)} 
+                    options={safeArr(filters.sizes).slice(0, 15)} 
                     filterKey="size" 
                     currentValue={currentFilters.size} 
                   />
@@ -356,7 +357,7 @@ const TileListingPage = () => {
                       {/* Secondary Image Thumbnails */}
                       {tile.images?.length > 1 && viewMode === 'grid' && (
                         <div className="absolute bottom-2 left-2 flex gap-1">
-                          {tile.images.slice(1, 4).map((img, idx) => (
+                          {safeArr(tile.images).slice(1, 4).map((img, idx) => (
                             <div 
                               key={idx} 
                               className="w-8 h-8 rounded border-2 border-white overflow-hidden shadow-sm bg-white"
@@ -369,9 +370,9 @@ const TileListingPage = () => {
                               />
                             </div>
                           ))}
-                          {tile.images.length > 4 && (
+                          {safeArr(tile.images).length > 4 && (
                             <div className="w-8 h-8 rounded border-2 border-white bg-black/70 flex items-center justify-center shadow-sm">
-                              <span className="text-white text-xs font-medium">+{tile.images.length - 4}</span>
+                              <span className="text-white text-xs font-medium">+{safeArr(tile.images).length - 4}</span>
                             </div>
                           )}
                         </div>
@@ -460,7 +461,7 @@ const TileListingPage = () => {
                   />
                   <FilterSection 
                     title="Size" 
-                    options={filters.sizes.slice(0, 15)} 
+                    options={safeArr(filters.sizes).slice(0, 15)} 
                     filterKey="size" 
                     currentValue={currentFilters.size} 
                   />

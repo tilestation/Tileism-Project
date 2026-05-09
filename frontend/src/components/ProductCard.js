@@ -3,7 +3,7 @@ import { Card } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
 import { Plus, Layers, Truck, Package } from 'lucide-react';
-import { normaliseImageUrl, safeToFixed} from '../utils/safeStr';
+import { normaliseImageUrl, safeToFixed, safeArr} from '../utils/safeStr';
 
 export const ProductCard = ({ product, onAddToCart, isClearance = false }) => {
   const [selectedTier, setSelectedTier] = useState('piece');
@@ -60,7 +60,7 @@ export const ProductCard = ({ product, onAddToCart, isClearance = false }) => {
     >
       <div className="space-y-3">
         {/* Product Image */}
-        {product.images && product.images.length > 0 && (
+        {product.images && safeArr(product.images).length > 0 && (
           <div className="relative w-full h-48 bg-secondary rounded-md overflow-hidden">
             <img 
               src={normaliseImageUrl(product.images[0])} 
@@ -70,9 +70,9 @@ export const ProductCard = ({ product, onAddToCart, isClearance = false }) => {
                 e.target.style.display = 'none';
               }}
             />
-            {product.images.length > 1 && (
+            {safeArr(product.images).length > 1 && (
               <div className="absolute bottom-2 right-2 bg-black/60 text-white text-xs px-2 py-1 rounded-full">
-                +{product.images.length - 1} more
+                +{safeArr(product.images).length - 1} more
               </div>
             )}
             {isClearance && (

@@ -11,6 +11,7 @@ import { Checkbox } from '../../components/ui/checkbox';
 import { useShopAuth } from '../../contexts/ShopAuthContext';
 import { useTradeUser } from '../../hooks/useTradeUser';
 import { toast } from 'sonner';
+import { safeArr } from '../../utils/safeStr';
 
 export const ShopProducts = () => {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -329,7 +330,7 @@ export const ShopProducts = () => {
                         {/* Secondary Image Thumbnails */}
                         {product.images?.length > 1 && viewMode === 'grid' && (
                           <div className="absolute bottom-2 left-2 flex gap-1">
-                            {product.images.slice(1, 4).map((img, idx) => (
+                            {safeArr(product.images).slice(1, 4).map((img, idx) => (
                               <div 
                                 key={idx} 
                                 className="w-8 h-8 rounded border-2 border-white overflow-hidden shadow-sm"
@@ -341,9 +342,9 @@ export const ShopProducts = () => {
                                 />
                               </div>
                             ))}
-                            {product.images.length > 4 && (
+                            {safeArr(product.images).length > 4 && (
                               <div className="w-8 h-8 rounded border-2 border-white bg-black/70 flex items-center justify-center shadow-sm">
-                                <span className="text-white text-xs font-medium">+{product.images.length - 4}</span>
+                                <span className="text-white text-xs font-medium">+{safeArr(product.images).length - 4}</span>
                               </div>
                             )}
                           </div>

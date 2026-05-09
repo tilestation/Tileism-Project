@@ -22,6 +22,7 @@ import { Button } from '../../components/ui/button';
 import { Card } from '../../components/ui/card';
 import { Input } from '../../components/ui/input';
 import { ShopHeader, ShopFooter } from './TileStationHome';
+import { safeArr } from '../../utils/safeStr';
 
 const API = process.env.REACT_APP_BACKEND_URL;
 
@@ -667,14 +668,14 @@ const TileVisualizerPage = () => {
                 <div className="mt-4 pt-3 border-t border-slate-200" data-testid="visualizer-tile-image-strip">
                   <div className="flex items-center justify-between mb-2">
                     <div className="text-xs font-bold uppercase tracking-wider text-slate-600">
-                      Texture image · {tile.images.length} available
+                      Texture image · {safeArr(tile.images).length} available
                     </div>
                     <div className="text-[10px] text-slate-500">
-                      Image {imageIdx + 1} of {tile.images.length}
+                      Image {imageIdx + 1} of {safeArr(tile.images).length}
                     </div>
                   </div>
                   <div className="grid grid-cols-5 sm:grid-cols-6 gap-1.5">
-                    {tile.images.map((u, i) => (
+                    {safeArr(tile.images).map((u, i) => (
                       <button
                         key={`${u}-${i}`}
                         type="button"

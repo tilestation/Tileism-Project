@@ -9,7 +9,7 @@ import { Badge } from '../../components/ui/badge';
 import { OTPVerification } from '../../components/OTPVerification';
 import { BulkInquiryModal } from '../../components/BulkInquiryModal';
 import { useAuth } from '../../contexts/AuthContext';
-import { safeToFixed } from '../../utils/safeStr';
+import { safeToFixed, safeArr} from '../../utils/safeStr';
 
 export const CustomerProducts = () => {
   const { user } = useAuth();
@@ -255,7 +255,7 @@ export const CustomerProducts = () => {
                     {clearanceProducts.map(product => (
                       <Card key={product.id} className="p-4 hover:shadow-md duration-200 border-2 border-red-200 bg-red-50/30" data-testid={`product-card-${product.id}`}>
                         <div className="space-y-3">
-                          {product.images && product.images.length > 0 && (
+                          {product.images && safeArr(product.images).length > 0 && (
                             <div className="relative w-full h-48 bg-secondary rounded-md overflow-hidden">
                               <img 
                                 src={product.images[0]} 
@@ -265,9 +265,9 @@ export const CustomerProducts = () => {
                                   e.target.style.display = 'none';
                                 }}
                               />
-                              {product.images.length > 1 && (
+                              {safeArr(product.images).length > 1 && (
                                 <div className="absolute bottom-2 right-2 bg-black/60 text-white text-xs px-2 py-1 rounded-full">
-                                  +{product.images.length - 1} more
+                                  +{safeArr(product.images).length - 1} more
                                 </div>
                               )}
                               <div className="absolute top-2 left-2 bg-red-600 text-white text-xs font-bold px-3 py-1 rounded-full">
@@ -337,7 +337,7 @@ export const CustomerProducts = () => {
                   return (
                     <Card key={product.id} className="p-4 hover:shadow-md duration-200" data-testid={`product-card-${product.id}`}>
                       <div className="space-y-3">
-                        {product.images && product.images.length > 0 && (
+                        {product.images && safeArr(product.images).length > 0 && (
                           <div className="relative w-full h-48 bg-secondary rounded-md overflow-hidden">
                             <img 
                               src={product.images[0]} 
@@ -347,9 +347,9 @@ export const CustomerProducts = () => {
                                 e.target.style.display = 'none';
                               }}
                             />
-                            {product.images.length > 1 && (
+                            {safeArr(product.images).length > 1 && (
                               <div className="absolute bottom-2 right-2 bg-black/60 text-white text-xs px-2 py-1 rounded-full">
-                                +{product.images.length - 1} more
+                                +{safeArr(product.images).length - 1} more
                               </div>
                             )}
                             {hasBulkPricing && (

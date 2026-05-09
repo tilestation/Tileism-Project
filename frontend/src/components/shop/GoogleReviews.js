@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Star } from 'lucide-react';
+import { safeArr } from '../../utils/safeStr';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
 
@@ -100,7 +101,7 @@ export const GoogleReviews = () => {
           <div
             key={`${review.id || i}-${i}`}
             className="flex-shrink-0 w-[280px] sm:w-[360px] bg-gray-50 rounded-2xl p-5 sm:p-6 border border-gray-100 hover:shadow-lg transition-shadow"
-            data-testid={`review-card-${i % config.reviews.length}`}
+            data-testid={`review-card-${i % safeArr(config.reviews).length}`}
           >
             {/* Stars */}
             <div className="flex gap-0.5 mb-4">

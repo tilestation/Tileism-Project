@@ -11,7 +11,7 @@ import { Button } from '../../components/ui/button';
 import { ShopHeader, ShopFooter } from './TileStationHome';
 import { useCart } from '../../contexts/TileCartContext';
 import { toast } from 'sonner';
-import { normaliseImageUrl, safeToFixed} from '../../utils/safeStr';
+import { normaliseImageUrl, safeToFixed, safeArr} from '../../utils/safeStr';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
 
@@ -1216,7 +1216,7 @@ const TradeAccountPage = () => {
                         </div>
                         {order.items && (
                           <div className="mt-4 pt-4 border-t flex items-center justify-between gap-3 flex-wrap">
-                            <p className="text-sm text-gray-500">{order.items.length} item(s)</p>
+                            <p className="text-sm text-gray-500">{safeArr(order.items).length} item(s)</p>
                             <Button
                               type="button"
                               variant="outline"

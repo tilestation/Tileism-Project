@@ -279,3 +279,35 @@ describe('Price/number rendering crash-resistance — Feb 2026 sweep', () => {
   });
 });
 
+
+describe('Array crash-resistance — Feb 2026 sweep', () => {
+  // Pins the "page-blanking" failure modes for arrays. Before this sweep,
+  // `product.images.map(...)` would crash if the supplier sync returned
+  // `images: null`. With safeArr(), it renders an empty list — visible
+  // bug, never a blank white page.
+  test('null array field → safe empty operations', () => {
+    expect(safeArr(null).map(x => x)).toEqual([]);
+    expect(safeArr(null).length).toBe(0);
+    expect(safeArr(undefined).filter(Boolean)).toEqual([]);
+    expect(safeArr(undefined).slice(0, 5)).toEqual([]);
+  });
+  test('valid arrays pass through unchanged', () => {
+    expect(safeArr([1, 2, 3]).map(x => x * 2)).toEqual([2, 4, 6]);
+    expect(safeArr(['a', 'b']).length).toBe(2);
+  });
+  test('non-array scalar is wrapped (lenient mode)', () => {
+    // A single object accidentally returned where an array was expected
+    // is treated as a 1-element list rather than crashing.
+    expect(safeArr({ id: 1 }).length).toBe(1);
+    expect(safeArr('single').length).toBe(1);
+  });
+  test('chained array methods on null product fields', () => {
+    // Real pattern: product.images.slice(1, 4).map(...)
+    const product = { images: null };
+    expect(safeArr(product.images).slice(1, 4)).toEqual([]);
+    // Also: order.items.map((item) => ...).length
+    const order = { items: undefined };
+    expect(safeArr(order.items).map(i => i).length).toBe(0);
+  });
+});
+

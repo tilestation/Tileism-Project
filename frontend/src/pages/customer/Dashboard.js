@@ -3,7 +3,7 @@ import { api } from '../../lib/api';
 import { toast } from 'sonner';
 import { Package, ShoppingCart, Eye } from 'lucide-react';
 import { Card } from '../../components/ui/card';
-import { safeToFixed } from '../../utils/safeStr';
+import { safeToFixed, safeArr} from '../../utils/safeStr';
 
 export const CustomerDashboard = () => {
   const [products, setProducts] = useState([]);
@@ -100,7 +100,7 @@ export const CustomerDashboard = () => {
                 <div key={order.id} className="flex items-center justify-between p-3 bg-secondary rounded-md" data-testid={`order-${order.id}`}>
                   <div>
                     <p className="font-medium text-sm font-mono">{order.id.substring(0, 8)}...</p>
-                    <p className="text-xs text-muted-foreground">{order.items.length} items</p>
+                    <p className="text-xs text-muted-foreground">{safeArr(order.items).length} items</p>
                   </div>
                   <div className="text-right">
                     <p className="font-bold tabular-nums text-sm">£{safeToFixed(order.total_amount, 2)}</p>

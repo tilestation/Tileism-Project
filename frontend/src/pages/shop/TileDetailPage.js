@@ -27,7 +27,7 @@ import { usePageTracking } from '../../hooks/usePageTracking';
 import LiveChatWidget from '../../components/shop/LiveChatWidget';
 import { useTrustBadges } from '../../hooks/useTrustBadges';
 import SeoHead from '../../components/seo/SeoHead';
-import { normaliseImageUrl, safeToFixed} from '../../utils/safeStr';
+import { normaliseImageUrl, safeToFixed, safeArr} from '../../utils/safeStr';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
 
@@ -508,13 +508,13 @@ const TileDetailPage = () => {
               {tile.images?.length > 1 && (
                 <>
                   <button
-                    onClick={() => setSelectedImage(prev => prev > 0 ? prev - 1 : tile.images.length - 1)}
+                    onClick={() => setSelectedImage(prev => prev > 0 ? prev - 1 : safeArr(tile.images).length - 1)}
                     className="absolute left-4 top-1/2 -translate-y-1/2 p-2 bg-white rounded-full shadow hover:bg-gray-50 z-10"
                   >
                     <ChevronLeft className="h-5 w-5" />
                   </button>
                   <button
-                    onClick={() => setSelectedImage(prev => prev < tile.images.length - 1 ? prev + 1 : 0)}
+                    onClick={() => setSelectedImage(prev => prev < safeArr(tile.images).length - 1 ? prev + 1 : 0)}
                     className="absolute right-4 top-1/2 -translate-y-1/2 p-2 bg-white rounded-full shadow hover:bg-gray-50 z-10"
                   >
                     <ChevronRight className="h-5 w-5" />
@@ -526,7 +526,7 @@ const TileDetailPage = () => {
             {/* Thumbnail Gallery */}
             {tile.images?.length > 1 && (
               <div className="flex gap-2 overflow-x-auto">
-                {tile.images.map((img, idx) => (
+                {safeArr(tile.images).map((img, idx) => (
                   <button
                     key={idx}
                     onClick={() => setSelectedImage(idx)}

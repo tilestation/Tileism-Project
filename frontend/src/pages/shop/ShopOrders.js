@@ -6,7 +6,7 @@ import { Button } from '../../components/ui/button';
 import { Card } from '../../components/ui/card';
 import { Badge } from '../../components/ui/badge';
 import { useShopAuth } from '../../contexts/ShopAuthContext';
-import { normaliseImageUrl } from '../../utils/safeStr';
+import { normaliseImageUrl, safeArr} from '../../utils/safeStr';
 
 export const ShopOrders = () => {
   const { isAuthenticated } = useShopAuth();
@@ -195,7 +195,7 @@ export const ShopOrders = () => {
               ))}
               {order.items?.length > 4 && (
                 <div className="w-16 h-16 bg-gray-100 rounded flex items-center justify-center text-sm text-slate-500">
-                  +{order.items.length - 4}
+                  +{safeArr(order.items).length - 4}
                 </div>
               )}
             </div>

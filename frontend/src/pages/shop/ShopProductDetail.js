@@ -12,7 +12,7 @@ import RenderProductDescription from '../../components/shop/RenderProductDescrip
 import { TradeLoginBox } from '../../components/shop/TradeLoginPrompt';
 import { toast } from 'sonner';
 import { TileCalculator } from '../../components/shop/TileCalculator';
-import { safeToFixed } from '../../utils/safeStr';
+import { safeToFixed, safeArr} from '../../utils/safeStr';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
 
@@ -144,7 +144,7 @@ export const ShopProductDetail = () => {
           {/* Thumbnail Images */}
           {product.images?.length > 1 && (
             <div className="flex gap-2 overflow-x-auto pb-2">
-              {product.images.map((img, idx) => (
+              {safeArr(product.images).map((img, idx) => (
                 <button
                   key={idx}
                   onClick={() => setSelectedImage(idx)}

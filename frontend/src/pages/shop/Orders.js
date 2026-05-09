@@ -3,7 +3,7 @@ import { api } from '../../lib/api';
 import { toast } from 'sonner';
 import { ShoppingCart, Package } from 'lucide-react';
 import { Card } from '../../components/ui/card';
-import { safeToFixed } from '../../utils/safeStr';
+import { safeToFixed, safeArr} from '../../utils/safeStr';
 
 export const CustomerOrders = () => {
   const [orders, setOrders] = useState([]);
@@ -67,7 +67,7 @@ export const CustomerOrders = () => {
                   <div>
                     <p className="text-xs font-mono uppercase tracking-widest text-muted-foreground mb-2">Items</p>
                     <div className="space-y-2">
-                      {order.items.map((item, idx) => (
+                      {safeArr(order.items).map((item, idx) => (
                         <div key={idx} className="flex items-center justify-between p-3 bg-secondary rounded-md">
                           <div className="flex items-center gap-3">
                             <Package className="h-4 w-4 text-muted-foreground" />
