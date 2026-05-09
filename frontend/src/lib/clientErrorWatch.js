@@ -278,24 +278,44 @@ function installAxiosInterceptor() {
 }
 
 function installCrashHandlers() {
+  // Capture phase listeners fire BEFORE any bubble-phase listener, regardless
+  // of registration order. This guarantees our preventDefault() runs first
+  // so CRA's dev error overlay (and any third-party SDK like Sentry) sees
+  // the rejection as already-handled and stays quiet for benign cases.
   window.addEventListener('error', (e) => {
+    const message = e?.message || 'Script error';
+    const stack = e?.error?.stack || '';
+    if (isBenign(message) || isBenign(stack)) {
+      try { e.preventDefault?.(); e.stopImmediatePropagation?.(); } catch { /* ignore */ }
+      return;
+    }
     logError({
       error_type: 'js',
-      message: e?.message || 'Script error',
-      stack: e?.error?.stack || '',
+      message,
+      stack,
     });
-  });
+  }, { capture: true });
   window.addEventListener('unhandledrejection', (e) => {
     const reason = e?.reason;
     const msg = typeof reason === 'string'
       ? reason
       : (reason?.message || JSON.stringify(reason)?.slice(0, 200) || 'Unhandled promise rejection');
+    // Suppress browser/CRA-overlay noise from benign rejections (browser-
+    // initiated ServiceWorker update fetches that 502 during preview pod
+    // restarts, etc.). preventDefault stops the "Uncaught (in promise)"
+    // console message AND the CRA dev error overlay from firing.
+    // stopImmediatePropagation also blocks any other capture-phase listener
+    // (e.g. Sentry) from reporting the same noise.
+    if (isBenign(msg) || isBenign(reason?.stack)) {
+      try { e.preventDefault?.(); e.stopImmediatePropagation?.(); } catch { /* ignore */ }
+      return;
+    }
     logError({
       error_type: 'unhandled',
       message: msg,
       stack: reason?.stack || '',
     });
-  });
+  }, { capture: true });
 }
 
 function installBreadcrumbCapture() {

@@ -37,6 +37,10 @@ export function useAppUpdate() {
             });
           }
         });
+      }).catch(() => {
+        // SW ready can reject during preview/CDN restarts (502 fetching the
+        // SW script). Customer experience is unaffected — the cached SW
+        // continues running. Swallow to prevent CRA dev overlay noise.
       });
     }
   }, []);
@@ -44,16 +48,18 @@ export function useAppUpdate() {
   const refreshApp = () => {
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.ready.then((registration) => {
-        registration.update();
+        return registration.update();
+      }).catch(() => {
+        // Same as above — transient SW update failures are non-fatal.
       });
     }
     // Clear all caches
     if ('caches' in window) {
       caches.keys().then((names) => {
         names.forEach((name) => {
-          caches.delete(name);
+          caches.delete(name).catch(() => {});
         });
-      });
+      }).catch(() => {});
     }
     window.location.reload();
   };
