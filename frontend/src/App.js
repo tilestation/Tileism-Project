@@ -33,6 +33,7 @@ import VisualizerAdmin from './pages/admin/VisualizerAdmin';
 import MarketingStudio from './pages/admin/MarketingStudio';
 import TradeCreditEmails from './pages/admin/TradeCreditEmails';
 import EmailHub from './pages/admin/EmailHub';
+import PinterestPack from './pages/admin/PinterestPack';
 import UnsubscribePage from './pages/public/UnsubscribePage';
 import VideoStudio from './pages/admin/VideoStudio';
 import BlogIndexPage from './pages/shop/BlogIndexPage';
@@ -227,10 +228,12 @@ import MaintenanceGuard from './components/MaintenanceGuard';
 import GlobalMaintenanceGate from './components/GlobalMaintenanceGate';
 import { api } from './lib/api';
 import { initCustomerErrorWatch } from './lib/clientErrorWatch';
+import { initPinterestTag, trackPinterestPage } from './lib/pinterest';
 import './App.css';
 
-// Boot the customer-error watcher once. Safe no-op on subsequent imports.
+// One-shot init at module load
 initCustomerErrorWatch();
+initPinterestTag();
 
 // Redirect the old Railway preview URL to the canonical custom domain.
 // Both URLs serve the same React build, so visitors landing on the
@@ -483,6 +486,7 @@ function App() {
             <Route path="marketing-studio" element={<MarketingStudio />} />
             <Route path="trade-credit-emails" element={<TradeCreditEmails />} />
             <Route path="email-hub" element={<EmailHub />} />
+            <Route path="pinterest-pack" element={<PinterestPack />} />
             <Route path="marketing-studio/videos" element={<VideoStudio />} />
             <Route path="health" element={<HealthMonitor />} />
             <Route path="ads-savings" element={<GoogleAdsSavings />} />

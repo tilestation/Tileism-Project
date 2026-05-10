@@ -479,7 +479,7 @@ def _product_to_card(p: dict) -> dict:
         "name": p.get("display_name") or p.get("name") or "",
         "image": img_url,
         "price": float(price) if price is not None else None,
-        "url": f"{COMPANY_WEBSITE}/shop/tile/{slug}" if slug else COMPANY_WEBSITE,
+        "url": f"{COMPANY_WEBSITE}/shop/product/{slug}" if slug else COMPANY_WEBSITE,
     }
 
 

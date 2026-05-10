@@ -67,6 +67,7 @@ import AdvancedTileCalculator from '../../components/shop/AdvancedTileCalculator
 import { TradeLoginBox } from '../../components/shop/TradeLoginPrompt';
 import VolumePricingTable from '../../components/shop/VolumePricingTable';
 import OrderSampleButton from '../../components/shop/OrderSampleButton';
+import PinterestSaveButton from '../../components/shop/PinterestSaveButton';
 import { computePillDims, parseSizeToMm } from '../../utils/sizePill';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
@@ -3259,6 +3260,19 @@ const CollectionDetailPage = () => {
                   >
                     <Heart className={`w-5 h-5 transition-transform duration-200 ${isInWishlist(selectedProduct?.id) ? 'fill-current scale-110' : 'hover:scale-110'}`} />
                   </Button>
+                  {/* Pinterest save — pin opens in a new window. Rich Pin
+                      meta on this PDP means the resulting pin gets price
+                      + availability auto-attached by Pinterest's crawler. */}
+                  {selectedProduct && !selectedProduct?._isPreview && normaliseImageUrl(selectedProduct.images?.[0]) && (
+                    <PinterestSaveButton
+                      url={typeof window !== 'undefined' ? window.location.href : ''}
+                      media={normaliseImageUrl(selectedProduct.images?.[0])}
+                      description={`${selectedProduct.display_name || selectedProduct.name || ''} — Tile Station UK`.slice(0, 480)}
+                      size="md"
+                      label="Save"
+                      className="px-5 py-3.5 rounded-xl"
+                    />
+                  )}
                 </div>
               </div>
             </div>

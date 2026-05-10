@@ -1,8 +1,9 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
 import { CheckCircle2, Loader2, Package, ArrowLeft, AlertCircle, Mail, MapPin, Truck } from 'lucide-react';
 import { ShopHeader, ShopFooter } from './TileStationHome';
 import { Button } from '../../components/ui/button';
+import { pinterestCheckout } from '../../lib/pinterest';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
 
@@ -12,6 +13,28 @@ const OrderSuccessPage = () => {
   const orderId = searchParams.get('order_id');
   const [status, setStatus] = useState('loading');
   const [order, setOrder] = useState(null);
+  // Pinterest Checkout event must fire exactly ONCE per successful order
+  // even if the SPA re-renders or the polling loop revisits the page.
+  const pinFired = useRef(false);
+
+  // Fire Pinterest Checkout the first time we observe payment_status === 'paid'
+  useEffect(() => {
+    if (status !== 'paid' || pinFired.current || !order) return;
+    pinFired.current = true;
+    try {
+      pinterestCheckout({
+        order_id: order.id || order.order_id || orderId,
+        value: order.total_amount || order.total || 0,
+        quantity: (order.items || []).reduce((s, i) => s + Number(i.quantity || 1), 0),
+        line_items: (order.items || []).map(i => ({
+          product_id: i.supplier_code || i.id,
+          product_name: i.display_name || i.name,
+          quantity: i.quantity,
+          price: i.price,
+        })),
+      });
+    } catch { /* analytics never throws */ }
+  }, [status, order, orderId]);
 
   useEffect(() => {
     if (!sessionId && !orderId) { setStatus('error'); return; }

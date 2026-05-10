@@ -261,11 +261,50 @@ function injectMeta(html, meta) {
     `<meta property="og:description" content="${escapeHtml(meta.description)}" />`,
     `<meta property="og:url" content="${escapeHtml(meta.canonical)}" />`,
     `<meta property="og:site_name" content="${BRAND}" />`,
-    `<meta property="og:type" content="website" />`,
+    `<meta property="og:type" content="${meta.product ? 'product' : 'website'}" />`,
     `<meta name="twitter:card" content="summary_large_image" />`,
     `<meta name="twitter:title" content="${escapeHtml(meta.title)}" />`,
     `<meta name="twitter:description" content="${escapeHtml(meta.description)}" />`,
   ];
+
+  // ── Pinterest Rich Pins ──────────────────────────────────────────────
+  // When the page is a product PDP we emit Pinterest's preferred Open
+  // Graph "product" tags: og:image, og:image:alt, product:price:amount,
+  // product:price:currency, product:availability, og:brand. Pinterest
+  // reads these on any pin saved from your site and shows them as a
+  // mini e-commerce card (live price + stock + brand). No API approval
+  // needed for this — Pinterest scrapes the page server-side after
+  // you've claimed your domain at pinterest.com/business/claim.
+  // Enable "rich pin" globally so even non-product pages get richer cards.
+  tags.push(`<meta name="pinterest-rich-pin" content="true" />`);
+  if (meta.product) {
+    const p = meta.product;
+    if (p.image) {
+      tags.push(`<meta property="og:image" content="${escapeHtml(p.image)}" />`);
+      tags.push(`<meta property="og:image:alt" content="${escapeHtml(p.name || meta.title)}" />`);
+      tags.push(`<meta name="twitter:image" content="${escapeHtml(p.image)}" />`);
+    }
+    if (p.price) {
+      tags.push(`<meta property="product:price:amount" content="${escapeHtml(p.price)}" />`);
+      tags.push(`<meta property="product:price:currency" content="${escapeHtml(p.currency || 'GBP')}" />`);
+      // Pinterest-specific aliases (some scrapers read og:price:* too)
+      tags.push(`<meta property="og:price:amount" content="${escapeHtml(p.price)}" />`);
+      tags.push(`<meta property="og:price:currency" content="${escapeHtml(p.currency || 'GBP')}" />`);
+    }
+    tags.push(`<meta property="product:availability" content="${escapeHtml(p.availability || 'in stock')}" />`);
+    tags.push(`<meta property="product:brand" content="${escapeHtml(p.brand || BRAND)}" />`);
+    if (p.retailerItemId) {
+      tags.push(`<meta property="product:retailer_item_id" content="${escapeHtml(p.retailerItemId)}" />`);
+    }
+  }
+  // ── Pinterest domain verification ────────────────────────────────────
+  // Users add their site to pinterest.com/business/claim and Pinterest
+  // gives a single string ("pinterest-site-verification") to paste here.
+  // We pull it from the build-time env var so a 30-sec deploy unblocks
+  // domain claiming end-to-end.
+  if (process.env.PINTEREST_DOMAIN_VERIFICATION) {
+    tags.push(`<meta name="p:domain_verify" content="${escapeHtml(process.env.PINTEREST_DOMAIN_VERIFICATION)}" />`);
+  }
   if (meta.noindex) {
     tags.push(`<meta name="robots" content="noindex, follow" />`);
   }

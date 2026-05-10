@@ -105,5 +105,37 @@
             })(document, window.posthog || []);
             posthog.init("phc_xAvL2Iq4tFmANRE7kzbKwaSqp1HJjN7x48s3vr0CMjs", { api_host: "https://us.i.posthog.com", person_profiles: "identified_only", session_recording: { recordCrossOriginIframes: true } });
         </script>
+        <!--
+          Pinterest Tag (conversion pixel)
+          ────────────────────────────────
+          Stays INERT until window.__PINTEREST_TAG_ID is set. We bootstrap
+          the `pintrk` queue here so e-commerce code can call pintrk('track',
+          'AddToCart', {...}) anywhere in the SPA without race conditions.
+          The actual loader script only kicks in once we have a tag id.
+          See /app/frontend/src/lib/pinterest.js for app-side wiring.
+        -->
+        <script>
+            (function () {
+              if (window.pintrk) return;
+              window.pintrk = function () { window.pintrk.queue.push(Array.prototype.slice.call(arguments)); };
+              var n = window.pintrk; n.queue = []; n.version = '3.0';
+              window.__pinterestBoot = function (tagId) {
+                if (!tagId || n.loaded) return;
+                n.loaded = true;
+                var s = document.createElement('script');
+                s.async = true; s.src = 'https://s.pinimg.com/ct/core.js';
+                var f = document.getElementsByTagName('script')[0];
+                f.parentNode.insertBefore(s, f);
+                window.pintrk('load', String(tagId), { em: '<user_email_address>' });
+                window.pintrk('page');
+              };
+              // Auto-boot when the SPA sets window.__PINTEREST_TAG_ID
+              Object.defineProperty(window, '__PINTEREST_TAG_ID', {
+                configurable: true,
+                set: function (v) { this.__pin_tag = v; window.__pinterestBoot(v); },
+                get: function () { return this.__pin_tag; },
+              });
+            })();
+        </script>
     </body>
 </html>

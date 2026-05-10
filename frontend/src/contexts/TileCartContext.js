@@ -3,6 +3,7 @@ import { toast } from 'sonner';
 import { useTradeUser } from '../hooks/useTradeUser';
 import { getEffectiveSubtotal } from '../utils/cartPricing';
 import { safeToFixed } from '../utils/safeStr';
+import { pinterestAddToCart } from '../lib/pinterest';
 
 const CartContext = createContext();
 
@@ -138,6 +139,21 @@ export const TileCartProvider = ({ children }) => {
         }];
       }
     });
+    // ── Pinterest conversion tracking ──────────────────────────────
+    // Fire AddToCart AFTER setCart succeeds. The actual value passed to
+    // Pinterest is the line subtotal (price × qty) so the dashboard
+    // shows accurate ROAS. No-op until tag id is configured.
+    try {
+      const price = (typeof tile.price === 'number') ? tile.price : (tile.room_lot_price || 0);
+      const q = tile.quantity || quantity || 1;
+      pinterestAddToCart({
+        product_id: tile.supplier_code || tile.id || tile.slug,
+        product_name: tile.display_name || tile.name,
+        product_category: tile.category || tile.series_name,
+        value: Number(price) * Number(q),
+        quantity: q,
+      });
+    } catch { /* analytics never throws */ }
   };
 
   const removeFromCart = (itemId, priceType) => {

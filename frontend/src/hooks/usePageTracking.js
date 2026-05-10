@@ -4,6 +4,7 @@
  */
 import { useEffect, useRef } from 'react';
 import { useLocation } from 'react-router-dom';
+import { trackPinterestPage } from '../lib/pinterest';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL || '';
 
@@ -69,6 +70,9 @@ export const usePageTracking = () => {
         document.title,
         initialReferrer.current
       );
+      // Mirror the page view to Pinterest's conversion pixel — no-op
+      // until the tag id is configured, so this is safe to call always.
+      trackPinterestPage();
       // After first track, use internal referrer
       initialReferrer.current = fullUrl;
     }, 100);

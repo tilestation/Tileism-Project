@@ -258,7 +258,17 @@ function buildProductMeta(product, slug) {
       url: `${SITE_URL}/tiles/${slug}`,
     } : undefined,
   };
-  return { title, description, jsonld, stealthKeywords };
+  return { title, description, jsonld, stealthKeywords, product: {
+    name,
+    price: price ? Number(price).toFixed(2) : null,
+    currency: 'GBP',
+    availability: 'in stock',  // Pinterest reads "in stock" / "out of stock"
+    image: images.length > 0 ? images[0] : null,
+    images,
+    brand: BRAND,
+    sku: product.supplier_code || product.id || '',
+    retailerItemId: product.supplier_code || product.id || '',
+  }};
 }
 
 function buildCollectionMeta(collection, slug, stealthKeywords = []) {
