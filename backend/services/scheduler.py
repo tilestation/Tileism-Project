@@ -1003,6 +1003,30 @@ async def initialize_scheduler():
         except Exception as mcs_err:
             logger.warning(f"Could not add monthly credit statements job: {mcs_err}")
 
+        # Weekly trade-credit balance reminder — punchy "you've got £X
+        # waiting" nudge. Fires Mondays at 10:00 UTC by default; hourly
+        # probe checks weekday+hour and idempotency-guards by ISO week.
+        try:
+            from routes.trade_credit_statements import run_weekly_trade_balance_tick
+
+            async def _weekly_trade_balance_tick():
+                try:
+                    await run_weekly_trade_balance_tick()
+                except Exception as wkly_err:
+                    logger.warning(f"Weekly trade balance tick failed: {wkly_err}")
+
+            sched.add_job(
+                _weekly_trade_balance_tick,
+                trigger=CronTrigger(minute=20),
+                id="weekly_trade_balance",
+                name="Weekly trade-credit balance reminder (hourly probe)",
+                replace_existing=True,
+                misfire_grace_time=600,
+            )
+            logger.info("Added weekly trade-credit balance reminder job (hourly probe)")
+        except Exception as wkly_err:
+            logger.warning(f"Could not add weekly trade balance job: {wkly_err}")
+
         # Nightly announcement-ribbon leak scrubber — belt + braces safety
         # net after the 30-Apr-2026 TEST_PRESERVE_fields incident. Even if
         # a future test file forgets to clean up, any `TEST_*` / `_E1_TEST_*`

@@ -31,6 +31,7 @@ import PinterestQueuePage from './pages/admin/PinterestQueuePage';
 import GoogleBusinessProfile from './pages/admin/GoogleBusinessProfile';
 import VisualizerAdmin from './pages/admin/VisualizerAdmin';
 import MarketingStudio from './pages/admin/MarketingStudio';
+import TradeCreditEmails from './pages/admin/TradeCreditEmails';
 import VideoStudio from './pages/admin/VideoStudio';
 import BlogIndexPage from './pages/shop/BlogIndexPage';
 import BlogArticlePage from './pages/shop/BlogArticlePage';
@@ -477,6 +478,7 @@ function App() {
             <Route path="gbp" element={<GoogleBusinessProfile />} />
             <Route path="visualizer" element={<VisualizerAdmin />} />
             <Route path="marketing-studio" element={<MarketingStudio />} />
+            <Route path="trade-credit-emails" element={<TradeCreditEmails />} />
             <Route path="marketing-studio/videos" element={<VideoStudio />} />
             <Route path="health" element={<HealthMonitor />} />
             <Route path="ads-savings" element={<GoogleAdsSavings />} />
