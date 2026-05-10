@@ -21,6 +21,7 @@ import {
   Mail, Send, RefreshCw, Eye, Users, AlertCircle, CheckCircle2,
   PoundSterling, Clock, FileText, Save, Calendar, Plus, X, ExternalLink,
   TrendingUp, MousePointerClick, Ban, Trash2, Sparkles, ListChecks,
+  ShoppingBag, ArrowUp, ArrowDown, Search,
 } from 'lucide-react';
 
 const API = process.env.REACT_APP_BACKEND_URL;
@@ -115,6 +116,10 @@ function ComposeTab() {
   const [ctaUrl, setCtaUrl] = useState('');
   const [scheduledFor, setScheduledFor] = useState(''); // ISO local input
   const [testEmail, setTestEmail] = useState('');
+  // Featured-product picker — array of {id,sku,name,image,price,url}.
+  // Order matters: cards render top-to-bottom in 2-col rows, so the
+  // first picked appears top-left.
+  const [featuredProducts, setFeaturedProducts] = useState([]);
 
   // Audience: segments[] + their numeric values + paste box
   const [activeKinds, setActiveKinds] = useState(new Set());
@@ -173,11 +178,11 @@ function ComposeTab() {
     return () => clearTimeout(id);
   }, [refreshAudience]);
 
-  // Re-render the email preview whenever subject/body/cta change
+  // Re-render the email preview whenever subject/body/cta/products change
   useEffect(() => {
-    const html = renderLocalPreview({ subject, bodyHtml, heroImage, ctaText, ctaUrl });
+    const html = renderLocalPreview({ subject, bodyHtml, heroImage, ctaText, ctaUrl, featuredProducts });
     setPreviewHtml(html);
-  }, [subject, bodyHtml, heroImage, ctaText, ctaUrl]);
+  }, [subject, bodyHtml, heroImage, ctaText, ctaUrl, featuredProducts]);
 
   const sendTest = async () => {
     if (!testEmail.trim() || !subject.trim() || !bodyHtml.trim()) {
@@ -192,6 +197,7 @@ function ComposeTab() {
         hero_image_url: heroImage || null,
         cta_text: ctaText || null,
         cta_url: ctaUrl || null,
+        featured_products: featuredProducts.length ? featuredProducts : null,
       }, { headers: tokenHdr() });
       toast.success(`Test sent to ${testEmail.trim()}`);
     } catch (e) {
@@ -217,6 +223,7 @@ function ComposeTab() {
         subject, body_html: bodyHtml,
         hero_image_url: heroImage || null,
         cta_text: ctaText || null, cta_url: ctaUrl || null,
+        featured_products: featuredProducts.length ? featuredProducts : null,
         audience: audiencePayload,
         scheduled_for: asScheduled ? new Date(scheduledFor).toISOString() : null,
       };
@@ -224,7 +231,7 @@ function ComposeTab() {
       toast.success(asScheduled ? 'Scheduled ✓' : `Campaign queued — sending to ${r.data.audience_count}`);
       // Reset
       setSubject(''); setBodyHtml(''); setCtaText(''); setCtaUrl(''); setHeroImage('');
-      setScheduledFor(''); setName('');
+      setScheduledFor(''); setName(''); setFeaturedProducts([]);
     } catch (e) {
       toast.error(`Launch failed: ${e?.response?.data?.detail || e.message}`);
     } finally { setSending(false); }
@@ -364,6 +371,11 @@ function ComposeTab() {
           </div>
         </Card>
 
+        <FeaturedProductsCard
+          products={featuredProducts}
+          onChange={setFeaturedProducts}
+        />
+
         <Card className="p-5">
           <h2 className="text-lg font-semibold flex items-center gap-2 mb-3">
             <Send className="w-5 h-5 text-amber-500" /> Send
@@ -448,14 +460,42 @@ function ComposeTab() {
 
 // Local preview renderer — server-side renders w/ merge tags + unsubscribe
 // link, but for the Compose preview we only need cosmetic accuracy.
-function renderLocalPreview({ subject, bodyHtml, heroImage, ctaText, ctaUrl }) {
-  if (!subject && !bodyHtml) return '';
+function renderLocalPreview({ subject, bodyHtml, heroImage, ctaText, ctaUrl, featuredProducts }) {
+  if (!subject && !bodyHtml && !(featuredProducts && featuredProducts.length)) return '';
   const hero = heroImage
     ? `<div style="margin:-30px -24px 24px -24px;"><img src="${heroImage}" alt="" style="width:100%; max-width:620px; display:block;" /></div>`
     : '';
   const cta = (ctaText && ctaUrl)
     ? `<p style="margin:24px 0 0; text-align:center;"><a href="${ctaUrl}" style="display:inline-block; background:#1a1a2e; color:#F7EA1C; padding:14px 32px; border-radius:8px; text-decoration:none; font-weight:700; font-size:14px;">${ctaText}</a></p>`
     : '';
+  let products = '';
+  if (featuredProducts && featuredProducts.length) {
+    const cards = featuredProducts.map((p) => {
+      const priceTxt = p.price != null ? `£${Number(p.price).toFixed(2)}` : '';
+      return `<td valign="top" style="width:50%; padding:8px;">
+        <a href="${p.url || '#'}" style="text-decoration:none; color:#1a1a2e;">
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#fff; border:1px solid #e7e5e4; border-radius:12px; overflow:hidden;">
+            <tr><td><img src="${p.image || ''}" alt="${p.name}" style="display:block; width:100%; max-width:280px; height:auto;" /></td></tr>
+            <tr><td style="padding:12px 14px;">
+              <div style="font-size:13px; font-weight:600; color:#1a1a2e; line-height:1.3; min-height:34px;">${p.name}</div>
+              ${priceTxt ? `<div style="font-size:16px; font-weight:800; color:#1a1a2e; margin-top:6px;">${priceTxt}</div>` : ''}
+              <div style="font-size:11px; font-weight:700; color:#F7EA1C; background:#1a1a2e; padding:8px 12px; border-radius:6px; margin-top:10px; text-align:center; letter-spacing:0.04em;">SHOP NOW →</div>
+            </td></tr>
+          </table>
+        </a>
+      </td>`;
+    });
+    const rows = [];
+    for (let i = 0; i < cards.length; i += 2) {
+      let pair = cards.slice(i, i + 2);
+      if (pair.length === 1) pair.push('<td style="width:50%;"></td>');
+      rows.push(`<tr>${pair.join('')}</tr>`);
+    }
+    products = `<div style="margin:28px -8px 0;">
+      <div style="font-size:11px; font-weight:700; letter-spacing:0.12em; text-transform:uppercase; color:#a8a29e; padding:0 16px 10px; text-align:center;">Featured this week</div>
+      <table role="presentation" width="100%" cellspacing="0" cellpadding="0">${rows.join('')}</table>
+    </div>`;
+  }
   return `
     <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif; max-width:620px; margin:0 auto; color:#1a1a2e; background:#f9fafb;">
       <div style="background:#1C1917; padding:18px 24px;">
@@ -465,6 +505,7 @@ function renderLocalPreview({ subject, bodyHtml, heroImage, ctaText, ctaUrl }) {
         ${hero}
         <div style="font-size:15px; line-height:1.65; color:#262626;">${bodyHtml || '<p style="color:#a8a29e;">Body text…</p>'}</div>
         ${cta}
+        ${products}
       </div>
       <div style="text-align:center; padding:18px 24px; color:#a8a29e; font-size:11px;">
         Tile Station · Unit 3 Trade City, Coldharbour Road, Northfleet, Gravesend DA11 8AB<br/>
@@ -473,6 +514,181 @@ function renderLocalPreview({ subject, bodyHtml, heroImage, ctaText, ctaUrl }) {
       </div>
     </div>
   `;
+}
+
+// =============================================================================
+// FEATURED PRODUCTS PICKER
+// =============================================================================
+// Sits inside the Compose tab. Search the catalogue, pick up to 6 products,
+// reorder them with up/down arrows. The selected list is what gets stitched
+// into the email body as a clickable card grid.
+function FeaturedProductsCard({ products, onChange }) {
+  const [query, setQuery] = useState('');
+  const [results, setResults] = useState([]);
+  const [searching, setSearching] = useState(false);
+  const [showSearch, setShowSearch] = useState(false);
+
+  const search = useCallback(async (q) => {
+    setSearching(true);
+    try {
+      const r = await axios.get(`${API}/api/admin/email-hub/products/search`, {
+        headers: tokenHdr(),
+        params: { q, limit: 24 },
+      });
+      setResults(r.data.results || []);
+    } catch (e) {
+      toast.error(`Search failed: ${e?.response?.data?.detail || e.message}`);
+    } finally { setSearching(false); }
+  }, []);
+
+  // Debounced search as the operator types
+  useEffect(() => {
+    if (!showSearch) return;
+    const id = setTimeout(() => search(query), 300);
+    return () => clearTimeout(id);
+  }, [query, search, showSearch]);
+
+  const isPicked = (p) => products.some(x => (x.id && x.id === p.id) || (x.sku && x.sku === p.sku));
+
+  const togglePick = (p) => {
+    if (isPicked(p)) {
+      onChange(products.filter(x => !((x.id && x.id === p.id) || (x.sku && x.sku === p.sku))));
+    } else {
+      if (products.length >= 6) {
+        toast.error('Maximum 6 featured products');
+        return;
+      }
+      onChange([...products, p]);
+    }
+  };
+
+  const move = (idx, delta) => {
+    const next = [...products];
+    const target = idx + delta;
+    if (target < 0 || target >= next.length) return;
+    [next[idx], next[target]] = [next[target], next[idx]];
+    onChange(next);
+  };
+
+  const remove = (idx) => onChange(products.filter((_, i) => i !== idx));
+
+  return (
+    <Card className="p-5" data-testid="featured-products-card">
+      <div className="flex items-start justify-between mb-3 gap-3">
+        <h2 className="text-lg font-semibold flex items-center gap-2">
+          <ShoppingBag className="w-5 h-5 text-emerald-500" />
+          Featured products
+          <span className="text-sm font-normal text-gray-500">· {products.length}/6</span>
+        </h2>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setShowSearch(s => !s)}
+          data-testid="toggle-product-search"
+        >
+          <Plus className="w-4 h-4 mr-1" /> {showSearch ? 'Hide search' : 'Add products'}
+        </Button>
+      </div>
+
+      <p className="text-xs text-gray-500 mb-3">
+        Pick up to 6 tiles from your catalogue. They'll render as clickable image+price+CTA cards
+        below the email body.
+      </p>
+
+      {/* Picked products — reorderable */}
+      {products.length > 0 && (
+        <div className="space-y-2 mb-4" data-testid="picked-products">
+          {products.map((p, idx) => (
+            <div key={p.id || p.sku || idx} className="flex items-center gap-3 p-2 border border-gray-200 rounded-lg bg-white">
+              <div className="w-12 h-12 flex-shrink-0 bg-gray-100 rounded overflow-hidden">
+                {p.image && <img src={p.image} alt="" className="w-full h-full object-cover" />}
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="text-sm font-medium truncate">{p.name}</div>
+                <div className="text-xs text-gray-500">
+                  {p.price != null ? `£${Number(p.price).toFixed(2)}` : '—'}
+                  {p.sku && <span className="ml-2 font-mono">{p.sku}</span>}
+                </div>
+              </div>
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => move(idx, -1)}
+                  disabled={idx === 0}
+                  className="p-1 text-gray-400 hover:text-gray-700 disabled:opacity-30"
+                  aria-label="Move up"
+                ><ArrowUp className="w-4 h-4" /></button>
+                <button
+                  type="button"
+                  onClick={() => move(idx, 1)}
+                  disabled={idx === products.length - 1}
+                  className="p-1 text-gray-400 hover:text-gray-700 disabled:opacity-30"
+                  aria-label="Move down"
+                ><ArrowDown className="w-4 h-4" /></button>
+                <button
+                  type="button"
+                  onClick={() => remove(idx)}
+                  className="p-1 text-red-400 hover:text-red-700"
+                  aria-label="Remove"
+                ><X className="w-4 h-4" /></button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Search panel */}
+      {showSearch && (
+        <div className="border-t border-gray-200 pt-3" data-testid="product-search-panel">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+            <Input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search by name, SKU, colour, category…"
+              className="pl-9"
+              data-testid="product-search-input"
+            />
+          </div>
+          <div className="mt-3 grid grid-cols-3 sm:grid-cols-4 gap-2 max-h-72 overflow-y-auto" data-testid="product-search-results">
+            {searching && <div className="col-span-full text-center text-xs text-gray-400 py-4">Searching…</div>}
+            {!searching && results.length === 0 && (
+              <div className="col-span-full text-center text-xs text-gray-400 py-4">No matches</div>
+            )}
+            {results.map((p) => {
+              const picked = isPicked(p);
+              return (
+                <button
+                  key={p.id || p.sku}
+                  type="button"
+                  onClick={() => togglePick(p)}
+                  className={`relative text-left rounded-lg overflow-hidden border-2 transition ${
+                    picked ? 'border-amber-500 ring-2 ring-amber-200' : 'border-gray-200 hover:border-gray-300'
+                  }`}
+                  data-testid={`product-result-${p.sku || p.id}`}
+                >
+                  <div className="aspect-square bg-gray-100">
+                    {p.image && <img src={p.image} alt="" className="w-full h-full object-cover" />}
+                  </div>
+                  <div className="p-1.5 bg-white">
+                    <div className="text-[11px] font-medium truncate">{p.name}</div>
+                    <div className="text-[10px] text-gray-500">
+                      {p.price != null ? `£${Number(p.price).toFixed(2)}` : ''}
+                    </div>
+                  </div>
+                  {picked && (
+                    <div className="absolute top-1 right-1 w-5 h-5 rounded-full bg-amber-500 text-white flex items-center justify-center">
+                      <CheckCircle2 className="w-4 h-4" />
+                    </div>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </Card>
+  );
 }
 
 // =============================================================================

@@ -331,12 +331,17 @@ def render_campaign_html(
     hero_image_url: str = "",
     cta_text: str = "",
     cta_url: str = "",
+    featured_products: Optional[list[dict]] = None,
     customer: Optional[dict] = None,
     campaign_id: str = "",
 ) -> str:
     """Wraps user-edited body_html in the Tile-Station shell (header + footer
     + unsubscribe). `body_html` is allowed to contain plain HTML; we don't
-    sanitise here because admin is the only one who composes."""
+    sanitise here because admin is the only one who composes.
+
+    If `featured_products` is non-empty, renders a clickable image+price+CTA
+    card grid BELOW the body — turns the email into a mini storefront.
+    """
     cust = customer or {}
     body = _merge_vars(body_html or "", cust)
     cta_t = _merge_vars(cta_text or "", cust)
@@ -357,6 +362,45 @@ def render_campaign_html(
             f'{cta_t}</a></p>'
         )
 
+    # Product card grid — 2 cards per row for email-client compatibility
+    products_html = ""
+    if featured_products:
+        cards = []
+        for p in featured_products:
+            name = (p.get("name") or "")[:80]
+            img = p.get("image") or ""
+            url = p.get("url") or COMPANY_WEBSITE
+            price_val = p.get("price")
+            price_txt = f"£{float(price_val):.2f}" if price_val is not None else ""
+            cards.append(
+                f'<td valign="top" style="width:50%; padding:8px;">'
+                f'<a href="{url}" style="text-decoration:none; color:#1a1a2e;">'
+                f'<table role="presentation" width="100%" cellspacing="0" cellpadding="0" '
+                'style="background:#ffffff; border:1px solid #e7e5e4; border-radius:12px; overflow:hidden;">'
+                f'<tr><td><img src="{img}" alt="{name}" style="display:block; width:100%; max-width:280px; height:auto;" /></td></tr>'
+                f'<tr><td style="padding:12px 14px;">'
+                f'<div style="font-size:13px; font-weight:600; color:#1a1a2e; line-height:1.3; min-height:34px;">{name}</div>'
+                + (f'<div style="font-size:16px; font-weight:800; color:#1a1a2e; margin-top:6px;">{price_txt}</div>' if price_txt else "")
+                + '<div style="font-size:11px; font-weight:700; color:#F7EA1C; background:#1a1a2e; '
+                'padding:8px 12px; border-radius:6px; margin-top:10px; text-align:center; letter-spacing:0.04em;">'
+                'SHOP NOW →</div>'
+                '</td></tr></table></a></td>'
+            )
+        # Pair cards into 2-col rows
+        rows = []
+        for i in range(0, len(cards), 2):
+            row_cards = cards[i:i + 2]
+            if len(row_cards) == 1:
+                row_cards.append('<td style="width:50%;"></td>')
+            rows.append(f'<tr>{"".join(row_cards)}</tr>')
+        products_html = (
+            '<div style="margin:28px -8px 0;">'
+            '<div style="font-size:11px; font-weight:700; letter-spacing:0.12em; '
+            'text-transform:uppercase; color:#a8a29e; padding:0 16px 10px; text-align:center;">Featured this week</div>'
+            f'<table role="presentation" width="100%" cellspacing="0" cellpadding="0">{"".join(rows)}</table>'
+            '</div>'
+        )
+
     unsubscribe_url = ""
     if cust.get("email"):
         unsubscribe_url = make_unsubscribe_url(cust["email"], campaign_id=campaign_id)
@@ -372,6 +416,7 @@ def render_campaign_html(
           {body}
         </div>
         {cta}
+        {products_html}
       </div>
       <div style="text-align:center; padding:18px 24px; color:#a8a29e; font-size:11px; line-height:1.6;">
         Tile Station · Unit 3 Trade City, Coldharbour Road, Northfleet, Gravesend DA11 8AB<br/>
@@ -406,6 +451,73 @@ async def _send_one(*, customer: dict, subject: str, html: str) -> dict:
     except Exception as exc:
         logger.exception("Email Hub send failed for %s: %s", customer.get("email"), exc)
         return {"sent": False, "error": str(exc)[:200]}
+
+
+def _normalise_image(img: Any) -> str:
+    """Image fields can be either a plain URL string or a
+    `{url, alt, alt_generated_at}` dict (post-May-2026 SEO migration).
+    Returns a clean URL string or empty."""
+    if isinstance(img, str):
+        return img
+    if isinstance(img, dict):
+        for k in ("url", "src", "large", "thumbnail", "path", "href"):
+            v = img.get(k)
+            if isinstance(v, str) and v:
+                return v
+    return ""
+
+
+def _product_to_card(p: dict) -> dict:
+    """Trim a tiles document to the lean payload the email renderer needs."""
+    images = p.get("images") or []
+    img_url = _normalise_image(images[0]) if images else ""
+    slug = p.get("slug") or p.get("id") or p.get("sku") or ""
+    price = p.get("price")
+    return {
+        "id": p.get("id") or p.get("sku"),
+        "sku": p.get("sku"),
+        "name": p.get("display_name") or p.get("name") or "",
+        "image": img_url,
+        "price": float(price) if price is not None else None,
+        "url": f"{COMPANY_WEBSITE}/shop/tile/{slug}" if slug else COMPANY_WEBSITE,
+    }
+
+
+@router.get("/admin/email-hub/products/search")
+async def admin_product_search(
+    q: str = Query("", max_length=120),
+    limit: int = Query(24, ge=1, le=60),
+    current_user: dict = Depends(get_current_user),
+):
+    """Search the tile catalogue for picker results — display_name + series_name
+    + sku, prioritise items with images + a price + that are active."""
+    if not is_admin_user(current_user):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    db = get_db()
+    base_filter: dict[str, Any] = {
+        "is_active": {"$ne": False},
+        "images.0": {"$exists": True},
+        "price": {"$gt": 0},
+    }
+    if q.strip():
+        # Case-insensitive substring match across the user-visible fields
+        rx = {"$regex": re.escape(q.strip()), "$options": "i"}
+        base_filter["$or"] = [
+            {"display_name": rx},
+            {"name": rx},
+            {"series_name": rx},
+            {"sku": rx},
+            {"color": rx},
+            {"category": rx},
+        ]
+    cursor = db.tiles.find(
+        base_filter,
+        {"_id": 0, "id": 1, "sku": 1, "display_name": 1, "name": 1,
+         "images": 1, "price": 1, "slug": 1, "is_featured": 1,
+         "series_name": 1, "category": 1},
+    ).sort([("is_featured", -1), ("display_name", 1)]).limit(limit)
+    items = [_product_to_card(p) async for p in cursor]
+    return {"results": items, "count": len(items)}
 
 
 async def _execute_campaign(campaign_id: str) -> dict:
@@ -450,6 +562,7 @@ async def _execute_campaign(campaign_id: str) -> dict:
             hero_image_url=campaign.get("hero_image_url") or "",
             cta_text=campaign.get("cta_text") or "",
             cta_url=campaign.get("cta_url") or "",
+            featured_products=campaign.get("featured_products") or None,
             customer=cust,
             campaign_id=campaign_id,
         )
@@ -505,6 +618,15 @@ async def admin_audience_preview(
     }
 
 
+class FeaturedProduct(BaseModel):
+    id: Optional[str] = None
+    sku: Optional[str] = None
+    name: str
+    image: str
+    price: Optional[float] = None
+    url: str
+
+
 class TestSendBody(BaseModel):
     email: str = Field(..., min_length=3)
     subject: str
@@ -512,6 +634,7 @@ class TestSendBody(BaseModel):
     hero_image_url: Optional[str] = None
     cta_text: Optional[str] = None
     cta_url: Optional[str] = None
+    featured_products: Optional[list[FeaturedProduct]] = None
 
 
 @router.post("/admin/email-hub/send-test")
@@ -528,12 +651,16 @@ async def admin_send_test(
         {"email": body.email.lower().strip()},
         {"_id": 0, "email": 1, "name": 1, "business_name": 1, "credit_balance": 1, "is_trade": 1},
     ) or {"email": body.email.lower().strip()}
+    products_payload = (
+        [p.model_dump() for p in body.featured_products] if body.featured_products else None
+    )
     html = render_campaign_html(
         subject=body.subject,
         body_html=body.body_html,
         hero_image_url=body.hero_image_url or "",
         cta_text=body.cta_text or "",
         cta_url=body.cta_url or "",
+        featured_products=products_payload,
         customer=cust,
         campaign_id="test",
     )
@@ -550,6 +677,7 @@ class CreateCampaignBody(BaseModel):
     hero_image_url: Optional[str] = None
     cta_text: Optional[str] = None
     cta_url: Optional[str] = None
+    featured_products: Optional[list[FeaturedProduct]] = None
     audience: AudienceDef
     scheduled_for: Optional[str] = None  # ISO timestamp; None = send now
     name: Optional[str] = None  # admin-friendly label
@@ -580,6 +708,9 @@ async def admin_create_campaign(
         "hero_image_url": body.hero_image_url,
         "cta_text": body.cta_text,
         "cta_url": body.cta_url,
+        "featured_products": (
+            [p.model_dump() for p in body.featured_products] if body.featured_products else None
+        ),
         "audience": body.audience.model_dump(),
         "audience_count_at_create": aud_resolved["count"],
         "template_id": body.template_id,
