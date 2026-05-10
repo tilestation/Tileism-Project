@@ -750,14 +750,24 @@ async def _send_one_weekly_email(payload: dict, custom_intro: str = "") -> dict:
 async def dispatch_weekly_balance_emails(
     db, *, dry_run: bool = False, limit: Optional[int] = None,
     custom_intro: str = "", trigger: str = "scheduler",
+    exclude_emails: Optional[list[str]] = None,
 ) -> dict:
-    """Iterate trade customers with positive balance; send the weekly nudge."""
+    """Iterate trade customers with positive balance; send the weekly nudge.
+
+    `exclude_emails` is a list of lowercased email addresses to SKIP for this
+    batch — used by the admin UI when the operator unchecks specific traders.
+    """
     traders = await _list_traders_with_balance(db, limit=limit)
+    skip_set = {(e or "").lower().strip() for e in (exclude_emails or []) if e}
     eligible = len(traders)
-    sent = failed = 0
+    sent = failed = excluded = 0
     errors: list[dict] = []
 
     for cust in traders:
+        cust_email_l = (cust.get("email") or "").lower().strip()
+        if cust_email_l in skip_set:
+            excluded += 1
+            continue
         payload = await _build_weekly_balance_payload(db, cust)
         if dry_run:
             sent += 1
@@ -781,6 +791,7 @@ async def dispatch_weekly_balance_emails(
         "eligible": eligible,
         "sent": sent,
         "failed": failed,
+        "excluded": excluded,
         "errors": errors[:25],
         "dry_run": dry_run,
         "trigger": trigger,
@@ -982,6 +993,7 @@ class WeeklySendAllBody(BaseModel):
     dry_run: bool = False
     limit: Optional[int] = Field(default=None, ge=1, le=10000)
     force: bool = False  # bypass the "already sent this ISO week" guard
+    exclude_emails: Optional[list[str]] = None  # admin-unchecked rows
 
 
 @router.post("/weekly/send-now")
@@ -1006,6 +1018,7 @@ async def admin_weekly_send_now(
     result = await dispatch_weekly_balance_emails(
         db, dry_run=body.dry_run, limit=body.limit,
         custom_intro=custom_intro, trigger="admin_manual",
+        exclude_emails=body.exclude_emails,
     )
     if not body.dry_run:
         await db.website_settings.update_one(

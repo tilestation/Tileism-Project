@@ -70,6 +70,11 @@ export default function TradeCreditEmails() {
   const [confirmingSendAll, setConfirmingSendAll] = useState(false);
   const [sendingAll, setSendingAll] = useState(false);
 
+  // Per-trader inclusion: a Set of UNCHECKED emails. We track exclusions
+  // (rather than inclusions) so newly-added eligible traders are opted-in
+  // by default — safer behaviour for a re-engagement email.
+  const [excluded, setExcluded] = useState(() => new Set());
+
   // Local edits
   const [draftIntro, setDraftIntro] = useState('');
   const [draftEnabled, setDraftEnabled] = useState(true);
@@ -165,9 +170,12 @@ export default function TradeCreditEmails() {
     setSendingAll(true);
     try {
       const r = await axios.post(`${API}/api/admin/trade-credit/weekly/send-now`, {
-        force, dry_run: false,
+        force,
+        dry_run: false,
+        exclude_emails: Array.from(excluded),
       }, { headers: tokenHdr() });
-      toast.success(`Sent ${r.data.sent}/${r.data.eligible} · failed ${r.data.failed}`);
+      const exMsg = r.data.excluded ? ` · skipped ${r.data.excluded}` : '';
+      toast.success(`Sent ${r.data.sent}/${r.data.eligible}${exMsg} · failed ${r.data.failed}`);
       setConfirmingSendAll(false);
       await fetchSettings();
     } catch (e) {
@@ -185,6 +193,22 @@ export default function TradeCreditEmails() {
   };
 
   const lastResult = settings?.last_result;
+
+  // Selection helpers
+  const toggleExclude = (email) => {
+    setExcluded(prev => {
+      const next = new Set(prev);
+      if (next.has(email)) next.delete(email);
+      else next.add(email);
+      return next;
+    });
+  };
+  const selectAll = () => setExcluded(new Set());
+  const selectNone = () => setExcluded(new Set(eligible.traders.map(t => t.email)));
+  const selectedCount = Math.max(0, eligible.count - excluded.size);
+  const selectedTotal = eligible.traders
+    .filter(t => !excluded.has(t.email))
+    .reduce((s, t) => s + (Number(t.credit_balance) || 0), 0);
 
   return (
     <div className="max-w-7xl mx-auto p-6 space-y-6" data-testid="trade-credit-emails-page">
@@ -248,22 +272,28 @@ export default function TradeCreditEmails() {
             <Send className="w-5 h-5 text-amber-500" /> Send weekly batch now
           </h2>
           <p className="text-sm text-gray-600 mt-1">
-            Dispatches the email to all <strong>{eligible.count}</strong> eligible traders right now,
-            using the current saved settings.
+            Dispatches the email to <strong>{selectedCount}</strong> selected
+            trader{selectedCount === 1 ? '' : 's'}{excluded.size > 0 ? ` (${excluded.size} excluded)` : ''}.
           </p>
           {!confirmingSendAll ? (
             <Button
               className="mt-3 w-full bg-amber-500 hover:bg-amber-600 text-white"
               onClick={() => setConfirmingSendAll(true)}
-              disabled={eligible.count === 0 || !settings?.enabled}
+              disabled={selectedCount === 0 || !settings?.enabled}
               data-testid="send-all-init-btn"
             >
-              <Send className="w-4 h-4 mr-2" /> Send to all {eligible.count} traders
+              <Send className="w-4 h-4 mr-2" />
+              {selectedCount === 0
+                ? 'No traders selected'
+                : `Send to ${selectedCount} selected trader${selectedCount === 1 ? '' : 's'}`}
             </Button>
           ) : (
             <div className="mt-3 p-3 border-2 border-amber-300 rounded-lg bg-amber-50">
               <p className="text-sm font-semibold text-amber-900">
-                Confirm — this will email {eligible.count} traders ({fmtMoney(eligible.total_credit)} total credit).
+                Confirm — {selectedCount} traders will receive this email ({fmtMoney(selectedTotal)} total credit).
+                {excluded.size > 0 && <span className="block mt-1 text-xs font-normal text-amber-700">
+                  {excluded.size} trader{excluded.size === 1 ? '' : 's'} excluded by you.
+                </span>}
               </p>
               <div className="flex gap-2 mt-3">
                 <Button
@@ -452,10 +482,26 @@ export default function TradeCreditEmails() {
 
       {/* Eligible traders list */}
       <Card className="p-5">
-        <h2 className="text-lg font-semibold flex items-center gap-2 mb-3">
-          <Users className="w-5 h-5 text-indigo-500" /> Eligible traders
-          {eligible.count > 0 && <span className="text-sm font-normal text-gray-500">· {eligible.count} total</span>}
-        </h2>
+        <div className="flex items-center justify-between mb-3 flex-wrap gap-3">
+          <h2 className="text-lg font-semibold flex items-center gap-2">
+            <Users className="w-5 h-5 text-indigo-500" /> Eligible traders
+            {eligible.count > 0 && (
+              <span className="text-sm font-normal text-gray-500">
+                · {selectedCount} of {eligible.count} selected · {fmtMoney(selectedTotal)} total
+              </span>
+            )}
+          </h2>
+          {eligible.traders.length > 0 && (
+            <div className="flex gap-2 items-center text-xs">
+              <button onClick={selectAll} className="px-3 py-1 rounded-full border border-gray-300 hover:border-amber-400 text-gray-700" data-testid="select-all-btn">
+                Select all
+              </button>
+              <button onClick={selectNone} className="px-3 py-1 rounded-full border border-gray-300 hover:border-amber-400 text-gray-700" data-testid="select-none-btn">
+                Select none
+              </button>
+            </div>
+          )}
+        </div>
         {eligible.traders.length === 0 ? (
           <p className="text-sm text-gray-500">No traders currently have a positive credit balance.</p>
         ) : (
@@ -463,6 +509,16 @@ export default function TradeCreditEmails() {
             <table className="w-full text-sm" data-testid="eligible-traders-table">
               <thead>
                 <tr className="text-left border-b border-gray-200">
+                  <th className="py-2 px-2 w-10">
+                    <input
+                      type="checkbox"
+                      checked={excluded.size === 0 && eligible.traders.length > 0}
+                      onChange={(e) => (e.target.checked ? selectAll() : selectNone())}
+                      className="w-4 h-4 accent-amber-500 cursor-pointer"
+                      title="Select / deselect all"
+                      data-testid="select-all-checkbox"
+                    />
+                  </th>
                   <th className="py-2 px-2 font-medium text-gray-500">Email</th>
                   <th className="py-2 px-2 font-medium text-gray-500">Name</th>
                   <th className="py-2 px-2 font-medium text-gray-500">Business</th>
@@ -471,25 +527,41 @@ export default function TradeCreditEmails() {
                 </tr>
               </thead>
               <tbody>
-                {eligible.traders.map((t) => (
-                  <tr key={t.email} className="border-b border-gray-100 hover:bg-gray-50">
-                    <td className="py-2 px-2 font-mono text-xs">{t.email}</td>
-                    <td className="py-2 px-2">{t.name || '—'}</td>
-                    <td className="py-2 px-2 text-gray-600">{t.business_name || '—'}</td>
-                    <td className="py-2 px-2 text-right font-mono tabular-nums font-semibold text-emerald-700">{fmtMoney(t.credit_balance)}</td>
-                    <td className="py-2 px-2 text-right">
-                      <button
-                        onClick={() => { setPreviewEmail(t.email); fetchPreview(t.email); }}
-                        className="text-xs text-blue-600 hover:underline"
-                      >Preview</button>
-                      <span className="text-gray-300 mx-2">·</span>
-                      <button
-                        onClick={() => { setSendOneEmail(t.email); }}
-                        className="text-xs text-amber-600 hover:underline"
-                      >Send</button>
-                    </td>
-                  </tr>
-                ))}
+                {eligible.traders.map((t) => {
+                  const isIncluded = !excluded.has(t.email);
+                  return (
+                    <tr
+                      key={t.email}
+                      className={`border-b border-gray-100 hover:bg-gray-50 ${isIncluded ? '' : 'opacity-50'}`}
+                    >
+                      <td className="py-2 px-2">
+                        <input
+                          type="checkbox"
+                          checked={isIncluded}
+                          onChange={() => toggleExclude(t.email)}
+                          className="w-4 h-4 accent-amber-500 cursor-pointer"
+                          data-testid={`include-checkbox-${t.email}`}
+                          aria-label={`Include ${t.email} in batch`}
+                        />
+                      </td>
+                      <td className="py-2 px-2 font-mono text-xs">{t.email}</td>
+                      <td className="py-2 px-2">{t.name || '—'}</td>
+                      <td className="py-2 px-2 text-gray-600">{t.business_name || '—'}</td>
+                      <td className="py-2 px-2 text-right font-mono tabular-nums font-semibold text-emerald-700">{fmtMoney(t.credit_balance)}</td>
+                      <td className="py-2 px-2 text-right">
+                        <button
+                          onClick={() => { setPreviewEmail(t.email); fetchPreview(t.email); }}
+                          className="text-xs text-blue-600 hover:underline"
+                        >Preview</button>
+                        <span className="text-gray-300 mx-2">·</span>
+                        <button
+                          onClick={() => { setSendOneEmail(t.email); }}
+                          className="text-xs text-amber-600 hover:underline"
+                        >Send</button>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
