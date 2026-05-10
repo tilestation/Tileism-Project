@@ -32,6 +32,8 @@ import GoogleBusinessProfile from './pages/admin/GoogleBusinessProfile';
 import VisualizerAdmin from './pages/admin/VisualizerAdmin';
 import MarketingStudio from './pages/admin/MarketingStudio';
 import TradeCreditEmails from './pages/admin/TradeCreditEmails';
+import EmailHub from './pages/admin/EmailHub';
+import UnsubscribePage from './pages/public/UnsubscribePage';
 import VideoStudio from './pages/admin/VideoStudio';
 import BlogIndexPage from './pages/shop/BlogIndexPage';
 import BlogArticlePage from './pages/shop/BlogArticlePage';
@@ -430,6 +432,7 @@ function App() {
           {/* Shop alias — login/trade pages link here with ?email= prefill */}
           <Route path="/shop/tile-forgot-password" element={<ForgotPassword />} />
             <Route path="/reset-password" element={<ResetPassword />} />
+            <Route path="/unsubscribe" element={<UnsubscribePage />} />
 
             {/* Public blog (Editorial Autopilot output) — wrapped in
                 the same Cart/Wishlist providers as the rest of the
@@ -479,6 +482,7 @@ function App() {
             <Route path="visualizer" element={<VisualizerAdmin />} />
             <Route path="marketing-studio" element={<MarketingStudio />} />
             <Route path="trade-credit-emails" element={<TradeCreditEmails />} />
+            <Route path="email-hub" element={<EmailHub />} />
             <Route path="marketing-studio/videos" element={<VideoStudio />} />
             <Route path="health" element={<HealthMonitor />} />
             <Route path="ads-savings" element={<GoogleAdsSavings />} />

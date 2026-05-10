@@ -1027,6 +1027,30 @@ async def initialize_scheduler():
         except Exception as wkly_err:
             logger.warning(f"Could not add weekly trade balance job: {wkly_err}")
 
+        # Email Hub — fires any scheduled campaigns whose `scheduled_for`
+        # has elapsed. Hourly probe is fine because admin only schedules to
+        # the nearest hour from the UI.
+        try:
+            from routes.email_hub import run_email_hub_schedule_tick
+
+            async def _email_hub_tick():
+                try:
+                    await run_email_hub_schedule_tick()
+                except Exception as eh_err:
+                    logger.warning(f"Email hub schedule tick failed: {eh_err}")
+
+            sched.add_job(
+                _email_hub_tick,
+                trigger=CronTrigger(minute=5),
+                id="email_hub_schedule",
+                name="Email hub — fire scheduled campaigns",
+                replace_existing=True,
+                misfire_grace_time=600,
+            )
+            logger.info("Added email-hub scheduler tick (hourly probe)")
+        except Exception as eh_err:
+            logger.warning(f"Could not add email-hub scheduler tick: {eh_err}")
+
         # Nightly announcement-ribbon leak scrubber — belt + braces safety
         # net after the 30-Apr-2026 TEST_PRESERVE_fields incident. Even if
         # a future test file forgets to clean up, any `TEST_*` / `_E1_TEST_*`

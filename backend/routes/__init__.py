@@ -79,6 +79,7 @@ from .storefront_features import router as storefront_features_router
 from .marketing_funnel import router as marketing_funnel_router
 from .storefront_messages import router as storefront_messages_router
 from .trade_credit_statements import router as trade_credit_statements_router
+from .email_hub import router as email_hub_router
 from .marketing_admin import router as marketing_admin_router
 from .seo_drafts import router as seo_drafts_router
 from .search_insights import router as search_insights_router
@@ -224,6 +225,7 @@ api_router.include_router(storefront_features_router)
 api_router.include_router(marketing_funnel_router)
 api_router.include_router(storefront_messages_router)
 api_router.include_router(trade_credit_statements_router)
+api_router.include_router(email_hub_router)
 
 __all__ = [
     "api_router",
