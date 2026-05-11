@@ -221,7 +221,6 @@ export const Layout = () => {
       hubLink: '/admin/seo',
       items: [
         { to: '/admin/seo', icon: Trophy, label: 'SEO Command Centre', permission: 'marketing' },
-        { to: '/admin/pinterest-queue', icon: Sparkles, label: 'Pinterest Queue', permission: 'marketing' },
         { to: '/admin/marketing-studio', icon: Wand2, label: 'Marketing Studio', permission: 'marketing' },
         { to: '/admin/visualizer', icon: Sparkles, label: 'Tile Visualizer', permission: 'marketing' },
         { to: '/admin/marketing', icon: Megaphone, label: 'Marketing Campaigns', permission: 'marketing' },

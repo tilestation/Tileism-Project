@@ -27,7 +27,6 @@ import GscAnalyticsPanel from './GscAnalyticsPanel';
 import GscSitemapCard from './GscSitemapCard';
 import SeoHealthStatusBoard from './SeoHealthStatusBoard';
 import EditorialAutopilotCard from './EditorialAutopilotCard';
-import PinterestAutoPinCard from './PinterestAutoPinCard';
 import StealthKeywordsCard from './StealthKeywordsCard';
 import StealthPerformanceCard from './StealthPerformanceCard';
 import StealthAttributionCard from './StealthAttributionCard';
@@ -35,7 +34,6 @@ import SeoDashboardSummary from './SeoDashboardSummary';
 import SeoSelfAuditCard from './SeoSelfAuditCard';
 import LifetimeSavingsCard from './LifetimeSavingsCard';
 import WebPushAdminCard from './WebPushAdminCard';
-import PinterestVisualEngineCard from './PinterestVisualEngineCard';
 import GoogleShoppingFeedCard from './GoogleShoppingFeedCard';
 import { useNavigate } from 'react-router-dom';
 
@@ -201,8 +199,6 @@ const SeoCommandCentre = () => {
         <StealthPerformanceCard />
         <StealthAttributionCard />
         <WebPushAdminCard />
-        <PinterestVisualEngineCard />
-        <PinterestAutoPinCard />
         <GoogleShoppingFeedCard />
         <GscConnectCard onConnectionChange={setGscConnected} />
         {!ahrefsConfigured && (

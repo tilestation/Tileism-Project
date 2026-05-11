@@ -98,8 +98,6 @@ from .visualizer import router as visualizer_router, admin_router as visualizer_
 from .marketing_studio import router as marketing_studio_router, public_router as marketing_studio_public_router
 from .marketing_videos import router as marketing_videos_router, public_router as marketing_videos_public_router
 from .editorial_autopilot import admin_router as editorial_autopilot_admin_router, public_router as editorial_autopilot_public_router
-from .pinterest import router as pinterest_router, public_router as pinterest_public_router
-from .pinterest_visual import router as pinterest_visual_router
 from .google_shopping_feed import router as google_shopping_feed_router
 from .stealth_seo import router as stealth_seo_router, public_router as stealth_seo_public_router
 from .web_push import router as web_push_router
@@ -181,9 +179,6 @@ api_router.include_router(marketing_videos_router)
 api_router.include_router(marketing_videos_public_router)
 api_router.include_router(editorial_autopilot_admin_router)
 api_router.include_router(editorial_autopilot_public_router)
-api_router.include_router(pinterest_router)
-api_router.include_router(pinterest_public_router)
-api_router.include_router(pinterest_visual_router)
 api_router.include_router(google_shopping_feed_router)
 api_router.include_router(stealth_seo_router)
 api_router.include_router(stealth_seo_public_router)

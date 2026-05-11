@@ -27,7 +27,6 @@ import { BulkInquiries } from './pages/admin/BulkInquiries';
 import { CustomerInvites } from './pages/admin/CustomerInvites';
 import { Marketing } from './pages/admin/Marketing';
 import SeoCommandCentre from './pages/admin/SeoCommandCentre';
-import PinterestQueuePage from './pages/admin/PinterestQueuePage';
 import GoogleBusinessProfile from './pages/admin/GoogleBusinessProfile';
 import VisualizerAdmin from './pages/admin/VisualizerAdmin';
 import MarketingStudio from './pages/admin/MarketingStudio';
@@ -480,7 +479,6 @@ function App() {
             <Route path="invites" element={<CustomerInvites />} />
             <Route path="marketing" element={<Marketing />} />
             <Route path="seo" element={<SeoCommandCentre />} />
-            <Route path="pinterest-queue" element={<PinterestQueuePage />} />
             <Route path="gbp" element={<GoogleBusinessProfile />} />
             <Route path="visualizer" element={<VisualizerAdmin />} />
             <Route path="marketing-studio" element={<MarketingStudio />} />

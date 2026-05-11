@@ -860,101 +860,11 @@ async def initialize_scheduler():
         except Exception as hs_err:
             logger.warning(f"Could not add hot-sessions digest job: {hs_err}")
 
-        # Pinterest Visual Engine — daily candidate generation (05:00 UTC)
-        # plus a drip-feed dispatcher every 90 min that posts approved
-        # Pins one at a time so Pinterest doesn't flag us as a spam bot.
+        # Nightly SEO Self-Audit at 04:00 BST — runs all 19 critical
+        # SEO subsystem checks in one pass and persists a graded
+        # report. Surfaces on /admin/seo so admin sees the score
+        # every morning without having to dig.
         try:
-            from services.pinterest_queue import (
-                daily_generation_tick as _pin_visual_gen,
-                drip_dispatch_tick as _pin_visual_drip,
-            )
-
-            async def _pin_visual_gen_tick():
-                try:
-                    res = await _pin_visual_gen()
-                    if res.get("generated"):
-                        logger.info("Pinterest visual engine generated %s candidates", res.get("generated"))
-                except Exception as pin_err:
-                    logger.warning(f"Pinterest visual gen tick failed: {pin_err}")
-
-            async def _pin_visual_drip_tick():
-                try:
-                    await _pin_visual_drip()
-                except Exception as pin_err:
-                    logger.warning(f"Pinterest visual drip tick failed: {pin_err}")
-
-            sched.add_job(
-                _pin_visual_gen_tick,
-                trigger=CronTrigger(hour=5, minute=0, timezone="Europe/London"),
-                id="pinterest_visual_engine_daily",
-                name="Pinterest Visual Engine — daily candidate generation",
-                replace_existing=True,
-                misfire_grace_time=3600,
-            )
-            sched.add_job(
-                _pin_visual_drip_tick,
-                trigger=CronTrigger(minute=30, hour="*/2"),  # every 2h at :30 — close enough to 90min
-                id="pinterest_visual_engine_drip",
-                name="Pinterest Visual Engine — drip-feed dispatcher (every 2 hours)",
-                replace_existing=True,
-                misfire_grace_time=600,
-            )
-
-            # Phase 2: daily performance sync, weekly repin, every-2h
-            # Nano Banana lifestyle render batch
-            from services.pinterest_engine_phase2 import (
-                sync_pin_performance as _pin_perf_sync,
-                schedule_repins as _pin_repin,
-                render_lifestyle_tick as _pin_render_tick,
-            )
-
-            async def _pin_perf_tick():
-                try:
-                    await _pin_perf_sync()
-                except Exception as pin_err:
-                    logger.warning(f"Pinterest performance sync failed: {pin_err}")
-
-            async def _pin_repin_tick():
-                try:
-                    await _pin_repin()
-                except Exception as pin_err:
-                    logger.warning(f"Pinterest repin scheduler failed: {pin_err}")
-
-            async def _pin_lifestyle_tick():
-                try:
-                    await _pin_render_tick(batch_size=3)
-                except Exception as pin_err:
-                    logger.warning(f"Pinterest lifestyle render tick failed: {pin_err}")
-
-            sched.add_job(
-                _pin_perf_tick,
-                trigger=CronTrigger(hour=4, minute=15, timezone="Europe/London"),
-                id="pinterest_performance_sync",
-                name="Pinterest performance sync — daily 04:15 BST",
-                replace_existing=True,
-                misfire_grace_time=3600,
-            )
-            sched.add_job(
-                _pin_repin_tick,
-                trigger=CronTrigger(day_of_week="mon", hour=4, minute=45, timezone="Europe/London"),
-                id="pinterest_repin_scheduler",
-                name="Pinterest repin scheduler — weekly Monday 04:45 BST",
-                replace_existing=True,
-                misfire_grace_time=3600,
-            )
-            sched.add_job(
-                _pin_lifestyle_tick,
-                trigger=CronTrigger(minute=45, hour="*/3"),
-                id="pinterest_lifestyle_render",
-                name="Nano Banana lifestyle render batch (every 3h)",
-                replace_existing=True,
-                misfire_grace_time=600,
-            )
-
-            # Nightly SEO Self-Audit at 04:00 BST — runs all 19 critical
-            # SEO subsystem checks in one pass and persists a graded
-            # report. Surfaces on /admin/seo so admin sees the score
-            # every morning without having to dig.
             from services.seo_self_audit import run_seo_audit as _seo_audit_run
 
             async def _seo_audit_tick():
@@ -976,9 +886,9 @@ async def initialize_scheduler():
                 replace_existing=True,
                 misfire_grace_time=3600,
             )
-            logger.info("Added Pinterest Visual Engine jobs (daily gen + 90-min drip)")
-        except Exception as pin_err:
-            logger.warning(f"Could not add Pinterest Visual Engine jobs: {pin_err}")
+            logger.info("Added SEO Self-Audit nightly job")
+        except Exception as audit_err:
+            logger.warning(f"Could not add SEO Self-Audit job: {audit_err}")
 
         # Monthly trade-credit statement email — fires only on the 1st of
         # each month at 10:00 UTC. Hourly probe is idempotent via marker.
