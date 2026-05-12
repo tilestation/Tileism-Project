@@ -22,7 +22,7 @@ const compression = require('compression');
 const { createProxyMiddleware } = require('http-proxy-middleware');
 const { resolveSeo, injectMeta } = require('./server-seo');
 const { enrichSeo } = require('./server-seo-enrich');
-const { resolveLegacyRedirect } = require('./server-redirects');
+const { resolveLegacyRedirect, startDynamicRedirectRefresher } = require('./server-redirects');
 
 const app = express();
 
@@ -212,5 +212,10 @@ app.listen(PORT, () => {
   console.log(`[server] Tile Station storefront listening on :${PORT}`);
   if (BACKEND_URL) {
     console.log(`[server] Proxying /sitemap.xml + /robots.txt → ${BACKEND_URL}/api/...`);
+    // Start the 5-min dynamic-redirect refresher (12 May 2026 — wired so
+    // the SEO autopilot's auto-fixed 404 redirects start serving without
+    // needing a code deploy).
+    startDynamicRedirectRefresher(BACKEND_URL);
+    console.log('[server] Dynamic SEO redirect refresher started (5-min interval)');
   }
 });

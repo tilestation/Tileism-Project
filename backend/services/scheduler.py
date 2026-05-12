@@ -1342,6 +1342,59 @@ async def initialize_scheduler():
                           CronTrigger(day_of_week="mon", hour=8, minute=30, timezone="Europe/London"),
                           id="seo_autopilot_weekly_summary", replace_existing=True, misfire_grace_time=12*3600)
             logger.info("Added 9 SEO Autopilot jobs (8 fixers + weekly summary)")
+
+            # ────────────────────────────────────────────────────────
+            # FULL AUTOPILOT — Self-Crawler + GSC Indexing Scanner
+            # (added 12 May 2026 after admin made it categorically clear
+            # the SEO engine MUST audit + auto-fix without manual touch.)
+            #
+            # Schedule:
+            #   • Self-crawl + auto-fix + regression alert: every Mon-Fri 03:00 London
+            #     (off-peak so we don't compete with customer traffic; weekend
+            #     gaps are fine because we already have 6 day-of-week runs).
+            #   • GSC indexing scan: every Mon-Fri 03:30 (after self-crawl
+            #     so the inspection picks suspect URLs from the latest crawl).
+            #     Inspects 200 URLs/day → full 1,000-URL sitemap covered
+            #     every ~5 working days, well under GSC's 2k/day quota.
+            # ────────────────────────────────────────────────────────
+            try:
+                from services.seo_self_crawler import run_full_autopilot_cycle
+                from services.gsc_indexing_scanner import run_gsc_indexing_scan
+
+                async def _full_self_crawl_tick():
+                    try:
+                        res = await run_full_autopilot_cycle()
+                        logger.info(
+                            f"seo self-crawl: {res.get('crawl', {}).get('urls_crawled')} crawled, "
+                            f"auto-fix: {res.get('auto_fix', {}).get('fixes')}"
+                        )
+                    except Exception as e:
+                        logger.warning(f"seo self-crawl tick failed: {e}")
+
+                async def _gsc_indexing_scan_tick():
+                    try:
+                        res = await run_gsc_indexing_scan(limit=200)
+                        logger.info(f"gsc indexing scan: {res}")
+                    except Exception as e:
+                        logger.warning(f"gsc indexing scan failed: {e}")
+
+                sched.add_job(
+                    _full_self_crawl_tick,
+                    CronTrigger(day_of_week="mon-fri", hour=3, minute=0,
+                                timezone="Europe/London"),
+                    id="seo_self_crawl_full_cycle",
+                    replace_existing=True, misfire_grace_time=3600,
+                )
+                sched.add_job(
+                    _gsc_indexing_scan_tick,
+                    CronTrigger(day_of_week="mon-fri", hour=3, minute=30,
+                                timezone="Europe/London"),
+                    id="seo_gsc_indexing_scan",
+                    replace_existing=True, misfire_grace_time=3600,
+                )
+                logger.info("Added Self-Crawler + GSC Indexing Scan jobs (autopilot)")
+            except Exception as crawl_err:  # noqa: BLE001
+                logger.warning(f"Could not wire self-crawler jobs: {crawl_err}")
         except Exception as ap_err:  # noqa: BLE001
             logger.warning(f"Could not add SEO Autopilot jobs: {ap_err}")
 

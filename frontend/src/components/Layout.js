@@ -74,7 +74,8 @@ import {
   AlertTriangle,
   Sparkles,
   Wand2,
-  ShieldAlert
+  ShieldAlert,
+  ShieldCheck
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 
@@ -231,6 +232,7 @@ export const Layout = () => {
         { to: '/admin/trade-credit-emails', icon: Mail, label: 'Trade Credit Emails', permission: 'marketing' },
         { to: '/admin/failed-payments', icon: AlertTriangle, label: 'Failed Payments', permission: 'marketing' },
         { to: '/admin/stripe-reconcile', icon: ShieldAlert, label: 'Stripe Reconcile', permission: 'marketing' },
+        { to: '/admin/seo-autopilot-v2', icon: ShieldCheck, label: 'SEO Autopilot (Full)', permission: 'marketing' },
         { to: '/admin/weekly-digest', icon: CalendarDays, label: 'Weekly Digest', permission: 'marketing', superAdminOnly: true },
         { to: '/admin/health', icon: ShieldAlert, label: 'Health Monitor', permission: 'admin' },
       ]

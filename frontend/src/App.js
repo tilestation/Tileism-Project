@@ -41,6 +41,7 @@ import BlogArticlePage from './pages/shop/BlogArticlePage';
 import HealthMonitor from './pages/admin/HealthMonitor';
 import GoogleAdsSavings from './pages/admin/GoogleAdsSavings';
 import SeoAutopilot from './pages/admin/SeoAutopilot';
+import SeoAutopilotV2 from './pages/admin/SeoAutopilotV2';
 import { Showrooms } from './pages/admin/Showrooms';
 import { UserManagement } from './pages/admin/UserManagement';
 import Invoice from './pages/admin/Invoice';
@@ -491,6 +492,7 @@ function App() {
             <Route path="health" element={<HealthMonitor />} />
             <Route path="ads-savings" element={<GoogleAdsSavings />} />
             <Route path="seo-autopilot" element={<SeoAutopilot />} />
+            <Route path="seo-autopilot-v2" element={<SeoAutopilotV2 />} />
             <Route path="showrooms" element={<Showrooms />} />
             <Route path="users" element={<UserManagement />} />
             <Route path="staff-invites" element={<StaffInvites />} />

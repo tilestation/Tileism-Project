@@ -8,7 +8,7 @@
  * Run: `cd /app/frontend && node server-redirects.test.js`
  */
 const assert = require('node:assert/strict');
-const { resolveLegacyRedirect } = require('./server-redirects');
+const { resolveLegacyRedirect, _setDynamicRedirectsForTest } = require('./server-redirects');
 
 const cases = [
   // The 19 URLs from the GSC screenshot — every one must resolve to
@@ -76,3 +76,55 @@ for (const { from, to } of cases) {
 
 console.log(`\nserver-redirects.test.js — ${pass} passed, ${fail} failed`);
 assert.equal(fail, 0, 'one or more redirect tests failed');
+
+// ─── Dynamic redirect override tests ─────────────────────────────────
+// Tests that the runtime DB-driven map overrides the static map.
+
+let dynPass = 0;
+let dynFail = 0;
+
+function dynCase(name, fn) {
+  try {
+    fn();
+    dynPass++;
+    console.log(`  ✓ ${name}`);
+  } catch (e) {
+    dynFail++;
+    console.error(`  ✗ ${name} — ${e.message}`);
+  }
+}
+
+console.log('\nDynamic redirect overrides:');
+
+// Inject some DB-side redirects
+_setDynamicRedirectsForTest({
+  '/old-product-x': '/shop/collection/Hartley',
+  '/seasonal/spring-2026': '/tiles?effect=stone',
+});
+
+dynCase('dynamic redirect resolves', () => {
+  assert.equal(resolveLegacyRedirect('/old-product-x'), '/shop/collection/Hartley');
+});
+
+dynCase('dynamic redirect overrides static map for /shop', () => {
+  _setDynamicRedirectsForTest({ '/shop': '/tiles/new-route' });
+  assert.equal(resolveLegacyRedirect('/shop'), '/tiles/new-route');
+  // Restore for cleanliness
+  _setDynamicRedirectsForTest({});
+});
+
+dynCase('falls back to static when dynamic is empty', () => {
+  _setDynamicRedirectsForTest({});
+  assert.equal(resolveLegacyRedirect('/shop'), '/tiles');
+});
+
+dynCase('returns null for unknown path with no dynamic match', () => {
+  _setDynamicRedirectsForTest({ '/foo': '/bar' });
+  assert.equal(resolveLegacyRedirect('/never-existed'), null);
+});
+
+// Reset
+_setDynamicRedirectsForTest({});
+
+console.log(`\nDynamic — ${dynPass} passed, ${dynFail} failed`);
+assert.equal(dynFail, 0, 'dynamic redirect tests failed');

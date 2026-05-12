@@ -328,3 +328,57 @@ async def robots_txt() -> Response:
         media_type="text/plain",
         headers={"Cache-Control": "public, max-age=3600, s-maxage=3600"},
     )
+
+
+# ─────────────────────────────────────────────────────────────────────
+# /api/seo/redirects — dynamic 301 map for the Express SSR layer.
+#
+# Consumed by frontend/server.js on a 5-minute timer. The 404 autopilot
+# + self-crawler write into `seo_redirects`; this endpoint exposes that
+# collection so server.js can serve real HTTP 301s without a code deploy.
+#
+# Why dynamic > static
+# --------------------
+# Hard-coded redirects in server.js need a Railway deploy to take effect.
+# Auto-fix needs to be instant — a customer hitting a 404 right after a
+# product slug change should immediately get a 301 to the new URL, not
+# wait for the next deploy cycle.
+#
+# Response shape: small JSON object that server.js can cache cheaply.
+#   { "redirects": { "/old/path": "/new/path", ... }, "version": "<iso>" }
+# Public, no auth. Capped at 5,000 redirects to bound payload size.
+# ─────────────────────────────────────────────────────────────────────
+@router.get("/seo/redirects")
+async def public_redirects_map():
+    """Return the full dynamic 301 map for the Express SSR layer to consume.
+
+    No auth — the storefront's own server.js calls this on a 5-minute
+    timer. Payload is intentionally small (path → target, no metadata)
+    so 5-min polling stays cheap.
+    """
+    db = get_db()
+    out: dict[str, str] = {}
+    latest = datetime(2020, 1, 1, tzinfo=timezone.utc)
+    cursor = db.seo_redirects.find(
+        {},
+        {"_id": 1, "target": 1, "created_at": 1, "status_code": 1},
+    ).limit(5000)
+    async for row in cursor:
+        path = row.get("_id") or ""
+        target = row.get("target") or ""
+        if not path or not target:
+            continue
+        if not path.startswith("/"):
+            continue
+        # Skip non-301 redirects (e.g. 410 Gone we may add later)
+        if row.get("status_code", 301) != 301:
+            continue
+        out[path] = target
+        created = row.get("created_at")
+        if isinstance(created, datetime) and created > latest:
+            latest = created
+    return {
+        "redirects": out,
+        "count": len(out),
+        "version": latest.isoformat(),
+    }
