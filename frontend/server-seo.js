@@ -138,6 +138,46 @@ const EXACT = {
   '/terms': { title: `Terms & Conditions · ${BRAND}`, description: 'Tile Station terms of sale, returns and warranties.' },
   '/status': { title: `System Status · ${BRAND}`, description: 'Live status of our storefront, sample ordering and delivery systems.' },
   '/visualizer': { title: `Tile Visualizer (Coming Soon) · ${BRAND}`, description: 'See real tiles in your own room photo before you buy. Join the early-access waitlist.' },
+
+  // ─────────────────────────────────────────────────────────────────
+  // /shop/* exact pages — added 12 May 2026 after Ahrefs flagged 15
+  // "Title tag missing or empty" URLs (all returning the FALLBACK
+  // generic title because /shop/* never matched any rule). These give
+  // every shop-side static page a unique, indexable title.
+  // ─────────────────────────────────────────────────────────────────
+  '/shop/faq': { title: `FAQ · ${BRAND}`, description: 'Tile & stone FAQs — orders, samples, returns, trade accounts, delivery and installation.' },
+  '/shop/sample-service': { title: `Tile Sample Service · ${BRAND}`, description: 'Order tile samples by post and see them in your own light before buying. £2.99 P&P, refunded on purchase.' },
+  '/shop/tile-forgot-password': { title: `Reset Your Password · ${BRAND}`, description: 'Reset the password for your Tile Station account.', noindex: true },
+  '/shop/tile-login': { title: `Sign In · ${BRAND}`, description: 'Sign in to your Tile Station account.', noindex: true },
+  '/shop/tile-register': { title: `Create Account · ${BRAND}`, description: 'Create a Tile Station account for faster checkout, saved samples and order tracking.', noindex: true },
+  '/shop/tile-cart': { title: `Your Basket · ${BRAND}`, description: 'Your tile basket and order summary.', noindex: true },
+  '/shop/cart': { title: `Your Basket · ${BRAND}`, description: 'Your tile basket and order summary.', noindex: true },
+  '/shop/checkout': { title: `Secure Checkout · ${BRAND}`, description: 'Complete your tile order with secure UK checkout.', noindex: true },
+  '/shop/account': { title: `My Account · ${BRAND}`, description: 'Manage your Tile Station orders, samples and addresses.', noindex: true },
+  '/shop/orders': { title: `My Orders · ${BRAND}`, description: 'View and track your Tile Station orders.', noindex: true },
+  '/shop/track': { title: `Track Your Order · ${BRAND}`, description: 'Track your Tile Station order with your order number and email.' },
+  '/shop/trade/register': { title: `Trade Account Application · ${BRAND}`, description: 'Apply for a Tile Station trade account — exclusive pricing, 30-day credit and priority service for installers, contractors and developers.' },
+  '/shop/trade/account': { title: `Trade Account · ${BRAND}`, description: 'Your Tile Station trade account dashboard.', noindex: true },
+  '/shop/bathroom': { title: `Bathroom Tiles & Inspiration · ${BRAND}`, description: 'Bathroom tile ideas, designer inspiration and our complete bathroom tile range — porcelain, marble, terrazzo and more.' },
+  '/shop/contact': { title: `Contact Us · Showrooms in Tonbridge, Chingford & Gravesend · ${BRAND}`, description: 'Visit one of our three UK tile showrooms or contact our team for trade enquiries and project quotes.' },
+  '/shop/refer': { title: `Refer a Friend & Earn £25 Credit · ${BRAND}`, description: 'Recommend Tile Station to a friend and you both earn £25 credit on your next tile order.' },
+  '/shop/compare': { title: `Compare Tiles Side-by-Side · ${BRAND}`, description: 'Compare up to 4 tiles side-by-side: price, size, material, finish and stock.' },
+  '/shop/all-tiles': { title: `All Tiles · ${BRAND}`, description: 'Browse our complete tile range — 1,000+ porcelain, marble, terrazzo, stone and ceramic tiles.' },
+  '/shop/tiles': { title: `Shop Tiles · ${BRAND}`, description: 'Browse our tile range by material, size, finish and room. Free UK samples and trade pricing.' },
+  '/shop/order-success': { title: `Order Confirmed · ${BRAND}`, description: 'Thank you — your Tile Station order has been confirmed.', noindex: true },
+  '/shop/wishlist': { title: `Your Wishlist · ${BRAND}`, description: 'Tiles you\'ve saved for later.', noindex: true },
+  '/shop/tile-samples': { title: `Order Tile Samples · ${BRAND}`, description: 'Touch, feel and compare tiles in your own light. Sample postage £2.99, refunded on purchase.' },
+  '/shop/tile-sample-success': { title: `Sample Order Confirmed · ${BRAND}`, description: 'Thanks — your tile samples are on their way.', noindex: true },
+  '/shop/contact-us': { title: `Contact Us · ${BRAND}`, description: 'Get in touch with the Tile Station team — three Kent and Essex showrooms.' },
+  '/shop/stores': { title: `Visit a Showroom · ${BRAND}`, description: 'Visit our Tonbridge, Chingford or Gravesend tile showrooms.' },
+  '/shop/info/faq': { title: `FAQ · ${BRAND}`, description: 'Tile & stone FAQs — orders, samples, returns, trade accounts, delivery and installation.' },
+  '/shop/info/privacy': { title: `Privacy Policy · ${BRAND}`, description: 'How Tile Station handles your data. GDPR-compliant.' },
+  '/shop/info/terms': { title: `Terms & Conditions · ${BRAND}`, description: 'Tile Station terms of sale, returns and warranties.' },
+  '/shop/info/returns': { title: `Returns & Refunds · ${BRAND}`, description: 'Our returns and refunds policy — easy returns within 30 days.' },
+  '/shop/info/delivery': { title: `Delivery Information · ${BRAND}`, description: 'UK delivery times, tracking, lead times and breakage policy.' },
+  '/shop/info/reviews': { title: `Customer Reviews · ${BRAND}`, description: 'Real customer reviews of our tile and stone products.' },
+  '/shop/info/about': { title: `About ${BRAND}`, description: 'Family-run UK tile and stone specialist with three Kent and Essex showrooms.' },
+  '/shop/info/sample-service': { title: `Sample Service · ${BRAND}`, description: 'How our £2.99 tile sample service works — refunded on every purchase.' },
 };
 
 // Dynamic prefix patterns — first match wins
@@ -198,6 +238,94 @@ const PREFIXES = [
       description: 'A shared tile visualization from Tile Station\'s room visualizer.',
       noindex: true,
     }),
+  },
+
+  // ───────────────────────────────────────────────────────────────
+  // /shop/* dynamic patterns — added 12 May 2026 for the Ahrefs
+  // "Title tag missing or empty" fix. These produce a unique, static
+  // per-page title from the URL slug even when the backend dynamic
+  // lookup (enrichSeo) fails or times out — so a collection PDP
+  // always has e.g. "Fossil Collection · Tile Station" instead of
+  // the brand-only fallback.
+  // ───────────────────────────────────────────────────────────────
+  // /shop/collection/<name> → "<Name> Collection · Tile Station"
+  {
+    pattern: /^\/shop\/collection\/([^/?#]+)\/?$/i,
+    build: (m) => {
+      const name = titleCase(decodeURIComponent(m[1]));
+      return {
+        title: `${name} Collection · ${BRAND}`,
+        description: `Explore the ${name} tile collection at ${BRAND} — free UK samples, trade pricing and fast delivery on every order.`,
+      };
+    },
+  },
+  // /shop/product/<slug> → "<Slug> · Tile Station"
+  {
+    pattern: /^\/shop\/product\/([^/?#]+)\/?$/i,
+    build: (m) => {
+      const name = titleCase(decodeURIComponent(m[1]));
+      return {
+        title: `${name} · ${BRAND}`,
+        description: `Buy ${name} at ${BRAND} — free samples, fast UK delivery, trade pricing available.`,
+      };
+    },
+  },
+  // /shop/products/<slug> (legacy)
+  {
+    pattern: /^\/shop\/products\/([^/?#]+)\/?$/i,
+    build: (m) => {
+      const name = titleCase(decodeURIComponent(m[1]));
+      return {
+        title: `${name} · ${BRAND}`,
+        description: `Buy ${name} at ${BRAND} — free samples, fast UK delivery, trade pricing available.`,
+      };
+    },
+  },
+  // /shop/tiles/<slug> (legacy PDP)
+  {
+    pattern: /^\/shop\/tiles\/([^/?#]+)\/?$/i,
+    build: (m) => {
+      const name = titleCase(decodeURIComponent(m[1]));
+      return {
+        title: `${name} · ${BRAND}`,
+        description: `Buy ${name} at ${BRAND} — free samples, fast UK delivery, trade pricing available.`,
+      };
+    },
+  },
+  // /shop/info/<slug> → "<Slug> · Tile Station"
+  {
+    pattern: /^\/shop\/info\/([^/?#]+)\/?$/i,
+    build: (m) => {
+      const slug = decodeURIComponent(m[1]);
+      const name = titleCase(slug);
+      return {
+        title: `${name} · ${BRAND}`,
+        description: `${name} — ${BRAND} information page.`,
+      };
+    },
+  },
+  // /shop/tile-scale-print/<size> → printable scale ruler page, noindex
+  {
+    pattern: /^\/shop\/tile-scale-print\/[^/?#]+\/?$/i,
+    build: () => ({
+      title: `Tile Scale Print · ${BRAND}`,
+      description: 'Printable to-scale tile rulers for visualising tile sizes before ordering.',
+      noindex: true,
+    }),
+  },
+  // /shop/collection/<name>/* → catch-all sub-paths under a collection
+  // (these are mostly bot-probed URLs like /shop/collection/X/shop/track,
+  // but our server.js 301 catches those before they reach here)
+  {
+    pattern: /^\/shop\/collection\/([^/?#]+)\/[^/?#]+\/?$/i,
+    build: (m) => {
+      const name = titleCase(decodeURIComponent(m[1]));
+      return {
+        title: `${name} Collection · ${BRAND}`,
+        description: `Explore the ${name} tile collection at ${BRAND}.`,
+        noindex: true,  // sub-paths are not canonical
+      };
+    },
   },
 ];
 

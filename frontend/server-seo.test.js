@@ -30,6 +30,36 @@ const cases = [
   // Visualizer share — must be noindex
   { path: '/visualizer/share/abc123', expectTitle: /Shared/, expectNoindex: true },
 
+  // ─── /shop/* exact pages (12 May 2026 Ahrefs hotfix) ──────────────
+  { path: '/shop/faq', expectTitle: /^FAQ ·/, note: 'shop FAQ' },
+  { path: '/shop/sample-service', expectTitle: /Sample Service/ },
+  { path: '/shop/tile-forgot-password', expectTitle: /Reset/, expectNoindex: true },
+  { path: '/shop/track', expectTitle: /Track Your Order/ },
+  { path: '/shop/bathroom', expectTitle: /Bathroom Tiles/ },
+  { path: '/shop/contact', expectTitle: /Contact Us/ },
+  { path: '/shop/refer', expectTitle: /Refer a Friend/ },
+  { path: '/shop/compare', expectTitle: /Compare Tiles/ },
+  { path: '/shop/all-tiles', expectTitle: /All Tiles/ },
+  { path: '/shop/info/faq', expectTitle: /^FAQ ·/ },
+  { path: '/shop/info/privacy', expectTitle: /Privacy Policy/ },
+  { path: '/shop/info/terms', expectTitle: /Terms & Conditions/ },
+  { path: '/shop/info/returns', expectTitle: /Returns/ },
+  { path: '/shop/info/delivery', expectTitle: /Delivery/ },
+  { path: '/shop/info/reviews', expectTitle: /Customer Reviews/ },
+
+  // ─── /shop/* dynamic prefix patterns ──────────────────────────────
+  { path: '/shop/collection/Fossil', expectTitle: /Fossil Collection ·/ },
+  { path: '/shop/collection/Brilliant%20White', expectTitle: /Brilliant White Collection ·/, note: 'URL-encoded collection name decoded' },
+  { path: '/shop/collection/Coral%20Grey%2060%C3%9760cm%20Matt', expectTitle: /Coral Grey 60×60cm Matt Collection ·/, note: '×-char survives decode' },
+  { path: '/shop/collection/Amalfi%20Flat', expectTitle: /Amalfi Flat Collection ·/ },
+  { path: '/shop/product/marble-veneto', expectTitle: /Marble Veneto ·/ },
+  { path: '/shop/products/marble-veneto', expectTitle: /Marble Veneto ·/, note: 'legacy /shop/products/' },
+  { path: '/shop/tiles/dark-onyx', expectTitle: /Dark Onyx ·/ },
+  { path: '/shop/info/about', expectTitle: /About Tile Station/, note: 'mapped in EXACT (no titlecase ·)' },
+  { path: '/shop/tile-scale-print/30x60cm', expectTitle: /Tile Scale Print/, expectNoindex: true },
+  // Sub-path under a collection — should be noindex
+  { path: '/shop/collection/Fossil/somesub', expectTitle: /Fossil Collection/, expectNoindex: true },
+
   // Asset-like paths must be skipped (return null)
   { path: '/static/js/main.abc.js', expectNull: true },
   { path: '/api/anything', expectNull: true },
