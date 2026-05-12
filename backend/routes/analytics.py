@@ -1882,6 +1882,75 @@ _BOT_UA_SIGNATURES = (
 )
 
 
+# Cloud-datacentre cities. ANY request originating from these locations
+# is almost certainly a bot/scraper/uptime-monitor — Tile Station is a
+# UK-only tile retailer; real customers do not visit from AWS us-east-1.
+# Match is case-insensitive substring on the city name (so "Ashburn" hits
+# both "Ashburn" and "Ashburn, VA"). When a request's CF-IPCountry +
+# CF-IPCity (or IP-API city) lands in this list it's flagged as a bot.
+_DATACENTRE_CITIES = frozenset({
+    "ashburn",            # AWS us-east-1
+    "council bluffs",     # Google Cloud us-central1
+    "the dalles",         # Google Cloud us-west1
+    "sterling",           # AWS us-east-1
+    "boardman",           # AWS us-west-2
+    "moncks corner",      # Google Cloud us-east1
+    "umatilla",           # AWS us-west-2
+    "dublin",             # AWS eu-west-1 (Ireland, but ~all real IE traffic is Dublin DCs)
+    "frankfurt am main",  # AWS eu-central-1 / Azure
+    "frankfurt",          # AWS eu-central-1 / Azure
+    "st ghislain",        # Google Cloud europe-west1
+    "saint-ghislain",     # Google Cloud europe-west1
+    "saint ghislain",     # Google Cloud europe-west1
+    "eemshaven",          # Google Cloud europe-west4
+    "groningen",          # Google Cloud europe-west4 area
+    "hamina",             # Google Cloud europe-north1
+    "frémont",            # Various cloud
+    "fremont",            # Linode / Various cloud
+    "san jose",           # AWS / DigitalOcean
+    "san francisco",      # Various cloud (esp. DigitalOcean / Linode)
+    "seattle",            # Azure / AWS
+    "santa clara",        # AWS / Google Cloud
+    "redmond",            # Azure
+    "boydton",            # Azure us-east-2
+    "quincy",             # Azure us-west-2
+    "des moines",         # Azure us-central
+    "tokyo",              # AWS ap-northeast-1
+    "singapore",          # AWS ap-southeast-1 (~all SG traffic = DCs)
+    "mumbai",             # AWS ap-south-1
+    "sydney",             # AWS ap-southeast-2
+    "são paulo",          # AWS sa-east-1
+    "sao paulo",          # AWS sa-east-1
+    "cape town",          # AWS af-south-1
+    "manama",             # AWS me-south-1 (Bahrain)
+    "hong kong",          # AWS ap-east-1
+    "kuala lumpur",       # Various cloud
+    "stockholm",          # AWS eu-north-1
+    "milan",              # AWS eu-south-1
+    "paris",              # AWS eu-west-3 (heavy bot signal even for FR)
+    "zurich",             # Google Cloud europe-west6
+    "delhi",              # Various cloud
+    "warsaw",             # AWS eu-central-2
+})
+
+
+def _is_datacentre_location(location: dict) -> bool:
+    """True when the location dict points at a known cloud-datacentre.
+    Robust to missing keys and case differences."""
+    if not location:
+        return False
+    city = (location.get("city") or "").strip().lower()
+    if not city or city in ("unknown", "—", "-"):
+        return False
+    if city in _DATACENTRE_CITIES:
+        return True
+    # Substring match to handle "Ashburn, VA" style strings
+    for needle in _DATACENTRE_CITIES:
+        if needle in city:
+            return True
+    return False
+
+
 def _looks_like_bot(user_agent_string: str) -> bool:
     """Match against the comprehensive bot signature list. Empty or
     missing UA is treated as a bot (no real browser ships without one)."""
@@ -1943,11 +2012,26 @@ async def broadcast_live_update(db):
 
 
 async def get_live_visitors_data(db) -> dict:
-    """Get current live visitors (active in last 5 minutes)"""
+    """Get current live visitors (active in last 5 minutes).
+
+    Defensive bot filtering at the read layer (belt + braces — track endpoint
+    also rejects bots, but old rows + edge cases get cleaned here):
+      • `device.is_bot=True` already flagged → excluded
+      • datacentre cities (Ashburn, Council Bluffs, Dublin DCs, etc.) → excluded
+      • non-existent /shop/.../shop/... double-prefix URLs → excluded
+        (those are scrapers probing for /track endpoints inside collection slugs)
+    """
     five_minutes_ago = datetime.now(timezone.utc) - timedelta(minutes=5)
     
     pipeline = [
-        {"$match": {"timestamp": {"$gte": five_minutes_ago}}},
+        {"$match": {
+            "timestamp": {"$gte": five_minutes_ago},
+            # Hard exclude any row already flagged as a bot at write-time
+            "$or": [
+                {"device.is_bot": {"$exists": False}},
+                {"device.is_bot": False},
+            ],
+        }},
         {"$group": {
             "_id": "$visitor_id",
             "last_page": {"$last": "$page_url"},
@@ -1966,6 +2050,15 @@ async def get_live_visitors_data(db) -> dict:
     
     formatted_visitors = []
     for v in visitors:
+        loc = {"city": v.get("city"), "country": v.get("country")}
+        # Skip datacentre-origin visitors
+        if _is_datacentre_location(loc):
+            continue
+        # Skip obvious bot URL patterns (e.g. /shop/collection/X/shop/track —
+        # double "/shop/" prefix is a scraper hallmark, never a real customer route).
+        page = (v.get("last_page") or "").lower()
+        if page.count("/shop/") >= 2 or "/shop/track" in page:
+            continue
         formatted_visitors.append({
             "visitor_id": v["_id"],
             "current_page": v["last_page"],
@@ -2028,6 +2121,15 @@ async def track_page_view(data: PageViewTrack, request: Request):
             }
         else:
             location = await get_geo_location(ip)
+
+        # Datacentre IP guard — block ANYTHING coming from a known cloud
+        # hosting region. Real customers don't visit a UK tile retailer
+        # from AWS us-east-1 (Ashburn), Google Cloud us-central1 (Council
+        # Bluffs), AWS eu-west-1 (Dublin), etc. The 12 May 2026 incident
+        # showed bots spoofing "Mobile Chrome" UAs from Ashburn slipping
+        # past the UA filter — this catches them.
+        if _is_datacentre_location(location):
+            return {"success": True, "tracked": False, "reason": "datacentre_ip"}
         
         # Create page view record
         page_view = {
@@ -2171,6 +2273,10 @@ async def cleanup_bot_traffic(
         wget, headless Chrome, GPTBot, ClaudeBot, etc.)
       • OR off-site URLs (e.g. https://example.com/...)
       • OR `device.is_bot=True` already flagged
+      • OR `location.city` matches a known cloud-datacentre (Ashburn,
+        Council Bluffs, Dublin DCs, Frankfurt, etc.) — added 12 May 2026
+        after bots spoofing mobile-Chrome UAs slipped past the UA filter.
+      • OR `page_url` contains the double-`/shop/` scraper pattern.
 
     `dry_run=True` returns the count of rows that WOULD be deleted
     without touching anything. `dry_run=false` performs the delete.
@@ -2180,8 +2286,15 @@ async def cleanup_bot_traffic(
     db = get_db()
     cutoff = datetime.now(timezone.utc) - timedelta(days=max(1, min(days, 365)))
 
-    # Pull just the candidate rows (recent + flagged-as-bot OR with
-    # off-site URL in page_url) — much smaller than full collection.
+    # Build a single Mongo query that captures every bot signal in one
+    # pass. Each branch is independently sufficient to flag the row.
+    # Note: the city-regex uses case-insensitive match across all
+    # known datacentre cities.
+    datacentre_regex = "|".join(
+        # Escape any regex-special characters in the city names. Most are
+        # plain letters but Saint-Ghislain etc. have hyphens which are safe.
+        c.replace(" ", r"\s*") for c in sorted(_DATACENTRE_CITIES)
+    )
     cursor = db.page_views.find(
         {
             "timestamp": {"$gte": cutoff},
@@ -2190,9 +2303,14 @@ async def cleanup_bot_traffic(
                 # Off-site / fake URLs commonly used by scrapers
                 {"page_url": {"$regex": r"^https?://example\.(com|org|net)", "$options": "i"}},
                 {"page_url": {"$regex": r"^https?://(?!.*tilestation|.*railway|.*emergentagent)", "$options": "i"}},
+                # Double /shop/ scraper pattern
+                {"page_url": {"$regex": r"/shop/[^/]+/shop/", "$options": "i"}},
+                {"page_url": {"$regex": r"/shop/track", "$options": "i"}},
+                # Datacentre origin — the big one (added 12 May 2026)
+                {"location.city": {"$regex": datacentre_regex, "$options": "i"}},
             ],
         },
-        {"_id": 1, "device": 1, "page_url": 1},
+        {"_id": 1, "device": 1, "page_url": 1, "location": 1},
     )
     candidate_ids = []
     async for row in cursor:
@@ -2203,6 +2321,14 @@ async def cleanup_bot_traffic(
             candidate_ids.append(row["_id"])
             continue
         if (row.get("device") or {}).get("is_bot"):
+            candidate_ids.append(row["_id"])
+            continue
+        if _is_datacentre_location(row.get("location") or {}):
+            candidate_ids.append(row["_id"])
+            continue
+        # Double /shop/ pattern hard-block
+        pu_lower = page_url.lower()
+        if pu_lower.count("/shop/") >= 2 or "/shop/track" in pu_lower:
             candidate_ids.append(row["_id"])
 
     if dry_run:
