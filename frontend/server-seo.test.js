@@ -129,6 +129,25 @@ injectionTests.push({
   check: () => /<div id="root">\s*<div class="ssr-fallback"/.test(collectionHtml),
 });
 
+// Outgoing links — added 12 May 2026 to fix Ahrefs "Page has no outgoing links"
+injectionTests.push({
+  name: 'SSR body has Home link',
+  check: () => /<a href="\/"[^>]*>Home<\/a>/.test(collectionHtml),
+});
+injectionTests.push({
+  name: 'SSR body has tiles + collections + contact links',
+  check: () => /href="\/tiles"/.test(collectionHtml)
+            && /href="\/collections"/.test(collectionHtml)
+            && /href="\/shop\/contact"/.test(collectionHtml),
+});
+injectionTests.push({
+  name: 'SSR body has at least 8 outgoing internal links',
+  check: () => {
+    const matches = collectionHtml.match(/<a href="\/[^"]*"/g) || [];
+    return matches.length >= 8;
+  },
+});
+
 for (const t of injectionTests) {
   try {
     assert.ok(t.check(), t.name);

@@ -525,10 +525,32 @@ function injectMeta(html, meta) {
     // a progressive enhancement / pre-hydration placeholder. React's
     // createRoot().render() wipes #root contents on first paint so the
     // real UI replaces this within a few hundred ms.
+    //
+    // 12 May 2026 — added internal navigation links to fix Ahrefs
+    // "Page has no outgoing links" on 20 URLs. Every SSR-rendered
+    // page now has at least 8 outgoing internal links visible to
+    // crawlers, so no page is a "dead end" pre-hydration. Real users
+    // never see this (React replaces it within ~200ms of JS load).
+    const navLinks = (
+      `<nav style="font-size:0.875rem;color:#374151;line-height:2;border-top:1px solid #e5e7eb;border-bottom:1px solid #e5e7eb;padding:16px 0;margin:24px 0;">` +
+        `<a href="/" style="color:#1f2937;margin-right:20px;text-decoration:underline;">Home</a>` +
+        `<a href="/tiles" style="color:#1f2937;margin-right:20px;text-decoration:underline;">Shop all tiles</a>` +
+        `<a href="/collections" style="color:#1f2937;margin-right:20px;text-decoration:underline;">Collections</a>` +
+        `<a href="/clearance" style="color:#1f2937;margin-right:20px;text-decoration:underline;">Clearance</a>` +
+        `<a href="/new-collection" style="color:#1f2937;margin-right:20px;text-decoration:underline;">New arrivals</a>` +
+        `<a href="/shop/bathroom" style="color:#1f2937;margin-right:20px;text-decoration:underline;">Bathroom tiles</a>` +
+        `<a href="/shop/info/faq" style="color:#1f2937;margin-right:20px;text-decoration:underline;">FAQ</a>` +
+        `<a href="/shop/info/delivery" style="color:#1f2937;margin-right:20px;text-decoration:underline;">Delivery</a>` +
+        `<a href="/shop/info/returns" style="color:#1f2937;margin-right:20px;text-decoration:underline;">Returns</a>` +
+        `<a href="/shop/info/about" style="color:#1f2937;margin-right:20px;text-decoration:underline;">About us</a>` +
+        `<a href="/shop/contact" style="color:#1f2937;text-decoration:underline;">Contact</a>` +
+      `</nav>`
+    );
     const bodyBlock = (
       `<div class="ssr-fallback" style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:960px;margin:40px auto;padding:0 24px;color:#1f2937;">` +
         `<h1 style="font-size:2rem;margin:0 0 16px;line-height:1.2;">${heading}</h1>` +
         `<p style="font-size:1rem;line-height:1.6;color:#374151;">${paragraph}</p>` +
+        navLinks +
         `<p style="font-size:0.9rem;color:#6b7280;margin-top:24px;"><em>Loading the full storefront…</em></p>` +
       `</div>`
     );
