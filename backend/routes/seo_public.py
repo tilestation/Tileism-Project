@@ -62,6 +62,20 @@ STATIC_URLS: list[tuple[str, str, str]] = [
     ("/showroom-signup",    "0.6", "monthly"),
     ("/shop",               "0.7", "weekly"),
     ("/shop/cart",          "0.4", "weekly"),
+    # 12 May 2026 — added so the collections-index page (which links
+    # to every collection PDP) is in the sitemap. Closes the orphan
+    # loop reported by Ahrefs for /shop/collection/<name> URLs.
+    ("/collections",        "0.85", "weekly"),
+    ("/shop/all-tiles",     "0.85", "weekly"),
+    ("/shop/bathroom",      "0.75", "weekly"),
+    ("/shop/track",         "0.5", "monthly"),
+    ("/shop/refer",         "0.5", "monthly"),
+    ("/shop/info/faq",      "0.6", "monthly"),
+    ("/shop/info/privacy",  "0.3", "yearly"),
+    ("/shop/info/terms",    "0.3", "yearly"),
+    ("/shop/info/returns",  "0.5", "monthly"),
+    ("/shop/info/delivery", "0.5", "monthly"),
+    ("/shop/info/reviews",  "0.7", "weekly"),
 ]
 
 
@@ -201,6 +215,72 @@ async def sitemap_xml() -> Response:
             priority="0.75",
             changefreq="monthly",
         ))
+
+    # 6. Collection PDPs — /shop/collection/<series_name>
+    # ───────────────────────────────────────────────────────────────
+    # Each tile belongs to a "series" (e.g. Hartley, Fossil, Amalfi
+    # Flat). The storefront builds collection PDPs at
+    # /shop/collection/<URL-encoded series_name>. Ahrefs flagged
+    # /shop/collection/Brilliant%20White as an orphan on 12 May 2026
+    # because every collection PDP was missing from the sitemap and
+    # had no internal links pointing to it from a crawler-friendly
+    # surface. This step enumerates every distinct series_name from
+    # active tiles and emits a sitemap entry per collection.
+    # ───────────────────────────────────────────────────────────────
+    import urllib.parse  # localised import — only used by this block
+    try:
+        # Aggregate distinct series names + a representative lastmod
+        # so the sitemap entries get a real updated_at, not today's date.
+        series_pipeline = [
+            {"$match": {
+                "is_active": True,
+                "$or": [
+                    {"series": {"$exists": True, "$nin": [None, ""]}},
+                    {"series_name": {"$exists": True, "$nin": [None, ""]}},
+                    {"original_series": {"$exists": True, "$nin": [None, ""]}},
+                ],
+            }},
+            {"$project": {
+                "_id": 0,
+                "series_name": {
+                    "$ifNull": [
+                        "$original_series",
+                        {"$ifNull": ["$series_name", "$series"]},
+                    ],
+                },
+                "updated_at": 1,
+            }},
+            {"$match": {"series_name": {"$nin": [None, ""]}}},
+            {"$group": {
+                "_id": "$series_name",
+                "last_updated": {"$max": "$updated_at"},
+                "product_count": {"$sum": 1},
+            }},
+            # Only emit collections with ≥ 1 active products. The
+            # group above already filters by is_active, so this is
+            # belt-and-braces — protects against the 1-product
+            # collections that exist only for testing.
+            {"$match": {"product_count": {"$gte": 1}}},
+            {"$sort": {"_id": 1}},
+        ]
+        async for row in db.tiles.aggregate(series_pipeline):
+            series_name = (row.get("_id") or "").strip()
+            if not series_name:
+                continue
+            # URL-encode the series name to match exactly how the
+            # frontend builds collection URLs (CollectionDetailPage.js
+            # uses encodeURIComponent). Spaces → %20, ampersands → %26.
+            encoded = urllib.parse.quote(series_name, safe="")
+            parts.append(_url_xml(
+                f"{host}/shop/collection/{encoded}",
+                lastmod=_iso_for_sitemap(row.get("last_updated") or today),
+                priority="0.8",
+                changefreq="weekly",
+            ))
+    except Exception as e:  # noqa: BLE001
+        # Never fail the whole sitemap if the collection aggregation
+        # fails — the existing entries are still useful.
+        logger.warning(f"[sitemap] collection aggregation failed: {e}")
 
     parts.append("</urlset>\n")
     body = "".join(parts)

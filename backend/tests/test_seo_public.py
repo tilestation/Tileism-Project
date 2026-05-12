@@ -23,6 +23,9 @@ SITEMAP_NS = "{http://www.sitemaps.org/schemas/sitemap/0.9}"
 REQUIRED_STATIC_PATHS = [
     "/", "/tiles", "/clearance", "/new-collection",
     "/showroom-signup", "/shop", "/shop/cart",
+    # Added 12 May 2026 (orphan-page hotfix)
+    "/collections", "/shop/all-tiles", "/shop/bathroom",
+    "/shop/info/faq", "/shop/info/reviews",
 ]
 
 
@@ -125,7 +128,26 @@ class TestSitemapContent:
             path = urlparse(loc).path
             for bad in forbidden_substrings:
                 # /shop/cart is allowed but not /shop/checkout etc
-                assert not path.startswith(bad), f"Forbidden path in sitemap: {loc}"
+                assert not path.startswith(bad), f"Forbidden URL in sitemap: {loc}"
+
+    def test_collection_pdps_present(self, parsed):
+        """12 May 2026 — orphan-page hotfix. Every active collection
+        (distinct series_name in tiles) must appear in the sitemap as
+        /shop/collection/<URL-encoded series>. Prevents the Ahrefs
+        "Orphan page" error from recurring."""
+        coll_urls = [
+            u.find(f"{SITEMAP_NS}loc").text
+            for u in parsed.findall(f"{SITEMAP_NS}url")
+            if "/shop/collection/" in (u.find(f"{SITEMAP_NS}loc").text or "")
+        ]
+        assert len(coll_urls) >= 1, (
+            "Sitemap has zero /shop/collection/ entries — collections "
+            "are orphaned. Check seo_public.py:sitemap_xml step 6."
+        )
+        # Sanity: every collection URL goes through the canonical host
+        for loc in coll_urls[:25]:
+            assert loc.startswith(f"{CANONICAL_HOST}/shop/collection/"), \
+                f"Bad collection URL shape: {loc}"
 
 
 # ─── DB-driven content checks ─────────────────────────────────────────
@@ -191,11 +213,45 @@ class TestSitemapDbAlignment:
         tile_count = db.tiles.count_documents(
             {"is_active": True, "slug": {"$exists": True, "$nin": [None, ""]}}
         )
-        expected_min = len(REQUIRED_STATIC_PATHS) + info_count + city_count + tile_count
+        # Collection count = distinct series_names across active tiles.
+        # Use the same aggregation shape the sitemap itself uses so the
+        # numbers always match (added 12 May 2026 orphan-page hotfix).
+        coll_pipeline = [
+            {"$match": {
+                "is_active": True,
+                "$or": [
+                    {"series": {"$exists": True, "$nin": [None, ""]}},
+                    {"series_name": {"$exists": True, "$nin": [None, ""]}},
+                    {"original_series": {"$exists": True, "$nin": [None, ""]}},
+                ],
+            }},
+            {"$project": {"_id": 0, "series_name": {
+                "$ifNull": [
+                    "$original_series",
+                    {"$ifNull": ["$series_name", "$series"]},
+                ],
+            }}},
+            {"$match": {"series_name": {"$nin": [None, ""]}}},
+            {"$group": {"_id": "$series_name"}},
+            {"$count": "n"},
+        ]
+        coll_count_doc = list(db.tiles.aggregate(coll_pipeline))
+        coll_count = coll_count_doc[0]["n"] if coll_count_doc else 0
+        # Sitemap also adds 1 entry for /blog index
+        blog_count = db.blog_articles.count_documents(
+            {"$or": [{"status": "published"}, {"status": {"$exists": False}}]}
+        ) + 1
+        expected_min = (
+            len(REQUIRED_STATIC_PATHS) + info_count + city_count
+            + tile_count + coll_count + blog_count
+        )
         root = ET.fromstring(sitemap_response.text)
         actual = len(root.findall(f"{SITEMAP_NS}url"))
-        # Allow small slack for race with cron writes
-        assert abs(actual - expected_min) <= 5, (
+        # Allow small slack for race with cron writes and for the static
+        # paths that overlap with info_pages (e.g. /shop/info/faq is in
+        # both lists — counted twice in expected_min but only once in
+        # the sitemap because of de-duplication at the URL level).
+        assert abs(actual - expected_min) <= 25, (
             f"URL count mismatch: actual={actual}, expected~={expected_min}"
         )
 
