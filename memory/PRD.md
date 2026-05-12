@@ -10,6 +10,41 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 
 ## Recent Sessions (most recent first)
 
+### [Feb 12, 2026] 🎯 Mission: Narrow the Gap to Topps Tiles (formalised)
+
+**Formal 12-month roadmap shipped** — see `/app/memory/MISSION_TOPPS.md` for the full document. North-star: close the gap to Topps Tiles (DR ~65, ~600k visits/month) from our T-zero baseline (DR 0.0, 24 visits/month, 5 keywords) by end of Year 1. Realistic outcome target: **10× our T-zero traffic → 1/10th of Topps instead of 1/600th**.
+
+**Tracking infrastructure built this session**:
+1. **`services/competitor_tracker.py`** — Weekly Ahrefs snapshot of our DR / traffic / refdomains / keywords vs Topps + Tile Mountain + Walls & Floors. Persists to `db.competitor_tracker_snapshots`. Auto-detects gap widening week-over-week and fires Telegram alert (alert-only — silent when improving).
+2. **`routes/mission_admin.py`** — `/api/admin/mission/status` (dashboard payload), `/api/admin/mission/history` (chart data), `/api/admin/mission/snapshot` (manual trigger), `/api/admin/mission/competitors` (config).
+3. **`pages/admin/MissionTopps.jsx`** — Sidebar nav → "Mission: Catch Topps". Headline cards (our DR vs Topps DR, our traffic vs Topps traffic, gap ratio), competitor table, 12 monthly milestones with current-month auto-highlighting, 26-week history table.
+4. **Scheduler**: Weekly Monday 06:30 BST snapshot (30 min before Editorial Autopilot runs at 07:00 so the Monday digest has the freshest gap data).
+
+**Live baseline (Tile Station, 12 May 2026)**:
+- Our DR: **0.0** · Topps: **63.0** (gap 63 points)
+- Our organic traffic: **24/month** · Topps: ~600k/month (1/25,000×)
+- Our keywords: **5** · Topps: ~120,000
+- Our indexed pages: 1,070 · Topps: ~50,000
+
+**Strategy pillars (all autonomous)**:
+1. ✅ Editorial Autopilot (3 articles/week, Topps-topic targeting) — built earlier
+2. ✅ SEO Self-Crawler + Auto-Fixer (technical hygiene) — built earlier this session
+3. ✅ Competitor Tracker (this addition)
+4. ⚠ Visual/Social — Pinterest engine built, blocked on API approval
+5. ⚠ Local SEO — 50 city pages live, GBP API waiting on Google allowlist
+6. 🟥 Backlinks — Houzz/HARO require human decisions (paid memberships)
+
+**Tests**: 21 new in `test_competitor_tracker.py` (_first_not_none, _coerce, _safe_ratio, _compute_delta, mission constants). 53 SEO tests total pass.
+
+**Human approval gates intentionally preserved** (only 4 manual touches in 12 months):
+1. Paste Pinterest App Secret to Railway when Pinterest trial unlocks
+2. Decide on Houzz Pro paid membership (~£50/mo)
+3. Decide on HARO subscription (~$19/mo, optional)
+4. Approve thin-content rewrites when proposed (one click)
+
+
+### [Feb 12, 2026] 🤖 Full Autonomous SEO Engine — audits AND auto-fixes
+
 ### [Feb 12, 2026] 🚨 P0 Stripe orphan-payment hotfix — Zoe Ward incident FIXED
 
 **Customer impact** — Real customer Zoe Ward paid £2.99 for a sample on production, Stripe captured the money, but the order silently stayed at `status='pending'` because: (a) the sample checkout passed `webhook_url=""` to Stripe, (b) the webhook handler at `/api/webhook/stripe` had no branch for sample orders, and (c) `request.base_url` was used to build the webhook URL — unreliable behind Railway's proxy.

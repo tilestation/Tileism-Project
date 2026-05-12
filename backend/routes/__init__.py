@@ -95,6 +95,7 @@ from .ads_savings import router as ads_savings_router
 from .notification_prefs import router as notification_prefs_router
 from .seo_autopilot import router as seo_autopilot_router
 from .seo_autopilot_admin import router as seo_autopilot_admin_router
+from .mission_admin import router as mission_admin_router
 from .seo_health_status import router as seo_health_status_router
 from .visualizer import router as visualizer_router, admin_router as visualizer_admin_router
 from .marketing_studio import router as marketing_studio_router, public_router as marketing_studio_public_router
@@ -173,6 +174,7 @@ api_router.include_router(ads_savings_router)
 api_router.include_router(notification_prefs_router)
 api_router.include_router(seo_autopilot_router)
 api_router.include_router(seo_autopilot_admin_router)
+api_router.include_router(mission_admin_router)
 api_router.include_router(seo_health_status_router)
 api_router.include_router(visualizer_router)
 api_router.include_router(visualizer_admin_router)

@@ -1393,6 +1393,35 @@ async def initialize_scheduler():
                     replace_existing=True, misfire_grace_time=3600,
                 )
                 logger.info("Added Self-Crawler + GSC Indexing Scan jobs (autopilot)")
+
+                # ─── Topps Tiles Mission tracker — weekly ───
+                # Captures DR/traffic/refdomains/keywords for our domain
+                # and Topps/Tile Mountain/W&F every Monday 06:30 BST,
+                # 30 min before the editorial autopilot's 07:00 run so
+                # the Monday digest has the freshest gap numbers.
+                from services.competitor_tracker import run_weekly_snapshot
+
+                async def _competitor_tracker_tick():
+                    try:
+                        res = await run_weekly_snapshot()
+                        our = (res or {}).get("our") or {}
+                        gap = (res or {}).get("gap_to_primary") or {}
+                        logger.info(
+                            f"competitor-tracker: our_dr={our.get('dr')} "
+                            f"our_traffic={our.get('organic_traffic')} "
+                            f"dr_gap={gap.get('dr_gap')} traffic_gap={gap.get('traffic_gap')}"
+                        )
+                    except Exception as e:
+                        logger.warning(f"competitor tracker tick failed: {e}")
+
+                sched.add_job(
+                    _competitor_tracker_tick,
+                    CronTrigger(day_of_week="mon", hour=6, minute=30,
+                                timezone="Europe/London"),
+                    id="seo_topps_competitor_tracker",
+                    replace_existing=True, misfire_grace_time=12*3600,
+                )
+                logger.info("Added Competitor Tracker (Topps mission) job")
             except Exception as crawl_err:  # noqa: BLE001
                 logger.warning(f"Could not wire self-crawler jobs: {crawl_err}")
         except Exception as ap_err:  # noqa: BLE001
