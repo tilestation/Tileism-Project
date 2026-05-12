@@ -138,6 +138,9 @@ async def test_recover_returns_error_when_order_not_found(fake_db, monkeypatch):
         send_email=False, fire_alerts=False,
     )
     assert res["error"] == "order_not_found"
+    # Consistency: also surfaces recovered/reason like the other branches
+    assert res["recovered"] is False
+    assert res["reason"] == "order_not_found"
 
 
 @pytest.mark.asyncio

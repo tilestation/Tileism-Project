@@ -117,7 +117,12 @@ async def recover_order_by_session(
         if order:
             coll_name = "shop_orders"
     if not order:
-        return {"error": "order_not_found", "session_id": session_id}
+        return {
+            "error": "order_not_found",
+            "session_id": session_id,
+            "recovered": False,
+            "reason": "order_not_found",
+        }
 
     before_status = order.get("status")
     if before_status in ("paid", "shipped", "delivered", "completed"):

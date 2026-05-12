@@ -10,6 +10,34 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 
 ## Recent Sessions (most recent first)
 
+### [Feb 12, 2026] 🚨 P0 Stripe orphan-payment hotfix — Zoe Ward incident FIXED
+
+**Customer impact** — Real customer Zoe Ward paid £2.99 for a sample on production, Stripe captured the money, but the order silently stayed at `status='pending'` because: (a) the sample checkout passed `webhook_url=""` to Stripe, (b) the webhook handler at `/api/webhook/stripe` had no branch for sample orders, and (c) `request.base_url` was used to build the webhook URL — unreliable behind Railway's proxy.
+
+**Three-layer fix shipped**:
+
+1. **`_resolve_webhook_url()` helper** (`routes/shop.py:290-322`) — single source of truth for the webhook URL. Priority: `SITE_URL` → `BACKEND_URL` → `request.base_url`. Raises HTTP 500 immediately if all three are missing (better to refuse checkout than silently lose another payment). Wired into all 5 stripe-checkout init sites in `shop.py`: guest-pay (`2768`), Klarna Express (`2960`), PayPal Express (`3079`), main checkout (`3222`), guest checkout (`3551`), sample checkout (`6407`).
+
+2. **Webhook handler extended** (`server.py:8464-8540`) — `checkout.session.completed` now branches:
+   - **Sample order branch**: when `metadata.order_type == "sample"`, looks up `sample_orders` by `metadata.order_id`, flips to `status=paid`, sweeps any abandoned-basket capture for the email, fires Telegram alert. Closes the gap that lost Zoe's £2.99.
+   - **Shop order fallback branch**: when no `payment_transactions` row exists (Klarna Express + PayPal Express don't create one), falls back to `shop_orders.find_one({stripe_session_id})` and `metadata.order_id`. Flips the order, deducts stock, fires Telegram. Closes the same gap for express checkout flows.
+
+3. **`/admin/stripe-reconcile` admin tool** (`routes/stripe_reconcile.py` + `pages/admin/StripeReconcile.jsx`) — already scaffolded by previous agent; this session wired it end-to-end. Shows every pending order with a `stripe_session_id` from the last N days, joined with the customer's delivery address from `abandoned_sample_baskets`. Per-row buttons: ✅ Recover (re-queries Stripe and flips to paid if Stripe says paid), 🚚 Mark shipped (with tracking#), 💷 Refund (one-click). Daily cron at 08:00 UTC auto-runs the recovery scan and emails admin with any remaining orphans.
+
+4. **Credential check extended** (`services/credential_check.py`) — now requires either `SITE_URL` OR `BACKEND_URL` to be set, otherwise fires a Telegram alert at boot. Prevents the next misconfigured Railway redeploy from silently breaking checkout.
+
+**Tests**: 12 new in `test_stripe_reconcile_unit.py` covering `_resolve_webhook_url` (5 tests: SITE_URL priority, BACKEND_URL fallback, trailing-slash strip, request.base_url last resort, HTTP 500 when nothing set), `recover_order_by_session` (6 tests: order-not-found, idempotent on already-paid, flips sample on Stripe-paid, no-op on Stripe-unpaid, falls through to shop_orders, handles Stripe API errors), `run_auto_recovery_scan` (1 test: dry-run mode). All 8 existing `test_credential_check.py` still pass.
+
+**testing_agent_v3_fork iter180** — backend 95.8% (23/24), frontend 100%. Zero critical bugs. One minor contract polish (`recover_order_by_session` now also includes `recovered:False` + `reason:"order_not_found"` for consistency with the other return branches) — fixed in same iteration. **retest_needed=false**.
+
+**Live verification on preview** — 50 orphan orders surfaced (£8,268.50 total at-risk value) — admin can now one-click recover any that Stripe says are paid. Webhook resilient: fake event with nonexistent order_id returns `{status: ok}` without 500'ing.
+
+**Production user action required**:
+1. **Click the new red "Stripe Reconciliation" sidebar entry** (between Communication and Reports). Click **Auto-recover all** at the top. Any historical Zoe-style orphans will instantly flip to paid + send the "we're so sorry, samples on their way" email.
+2. **Add `SITE_URL=https://api.tilestation.co.uk` to Railway env vars** (or whichever the actual public backend origin is). The fix already works with the existing `BACKEND_URL` fallback, but pinning `SITE_URL` removes any future ambiguity.
+3. **The webhook itself in the Stripe Dashboard** must be configured to call `https://tile-station-production.up.railway.app/api/webhook/stripe` — verify in dashboard.stripe.com → Developers → Webhooks. The webhook signing secret should be stored as `STRIPE_WEBHOOK_SECRET` on Railway (already covered by existing credential-check at boot).
+
+
 ### [Feb 8, 2026 — evening] 🖼️ Production swatch images broken on Moonstone/Bluestone — FIXED
 
 **User-reported bug** (with screenshots): On `/tiles` collection cards and on PDPs like `/shop/collection/Moonstone`, the colour swatch thumbnails were showing the browser's broken-image icon (or the placeholder mountain SVG) instead of real tile images. Affected newer collections only — Moonstone, Bluestone — but NOT older ones like Travertine. Main product images on the PDP were unaffected.
