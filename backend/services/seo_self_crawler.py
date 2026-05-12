@@ -226,6 +226,11 @@ async def run_self_crawl(*, site_root: str | None = None,
 
     started_at = datetime.now(timezone.utc)
     urls = await _fetch_sitemap_urls(site_root)
+    # Sitemap occasionally contains the same URL twice (e.g. http/https
+    # or with/without www). Dedupe before crawling so each URL is
+    # inspected exactly once — otherwise duplicate-title detector
+    # would false-positive on self-collisions.
+    urls = list(dict.fromkeys(urls))
     if limit:
         urls = urls[:limit]
 
@@ -320,58 +325,13 @@ async def list_issues_by_kind(kind: str, *, limit: int = 100) -> list[dict[str, 
 
 
 async def auto_fix_from_latest_crawl() -> dict[str, Any]:
-    """Iterate over the latest crawl results and apply safe auto-fixes.
+    """Real auto-fixer — lives in services/seo_auto_fixer.py.
 
-    Safe auto-fixes:
-      • 404 / 410 page → try `_suggest_redirect_target`, write to
-        seo_redirects with reason='self_crawl_auto_404'
-      • redirect_from_canonical → already in sitemap but the page now
-        redirects elsewhere — flag for review (admin)
-      • thin_content + fallback_title → these are caught by the SSR
-        body-content injector; ensure the next deploy of server-seo.js
-        fixes them; no DB action needed here
+    Wraps the function here so existing callers (scheduler,
+    admin routes) keep working without import changes.
     """
-    db = get_db()
-    fixes = {
-        "404_to_redirect": 0,
-        "redirect_canonical_flagged": 0,
-        "thin_content_flagged": 0,
-    }
-
-    async for row in db[CRAWL_RESULTS_COLLECTION].find({"issues.kind": "not_found"}):
-        path = row.get("path") or urlparse(row.get("url", "")).path
-        if not path or path == "/":
-            continue
-        if await db[REDIRECTS_COLLECTION].find_one({"_id": path}):
-            continue
-        target = await _suggest_redirect_target(path) or "/tiles"
-        await db[REDIRECTS_COLLECTION].update_one(
-            {"_id": path},
-            {"$set": {
-                "_id": path,
-                "target": target,
-                "status_code": 301,
-                "reason": "self_crawl_auto_404",
-                "created_at": datetime.now(timezone.utc),
-            }},
-            upsert=True,
-        )
-        fixes["404_to_redirect"] += 1
-        await _log_action("auto_redirect_created",
-                          from_path=path, to_path=target,
-                          source="self_crawl")
-
-    async for row in db[CRAWL_RESULTS_COLLECTION].find(
-        {"issues.kind": "redirect_from_canonical"}
-    ):
-        fixes["redirect_canonical_flagged"] += 1
-
-    async for row in db[CRAWL_RESULTS_COLLECTION].find(
-        {"issues.kind": "thin_content"}
-    ):
-        fixes["thin_content_flagged"] += 1
-
-    return {"ok": True, "fixes": fixes}
+    from services.seo_auto_fixer import auto_fix_from_latest_crawl as _real
+    return await _real()
 
 
 # ─── Telegram regression digest ─────────────────────────────────────

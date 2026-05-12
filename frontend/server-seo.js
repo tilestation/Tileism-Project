@@ -363,6 +363,33 @@ function resolveSeo(rawPath) {
   if (!meta) meta = { ...FALLBACK };
 
   meta.canonical = `${SITE_URL}${normalised === '/' ? '/' : normalised}`;
+
+  // ─────────────────────────────────────────────────────────────────
+  // DYNAMIC OVERRIDES — per-URL repairs from the SEO Auto-Fixer.
+  // The Self-Crawler finds issues (duplicate title, missing JSON-LD,
+  // missing description) and the Auto-Fixer writes a per-URL fix into
+  // `db.seo_overrides`. server-seo-overrides.js polls /api/seo/overrides
+  // every 5 min; we merge the override on top of the baseline so live
+  // fixes ship without a code deploy. (Added 12 May 2026 after admin
+  // categorical mandate: SEO must self-fix, not just self-audit.)
+  // ─────────────────────────────────────────────────────────────────
+  try {
+    const { getOverrideForPath, isNoindexPath } = require('./server-seo-overrides');
+    const ov = getOverrideForPath(normalised);
+    if (ov) {
+      if (ov.title) meta.title = ov.title;
+      if (ov.description) meta.description = ov.description;
+      if (ov.canonical) meta.canonical = ov.canonical;
+      if (ov.jsonld) meta.jsonld = ov.jsonld;
+      meta.override_applied = ov.auto_fix_reason || true;
+    }
+    if (isNoindexPath(normalised)) {
+      meta.noindex = true;
+    }
+  } catch (_e) {
+    // server-seo-overrides isn't ready / not running yet — graceful fall-through
+  }
+
   return meta;
 }
 

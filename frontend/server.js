@@ -23,6 +23,7 @@ const { createProxyMiddleware } = require('http-proxy-middleware');
 const { resolveSeo, injectMeta } = require('./server-seo');
 const { enrichSeo } = require('./server-seo-enrich');
 const { resolveLegacyRedirect, startDynamicRedirectRefresher } = require('./server-redirects');
+const { startOverrideRefresher } = require('./server-seo-overrides');
 
 const app = express();
 
@@ -217,5 +218,8 @@ app.listen(PORT, () => {
     // needing a code deploy).
     startDynamicRedirectRefresher(BACKEND_URL);
     console.log('[server] Dynamic SEO redirect refresher started (5-min interval)');
+    // Same pattern for SEO overrides (titles/descriptions/JSON-LD repairs)
+    startOverrideRefresher(BACKEND_URL);
+    console.log('[server] Dynamic SEO override refresher started (5-min interval)');
   }
 });

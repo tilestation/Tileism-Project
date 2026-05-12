@@ -382,3 +382,84 @@ async def public_redirects_map():
         "count": len(out),
         "version": latest.isoformat(),
     }
+
+
+@router.get("/seo/overrides")
+async def public_overrides_map():
+    """Per-URL SEO override map consumed by the Express SSR layer.
+
+    Populated by the SEO Auto-Fixer (services/seo_auto_fixer.py) when
+    the Self-Crawler finds missing/duplicate titles, missing meta
+    descriptions, missing JSON-LD, missing canonicals, etc.
+
+    Response shape:
+        {
+          "overrides": {
+            "/shop/collection/Brilliant%20White": {
+              "title": "Brilliant White Collection · Tile Station",
+              "description": "Explore the Brilliant White...",
+              "canonical": "https://www.tilestation.co.uk/...",
+              "jsonld": { ...schema.org WebPage... },
+              "noindex": false
+            },
+            ...
+          },
+          "noindex_paths": ["/old/dup/url", ...],
+          "version": "<ISO-8601>"
+        }
+
+    server-seo.js polls this every 5 min and applies the overrides at
+    SSR time — no Railway redeploy needed when the auto-fixer ships
+    a new repair.
+    """
+    db = get_db()
+    overrides: dict[str, Any] = {}
+    latest = datetime(2020, 1, 1, tzinfo=timezone.utc)
+    cursor = db.seo_overrides.find(
+        {},
+        {"_id": 1, "title": 1, "description": 1, "canonical": 1,
+         "jsonld": 1, "updated_at": 1},
+    ).limit(10000)
+    async for row in cursor:
+        path = row.get("_id") or ""
+        if not path or not path.startswith("/"):
+            continue
+        entry = {}
+        if row.get("title"):
+            entry["title"] = row["title"]
+        if row.get("description"):
+            entry["description"] = row["description"]
+        if row.get("canonical"):
+            entry["canonical"] = row["canonical"]
+        if row.get("jsonld"):
+            entry["jsonld"] = row["jsonld"]
+        if entry:
+            overrides[path] = entry
+        upd = row.get("updated_at")
+        if isinstance(upd, datetime):
+            if upd.tzinfo is None:
+                upd = upd.replace(tzinfo=timezone.utc)
+            if upd > latest:
+                latest = upd
+
+    # Noindex flags for duplicate-title losers
+    noindex_paths: list[str] = []
+    flag_cursor = db.seo_noindex_flags.find({}, {"_id": 1, "set_at": 1}).limit(2000)
+    async for row in flag_cursor:
+        path = row.get("_id") or ""
+        if path and path.startswith("/"):
+            noindex_paths.append(path)
+            ts = row.get("set_at")
+            if isinstance(ts, datetime):
+                if ts.tzinfo is None:
+                    ts = ts.replace(tzinfo=timezone.utc)
+                if ts > latest:
+                    latest = ts
+
+    return {
+        "overrides": overrides,
+        "noindex_paths": noindex_paths,
+        "count": len(overrides),
+        "noindex_count": len(noindex_paths),
+        "version": latest.isoformat(),
+    }

@@ -26,6 +26,11 @@ from services.seo_self_crawler import (
     run_full_autopilot_cycle,
     run_self_crawl,
 )
+from services.seo_auto_fixer import (
+    delete_noindex_flag,
+    delete_override,
+    list_overrides,
+)
 from services.gsc_indexing_scanner import (
     get_latest_indexing_breakdown,
     run_gsc_indexing_scan,
@@ -163,3 +168,40 @@ async def autopilot_trigger_regression(user: dict = Depends(get_current_user)):
     """Fire the regression Telegram alert if the latest snapshot got worse."""
     _require_admin(user)
     return await fire_regression_alert()
+
+
+# ─── Override management ───────────────────────────────────────────
+
+
+@router.get("/overrides")
+async def autopilot_overrides_list(
+    limit: int = 200, user: dict = Depends(get_current_user),
+):
+    """List current SEO overrides written by the auto-fixer."""
+    _require_admin(user)
+    rows = await list_overrides(limit=limit)
+    return {"count": len(rows), "overrides": rows}
+
+
+@router.delete("/overrides/{path:path}")
+async def autopilot_overrides_delete(
+    path: str, user: dict = Depends(get_current_user),
+):
+    """Revert one override (one-click)."""
+    _require_admin(user)
+    if not path.startswith("/"):
+        path = "/" + path
+    deleted = await delete_override(path)
+    return {"deleted": deleted, "path": path}
+
+
+@router.delete("/noindex/{path:path}")
+async def autopilot_noindex_clear(
+    path: str, user: dict = Depends(get_current_user),
+):
+    """Un-flag a duplicate-title loser so it gets re-indexed."""
+    _require_admin(user)
+    if not path.startswith("/"):
+        path = "/" + path
+    deleted = await delete_noindex_flag(path)
+    return {"deleted": deleted, "path": path}
