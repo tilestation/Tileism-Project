@@ -64,6 +64,11 @@ REQUIRED_CREDENTIALS: list[tuple[str, str]] = [
     ("EMERGENT_LLM_KEY",
         "Emergent universal LLM key — Editorial Autopilot, Marketing "
         "Studio image gen, Sora 2 video, Pinterest copy all fail"),
+    # ── Webhook routing (added after 2 May 2026 Zoe Ward incident) ──
+    # Used by routes/shop.py::_resolve_webhook_url to build the absolute
+    # URL Stripe must call. Falls back to SITE_URL, then BACKEND_URL,
+    # then request.base_url (last is unreliable behind Railway's proxy).
+    # Either SITE_URL or BACKEND_URL MUST be set in production.
 ]
 
 
@@ -74,6 +79,18 @@ def _scan() -> list[tuple[str, str]]:
         val = os.environ.get(var)
         if not val or not str(val).strip():
             missing.append((var, reason))
+
+    # Special handling for webhook URL — accept SITE_URL OR BACKEND_URL.
+    # We only complain if NEITHER is set, because both work equally well
+    # (SITE_URL wins by priority in _resolve_webhook_url).
+    if not (os.environ.get("SITE_URL") or "").strip() and \
+       not (os.environ.get("BACKEND_URL") or "").strip():
+        missing.append((
+            "SITE_URL or BACKEND_URL",
+            "Webhook URL builder — Stripe checkout will refuse to start "
+            "without this. Set one of SITE_URL or BACKEND_URL to the "
+            "public HTTPS origin (e.g. https://api.tilestation.co.uk).",
+        ))
     return missing
 
 

@@ -287,6 +287,38 @@ async def get_enabled_checkout_payment_methods(order_total: float) -> list:
     return methods
 
 
+def _resolve_webhook_url(request: Optional[Request] = None) -> str:
+    """Resolve the absolute URL Stripe should call for webhooks.
+
+    Priority order:
+      1. SITE_URL env var (production-pinned, set on Railway)
+      2. BACKEND_URL env var (already set on prod/preview)
+      3. request.base_url (last-resort fallback; behind Railway's proxy
+         this resolves to the internal container hostname, which Stripe
+         cannot reach — that's the bug the 2 May 2026 incident exposed
+         where the Zoe Ward payment had no webhook hit).
+
+    Always returns the FULL absolute /api/webhook/stripe URL.
+    """
+    base = (
+        os.environ.get("SITE_URL")
+        or os.environ.get("BACKEND_URL")
+        or ""
+    ).strip().rstrip("/")
+    if not base and request is not None:
+        try:
+            base = str(request.base_url).rstrip("/")
+        except Exception:  # noqa: BLE001
+            base = ""
+    if not base:
+        # Hard fail — better to refuse checkout than silently lose money
+        raise HTTPException(
+            status_code=500,
+            detail="Payment service mis-configured (SITE_URL/BACKEND_URL missing)",
+        )
+    return f"{base}/api/webhook/stripe"
+
+
 async def _create_stripe_checkout_with_fallback(
     stripe_checkout, request_factory, methods: list
 ):
@@ -2734,8 +2766,7 @@ async def create_guest_payment_session(request: Request, data: dict):
         logger.error("[guest-pay] STRIPE_API_KEY env var missing")
         raise HTTPException(status_code=500, detail="Payment service not configured (STRIPE_API_KEY missing)")
 
-    host_url = str(request.base_url).rstrip("/")
-    webhook_url = f"{host_url}/api/webhook/stripe"
+    webhook_url = _resolve_webhook_url(request)
     stripe_checkout = StripeCheckout(api_key=stripe_api_key, webhook_url=webhook_url)
 
     # Total amount from server-side calculation (never trust frontend)
@@ -2959,8 +2990,7 @@ async def create_klarna_express_session(request: Request, data: KlarnaExpressReq
     await db.shop_orders.insert_one(order_doc)
     
     # Build Stripe session — Klarna only, Stripe collects address via Klarna flow
-    host_url = str(request.base_url).rstrip("/")
-    webhook_url = f"{host_url}/api/webhook/stripe"
+    webhook_url = _resolve_webhook_url(request)
     stripe_checkout = StripeCheckout(api_key=stripe_api_key, webhook_url=webhook_url)
     
     success_url = f"{data.origin_url}/shop/order-success?session_id={{CHECKOUT_SESSION_ID}}&order_id={order_id}"
@@ -3079,8 +3109,7 @@ async def create_paypal_express_session(request: Request, data: PaypalExpressReq
     await db.shop_orders.insert_one(order_doc)
 
     # Build Stripe session — PayPal only
-    host_url = str(request.base_url).rstrip("/")
-    webhook_url = f"{host_url}/api/webhook/stripe"
+    webhook_url = _resolve_webhook_url(request)
     stripe_checkout = StripeCheckout(api_key=stripe_api_key, webhook_url=webhook_url)
 
     success_url = f"{data.origin_url}/shop/order-success?session_id={{CHECKOUT_SESSION_ID}}&order_id={order_id}"
@@ -3221,7 +3250,7 @@ async def create_checkout_session(request: Request, checkout_req: CheckoutReques
     if not stripe_api_key:
         raise HTTPException(status_code=500, detail="Payment service not configured")
     
-    webhook_url = f"{checkout_req.origin_url}/api/webhook/stripe"
+    webhook_url = _resolve_webhook_url(request)
     stripe_checkout = StripeCheckout(api_key=stripe_api_key, webhook_url=webhook_url)
     
     # Build URLs
@@ -3532,7 +3561,7 @@ async def create_guest_order(order_input: GuestOrderCreate):
 
 
 @router.post("/guest/checkout/create-session")
-async def create_guest_checkout_session(checkout_req: CheckoutRequest):
+async def create_guest_checkout_session(request: Request, checkout_req: CheckoutRequest):
     """Create Stripe checkout session for guest order"""
     db = get_db()
     
@@ -3550,7 +3579,7 @@ async def create_guest_checkout_session(checkout_req: CheckoutRequest):
     if not stripe_api_key:
         raise HTTPException(status_code=500, detail="Payment service not configured")
     
-    webhook_url = f"{checkout_req.origin_url}/api/webhook/stripe"
+    webhook_url = _resolve_webhook_url(request)
     stripe_checkout = StripeCheckout(api_key=stripe_api_key, webhook_url=webhook_url)
     
     success_url = f"{checkout_req.origin_url}/shop/order-success?session_id={{CHECKOUT_SESSION_ID}}&order_id={order['id']}"
@@ -6347,7 +6376,7 @@ class SampleCheckoutRequest(BaseModel):
 
 
 @router.post("/samples/checkout/{order_id}")
-async def create_sample_checkout(order_id: str, payload: SampleCheckoutRequest):
+async def create_sample_checkout(order_id: str, payload: SampleCheckoutRequest, request: Request):
     """Create Stripe checkout session for sample postage.
 
     Mirrors the production trade-checkout pattern (same env var name, same
@@ -6359,6 +6388,10 @@ async def create_sample_checkout(order_id: str, payload: SampleCheckoutRequest):
         was created (Python returned None and the route 500'd inconsistently)
       • success_url pointed at `/sample-success` which doesn't exist; the
         actual route is `/shop/tile-sample-success`
+      • webhook_url was empty so Stripe-side metadata didn't point at our
+        webhook — the 2 May 2026 Zoe Ward incident. Now resolves through
+        the SITE_URL/BACKEND_URL env var; webhook itself also handles
+        sample order_type from the checkout.session.completed metadata.
     """
     db = get_db()
 
@@ -6377,7 +6410,8 @@ async def create_sample_checkout(order_id: str, payload: SampleCheckoutRequest):
     success_url = f"{origin}/shop/tile-sample-success?session_id={{CHECKOUT_SESSION_ID}}&order_id={order_id}"
     cancel_url = f"{origin}/shop/tile-samples?cancelled=true"
 
-    stripe_checkout = StripeCheckout(api_key=stripe_api_key, webhook_url="")
+    webhook_url = _resolve_webhook_url(request)
+    stripe_checkout = StripeCheckout(api_key=stripe_api_key, webhook_url=webhook_url)
     payment_methods = await get_enabled_checkout_payment_methods(float(order["total"]))
 
     def _build_request(methods_list):

@@ -8465,11 +8465,142 @@ async def stripe_webhook(request: Request):
                 session = event.get("data", {}).get("object", {})
                 session_id = session.get("id")
                 payment_status = session.get("payment_status")
-                
+                session_metadata = session.get("metadata") or {}
+
                 if payment_status == "paid":
+                    # ────────────────────────────────────────────────────────
+                    # SAMPLE ORDERS — flip status to paid via the webhook so
+                    # we don't depend on the customer reaching the success
+                    # page. Built in response to the 2 May 2026 Zoe Ward
+                    # incident where a sample customer paid £2.99, closed
+                    # the tab before the success-page poll fired, and the
+                    # sample order silently stayed at status='pending'.
+                    # ────────────────────────────────────────────────────────
+                    if (session_metadata.get("order_type") or "").lower() == "sample":
+                        sample_order_id = session_metadata.get("order_id")
+                        if sample_order_id:
+                            sample_order = await db.sample_orders.find_one(
+                                {"id": sample_order_id}, {"_id": 0}
+                            )
+                            if sample_order and sample_order.get("status") not in (
+                                "paid", "shipped", "delivered", "completed"
+                            ):
+                                now = datetime.now(timezone.utc).isoformat()
+                                await db.sample_orders.update_one(
+                                    {"id": sample_order_id},
+                                    {"$set": {
+                                        "status": "paid",
+                                        "paid_at": now,
+                                        "webhook_paid": True,
+                                        "webhook_event_id": event.get("id"),
+                                        "stripe_session_id": session_id,
+                                    }},
+                                )
+                                logging.info(
+                                    f"[webhook] sample_order paid via webhook: "
+                                    f"{sample_order_id} session={session_id}"
+                                )
+                                # Sweep abandoned-basket capture for this email
+                                cust_email = (
+                                    sample_order.get("customer_email")
+                                    or session.get("customer_email")
+                                    or ""
+                                ).lower()
+                                if cust_email:
+                                    try:
+                                        await db.abandoned_sample_baskets.update_many(
+                                            {"customer_email": cust_email},
+                                            {"$set": {"status": "recovered", "recovered_at": now}},
+                                        )
+                                    except Exception:
+                                        pass
+                                # Telegram alert
+                                try:
+                                    from services.telegram_notify import fire_and_forget as _tg_ff
+                                    total_str = f"£{float(sample_order.get('total', 0)):.2f}"
+                                    customer_name = sample_order.get("customer_name") or "Customer"
+                                    order_number = sample_order.get("order_number") or sample_order_id
+                                    sample_count = sample_order.get("sample_count", 0)
+                                    _tg_ff(
+                                        "new_order",
+                                        f"🧪 <b>New sample order</b> {order_number}\n"
+                                        f"{customer_name}\n"
+                                        f"{total_str} · {sample_count} sample(s)",
+                                        dedupe_key=f"new-sample-order:{sample_order_id}",
+                                    )
+                                except Exception as e:  # noqa: BLE001
+                                    logging.warning(f"Telegram new sample-order alert failed: {e}")
+
                     # Update payment transaction
                     transaction = await db.payment_transactions.find_one({"session_id": session_id})
-                    
+
+                    # ────────────────────────────────────────────────────────
+                    # ORPHAN-RESILIENCE — Klarna Express / PayPal Express do
+                    # NOT create a payment_transactions row, only stamp the
+                    # session_id on the order doc itself. Fallback: locate
+                    # the shop_order directly by session_id (or by metadata
+                    # order_id) so those flows also flip to paid via webhook
+                    # without depending on the customer reaching success page.
+                    # ────────────────────────────────────────────────────────
+                    if not transaction:
+                        fallback_order_id = session_metadata.get("order_id")
+                        fallback_order = None
+                        if fallback_order_id:
+                            fallback_order = await db.shop_orders.find_one(
+                                {"id": fallback_order_id}, {"_id": 0}
+                            )
+                        if not fallback_order:
+                            fallback_order = await db.shop_orders.find_one(
+                                {"stripe_session_id": session_id}, {"_id": 0}
+                            )
+                        if fallback_order and fallback_order.get("payment_status") != "paid":
+                            now = datetime.now(timezone.utc).isoformat()
+                            await db.shop_orders.update_one(
+                                {"id": fallback_order["id"]},
+                                {"$set": {
+                                    "status": "confirmed",
+                                    "payment_status": "paid",
+                                    "paid_at": now,
+                                    "updated_at": now,
+                                    "webhook_paid": True,
+                                    "webhook_event_id": event.get("id"),
+                                    "stripe_session_id": session_id,
+                                }},
+                            )
+                            # Deduct stock
+                            for item in fallback_order.get("items", []):
+                                pid = item.get("product_id")
+                                if pid:
+                                    try:
+                                        await db.products.update_one(
+                                            {"id": pid},
+                                            {"$inc": {"stock": -int(item.get("quantity", 0))}},
+                                        )
+                                    except Exception:
+                                        pass
+                            logging.info(
+                                f"[webhook] shop_order paid via webhook fallback "
+                                f"(no payment_transactions row): "
+                                f"{fallback_order['id']} session={session_id}"
+                            )
+                            # Telegram alert for express checkout
+                            try:
+                                from services.telegram_notify import fire_and_forget as _tg_ff
+                                items_count = len(fallback_order.get("items") or [])
+                                total_str = f"£{float(fallback_order.get('total', 0)):.2f}"
+                                customer_name = fallback_order.get("customer_name") or "Customer"
+                                order_number = fallback_order.get("order_number") or fallback_order["id"]
+                                source = fallback_order.get("source") or "express"
+                                _tg_ff(
+                                    "new_order",
+                                    f"🛒 <b>New order</b> {order_number} · {source}\n"
+                                    f"{customer_name}\n"
+                                    f"{total_str} · {items_count} item(s)",
+                                    dedupe_key=f"new-order:{fallback_order['id']}",
+                                )
+                            except Exception as e:  # noqa: BLE001
+                                logging.warning(f"Telegram new_order alert (fallback) failed: {e}")
+
                     if transaction and transaction.get("payment_status") != "paid":
                         now = datetime.now(timezone.utc).isoformat()
                         
