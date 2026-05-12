@@ -43,23 +43,35 @@ const recentHashes = new Map(); // hash → ts
 // customer's experience is unaffected. Adding to this list reduces
 // admin-panel noise without hiding real bugs.
 const BENIGN_PATTERNS = [
-  // ServiceWorker update/install fetch failures — the customer keeps
+  // ServiceWorker update/install/MIME failures — the customer keeps
   // the cached SW and the browser auto-retries on next visit. Not a
-  // customer-facing fault.
+  // customer-facing fault. Covers ALL Chrome/Firefox SW failure
+  // variants we've seen in the wild.
   /Failed to update a ServiceWorker/i,
   /Failed to register a ServiceWorker/i,
   /service-worker\.js.*load failed/i,
   /service-worker\.js.*An unknown error occurred/i,
   /Service worker registration failed/i,
+  /script has an unsupported MIME type/i,    // SW returned HTML (preview/dev)
+  /A bad HTTP response code \(\d+\) was received/i,
+  // CRA dev-server hot-reload websocket failing on preview/staging where
+  // wss:// isn't proxied. Production builds don't run this socket at all.
+  /WebSocket.*connection.*failed/i,
+  /ws[s]?:\/\/.*\/ws.*failed/i,
   // Browser-internal cancellations (user navigated away mid-fetch)
   /aborterror/i,
   /the user aborted a request/i,
   /networkerror when attempting to fetch resource/i,
   // Cross-origin script errors with no useful info ("Script error.")
   /^script error\.?$/i,
-  // Browser extensions / DevTools Sentry chatter
+  // Browser extensions / DevTools / Sentry chatter — anything from a
+  // chrome-extension://, moz-extension:// origin or the typical
+  // extension chatter strings ("No Listener", "tabs:outgoing", etc.).
   /chrome-extension:/i,
   /moz-extension:/i,
+  /safari-web-extension:/i,
+  /tabs:outgoing/i,
+  /No Listener:.*tabs/i,
   /^resizeobserver loop /i,
 ];
 
@@ -278,6 +290,31 @@ function installAxiosInterceptor() {
 }
 
 function installCrashHandlers() {
+  // Patch console.error to swallow known-benign messages BEFORE the
+  // CRA dev error overlay (react-error-overlay) gets to see them. CRA
+  // patches console.error and pops its red panel for anything that
+  // reaches it — including SW MIME failures Chromium logs directly
+  // (not via promise rejection / error events, so our window listeners
+  // can't intercept them).
+  //
+  // We only filter when the FIRST arg matches a benign pattern. All
+  // other console.error calls still go through to the dev tools so
+  // real bugs surface.
+  if (typeof window !== 'undefined' && typeof console !== 'undefined' && !console.__benignPatched) {
+    console.__benignPatched = true;
+    const originalError = console.error.bind(console);
+    console.error = function (...args) {
+      try {
+        const first = args[0];
+        const text = typeof first === 'string'
+          ? first
+          : (first && first.message) || JSON.stringify(first || '').slice(0, 240);
+        if (isBenign(text)) return; // silently drop — CRA overlay never sees it
+      } catch { /* fall through to default behaviour */ }
+      originalError.apply(console, args);
+    };
+  }
+
   // Capture phase listeners fire BEFORE any bubble-phase listener, regardless
   // of registration order. This guarantees our preventDefault() runs first
   // so CRA's dev error overlay (and any third-party SDK like Sentry) sees
