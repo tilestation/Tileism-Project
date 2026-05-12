@@ -230,6 +230,7 @@ export const Layout = () => {
         { to: '/admin/pinterest-pack', icon: ImageIcon, label: 'Pinterest Pack', permission: 'marketing' },
         { to: '/admin/trade-credit-emails', icon: Mail, label: 'Trade Credit Emails', permission: 'marketing' },
         { to: '/admin/failed-payments', icon: AlertTriangle, label: 'Failed Payments', permission: 'marketing' },
+        { to: '/admin/stripe-reconcile', icon: ShieldAlert, label: 'Stripe Reconcile', permission: 'marketing' },
         { to: '/admin/weekly-digest', icon: CalendarDays, label: 'Weekly Digest', permission: 'marketing', superAdminOnly: true },
         { to: '/admin/health', icon: ShieldAlert, label: 'Health Monitor', permission: 'admin' },
       ]

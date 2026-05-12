@@ -27,6 +27,14 @@ class CheckoutSessionRequest(BaseModel):
     customer_email: Optional[str] = None
     metadata: Optional[dict] = None
     mode: str = "payment"
+    # Shipping address collection — DEFENCE IN DEPTH. Even if our DB
+    # capture (/api/samples/capture) fails silently and we lose the
+    # address row, Stripe will always have the address on the session
+    # so we can recover it via the reconciliation tool. Empty list
+    # disables collection. Default is the UK only since that's our
+    # service area; pass other ISO codes to extend.
+    collect_shipping_address: bool = True
+    shipping_address_countries: Optional[List[str]] = None  # e.g. ["GB","IE"]
 
 
 class CheckoutSessionResponse(BaseModel):
@@ -88,13 +96,25 @@ class StripeCheckout:
                 "success_url": request.success_url,
                 "cancel_url": request.cancel_url,
             }
-            
+
             if request.customer_email:
                 session_params["customer_email"] = request.customer_email
-            
+
             if request.metadata:
                 session_params["metadata"] = request.metadata
-            
+
+            # Collect shipping address on Stripe's hosted checkout page.
+            # Stripe stores it on the session forever — invaluable when
+            # our DB capture row gets lost, the customer abandons mid-
+            # flow, or webhooks fail. /admin/stripe-reconcile reads this.
+            if request.collect_shipping_address:
+                countries = request.shipping_address_countries or ["GB"]
+                session_params["shipping_address_collection"] = {
+                    "allowed_countries": countries,
+                }
+                # Also collect phone — useful for failed-delivery follow-up.
+                session_params["phone_number_collection"] = {"enabled": True}
+
             session = stripe.checkout.Session.create(**session_params)
             
             return CheckoutSessionResponse(

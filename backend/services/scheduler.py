@@ -961,6 +961,33 @@ async def initialize_scheduler():
         except Exception as eh_err:
             logger.warning(f"Could not add email-hub scheduler tick: {eh_err}")
 
+        # Daily Stripe orphan-order reconciliation. Runs every day at
+        # 08:00 UTC. Scans for any pending order with a Stripe session
+        # ID, re-queries Stripe, auto-flips to paid if Stripe says paid,
+        # and emails the admin a digest of anything still pending.
+        # This was BUILT in response to the 2 May 2026 silent-failure
+        # incident — see routes/stripe_reconcile.py.
+        try:
+            from routes.stripe_reconcile import run_daily_orphan_alert_tick
+
+            async def _stripe_reconcile_tick():
+                try:
+                    await run_daily_orphan_alert_tick()
+                except Exception as sr_err:
+                    logger.warning(f"Stripe reconcile daily tick failed: {sr_err}")
+
+            sched.add_job(
+                _stripe_reconcile_tick,
+                trigger=CronTrigger(hour=8, minute=0),
+                id="stripe_orphan_reconcile_daily",
+                name="Daily Stripe orphan-order reconciliation",
+                replace_existing=True,
+                misfire_grace_time=3600,
+            )
+            logger.info("Added daily Stripe orphan-reconcile job (08:00 UTC)")
+        except Exception as sr_err:
+            logger.warning(f"Could not add Stripe orphan-reconcile job: {sr_err}")
+
         # Nightly announcement-ribbon leak scrubber — belt + braces safety
         # net after the 30-Apr-2026 TEST_PRESERVE_fields incident. Even if
         # a future test file forgets to clean up, any `TEST_*` / `_E1_TEST_*`

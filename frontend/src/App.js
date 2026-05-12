@@ -33,6 +33,7 @@ import MarketingStudio from './pages/admin/MarketingStudio';
 import TradeCreditEmails from './pages/admin/TradeCreditEmails';
 import EmailHub from './pages/admin/EmailHub';
 import PinterestPack from './pages/admin/PinterestPack';
+import StripeReconcile from './pages/admin/StripeReconcile';
 import UnsubscribePage from './pages/public/UnsubscribePage';
 import VideoStudio from './pages/admin/VideoStudio';
 import BlogIndexPage from './pages/shop/BlogIndexPage';
@@ -485,6 +486,7 @@ function App() {
             <Route path="trade-credit-emails" element={<TradeCreditEmails />} />
             <Route path="email-hub" element={<EmailHub />} />
             <Route path="pinterest-pack" element={<PinterestPack />} />
+            <Route path="stripe-reconcile" element={<StripeReconcile />} />
             <Route path="marketing-studio/videos" element={<VideoStudio />} />
             <Route path="health" element={<HealthMonitor />} />
             <Route path="ads-savings" element={<GoogleAdsSavings />} />
