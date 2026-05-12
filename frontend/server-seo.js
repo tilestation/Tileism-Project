@@ -472,6 +472,45 @@ function injectMeta(html, meta) {
     // No </head>? Append block at the end (defensive — should never happen)
     out = out + block;
   }
+
+  // ─────────────────────────────────────────────────────────────────
+  // SSR body content injection (12 May 2026 — GSC Soft 404 hotfix)
+  // ─────────────────────────────────────────────────────────────────
+  // GSC reported 90 "Soft 404" + 102 "Crawled - currently not indexed"
+  // pages. Root cause: Googlebot fetched our pages and saw an empty
+  // <div id="root"></div> — no H1, no paragraph, no readable text —
+  // so it concluded the page had no content (= soft 404).
+  //
+  // Fix: inject a real <h1> + description paragraph + a "Loading…"
+  // skeleton inside <div id="root">. React's createRoot().render()
+  // REPLACES the entire root contents on first paint, so:
+  //   • Crawlers (no JS) see real readable content → indexable
+  //   • Real users never see this — React swaps it out instantly
+  //   • Skipped when meta.noindex is true — no point ranking those
+  //
+  // We only emit when the SPA shell has a literal empty root div
+  // (`<div id="root"></div>`), so we don't trample any future
+  // server-rendered content the build pipeline might add later.
+  if (!meta.noindex) {
+    const heading = escapeHtml(meta.title || '');
+    const paragraph = escapeHtml(meta.description || '');
+    // Visible to crawlers AND to users on slow connections — counts as
+    // a progressive enhancement / pre-hydration placeholder. React's
+    // createRoot().render() wipes #root contents on first paint so the
+    // real UI replaces this within a few hundred ms.
+    const bodyBlock = (
+      `<div class="ssr-fallback" style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:960px;margin:40px auto;padding:0 24px;color:#1f2937;">` +
+        `<h1 style="font-size:2rem;margin:0 0 16px;line-height:1.2;">${heading}</h1>` +
+        `<p style="font-size:1rem;line-height:1.6;color:#374151;">${paragraph}</p>` +
+        `<p style="font-size:0.9rem;color:#6b7280;margin-top:24px;"><em>Loading the full storefront…</em></p>` +
+      `</div>`
+    );
+    out = out.replace(
+      /(<div id="root">)\s*(<\/div>)/,
+      `$1${bodyBlock}$2`,
+    );
+  }
+
   return out;
 }
 

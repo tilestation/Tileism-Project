@@ -110,6 +110,25 @@ injectionTests.push({
   check: () => /<meta name="robots"[^>]+noindex/.test(shareHtml),
 });
 
+// SSR body content injection (12 May 2026 Soft 404 hotfix)
+const collectionHtml = injectMeta(fakeShell, resolveSeo('/shop/collection/Hartley'));
+injectionTests.push({
+  name: 'SSR body H1 injected for /shop/collection/Hartley',
+  check: () => /<h1[^>]*>Hartley Collection[^<]*<\/h1>/.test(collectionHtml),
+});
+injectionTests.push({
+  name: 'SSR body paragraph injected for collection page',
+  check: () => /<p[^>]*>Explore the Hartley[^<]*<\/p>/.test(collectionHtml),
+});
+injectionTests.push({
+  name: 'SSR body content NOT injected on noindex pages',
+  check: () => !/<h1[^>]*>Shared/.test(shareHtml),
+});
+injectionTests.push({
+  name: 'SSR body content placed INSIDE the empty #root div',
+  check: () => /<div id="root">\s*<div class="ssr-fallback"/.test(collectionHtml),
+});
+
 for (const t of injectionTests) {
   try {
     assert.ok(t.check(), t.name);
