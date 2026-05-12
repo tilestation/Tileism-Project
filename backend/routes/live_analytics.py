@@ -305,19 +305,29 @@ async def heartbeat(payload: HeartbeatPayload, request: Request, background_task
                 )
                 is_tagged_device = bool(tag_doc)
             if not is_tagged_device:
-                from services.telegram_notify import fire_and_forget
-                new_value = (cart_dict or {}).get("value", 0) or 0
-                where = (geo or {}).get("city") or (geo or {}).get("country") or "Unknown"
-                page = update_doc.get("path") or "/"
-                text = (
-                    "<b>🛒 Item added to basket</b>\n"
-                    f"<b>On page:</b> {page}\n"
-                    f"<b>Basket now:</b> {new_count} item{'' if new_count == 1 else 's'} · £{new_value:.2f}\n"
-                    f"<b>Where:</b> {where}\n"
-                    f"<b>Session:</b> {payload.session_id[:10]}…"
+                # UK-only hard lock (12 May 2026) — basket-add alerts
+                # must NOT fire for non-UK sessions.
+                geo_cc = (geo or {}).get("country_code") or ""
+                geo_name = ((geo or {}).get("country") or "").lower()
+                is_uk = (
+                    geo_cc.upper() == "GB"
+                    or geo_name in ("united kingdom", "uk", "great britain",
+                                    "england", "scotland", "wales", "northern ireland")
                 )
-                dedupe_key = f"basket_add:{payload.session_id}:{new_count}"
-                fire_and_forget("basket_add", text, dedupe_key=dedupe_key)
+                if is_uk:
+                    from services.telegram_notify import fire_and_forget
+                    new_value = (cart_dict or {}).get("value", 0) or 0
+                    where = (geo or {}).get("city") or (geo or {}).get("country") or "Unknown"
+                    page = update_doc.get("path") or "/"
+                    text = (
+                        "<b>🛒 Item added to basket</b>\n"
+                        f"<b>On page:</b> {page}\n"
+                        f"<b>Basket now:</b> {new_count} item{'' if new_count == 1 else 's'} · £{new_value:.2f}\n"
+                        f"<b>Where:</b> {where}\n"
+                        f"<b>Session:</b> {payload.session_id[:10]}…"
+                    )
+                    dedupe_key = f"basket_add:{payload.session_id}:{new_count}"
+                    fire_and_forget("basket_add", text, dedupe_key=dedupe_key)
     except Exception as exc:
         logger.debug(f"[live-analytics] basket_add Telegram skipped: {exc}")
 

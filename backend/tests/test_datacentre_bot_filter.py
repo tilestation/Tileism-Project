@@ -133,3 +133,58 @@ def test_datacentre_list_has_aws_eu_west_1():
 def test_datacentre_list_size_reasonable():
     """If somebody accidentally clears the list, fail loudly."""
     assert len(_DATACENTRE_CITIES) >= 20, "Datacentre city list shrank suspiciously"
+
+
+# ─── UK-only hard lockdown (12 May 2026) ─────────────────────────────
+
+
+from routes.analytics import _is_uk_visitor
+
+
+def test_uk_country_code_gb_allowed():
+    """The only allowed ISO2 — full pass."""
+    assert _is_uk_visitor({"country_code": "GB", "country": "United Kingdom"}) is True
+
+
+def test_us_country_code_rejected():
+    """The big one — admin's complaint. Ashburn US must be rejected."""
+    assert _is_uk_visitor({"country_code": "US", "country": "United States"}) is False
+
+
+def test_unknown_country_rejected():
+    """Fail-closed — no info = reject (assume hostile/proxy)."""
+    assert _is_uk_visitor({"country_code": "", "country": ""}) is False
+    assert _is_uk_visitor({}) is False
+    assert _is_uk_visitor(None) is False
+
+
+def test_full_country_name_uk_variants_accepted():
+    """Some IP-API responses return 'England' / 'Scotland' as country."""
+    assert _is_uk_visitor({"country": "United Kingdom"}) is True
+    assert _is_uk_visitor({"country": "england"}) is True
+    assert _is_uk_visitor({"country": "Scotland"}) is True
+    assert _is_uk_visitor({"country": "WALES"}) is True
+    assert _is_uk_visitor({"country": "Northern Ireland"}) is True
+    assert _is_uk_visitor({"country": "Great Britain"}) is True
+
+
+def test_non_uk_country_names_rejected():
+    """Common non-UK countries all rejected."""
+    for country in ["United States", "Germany", "France", "Spain", "Italy",
+                    "Canada", "Australia", "Japan", "China", "India",
+                    "Netherlands", "Ireland", "Brazil", "South Africa"]:
+        assert _is_uk_visitor({"country": country}) is False, \
+            f"{country} should be rejected"
+
+
+def test_lowercase_country_code_gb_accepted():
+    """Some sources lowercase the ISO2 — must still match."""
+    assert _is_uk_visitor({"country_code": "gb"}) is True
+
+
+def test_country_code_takes_precedence_over_name():
+    """When ISO2 disagrees with country name, ISO2 wins (more reliable)."""
+    # ISO2 says US, name says UK → reject (ISO2 is the authority)
+    assert _is_uk_visitor({"country_code": "US", "country": "United Kingdom"}) is False
+    # ISO2 says GB, name says US (weird data) → accept (ISO2 wins)
+    assert _is_uk_visitor({"country_code": "GB", "country": "United States"}) is True

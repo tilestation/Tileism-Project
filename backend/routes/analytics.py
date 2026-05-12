@@ -1978,6 +1978,42 @@ def _is_datacentre_location(location: dict) -> bool:
     return False
 
 
+# ─── UK-ONLY HARD LOCKDOWN (12 May 2026) ─────────────────────────────
+# Admin demanded zero notifications/visitors from non-UK countries.
+# Tile Station is a UK-only business — any visit from outside GB is
+# either a bot, a scraper, or a curious foreigner who will never buy.
+# This helper is the single source of truth for the country guard;
+# wired into the track endpoint, the live-visitors panel, AND every
+# Telegram alert.
+_ALLOWED_COUNTRY_CODES = frozenset({"GB"})
+_ALLOWED_COUNTRY_NAMES = frozenset({
+    "united kingdom", "uk", "great britain", "england", "scotland",
+    "wales", "northern ireland",
+})
+
+
+def _is_uk_visitor(location: dict) -> bool:
+    """Return True ONLY when the location is conclusively UK.
+
+    Unknown / missing country = NOT UK (fail closed). This is a hard
+    lockdown — we'd rather miss a logged-out UK visitor than show a
+    single non-UK row in the admin panel ever again.
+
+    Reads both `country_code` (ISO2, from Cloudflare's CF-IPCountry
+    header) and `country` (full name, from IP-API fallback).
+    """
+    if not location:
+        return False
+    cc = (location.get("country_code") or "").strip().upper()
+    if cc in _ALLOWED_COUNTRY_CODES:
+        return True
+    if cc and cc not in _ALLOWED_COUNTRY_CODES:
+        return False  # explicit non-UK ISO2 — reject
+    # No ISO2 → fall back to full country-name match
+    name = (location.get("country") or "").strip().lower()
+    return name in _ALLOWED_COUNTRY_NAMES
+
+
 def _looks_like_bot(user_agent_string: str) -> bool:
     """Match against the comprehensive bot signature list. Empty or
     missing UA is treated as a bot (no real browser ships without one)."""
@@ -2065,6 +2101,7 @@ async def get_live_visitors_data(db) -> dict:
             "last_seen": {"$max": "$timestamp"},
             "page_count": {"$sum": 1},
             "country": {"$first": "$location.country"},
+            "country_code": {"$first": "$location.country_code"},
             "city": {"$first": "$location.city"},
             "device_type": {"$first": "$device.device_type"},
             "referrer": {"$first": "$referrer"}
@@ -2077,9 +2114,17 @@ async def get_live_visitors_data(db) -> dict:
     
     formatted_visitors = []
     for v in visitors:
-        loc = {"city": v.get("city"), "country": v.get("country")}
+        loc = {
+            "city": v.get("city"),
+            "country": v.get("country"),
+            "country_code": v.get("country_code"),
+        }
         # Skip datacentre-origin visitors
         if _is_datacentre_location(loc):
+            continue
+        # Hard UK-only filter — admin requirement from 12 May 2026.
+        # Anything not conclusively UK is hidden from the admin panel.
+        if not _is_uk_visitor(loc):
             continue
         # Skip obvious bot URL patterns (e.g. /shop/collection/X/shop/track —
         # double "/shop/" prefix is a scraper hallmark, never a real customer route).
@@ -2157,6 +2202,13 @@ async def track_page_view(data: PageViewTrack, request: Request):
         # past the UA filter — this catches them.
         if _is_datacentre_location(location):
             return {"success": True, "tracked": False, "reason": "datacentre_ip"}
+
+        # ── UK-ONLY HARD LOCKDOWN ──────────────────────────────────
+        # Tile Station is UK-only. Reject everything else at the
+        # boundary so it never even enters page_views. The admin
+        # demanded zero non-UK rows; this is the enforcement point.
+        if not _is_uk_visitor(location):
+            return {"success": True, "tracked": False, "reason": "non_uk_visitor"}
         
         # Create page view record
         page_view = {
@@ -2201,7 +2253,7 @@ async def track_page_view(data: PageViewTrack, request: Request):
                 {"visitor_id": visitor_id, "exclude_from_stats": True},
                 {"_id": 0},
             )) if visitor_id else False
-            if not is_tagged_device and not _is_datacentre_location(location):
+            if not is_tagged_device and not _is_datacentre_location(location) and _is_uk_visitor(location):
                 page_url = (data.page_url or "/")[:120]
                 referrer = (data.referrer or "Direct")[:200]
                 country = (location or {}).get("country") or "Unknown"
@@ -2224,7 +2276,7 @@ async def track_page_view(data: PageViewTrack, request: Request):
         # Only runs when the page that just landed is itself a PDP (cheap
         # short-circuit so we don't query DB on every homepage refresh).
         try:
-            if not is_tagged_device and _is_pdp_url(data.page_url):
+            if not is_tagged_device and _is_uk_visitor(location) and _is_pdp_url(data.page_url):
                 from services.telegram_notify import fire_and_forget as _ff_hot
                 session_id = page_view["session_id"]
                 cutoff = datetime.now(timezone.utc) - timedelta(minutes=30)
@@ -2338,6 +2390,11 @@ async def cleanup_bot_traffic(
                 {"page_url": {"$regex": r"/shop/track", "$options": "i"}},
                 # Datacentre origin — the big one (added 12 May 2026)
                 {"location.city": {"$regex": datacentre_regex, "$options": "i"}},
+                # ── UK-only hard lockdown (added 12 May 2026) ──
+                # Anything explicitly NOT GB is purged. Records with
+                # no country_code at all are also caught (probably
+                # bot or proxy) by the page_url / device.is_bot rules.
+                {"location.country_code": {"$exists": True, "$nin": ["GB", "gb", None, ""]}},
             ],
         },
         {"_id": 1, "device": 1, "page_url": 1, "location": 1},
@@ -2354,6 +2411,10 @@ async def cleanup_bot_traffic(
             candidate_ids.append(row["_id"])
             continue
         if _is_datacentre_location(row.get("location") or {}):
+            candidate_ids.append(row["_id"])
+            continue
+        # Non-UK hard guard
+        if not _is_uk_visitor(row.get("location") or {}):
             candidate_ids.append(row["_id"])
             continue
         # Double /shop/ pattern hard-block
