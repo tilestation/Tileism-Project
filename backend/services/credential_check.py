@@ -87,27 +87,35 @@ def _scan() -> list[tuple[str, str]]:
        not (os.environ.get("BACKEND_URL") or "").strip():
         missing.append((
             "SITE_URL or BACKEND_URL",
-            "Webhook URL builder — Stripe checkout will refuse to start "
-            "without this. Set one of SITE_URL or BACKEND_URL to the "
-            "public HTTPS origin (e.g. https://api.tilestation.co.uk).",
+            "Stripe webhook URL builder. One of these MUST be set to the "
+            "public HTTPS origin (e.g. https://tile-station-production.up.railway.app). "
+            "Without either, checkout sessions will refuse to start.",
         ))
     return missing
 
 
 def _format_telegram(missing: list[tuple[str, str]]) -> str:
-    """Human-readable message body. Plain HTML — Telegram-safe."""
+    """Human-readable message body. Plain HTML — Telegram-safe.
+
+    Wording deliberately friendly and self-attributed so the admin can
+    tell at a glance this is a self-check from THEIR own backend (not
+    a third-party / dev instruction). Includes a one-line "stop these
+    alerts" hint so the admin isn't left frustrated when the issue
+    isn't urgent.
+    """
     bullet_lines = "\n".join(
         f"• <b>{var}</b> — {reason}" for var, reason in missing
     )
     return (
-        "🚨 <b>Production credentials missing</b>\n"
-        f"{len(missing)} env var(s) absent on this backend instance:\n\n"
+        "🛠️ <b>Tile Station — self-check</b>\n"
+        f"Your backend just restarted and noticed {len(missing)} env "
+        "var(s) missing on Railway:\n\n"
         f"{bullet_lines}\n\n"
-        "<b>Action:</b> open Railway → service → Variables, paste the "
-        "missing values, then redeploy. Supplier syncs and admin auth "
-        "will fail until these are set.\n"
-        "<i>(Sent once per backend restart. Repeat alerts indicate the "
-        "issue persisted across deploys.)</i>"
+        "<b>Fix:</b> Railway dashboard → backend service → Variables → "
+        "add the missing value(s) → redeploy. Takes ~30 seconds.\n\n"
+        "<i>To stop these messages: either set the variables above, or "
+        "open /admin/notification-settings on tilestation.co.uk and turn "
+        "off the <b>Missing credentials</b> toggle.</i>"
     )
 
 

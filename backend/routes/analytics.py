@@ -1931,6 +1931,33 @@ _DATACENTRE_CITIES = frozenset({
     "zurich",             # Google Cloud europe-west6
     "delhi",              # Various cloud
     "warsaw",             # AWS eu-central-2
+    # ── Search engine + AI crawler origins (added 12 May 2026) ─────
+    "mountain view",      # Googlebot HQ + Google Cloud
+    "plano",              # Microsoft / Azure central US
+    "bluffdale",          # NSA / various cloud (Utah)
+    "boardman",           # AWS us-west-2
+    "south bend",          # Various cloud
+    "henderson",          # Switch datacentre (Nevada)
+    "phoenix",            # Various cloud / iCloud
+    "atlanta",            # CoreSite / various cloud
+    "chicago",            # Various cloud (high bot ratio)
+    "dallas",             # Various cloud
+    "los angeles",        # Various cloud (high bot ratio)
+    "new york",           # Various cloud (high bot ratio)
+    "miami",              # Various cloud
+    "amsterdam",          # AWS eu-west-* / DigitalOcean ams
+    "rotterdam",          # Various cloud
+    "helsinki",           # Hetzner / various cloud
+    "nuremberg",           # Hetzner DE
+    "munich",             # Various cloud
+    "vienna",             # Microsoft / Cloudflare
+    "ojinaga",            # Various cloud
+    "richardson",         # Microsoft / Verizon datacentre
+    "auburn",             # Various cloud
+    "north bergen",       # AWS / Cogent
+    "queens",             # AWS / DigitalOcean nyc
+    "newark",              # DigitalOcean nyc3
+    "san diego",          # Various cloud
 })
 
 
@@ -2164,14 +2191,17 @@ async def track_page_view(data: PageViewTrack, request: Request):
 
         # Fire Telegram "new visitor" alert (gated by per-event toggle in
         # admin UI; rate-limited 1/hour per visitor_id by the service).
-        # Tagged staff devices are skipped at the alert callsite.
+        # Tagged staff devices are skipped at the alert callsite. Datacentre
+        # origins (Mountain View, Ashburn, etc.) are also skipped — those
+        # are bots/scrapers, not real customers (added 12 May 2026 after
+        # admin complained about Googlebot triggering visitor pings).
         try:
             from services.telegram_notify import fire_and_forget
             is_tagged_device = bool(await db.known_devices.find_one(
                 {"visitor_id": visitor_id, "exclude_from_stats": True},
                 {"_id": 0},
             )) if visitor_id else False
-            if not is_tagged_device:
+            if not is_tagged_device and not _is_datacentre_location(location):
                 page_url = (data.page_url or "/")[:120]
                 referrer = (data.referrer or "Direct")[:200]
                 country = (location or {}).get("country") or "Unknown"

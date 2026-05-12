@@ -58,6 +58,17 @@ def test_mumbai_is_datacentre():
     assert _is_datacentre_location({"city": "Mumbai"}) is True
 
 
+def test_mountain_view_is_datacentre():
+    """12 May 2026 — Googlebot's HQ + Google Cloud crawl origin.
+    Was triggering 'New visitor' Telegram pings until added to the list."""
+    assert _is_datacentre_location({"city": "Mountain View", "country": "United States"}) is True
+
+
+def test_redmond_is_datacentre():
+    """Microsoft / Bingbot origin."""
+    assert _is_datacentre_location({"city": "Redmond"}) is True
+
+
 def test_real_uk_cities_not_datacentre():
     """Real customer cities MUST pass through."""
     for city in ["London", "Manchester", "Birmingham", "Glasgow", "Leeds",
