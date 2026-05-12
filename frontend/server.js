@@ -22,6 +22,7 @@ const compression = require('compression');
 const { createProxyMiddleware } = require('http-proxy-middleware');
 const { resolveSeo, injectMeta } = require('./server-seo');
 const { enrichSeo } = require('./server-seo-enrich');
+const { resolveLegacyRedirect } = require('./server-redirects');
 
 const app = express();
 
@@ -143,6 +144,26 @@ app.use(express.static(BUILD_DIR, {
     }
   },
 }));
+
+// ────────────────────────────────────────────────────────────────────
+// LEGACY 301 REDIRECTS — old Wix-style URLs that Google Search Console
+// flagged as "Page with redirect" on 12 May 2026. The React Router
+// catch-all (`path="*"` → Navigate to "/") was redirecting these URLs
+// client-side, which Google interprets as a soft redirect and refuses
+// to index. Replacing those client-side bounces with real HTTP 301s:
+//   1. Passes SEO link-juice from the old URL to the new one
+//   2. Removes the "Page with redirect" error from GSC
+//   3. Lets the bots stop re-crawling the old URLs (cleaner crawl budget)
+//
+// Map + resolution live in `server-redirects.js` (testable in isolation).
+// ────────────────────────────────────────────────────────────────────
+app.get('*', (req, res, next) => {
+  const target = resolveLegacyRedirect(req.path);
+  if (target) {
+    return res.redirect(301, target);
+  }
+  return next();
+});
 
 // Health check for Railway / load balancer pings.
 app.get('/healthz', (_req, res) => res.status(200).send('ok'));

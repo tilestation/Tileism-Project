@@ -621,8 +621,11 @@ function App() {
             <Route path="orders" element={<CustomerOrders />} />
           </Route>
 
-          {/* Redirect /shop to root homepage */}
-          <Route path="/shop" element={<Navigate to="/" replace />} />
+          {/* /shop is the legacy Wix landing — redirect to /tiles for
+              both UX consistency and SEO (avoids the GSC "Page with
+              redirect" warning that fired on 12 May 2026). Production
+              also has a real HTTP 301 in frontend/server.js. */}
+          <Route path="/shop" element={<Navigate to="/tiles" replace />} />
           
           {/* Redirect old /shop/products to /tiles */}
           <Route path="/shop/products" element={<Navigate to="/tiles" replace />} />
@@ -1023,6 +1026,30 @@ function App() {
           <Route path="/shop/faq" element={<Navigate to="/shop/info/faq" replace />} />
           <Route path="/shop/returns" element={<Navigate to="/shop/info/returns" replace />} />
           <Route path="/shop/delivery" element={<Navigate to="/shop/info/delivery" replace />} />
+
+          {/* ─────────────────────────────────────────────────────────
+              GSC "Page with redirect" hotfix — 12 May 2026
+              Google Search Console flagged 19 URLs as "Page with
+              redirect" because React Router's catch-all sent them to /.
+              These Routes catch the legacy URLs FIRST and redirect to
+              the correct current page. Real server-side 301s are in
+              frontend/server.js for production SEO — these client-side
+              routes cover the dev environment + any SPA navigation. */}
+          <Route path="/product-page/hartley-collection" element={<Navigate to="/shop/collection/Hartley" replace />} />
+          <Route path="/shop/reviews" element={<Navigate to="/shop/info/reviews" replace />} />
+          <Route path="/shop/track-order" element={<Navigate to="/shop/track" replace />} />
+          <Route path="/track" element={<Navigate to="/shop/track" replace />} />
+          <Route path="/track-order" element={<Navigate to="/shop/track" replace />} />
+          <Route path="/bathroom" element={<Navigate to="/shop/bathroom" replace />} />
+          <Route path="/category/ceramic-tiles" element={<Navigate to="/tiles?material=ceramic" replace />} />
+          <Route path="/category/porcelain-tiles" element={<Navigate to="/tiles?material=porcelain" replace />} />
+          <Route path="/category/marble-tiles" element={<Navigate to="/tiles?material=marble" replace />} />
+          <Route path="/category/stone-tiles" element={<Navigate to="/tiles?material=stone" replace />} />
+          <Route path="/category/spanish-tiles" element={<Navigate to="/tiles?origin=spain" replace />} />
+          <Route path="/category/polish-tiles" element={<Navigate to="/tiles?finish=polished" replace />} />
+          <Route path="/category/metro-tiles" element={<Navigate to="/tiles?shape=metro" replace />} />
+          <Route path="/category/wood-tiles" element={<Navigate to="/tiles?effect=wood" replace />} />
+          <Route path="/category/*" element={<Navigate to="/tiles" replace />} />
 
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
