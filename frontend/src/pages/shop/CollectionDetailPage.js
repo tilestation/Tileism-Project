@@ -3243,7 +3243,7 @@ const CollectionDetailPage = () => {
                     <OrderSampleButton
                       product={selectedProduct}
                       globalEnabled={sampleServiceEnabled}
-                      buttonClassName="px-5 py-4 border-2 border-gray-300 rounded-xl bg-white text-gray-800 hover:border-amber-500 hover:bg-amber-50 hover:text-gray-900"
+                      buttonClassName="px-5 py-4 rounded-xl shadow-sm"
                       buttonLabel="Order Sample"
                     />
                   )}
