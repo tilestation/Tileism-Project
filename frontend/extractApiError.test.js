@@ -1,9 +1,33 @@
 /**
- * Unit tests for extractApiError.
- * Run: cd /app/frontend && node src/utils/extractApiError.test.js
+ * Unit tests for src/utils/extractApiError.js.
+ *
+ * Lives at the project ROOT (not inside src/) so the React/CRA build
+ * pipeline doesn't try to bundle it. The module under test uses ESM
+ * `export function` syntax, so we strip the ESM wrapper at runtime to
+ * make it CJS-loadable from Node.
+ *
+ * Run:
+ *   cd /app/frontend && node extractApiError.test.js
  */
 const assert = require('node:assert/strict');
-const { extractApiError } = require('/tmp/extractApiError.cjs.js');
+const fs = require('node:fs');
+const path = require('node:path');
+const vm = require('node:vm');
+
+// Inline-load the ESM module as CJS so we don't need /tmp/ files or
+// a build step to run these tests.
+const SRC = fs.readFileSync(
+  path.join(__dirname, 'src', 'utils', 'extractApiError.js'),
+  'utf8',
+);
+const cjsSource = SRC
+  .replace(/^export function (\w+)/m, 'function $1')
+  .replace(/^export default \w+;?$/m, '')
+  + '\nmodule.exports = { extractApiError };';
+
+const sandbox = { module: { exports: {} }, exports: {}, console };
+vm.runInNewContext(cjsSource, sandbox);
+const { extractApiError } = sandbox.module.exports;
 
 let pass = 0;
 let fail = 0;
