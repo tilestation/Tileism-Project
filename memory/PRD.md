@@ -9,7 +9,32 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 ## Recent Sessions (most recent first)
-### [May 13, 2026] 🖨 Price Ticket Printing v2 — manual products + adjustable paper sizes
+### [May 13, 2026] 🖨 Price Ticket Printing v2.1 — uniform content scaling
+
+**Problem (user-reported with screenshots)**:
+1. Small Shelf (74×105mm) and Mini (52×74mm) tickets → content overflowed the ticket border; "SIZES AVAILABLE" chips printed *outside* the box.
+2. A6 (105×148mm) and larger sizes → content occupied only the top half; lots of empty space because text/spacing was fixed at A6 dimensions.
+
+**Root cause**: every font size (16pt name, 38pt price), padding (8mm), and badge dimension was hardcoded at A6 reference. Switching paper size only changed the outer `width`/`height`; the interior was unscaled.
+
+**Fix — CSS transform scaling**:
+- Wrap the entire ticket interior in a child laid out at A6 reference (`105×148mm`)
+- Apply `transform: scale(min(w/105, h/148))` with `transform-origin: top left`
+- Outer container has `overflow: hidden` + new size; inner is the scaled A6 layout
+- Identical logic applied to both the on-screen `<PriceTicket>` component AND the `handlePrint()` HTML/CSS (introduced new `.price-ticket-inner` class with the flex layout + transform; outer `.price-ticket` is now just the viewport+border)
+
+**Smoke-tested all 5 presets:**
+- Mini 52×74mm → scale ~0.495 → fits with all sections visible
+- Small Shelf 74×105mm → scale ~0.704 → sizes chips now INSIDE the border (was the original bug)
+- A6 105×148mm → scale 1.0 → unchanged baseline
+- A5 148×210mm → scale ~1.41 → fills the page
+- A4 210×297mm → scale 2.0 → huge readable price on a full sheet
+
+**Files**: `/app/frontend/src/pages/admin/PriceTickets.js` (PriceTicket component + handlePrint CSS only).
+
+**Status**: ✅ COMPLETE. Lint clean. Verified across all 5 presets via Playwright.
+
+
 
 **Problem**: Admin needed to print tickets for one-off items not in the catalogue (samples, in-store-only) AND wanted adjustable paper sizes (A6/A5/A4/Custom mm) per template, persisted for the next print.
 

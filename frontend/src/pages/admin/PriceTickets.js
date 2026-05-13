@@ -60,7 +60,16 @@ const PriceTicket = ({ product, showOriginalPrice, showClearanceBadge, showThisW
   // `paperSize` falls back to A6 so older calling code keeps working.
   const widthMm = paperSize?.width_mm || 105;
   const heightMm = paperSize?.height_mm || 148;
-  
+  // 13 May 2026 (v2) — content was overflowing on small papers and
+  // looked tiny on large ones because every font/padding was hardcoded
+  // at A6 dimensions. Solution: lay out the interior at A6 reference
+  // (105×148mm) and uniformly scale via CSS transform to fit the
+  // chosen paper. Uses min(w_ratio, h_ratio) so content always fits
+  // and aspect-ratio is preserved.
+  const REF_W = 105;
+  const REF_H = 148;
+  const scale = Math.min(widthMm / REF_W, heightMm / REF_H);
+
   return (
     <div 
       className="price-ticket"
@@ -70,16 +79,25 @@ const PriceTicket = ({ product, showOriginalPrice, showClearanceBadge, showThisW
         height: `${heightMm}mm`,
         border: '2px solid #1a1a1a',
         backgroundColor: '#ffffff',
-        display: 'flex',
-        flexDirection: 'column',
-        padding: '8mm',
+        overflow: 'hidden',
         boxSizing: 'border-box',
-        fontFamily: '"Bahnschrift SemiBold", "Bahnschrift", "Segoe UI", Arial, sans-serif',
         pageBreakInside: 'avoid',
         breakInside: 'avoid',
         position: 'relative'
       }}
     >
+      <div style={{
+        width: `${REF_W}mm`,
+        height: `${REF_H}mm`,
+        transform: `scale(${scale})`,
+        transformOrigin: 'top left',
+        display: 'flex',
+        flexDirection: 'column',
+        padding: '8mm',
+        boxSizing: 'border-box',
+        fontFamily: '"Bahnschrift SemiBold", "Bahnschrift", "Segoe UI", Arial, sans-serif',
+        position: 'relative'
+      }}>
       {/* Clearance Badge */}
       {isClearance && (
         <div style={{
@@ -288,6 +306,7 @@ const PriceTicket = ({ product, showOriginalPrice, showClearanceBadge, showThisW
           </span>
         </div>
       )}
+      </div>
     </div>
   );
 };
@@ -581,6 +600,13 @@ export const PriceTickets = () => {
 
   const handlePrint = () => {
     const printWindow = window.open('', '_blank');
+    // 13 May 2026 (v2) — same scaling trick as the on-screen <PriceTicket>:
+    // lay content out at A6 reference (105×148mm) and uniformly scale it
+    // to fit the chosen paper. Stops content overflowing on Small Shelf /
+    // Mini tickets and stops it looking lost on A4 / A5 tickets.
+    const PRINT_REF_W = 105;
+    const PRINT_REF_H = 148;
+    const printScale = Math.min(customWidthMm / PRINT_REF_W, customHeightMm / PRINT_REF_H);
     
     // Generate ticket HTML for each product (with copies)
     const ticketHTML = ticketsToRender.map((product, idx) => {
@@ -593,6 +619,7 @@ export const PriceTickets = () => {
       
       return `
       <div class="price-ticket">
+        <div class="price-ticket-inner">
         <!-- Clearance Badge -->
         ${isClearance ? `
           <div class="clearance-badge">CLEARANCE</div>
@@ -647,6 +674,7 @@ export const PriceTickets = () => {
             <span class="country-label">${COUNTRY_FLAGS[product.countryOfOrigin].label}</span>
           </div>
         ` : ''}
+        </div>
       </div>
     `}).join('');
     
@@ -686,11 +714,23 @@ export const PriceTickets = () => {
               height: ${customHeightMm}mm;
               border: 1px solid #333;
               background: #ffffff;
+              overflow: hidden;
+              box-sizing: border-box;
+              page-break-inside: avoid;
+              break-inside: avoid;
+              position: relative;
+            }
+
+            /* Inner content laid out at A6 reference, scaled uniformly */
+            .price-ticket-inner {
+              width: ${PRINT_REF_W}mm;
+              height: ${PRINT_REF_H}mm;
+              transform: scale(${printScale});
+              transform-origin: top left;
               display: flex;
               flex-direction: column;
               padding: 8mm;
-              page-break-inside: avoid;
-              break-inside: avoid;
+              box-sizing: border-box;
               position: relative;
             }
             
