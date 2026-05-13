@@ -12,22 +12,35 @@ export const ProductCarousel = ({ title = "Featured Products", category = null, 
   const { isTrade, getTradePrice } = useTradeUser();
 
   useEffect(() => {
+    const ac = new AbortController();
     const fetchProducts = async () => {
       try {
-        let url = `${API_URL}/api/tiles/?limit=${limit}`;
+        // The carousel uses /api/tiles/products (returns {products, total, ...}).
+        // Older code called /api/tiles/?limit=N which 404'd — this rewrite
+        // also adds proper non-2xx handling so service-worker cache races
+        // can't cause "body stream already read" noise in the console.
+        let url = `${API_URL}/api/tiles/products?limit=${limit}`;
         if (category) {
-          url += `&category=${category}`;
+          url += `&category=${encodeURIComponent(category)}`;
         }
-        const res = await fetch(url);
+        const res = await fetch(url, { signal: ac.signal });
+        if (!res.ok) {
+          // Drain the body so SW caches don't choke, but don't try to parse
+          await res.text().catch(() => {});
+          throw new Error(`HTTP ${res.status}`);
+        }
         const data = await res.json();
-        setProducts(data.products || data || []);
+        setProducts(data.products || data.tiles || data.items || []);
       } catch (e) {
-        console.error('Failed to fetch products:', e);
+        if (e.name !== 'AbortError') {
+          console.warn('[ProductCarousel] fetch failed:', e.message);
+        }
       } finally {
         setLoading(false);
       }
     };
     fetchProducts();
+    return () => ac.abort();
   }, [category, limit]);
 
   const scroll = (direction) => {
