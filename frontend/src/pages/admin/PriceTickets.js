@@ -1,14 +1,20 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import JsBarcode from 'jsbarcode';
+import QRCode from 'qrcode';
 import { api } from '../../lib/api';
 import { toast } from 'sonner';
 import { 
   Printer, Search, Trash2, RefreshCw, 
-  Tag, Package, Check, Settings, Grid, Save
+  Tag, Package, Check, Settings, Grid, Save, History, Edit
 } from 'lucide-react';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
 import { Card } from '../../components/ui/card';
+
+// Public storefront URL for the QR-code deep-link to the PDP. Hardcoded
+// because frontend env doesn't carry it and this never changes between
+// preview/prod (preview QRs still resolve to prod PDP, which is fine).
+const SHOP_BASE_URL = 'https://tilestation.co.uk';
 
 // 13 May 2026 — barcode helper. Generates a Code128 SVG string from an
 // SKU / product code so the printed ticket can be scanned straight into
@@ -33,6 +39,46 @@ const generateBarcodeSVG = (value, opts = {}) => {
     return new XMLSerializer().serializeToString(svgNode);
   } catch (e) {
     // Silently no-op on bad values — barcode is decorative, not critical
+    return '';
+  }
+};
+
+// 13 May 2026 — QR helper. Builds the customer-facing PDP URL for a
+// product and renders a high-contrast SVG QR. Used at the bottom of
+// each ticket so showroom-floor customers can scan with their phone
+// and land on the product detail page (photos, reviews, room
+// visualiser, room-quote calculator). Returns '' if no URL.
+//
+// NOTE: QRCode.toString is async, but we need a sync result for SSR-
+// style HTML strings. Pattern used here:
+//   1. React side keeps a cache keyed by URL → SVG string
+//   2. The component triggers a generation on mount and re-renders
+//   3. The print-HTML path generates all QRs upfront and embeds the
+//      cached SVG strings
+const buildProductUrl = (product) => {
+  if (!product || product._manual) return '';
+  // Prefer slug for clean URL; fall back to id-based route
+  if (product.slug) return `${SHOP_BASE_URL}/shop/tiles/${product.slug}`;
+  if (product.id) return `${SHOP_BASE_URL}/shop/products/${product.id}`;
+  return '';
+};
+
+const _qrSvgCache = {};
+
+const generateQrSVGAsync = async (url) => {
+  if (!url) return '';
+  if (_qrSvgCache[url]) return _qrSvgCache[url];
+  try {
+    const svg = await QRCode.toString(url, {
+      type: 'svg',
+      errorCorrectionLevel: 'M',
+      margin: 1,
+      width: 120,
+      color: { dark: '#000000', light: '#ffffff' },
+    });
+    _qrSvgCache[url] = svg;
+    return svg;
+  } catch (e) {
     return '';
   }
 };
@@ -74,7 +120,7 @@ const COUNTRY_FLAGS = {
   }
 };
 
-const PriceTicket = ({ product, showOriginalPrice, showClearanceBadge, showThisWeekBadge, showBarcode, index, paperSize }) => {
+const PriceTicket = ({ product, showOriginalPrice, showClearanceBadge, showThisWeekBadge, showBarcode, showQR, index, paperSize }) => {
   const hasDiscount = product.clearance_price && product.clearance_price < product.price;
   const displayPrice = hasDiscount ? product.clearance_price : product.price;
   const originalPrice = product.price;
@@ -83,6 +129,20 @@ const PriceTicket = ({ product, showOriginalPrice, showClearanceBadge, showThisW
   // Calculate savings
   const savingsAmount = hasDiscount ? (originalPrice - displayPrice) : 0;
   const savingsPercent = hasDiscount ? Math.round((savingsAmount / originalPrice) * 100) : 0;
+
+  // QR SVG — async generated, cached. Triggers a one-shot regen on
+  // (product, showQR) change. Stored as `state` so the component
+  // re-renders with the SVG once it's ready.
+  const productUrl = showQR ? buildProductUrl(product) : '';
+  const [qrSVG, setQrSVG] = useState(productUrl ? _qrSvgCache[productUrl] || '' : '');
+  useEffect(() => {
+    if (!productUrl) { setQrSVG(''); return; }
+    let cancelled = false;
+    generateQrSVGAsync(productUrl).then((svg) => {
+      if (!cancelled) setQrSVG(svg);
+    });
+    return () => { cancelled = true; };
+  }, [productUrl]);
 
   // Paper size is configurable per-template (13 May 2026 — was hardcoded A6).
   // `paperSize` falls back to A6 so older calling code keeps working.
@@ -310,13 +370,15 @@ const PriceTicket = ({ product, showOriginalPrice, showClearanceBadge, showThisW
         </div>
       )}
 
-      {/* Barcode (13 May 2026) — Code128 of SKU / product_code for till
-          scanning. Manual products use the `barcode` field they typed in. */}
-      {showBarcode && (() => {
+      {/* Bottom scan strip (13 May 2026) — barcode (Code128 → EPOS) on
+          the left, QR (PDP deep-link) on the right. Both are optional
+          and flex-aligned so a ticket with only one of them stays
+          centred. Manual products only get the barcode (no PDP slug). */}
+      {(() => {
         const code = (product.sku || product.product_code || product.barcode || '').toString().trim();
-        if (!code) return null;
-        const svg = generateBarcodeSVG(code, { height: 30, fontSize: 11 });
-        if (!svg) return null;
+        const barSVG = (showBarcode && code) ? generateBarcodeSVG(code, { height: 30, fontSize: 11 }) : '';
+        const hasQR = !!(showQR && qrSVG);
+        if (!barSVG && !hasQR) return null;
         return (
           <div
             style={{
@@ -324,11 +386,41 @@ const PriceTicket = ({ product, showOriginalPrice, showClearanceBadge, showThisW
               paddingTop: '3mm',
               marginTop: '3mm',
               display: 'flex',
-              justifyContent: 'center',
+              alignItems: 'center',
+              justifyContent: barSVG && hasQR ? 'space-between' : 'center',
+              gap: '3mm',
             }}
-            data-testid={`price-ticket-barcode-${index}`}
-            dangerouslySetInnerHTML={{ __html: svg }}
-          />
+            data-testid={`price-ticket-scanstrip-${index}`}
+          >
+            {barSVG && (
+              <div
+                style={{ flex: hasQR ? '1 1 auto' : '0 0 auto', overflow: 'hidden' }}
+                data-testid={`price-ticket-barcode-${index}`}
+                dangerouslySetInnerHTML={{ __html: barSVG }}
+              />
+            )}
+            {hasQR && (
+              <div
+                style={{
+                  flex: '0 0 auto',
+                  width: '16mm',
+                  height: '16mm',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                }}
+                data-testid={`price-ticket-qr-${index}`}
+              >
+                <div
+                  style={{ width: '14mm', height: '14mm' }}
+                  dangerouslySetInnerHTML={{ __html: qrSVG }}
+                />
+                <div style={{ fontSize: '6pt', color: '#666', marginTop: '0.5mm', whiteSpace: 'nowrap' }}>
+                  Scan for details
+                </div>
+              </div>
+            )}
+          </div>
         );
       })()}
 
@@ -373,6 +465,10 @@ export const PriceTickets = () => {
   // ticket so it scans straight into EPOS. Defaults ON for catalogue
   // items; manual products need the user to type a barcode value.
   const [showBarcode, setShowBarcode] = useState(true);
+  // 13 May 2026 — QR code linking to the product PDP. Customers scan
+  // with phone → see photos/reviews/visualiser. Hidden for manual
+  // products (no PDP exists). Defaults ON.
+  const [showQR, setShowQR] = useState(true);
   const [copies, setCopies] = useState(1);
   const [savedTemplates, setSavedTemplates] = useState([]);
   const [currentTemplateName, setCurrentTemplateName] = useState(DEFAULT_TEMPLATE_NAME);
@@ -392,6 +488,13 @@ export const PriceTickets = () => {
   const [manualClearance, setManualClearance] = useState('');
   // Optional SKU/barcode for manual products (printed as Code128)
   const [manualBarcode, setManualBarcode] = useState('');
+  // 13 May 2026 — Saved batches state. Backed by /api/admin/ticket-batches.
+  // `editingBatchId` is non-null when we've loaded an existing batch — the
+  // next save becomes an in-place PUT instead of creating a new row.
+  const [savedBatches, setSavedBatches] = useState([]);
+  const [batchSearch, setBatchSearch] = useState('');
+  const [editingBatchId, setEditingBatchId] = useState(null);
+  const [currentBatchName, setCurrentBatchName] = useState('');
   const printRef = useRef();
 
   // Current paper-size object used by PriceTicket + handlePrint
@@ -518,6 +621,7 @@ export const PriceTickets = () => {
 
   useEffect(() => {
     fetchProducts();
+    fetchBatches();
   }, []);
 
   const fetchProducts = async () => {
@@ -530,6 +634,86 @@ export const PriceTickets = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  // 13 May 2026 — Saved batches CRUD wrappers
+  const fetchBatches = useCallback(async (search = '') => {
+    try {
+      const res = await api.get(`/admin/ticket-batches?q=${encodeURIComponent(search)}`);
+      setSavedBatches(res.data?.batches || []);
+    } catch (err) {
+      // Silently fail — batches are optional
+    }
+  }, []);
+
+  // Debounced search — refetch when batchSearch changes
+  useEffect(() => {
+    const t = setTimeout(() => { fetchBatches(batchSearch); }, 250);
+    return () => clearTimeout(t);
+  }, [batchSearch, fetchBatches]);
+
+  const loadBatch = (batch) => {
+    // Restore products
+    const restored = (batch.products || []).map((p) => ({
+      id: p.id,
+      _manual: !!p.is_manual,
+      name: p.name,
+      price: p.price,
+      clearance_price: p.clearance_price,
+      sku: p.sku,
+      product_code: p.product_code,
+      barcode: p.barcode,
+      slug: p.slug,
+      sizes: p.sizes || [],
+      suitability: p.suitability,
+      finish: p.finish,
+      material: p.material,
+      countryOfOrigin: p.country_of_origin,
+      priceUnit: p.price_unit || 'm2',
+    }));
+    setSelectedProducts(restored);
+    // Restore paper size
+    const ps = batch.paper_size || {};
+    setCustomWidthMm(ps.width_mm || 105);
+    setCustomHeightMm(ps.height_mm || 148);
+    setCustomColsPerA4(ps.per_a4_cols || 2);
+    setCustomRowsPerA4(ps.per_a4_rows || 2);
+    setCurrentTemplateName(batch.template_name || DEFAULT_TEMPLATE_NAME);
+    // Restore display settings
+    const s = batch.settings || {};
+    if (typeof s.show_original_price === 'boolean') setShowOriginalPrice(s.show_original_price);
+    if (typeof s.show_clearance_badge === 'boolean') setShowClearanceBadge(s.show_clearance_badge);
+    if (typeof s.show_thisweek_badge === 'boolean') setShowThisWeekBadge(s.show_thisweek_badge);
+    if (typeof s.show_barcode === 'boolean') setShowBarcode(s.show_barcode);
+    if (typeof s.show_qr === 'boolean') setShowQR(s.show_qr);
+    if (s.copies) setCopies(s.copies);
+    // Enter edit-mode so the next save is a PUT, not a POST
+    setEditingBatchId(batch.id);
+    setCurrentBatchName(batch.name);
+    toast.success(`Loaded batch "${batch.name}" — edits will update this batch`);
+  };
+
+  const deleteBatch = async (batch) => {
+    if (!window.confirm(`Delete saved batch "${batch.name}"?`)) return;
+    try {
+      await api.delete(`/admin/ticket-batches/${batch.id}`);
+      toast.success('Batch deleted');
+      // If we were editing this batch, exit edit mode
+      if (editingBatchId === batch.id) {
+        setEditingBatchId(null);
+        setCurrentBatchName('');
+      }
+      fetchBatches(batchSearch);
+    } catch (err) {
+      toast.error('Failed to delete batch');
+    }
+  };
+
+  const startNewBatch = () => {
+    setEditingBatchId(null);
+    setCurrentBatchName('');
+    setSelectedProducts([]);
+    toast.info('Started a new batch — selections cleared');
   };
 
   const addProduct = async (product) => {
@@ -658,7 +842,7 @@ export const PriceTickets = () => {
     }
   };
 
-  const handlePrint = () => {
+  const handlePrint = async () => {
     const printWindow = window.open('', '_blank');
     // 13 May 2026 (v2) — same scaling trick as the on-screen <PriceTicket>:
     // lay content out at A6 reference (105×148mm) and uniformly scale it
@@ -667,6 +851,18 @@ export const PriceTickets = () => {
     const PRINT_REF_W = 105;
     const PRINT_REF_H = 148;
     const printScale = Math.min(customWidthMm / PRINT_REF_W, customHeightMm / PRINT_REF_H);
+
+    // Pre-generate QR SVGs (async) for every ticket so the print HTML
+    // can embed them synchronously below.
+    const qrMap = {};
+    if (showQR) {
+      const urls = [...new Set(
+        ticketsToRender.map((p) => buildProductUrl(p)).filter(Boolean)
+      )];
+      await Promise.all(urls.map(async (u) => {
+        qrMap[u] = await generateQrSVGAsync(u);
+      }));
+    }
     
     // Generate ticket HTML for each product (with copies)
     const ticketHTML = ticketsToRender.map((product, idx) => {
@@ -681,6 +877,9 @@ export const PriceTickets = () => {
         ? (product.sku || product.product_code || product.barcode || '').toString().trim()
         : '';
       const barcodeSVG = barcodeValue ? generateBarcodeSVG(barcodeValue, { height: 30, fontSize: 11 }) : '';
+      // QR (links to PDP) — empty for manual products
+      const qrUrl = showQR ? buildProductUrl(product) : '';
+      const qrSVG = qrUrl ? (qrMap[qrUrl] || '') : '';
       
       return `
       <div class="price-ticket">
@@ -732,9 +931,17 @@ export const PriceTickets = () => {
           </div>
         ` : ''}
 
-        <!-- Barcode (Code128 — scans at the till) -->
-        ${barcodeSVG ? `
-          <div class="barcode-section">${barcodeSVG}</div>
+        <!-- Scan strip: barcode (left, till) + QR (right, PDP) -->
+        ${(barcodeSVG || qrSVG) ? `
+          <div class="scan-strip ${(barcodeSVG && qrSVG) ? 'has-both' : 'single'}">
+            ${barcodeSVG ? `<div class="scan-barcode">${barcodeSVG}</div>` : ''}
+            ${qrSVG ? `
+              <div class="scan-qr">
+                <div class="scan-qr-img">${qrSVG}</div>
+                <div class="scan-qr-label">Scan for details</div>
+              </div>
+            ` : ''}
+          </div>
         ` : ''}
 
         <!-- Country of Origin -->
@@ -956,17 +1163,46 @@ export const PriceTickets = () => {
               gap: 2mm;
             }
 
-            .barcode-section {
+            .scan-strip {
               border-top: 1px solid #ddd;
               padding-top: 3mm;
               margin-top: 3mm;
               display: flex;
-              justify-content: center;
+              align-items: center;
+              gap: 3mm;
             }
-
-            .barcode-section svg {
+            .scan-strip.has-both { justify-content: space-between; }
+            .scan-strip.single { justify-content: center; }
+            .scan-barcode {
+              flex: 1 1 auto;
+              overflow: hidden;
+            }
+            .scan-barcode svg {
               max-width: 100%;
               height: auto;
+              display: block;
+            }
+            .scan-qr {
+              flex: 0 0 auto;
+              width: 16mm;
+              display: flex;
+              flex-direction: column;
+              align-items: center;
+            }
+            .scan-qr-img {
+              width: 14mm;
+              height: 14mm;
+            }
+            .scan-qr-img svg {
+              width: 100%;
+              height: 100%;
+              display: block;
+            }
+            .scan-qr-label {
+              font-size: 6pt;
+              color: #666;
+              margin-top: 0.5mm;
+              white-space: nowrap;
             }
             
             .country-section svg {
@@ -1001,6 +1237,85 @@ export const PriceTickets = () => {
       printWindow.print();
       printWindow.close();
     }, 300);
+
+    // Auto-save the batch to the audit log + saved-batches list.
+    // Dedupes server-side by content_hash — same selection + paper +
+    // settings just bumps print_count instead of creating a duplicate.
+    saveCurrentBatch({ silent: true }).catch(() => {});
+  };
+
+  // Snapshot the current selection into a TicketBatchSave payload and
+  // POST it to the backend. Used by handlePrint (auto-save) AND by the
+  // explicit "Save batch" button.
+  const saveCurrentBatch = async ({ silent = false, nameOverride = null } = {}) => {
+    if (selectedProducts.length === 0) {
+      if (!silent) toast.error('Select at least one product to save a batch');
+      return null;
+    }
+    try {
+      const payload = {
+        name: nameOverride || (editingBatchId ? currentBatchName : null),
+        template_name: currentTemplateName,
+        paper_size: {
+          width_mm: customWidthMm,
+          height_mm: customHeightMm,
+          per_a4_cols: customColsPerA4,
+          per_a4_rows: customRowsPerA4,
+        },
+        settings: {
+          show_original_price: showOriginalPrice,
+          show_clearance_badge: showClearanceBadge,
+          show_thisweek_badge: showThisWeekBadge,
+          show_barcode: showBarcode,
+          show_qr: showQR,
+          copies,
+        },
+        products: selectedProducts.map((p) => ({
+          id: p.id,
+          name: p.name,
+          price: p.price,
+          clearance_price: p.clearance_price,
+          sku: p.sku,
+          product_code: p.product_code,
+          barcode: p.barcode,
+          slug: p.slug,
+          sizes: p.sizes || [],
+          suitability: p.suitability,
+          finish: p.finish,
+          material: p.material,
+          country_of_origin: p.countryOfOrigin,
+          price_unit: p.priceUnit,
+          is_manual: !!p._manual,
+        })),
+      };
+      let res;
+      if (editingBatchId) {
+        // In-place edit of existing batch
+        res = await api.put(`/admin/ticket-batches/${editingBatchId}`, payload);
+        if (!silent) toast.success(`Batch "${res.data.name}" updated`);
+      } else {
+        res = await api.post('/admin/ticket-batches', payload);
+        const { deduped, batch } = res.data;
+        if (!silent) {
+          toast.success(
+            deduped
+              ? `Batch already saved — print count is now ${batch.print_count}`
+              : `Batch "${batch.name}" saved`
+          );
+        }
+        // After saving, treat subsequent saves as edits
+        setEditingBatchId(batch.id);
+        setCurrentBatchName(batch.name);
+      }
+      // Refresh batches list so the new/updated batch appears
+      fetchBatches();
+      return res.data;
+    } catch (err) {
+      if (!silent) toast.error('Failed to save batch');
+      // eslint-disable-next-line no-console
+      console.error('saveCurrentBatch failed', err);
+      return null;
+    }
   };
 
   const filteredProducts = products.filter(p => 
@@ -1034,20 +1349,130 @@ export const PriceTickets = () => {
             Generate and print price tickets ({customWidthMm}×{customHeightMm}mm · {customColsPerA4 * customRowsPerA4} per A4 — {currentTemplateName})
           </p>
         </div>
-        <Button 
-          onClick={handlePrint} 
-          disabled={selectedProducts.length === 0}
-          className="bg-blue-600 hover:bg-blue-700"
-          data-testid="print-tickets-btn"
-        >
-          <Printer className="h-4 w-4 mr-2" />
-          Print Tickets ({ticketsToRender.length})
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          {editingBatchId && (
+            <Button
+              onClick={startNewBatch}
+              variant="outline"
+              data-testid="start-new-batch-btn"
+            >
+              + New batch
+            </Button>
+          )}
+          <Button
+            onClick={() => saveCurrentBatch({ silent: false })}
+            disabled={selectedProducts.length === 0}
+            variant="outline"
+            className="border-green-600 text-green-700 hover:bg-green-50"
+            data-testid="save-batch-btn"
+          >
+            <Save className="h-4 w-4 mr-2" />
+            {editingBatchId ? 'Update batch' : 'Save batch'}
+          </Button>
+          <Button 
+            onClick={handlePrint} 
+            disabled={selectedProducts.length === 0}
+            className="bg-blue-600 hover:bg-blue-700"
+            data-testid="print-tickets-btn"
+          >
+            <Printer className="h-4 w-4 mr-2" />
+            Print Tickets ({ticketsToRender.length})
+          </Button>
+        </div>
       </div>
+
+      {/* Edit-mode banner (13 May 2026) */}
+      {editingBatchId && (
+        <div
+          className="flex items-center justify-between gap-3 px-4 py-2 bg-amber-50 border border-amber-300 rounded-lg"
+          data-testid="editing-batch-banner"
+        >
+          <div className="flex items-center gap-2 text-sm text-amber-900">
+            <Edit className="h-4 w-4" />
+            Editing saved batch: <strong>{currentBatchName}</strong>
+            <span className="text-amber-700">— Save batch will update it in-place</span>
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Product Selection */}
         <div className="lg:col-span-1 space-y-4">
+          {/* Saved Batches (13 May 2026) — search + reload past prints */}
+          <Card className="p-4" data-testid="saved-batches-card">
+            <h3 className="font-semibold mb-3 flex items-center gap-2">
+              <History className="h-4 w-4" />
+              Saved Batches ({savedBatches.length})
+            </h3>
+            <div className="relative mb-3">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                type="text"
+                placeholder="Search batch or product name..."
+                value={batchSearch}
+                onChange={(e) => setBatchSearch(e.target.value)}
+                className="pl-9"
+                data-testid="batch-search-input"
+              />
+            </div>
+            <div className="max-h-64 overflow-y-auto space-y-2">
+              {savedBatches.length === 0 ? (
+                <p className="text-center text-muted-foreground py-4 text-sm">
+                  {batchSearch ? 'No batches match' : 'No saved batches yet. Print or save a batch to see it here.'}
+                </p>
+              ) : (
+                savedBatches.map((batch) => {
+                  const printedAt = batch.last_printed_at || batch.printed_at;
+                  const dt = printedAt ? new Date(printedAt) : null;
+                  const dtStr = dt ? `${dt.toLocaleDateString('en-GB')} ${dt.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}` : '';
+                  const isActive = editingBatchId === batch.id;
+                  return (
+                    <div
+                      key={batch.id}
+                      className={`p-2 border rounded-lg transition-colors ${
+                        isActive ? 'bg-amber-50 border-amber-400' : 'hover:bg-gray-50'
+                      }`}
+                      data-testid={`saved-batch-${batch.id}`}
+                    >
+                      <div className="flex justify-between items-start gap-2">
+                        <div className="flex-1 min-w-0">
+                          <p className="font-medium text-sm truncate">{batch.name}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {batch.product_count} item{batch.product_count !== 1 ? 's' : ''}
+                            {' · '}
+                            {batch.template_name}
+                            {' · '}
+                            printed {batch.print_count}×
+                          </p>
+                          {dtStr && <p className="text-xs text-muted-foreground">{dtStr}</p>}
+                        </div>
+                        <div className="flex flex-col gap-1">
+                          <button
+                            type="button"
+                            onClick={() => loadBatch(batch)}
+                            className="px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700"
+                            data-testid={`load-batch-${batch.id}`}
+                          >
+                            {isActive ? 'Loaded' : 'Load'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => deleteBatch(batch)}
+                            className="px-2 py-1 text-xs text-red-600 hover:bg-red-50 rounded"
+                            data-testid={`delete-batch-${batch.id}`}
+                            aria-label="Delete batch"
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </Card>
+
           <Card className="p-4">
             <h3 className="font-semibold mb-3 flex items-center gap-2">
               <Package className="h-4 w-4" />
@@ -1365,6 +1790,20 @@ export const PriceTickets = () => {
                   Show scannable barcode (Code128 — scans at the till)
                 </label>
               </div>
+
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="showQR"
+                  checked={showQR}
+                  onChange={(e) => setShowQR(e.target.checked)}
+                  className="rounded"
+                  data-testid="show-qr-checkbox"
+                />
+                <label htmlFor="showQR" className="text-sm">
+                  Show QR code (links to PDP — scan with phone to browse)
+                </label>
+              </div>
             </div>
           </Card>
         </div>
@@ -1571,6 +2010,7 @@ export const PriceTickets = () => {
                       showClearanceBadge={showClearanceBadge}
                       showThisWeekBadge={showThisWeekBadge}
                       showBarcode={showBarcode}
+                      showQR={showQR}
                       index={idx}
                       paperSize={currentPaperSize}
                     />

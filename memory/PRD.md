@@ -9,7 +9,61 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 ## Recent Sessions (most recent first)
-### [May 13, 2026] 🖨 Price Ticket Printing v3 — Code128 barcodes for till scanning
+### [May 13, 2026] 🖨 Price Ticket Printing v4 — QR-to-PDP + saveable & editable batches
+
+**Three features shipped in one go**:
+
+**1. QR code → product PDP**
+- Library: `qrcode@1.x` (pure JS, SVG output, async)
+- Helper `buildProductUrl(product)` → `https://tilestation.co.uk/shop/tiles/{slug}` (slug-first, falls back to `/shop/products/{id}`). Empty for manual products.
+- `generateQrSVGAsync(url)` with in-memory cache `_qrSvgCache` so repeated tickets of the same product share one SVG render.
+- Renders alongside barcode in a single bottom **scan-strip** — barcode left, QR right with "Scan for details" caption. Both optional; flex-aligns correctly when only one is present.
+- `showQR` toggle in Ticket Settings (default ON).
+- `handlePrint` now `async` — pre-resolves all QR SVGs into `qrMap` then embeds them synchronously in the print HTML.
+
+**2. Saveable + editable batches (de-duplicated)**
+- New backend route `/app/backend/routes/ticket_batches.py`:
+  - `POST /api/admin/ticket-batches` — upserts by `sha256(canonical-JSON(products + paper + settings))`; same content + same user → bumps `print_count` + `last_printed_at` instead of duplicating.
+  - `GET /api/admin/ticket-batches?q=<search>` — newest-first list with substring match on `name` OR any `products.name` (case-insensitive).
+  - `GET /api/admin/ticket-batches/{id}` — fetch one for editing.
+  - `PUT /api/admin/ticket-batches/{id}` — in-place edit (rename, swap paper, add/remove products); recomputes `content_hash`.
+  - `DELETE /api/admin/ticket-batches/{id}`.
+- MongoDB collection: `ticket_print_batches` (scoped by `printed_by` so each admin only sees their own).
+- Stores a **snapshot** of every product at save time so the batch reproduces correctly even if the underlying product is edited/deleted later.
+- Auto-saves on print (`handlePrint` calls `saveCurrentBatch({silent: true})` after firing the print dialog).
+- Explicit `Save batch` button in the header. When a batch is loaded, button label changes to `Update batch` and writes via PUT.
+
+**3. Search & re-edit UI**
+- New **Saved Batches card** at the top of the left column with debounced search input (250ms).
+- Each saved batch shows: name, product count, template name, print-count, date/time, with `Load` + `Delete` buttons.
+- Loading a batch restores: products, paper size, all 5 display toggles, copies, template name. Enters **edit-mode** — sticky amber banner reads "Editing saved batch: <name> — Save batch will update it in-place".
+- `+ New batch` button exits edit-mode and clears the selection.
+
+**Files**:
+- New: `/app/backend/routes/ticket_batches.py` (310 lines, ruff clean)
+- New: `qrcode` npm dep
+- Modified: `/app/backend/routes/__init__.py` (router registered)
+- Modified: `/app/frontend/src/pages/admin/PriceTickets.js` (~+250 lines for state, helpers, UI, scan-strip layout)
+
+**E2E verified (Playwright)**:
+- Saved batches card present · QR toggle present · Save batch button present
+- Real product added → both barcode AND QR rendered in preview (`data-testid="price-ticket-barcode-0"` + `price-ticket-qr-0`)
+- Save → 1 batch in list; Re-save same selection → still 1 batch (dedupe works); `print_count` increments
+- Search for `NONEXISTENT` → 0 results; clear search → restores 1 result
+- `+ New batch` → banner gone; `Load` → banner returns + selection restored
+- Toggle QR off → 0 QRs render; toggle on → return
+- Delete batch → list empties
+
+**Backend curl-tested**:
+- POST → returns `{deduped:false, batch:{...}}`
+- Second POST identical → `{deduped:true, batch:{print_count:2}}`
+- GET with search → finds match by product name
+- PUT → renames in-place
+- DELETE → `{deleted:true}`
+
+**Status**: ✅ COMPLETE. Lint clean (both Python + JS). Frontend recompiled OK.
+
+
 
 **Feature**: Each printed ticket now includes a Code128 barcode at the bottom so showroom-floor tickets double as scannable price tags at the till.
 
