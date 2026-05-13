@@ -9,6 +9,33 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 ## Recent Sessions (most recent first)
+### [May 13, 2026] 🖨 Price Ticket Printing v2 — manual products + adjustable paper sizes
+
+**Problem**: Admin needed to print tickets for one-off items not in the catalogue (samples, in-store-only) AND wanted adjustable paper sizes (A6/A5/A4/Custom mm) per template, persisted for the next print.
+
+**Shipped**:
+1. **Manual product entry** — `+ Add manual product (not in catalogue)` button reveals an inline name/price/clearance form. Adds a virtual product (`_manual:true`, virtual id `manual-${ts}`) to `selectedProducts` without polluting the DB. UI shows a "Manual" badge instead of the green Save Settings icon.
+2. **Adjustable paper sizes** — 5 built-in presets (`A6 Tickets`, `A5 Tickets`, `A4 Full Page`, `Small Shelf 74×105mm`, `Mini 52×74mm`) + custom width/height/cols/rows mm inputs. All 4 numeric inputs (`paper-width-input`, `paper-height-input`, `paper-cols-input`, `paper-rows-input`) drive both the on-screen `<PriceTicket>` and the print-window `@page`/`.price-ticket` CSS dimensions.
+3. **Saveable templates** — `Save` button prompts for a name, persists settings (including paper dimensions) to `localStorage['priceTicketTemplates']`. Backfills missing `paperSize` field on older saved templates. Round-trip verified via Playwright (saved → reload → reapply → values restored).
+4. **Per-product paper memory** — `saveProductSettings()` now writes `template_name` to the product's `ticket_template_name` field via `PUT /api/products/{id}/ticket-settings` (server.py:4093-4133 updated). When the product is re-added later, the previewer auto-switches to that template.
+5. **Dynamic UI labels** — page subtitle + Print Preview heading reflect live W×H × per-A4 × template name (was hardcoded "4 x A6").
+
+**Files changed**:
+- `/app/frontend/src/pages/admin/PriceTickets.js` (manual form, PAPER_PRESETS, customWidthMm/HeightMm/cols/rows state, paperSize prop on PriceTicket, dynamic @page CSS in handlePrint)
+- `/app/backend/server.py` (added `template_name: Optional[str]` to `ProductTicketSettings` model + persists `ticket_template_name`)
+- `/app/frontend/src/lib/api.js` (already passed `template_name` via spread)
+
+**Smoke test (Playwright)**:
+- Login → `/admin/price-tickets` → loads OK
+- Manual product "Test Manual Tile" @ £29.99 → £19.99 clearance → adds with 33% OFF badge + Manual pill
+- Switch preset to `A5 Tickets` → subtitle/preview reflow to 148×210mm
+- Custom 120×170mm → preview re-renders accordingly
+- Save custom 100×140mm × 2 cols × 3 rows as `My Custom 100x140` → localStorage entry created
+- Reload page → option present in dropdown → applying it restores all 4 dimension values → toast "Template loaded!"
+
+**Status**: ✅ COMPLETE. Lint clean. End-to-end verified.
+
+
 
 ### [Feb 12, 2026] 🎯 Mission: Narrow the Gap to Topps Tiles (formalised)
 

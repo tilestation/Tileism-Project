@@ -907,7 +907,9 @@ export const PriceTickets = () => {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="text-4xl font-heading font-bold tracking-tightest mb-2">Price Tickets</h1>
-          <p className="text-muted-foreground">Generate and print price tickets for products (4 x A6 tickets per A4 page)</p>
+          <p className="text-muted-foreground" data-testid="page-subtitle">
+            Generate and print price tickets ({customWidthMm}×{customHeightMm}mm · {customColsPerA4 * customRowsPerA4} per A4 — {currentTemplateName})
+          </p>
         </div>
         <Button 
           onClick={handlePrint} 
@@ -1389,7 +1391,7 @@ export const PriceTickets = () => {
           <Card className="p-4">
             <h3 className="font-semibold mb-3 flex items-center gap-2">
               <Grid className="h-4 w-4" />
-              Print Preview (A6 Tickets - 4 per A4 page)
+              Print Preview ({currentTemplateName} — {customColsPerA4 * customRowsPerA4} per A4 page)
             </h3>
             
             {selectedProducts.length === 0 ? (
