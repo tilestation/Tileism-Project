@@ -211,6 +211,19 @@ async def heartbeat(payload: HeartbeatPayload, request: Request, background_task
         or (request.client.host if request.client else "")
     )[:64]
 
+    # ── UK-ONLY HARD LOCKDOWN (12 May 2026) ─────────────────────────
+    # Tile Station is UK-only. Reject non-UK heartbeats at the boundary
+    # so they never enter `live_visitors`. Otherwise bots from AWS
+    # us-east-1 (Ashburn) keep showing up in the Live Visitors admin
+    # panel even though page_views correctly rejects them.
+    #
+    # Trust CF-IPCountry first (Cloudflare-set, accurate). Fall back to
+    # the cached geo's country_code if Cloudflare header is missing.
+    cf_country = (request.headers.get("CF-IPCountry") or "").upper().strip()
+    if cf_country and cf_country != "GB":
+        return {"ok": True, "skipped": True, "reason": "non_uk_visitor",
+                "pending_messages": []}
+
     new_path = payload.path or "/"
 
     # Attempt to read geo from cache synchronously (fast); kick off lookup in
@@ -223,6 +236,23 @@ async def heartbeat(payload: HeartbeatPayload, request: Request, background_task
             geo = cached.get("data")
         else:
             background_tasks.add_task(_resolve_geo_background, client_ip)
+
+    # Secondary UK guard — if Cloudflare didn't set the header but we have
+    # cached geo data, use it to reject non-UK heartbeats. Keeps the lock
+    # tight for direct-to-backend traffic that bypasses Cloudflare.
+    if not cf_country and geo:
+        cached_cc = (geo.get("country_code") or "").upper().strip()
+        cached_name = (geo.get("country") or "").lower().strip()
+        is_uk = (
+            cached_cc == "GB"
+            or cached_name in (
+                "united kingdom", "uk", "great britain",
+                "england", "scotland", "wales", "northern ireland",
+            )
+        )
+        if cached_cc and not is_uk:
+            return {"ok": True, "skipped": True, "reason": "non_uk_visitor",
+                    "pending_messages": []}
 
     cart_dict = payload.cart_summary.model_dump() if payload.cart_summary else None
 
@@ -649,9 +679,26 @@ async def live_visitors(current_user: dict = Depends(get_current_user)):
     # the live total). This is defence-in-depth: the new code path
     # writes to `pending_precise_locations` instead, but any orphans
     # still in flight from the previous deploy are excluded here too.
+    #
+    # Also (12 May 2026 hotfix) — reject non-UK rows that snuck in
+    # before the heartbeat-side geo filter shipped. Geo can live at
+    # either `geo.country_code` or `geo.country` depending on the cache
+    # writer, so we match on BOTH.
     query = {
         "last_seen": {"$gte": cutoff},
         "path": {"$nin": [None, ""], "$exists": True},
+        "$or": [
+            {"geo.country_code": "GB"},
+            {"geo.country_code": "gb"},
+            {"geo.country": {"$regex": r"^(united kingdom|uk|great britain|england|scotland|wales|northern ireland)$", "$options": "i"}},
+            # Rows with NO geo yet (very first heartbeat per IP — geo
+            # resolves in background) are kept so we don't lose real
+            # UK visitors during their first 30 seconds. They get
+            # naturally cleaned up on the SECOND heartbeat when geo
+            # arrives and the country guard runs.
+            {"geo": {"$in": [None, {}]}},
+            {"geo": {"$exists": False}},
+        ],
     }
 
     total = await db.live_visitors.count_documents(query)
@@ -953,6 +1000,40 @@ async def list_known_devices(current_user: dict = Depends(get_current_user)):
                 d[k] = d[k].isoformat()
         out.append(d)
     return {"devices": out}
+
+
+@router.post("/purge-non-uk")
+async def purge_non_uk_live_visitors(current_user: dict = Depends(get_current_user)):
+    """One-shot purge of historical non-UK rows from `live_visitors`.
+
+    Built 12 May 2026 because the heartbeat-side UK guard only catches
+    NEW visits — old rows already in the collection (e.g. AWS Ashburn
+    bots from before the guard shipped) keep showing in the panel until
+    they age out of the 5-min window. This forces them out immediately.
+
+    Matches on `geo.country_code` (Cloudflare-set ISO2) OR the full
+    `geo.country` name. Rows with no geo at all are LEFT alone — they
+    may be UK visitors mid-resolution.
+    """
+    if current_user.get("role") not in ["super_admin", "admin"]:
+        raise HTTPException(status_code=403, detail="Admin only")
+    db = get_db()
+    # Inverse of the read-side UK filter: delete anything that has an
+    # explicit non-UK geo.
+    res = await db.live_visitors.delete_many({
+        "$and": [
+            {"geo": {"$nin": [None, {}]}},
+            {"geo": {"$exists": True}},
+            {
+                "$nor": [
+                    {"geo.country_code": "GB"},
+                    {"geo.country_code": "gb"},
+                    {"geo.country": {"$regex": r"^(united kingdom|uk|great britain|england|scotland|wales|northern ireland)$", "$options": "i"}},
+                ],
+            },
+        ],
+    })
+    return {"deleted": res.deleted_count}
 
 
 @router.put("/known-devices/{visitor_id}")
