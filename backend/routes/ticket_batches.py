@@ -116,6 +116,35 @@ def _default_name(products: List[TicketBatchProduct]) -> str:
 # ---------- Endpoints ----------
 
 
+async def _log_print_event(db, batch: dict, user_email: str) -> None:
+    """Always log a row in `ticket_print_events` even on dedupe. Used by
+    the weekly Telegram digest to accurately count prints over a window.
+
+    Each event records the timestamp + a flattened list of `(id, name,
+    is_manual)` so the digest aggregator can rank top products without
+    re-loading the full batch payload."""
+    products = batch.get("products") or []
+    event = {
+        "id": str(uuid.uuid4()),
+        "batch_id": batch.get("id"),
+        "batch_name": batch.get("name"),
+        "printed_by": user_email,
+        "printed_at": datetime.now(timezone.utc).isoformat(),
+        "template_name": batch.get("template_name"),
+        "product_count": len(products),
+        "items": [
+            {
+                "id": p.get("id"),
+                "name": p.get("name"),
+                "sku": p.get("sku") or p.get("product_code") or p.get("barcode"),
+                "is_manual": bool(p.get("is_manual")),
+            }
+            for p in products
+        ],
+    }
+    await db.ticket_print_events.insert_one(event)
+
+
 @router.post("/ticket-batches")
 async def save_ticket_batch(
     payload: TicketBatchSave,
@@ -149,6 +178,7 @@ async def save_ticket_batch(
             {"$set": update},
         )
         existing.update(update)
+        await _log_print_event(db, existing, user_email)
         return {"deduped": True, "batch": existing}
 
     name = payload.name or _default_name(payload.products)
@@ -170,6 +200,7 @@ async def save_ticket_batch(
     await db.ticket_print_batches.insert_one(batch)
     # _id may have been mutated onto the dict by motor — strip it
     batch.pop("_id", None)
+    await _log_print_event(db, batch, user_email)
     return {"deduped": False, "batch": batch}
 
 
@@ -295,3 +326,33 @@ async def delete_ticket_batch(
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Batch not found")
     return {"deleted": True, "id": batch_id}
+
+
+# ---------- Weekly digest preview / manual send ----------
+
+@router.get("/ticket-batches/digest/preview")
+async def preview_ticket_digest(
+    days: int = Query(7, ge=1, le=90),
+    current_user: dict = Depends(get_current_user),
+):
+    """Returns the computed stats + the Telegram message that WOULD be
+    sent. Doesn't actually send. Used by the admin UI for a sanity
+    check before pushing the manual digest."""
+    from services.ticket_digest import compute_ticket_digest, build_digest_message
+
+    stats = await compute_ticket_digest(days=days)
+    return {
+        "stats": stats,
+        "message": build_digest_message(stats),
+    }
+
+
+@router.post("/ticket-batches/digest/send")
+async def send_ticket_digest_now(
+    current_user: dict = Depends(get_current_user),
+):
+    """Force the weekly Telegram digest to send immediately. Used to
+    test the wiring without waiting for Monday 09:15."""
+    from services.ticket_digest import run_ticket_digest_tick
+
+    return await run_ticket_digest_tick(force=True)

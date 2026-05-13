@@ -1097,6 +1097,32 @@ async def initialize_scheduler():
         except Exception as sdig_err:  # noqa: BLE001
             logger.warning(f"Could not add weekly SEO digest job: {sdig_err}")
 
+        # Weekly ticket-print digest — Mondays 09:15 Europe/London.
+        # Slots between SEO digest (09:00) and GSC digest (09:30) so
+        # admins get a clean stack of three Monday-morning Telegrams.
+        # See `services/ticket_digest.py` for the aggregation logic.
+        try:
+            from services.ticket_digest import run_ticket_digest_tick
+
+            async def _ticket_digest_tick():
+                try:
+                    res = await run_ticket_digest_tick(force=False)
+                    logger.info(f"ticket-print weekly digest tick: {res}")
+                except Exception as e:  # noqa: BLE001
+                    logger.warning(f"ticket-print weekly digest tick failed: {e}")
+
+            sched.add_job(
+                _ticket_digest_tick,
+                trigger=CronTrigger(day_of_week="mon", hour=9, minute=15, timezone="Europe/London"),
+                id="ticket_digest_weekly",
+                name="Weekly ticket-print Telegram digest (Mon 09:15 Europe/London)",
+                replace_existing=True,
+                misfire_grace_time=3600,
+            )
+            logger.info("Added weekly ticket-print digest job (Mon 09:15 Europe/London)")
+        except Exception as tdig_err:  # noqa: BLE001
+            logger.warning(f"Could not add weekly ticket-print digest job: {tdig_err}")
+
         # GSC weekly digest — Phase 4 — every Monday 09:30 Europe/London.
         # Sits 30 minutes after the storefront-search digest so an admin
         # gets two cleanly-separated emails, internal then external.

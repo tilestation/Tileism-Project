@@ -9,7 +9,43 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 ## Recent Sessions (most recent first)
-### [May 13, 2026] 🖨 Price Ticket Printing v4 — QR-to-PDP + saveable & editable batches
+### [May 13, 2026] 📊 Price Ticket — weekly Telegram digest
+
+**Feature**: Every Monday 09:15 Europe/London, an auto-generated Telegram message summarising the week's ticket-print activity goes out to the same bot/chat the SEO + competitor alerts use. Admins can also force-send it any time via a "📊 Send digest now" link on the Saved Batches card.
+
+**Example message**:
+> 🖨 **Price tickets — this week**
+> 47 tickets across 12 print runs · 5 admins
+> (3 manual / one-off)
+> **Top items:** Dolomite Blanco (×8), Marble Carrara (×6), …
+> **Top printer:** qasim@tilestation.co.uk (32)
+
+**Architecture**:
+1. **Event log** — new `ticket_print_events` collection. Every save (including dedupes that bump `print_count`) inserts a row via `_log_print_event()` in `routes/ticket_batches.py`. Each event captures `printed_at`, `printed_by`, `template_name`, and a flat `items[]` of `{id, name, sku, is_manual}` so the digest aggregator can rank without re-loading full batches.
+2. **Service** — new `services/ticket_digest.py`:
+   - `compute_ticket_digest(days=7)` → totals + top-5 products + top-3 printers
+   - `build_digest_message(stats)` → Telegram HTML
+   - `run_ticket_digest_tick(force=False)` → idempotent by ISO week (`digest_run_markers` doc id = `ticket_digest_weekly:YYYY-WW`)
+3. **Schedule** — `services/scheduler.py` adds `ticket_digest_weekly` cron job at Mon 09:15 London (slots between SEO 09:00 and GSC 09:30).
+4. **Endpoints**:
+   - `GET /api/admin/ticket-batches/digest/preview?days=7` — returns stats + message string for inspection
+   - `POST /api/admin/ticket-batches/digest/send` — force-send now (bypasses week marker)
+5. **UI** — "📊 Send digest now" link on the Saved Batches card. Toast surfaces the result (sent count, skipped reason, or error).
+
+**Curl-verified**:
+- POST 3 batches (1 dedupe) → 3 events logged
+- Preview → `total_runs=3, total_tickets=5, manual_tickets=1, top_products=[Dolomite ×2, Marble ×2], top_printers=[admin@test.com (5)]`
+- Force-send → returns `sent_to=0, errors=['bot_token or chat_ids not configured']` (expected in preview; prod has the bot already configured for SEO/competitor alerts and will pick this up automatically)
+
+**Files**:
+- New: `/app/backend/services/ticket_digest.py` (170 lines, ruff clean)
+- Modified: `/app/backend/routes/ticket_batches.py` (+`_log_print_event`, 2 new endpoints, ~50 lines)
+- Modified: `/app/backend/services/scheduler.py` (+ `ticket_digest_weekly` job)
+- Modified: `/app/frontend/src/pages/admin/PriceTickets.js` (+ "Send digest now" UI)
+
+**Status**: ✅ COMPLETE. Lint clean. Curl + Playwright verified.
+
+
 
 **Three features shipped in one go**:
 

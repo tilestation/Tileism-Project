@@ -495,6 +495,7 @@ export const PriceTickets = () => {
   const [batchSearch, setBatchSearch] = useState('');
   const [editingBatchId, setEditingBatchId] = useState(null);
   const [currentBatchName, setCurrentBatchName] = useState('');
+  const [sendingDigest, setSendingDigest] = useState(false);
   const printRef = useRef();
 
   // Current paper-size object used by PriceTicket + handlePrint
@@ -714,6 +715,29 @@ export const PriceTickets = () => {
     setCurrentBatchName('');
     setSelectedProducts([]);
     toast.info('Started a new batch — selections cleared');
+  };
+
+  // 13 May 2026 — Send the weekly Telegram digest immediately. Useful
+  // for previewing what Monday-morning admins will see + smoke-testing
+  // bot_token / chat_ids configuration without waiting a week.
+  const sendWeeklyDigest = async () => {
+    setSendingDigest(true);
+    try {
+      const res = await api.post('/admin/ticket-batches/digest/send', {});
+      const d = res.data || {};
+      if (d.skipped) {
+        toast.info(`Digest skipped: ${d.skipped}`);
+      } else if (d.sent_to > 0) {
+        toast.success(`Weekly digest sent to ${d.sent_to} Telegram chat${d.sent_to !== 1 ? 's' : ''}`);
+      } else {
+        const err = (d.errors && d.errors[0]) || 'No chats configured';
+        toast.warning(`Digest not sent: ${err}`);
+      }
+    } catch (err) {
+      toast.error('Failed to send digest');
+    } finally {
+      setSendingDigest(false);
+    }
   };
 
   const addProduct = async (product) => {
@@ -1400,10 +1424,22 @@ export const PriceTickets = () => {
         <div className="lg:col-span-1 space-y-4">
           {/* Saved Batches (13 May 2026) — search + reload past prints */}
           <Card className="p-4" data-testid="saved-batches-card">
-            <h3 className="font-semibold mb-3 flex items-center gap-2">
-              <History className="h-4 w-4" />
-              Saved Batches ({savedBatches.length})
-            </h3>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="font-semibold flex items-center gap-2">
+                <History className="h-4 w-4" />
+                Saved Batches ({savedBatches.length})
+              </h3>
+              <button
+                type="button"
+                onClick={sendWeeklyDigest}
+                disabled={sendingDigest}
+                className="text-xs text-blue-600 hover:text-blue-700 underline disabled:opacity-50"
+                title="Send weekly ticket-print summary to Telegram now"
+                data-testid="send-digest-btn"
+              >
+                {sendingDigest ? 'Sending…' : '📊 Send digest now'}
+              </button>
+            </div>
             <div className="relative mb-3">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
