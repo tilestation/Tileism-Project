@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import JsBarcode from 'jsbarcode';
 import { api } from '../../lib/api';
 import { toast } from 'sonner';
 import { 
@@ -8,6 +9,33 @@ import {
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
 import { Card } from '../../components/ui/card';
+
+// 13 May 2026 — barcode helper. Generates a Code128 SVG string from an
+// SKU / product code so the printed ticket can be scanned straight into
+// the EPOS at the till. Returns '' for empty values so callers can
+// `{svg && <div>...</div>}` without extra checks. Uses an off-screen
+// SVG node so it works in both React render and the popup print window.
+const generateBarcodeSVG = (value, opts = {}) => {
+  const text = String(value || '').trim();
+  if (!text) return '';
+  try {
+    const svgNode = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    JsBarcode(svgNode, text, {
+      format: 'CODE128',
+      displayValue: true,
+      fontSize: 14,
+      height: 40,
+      margin: 0,
+      background: '#ffffff',
+      lineColor: '#000000',
+      ...opts,
+    });
+    return new XMLSerializer().serializeToString(svgNode);
+  } catch (e) {
+    // Silently no-op on bad values — barcode is decorative, not critical
+    return '';
+  }
+};
 
 // Paper size templates — admin can adjust + save custom sizes (13 May 2026)
 // Each template defines the printed ticket dimensions (mm) and how many
@@ -46,7 +74,7 @@ const COUNTRY_FLAGS = {
   }
 };
 
-const PriceTicket = ({ product, showOriginalPrice, showClearanceBadge, showThisWeekBadge, index, paperSize }) => {
+const PriceTicket = ({ product, showOriginalPrice, showClearanceBadge, showThisWeekBadge, showBarcode, index, paperSize }) => {
   const hasDiscount = product.clearance_price && product.clearance_price < product.price;
   const displayPrice = hasDiscount ? product.clearance_price : product.price;
   const originalPrice = product.price;
@@ -282,6 +310,28 @@ const PriceTicket = ({ product, showOriginalPrice, showClearanceBadge, showThisW
         </div>
       )}
 
+      {/* Barcode (13 May 2026) — Code128 of SKU / product_code for till
+          scanning. Manual products use the `barcode` field they typed in. */}
+      {showBarcode && (() => {
+        const code = (product.sku || product.product_code || product.barcode || '').toString().trim();
+        if (!code) return null;
+        const svg = generateBarcodeSVG(code, { height: 30, fontSize: 11 });
+        if (!svg) return null;
+        return (
+          <div
+            style={{
+              borderTop: '1px solid #ddd',
+              paddingTop: '3mm',
+              marginTop: '3mm',
+              display: 'flex',
+              justifyContent: 'center',
+            }}
+            data-testid={`price-ticket-barcode-${index}`}
+            dangerouslySetInnerHTML={{ __html: svg }}
+          />
+        );
+      })()}
+
       {/* Country of Origin with Flag */}
       {product.countryOfOrigin && COUNTRY_FLAGS[product.countryOfOrigin] && (
         <div style={{
@@ -319,6 +369,10 @@ export const PriceTickets = () => {
   const [showOriginalPrice, setShowOriginalPrice] = useState(true);
   const [showClearanceBadge, setShowClearanceBadge] = useState(true);
   const [showThisWeekBadge, setShowThisWeekBadge] = useState(false);
+  // 13 May 2026 — Code128 barcode of SKU / product_code at bottom of each
+  // ticket so it scans straight into EPOS. Defaults ON for catalogue
+  // items; manual products need the user to type a barcode value.
+  const [showBarcode, setShowBarcode] = useState(true);
   const [copies, setCopies] = useState(1);
   const [savedTemplates, setSavedTemplates] = useState([]);
   const [currentTemplateName, setCurrentTemplateName] = useState(DEFAULT_TEMPLATE_NAME);
@@ -336,6 +390,8 @@ export const PriceTickets = () => {
   const [manualName, setManualName] = useState('');
   const [manualPrice, setManualPrice] = useState('');
   const [manualClearance, setManualClearance] = useState('');
+  // Optional SKU/barcode for manual products (printed as Code128)
+  const [manualBarcode, setManualBarcode] = useState('');
   const printRef = useRef();
 
   // Current paper-size object used by PriceTicket + handlePrint
@@ -539,6 +595,7 @@ export const PriceTickets = () => {
       return;
     }
     const clearance = manualClearance.trim() ? parseFloat(manualClearance) : null;
+    const barcode = manualBarcode.trim();
     const manualProduct = {
       // Virtual id so the React key + remove() still works. Marked with
       // `_manual: true` so save-settings + DB calls are skipped.
@@ -547,6 +604,8 @@ export const PriceTickets = () => {
       name,
       price,
       clearance_price: clearance && !Number.isNaN(clearance) ? clearance : null,
+      // Code128 barcode value — admin-typed SKU for manual/one-off items
+      barcode: barcode || null,
       sizes: ['60x60', '60x120'],
       suitability: 'Wall/Floor',
       finish: 'Matt',
@@ -558,6 +617,7 @@ export const PriceTickets = () => {
     setManualName('');
     setManualPrice('');
     setManualClearance('');
+    setManualBarcode('');
     setShowManualForm(false);
     toast.success(`Added manual product: ${name}`);
   };
@@ -616,6 +676,11 @@ export const PriceTickets = () => {
       const hasBadge = isClearance || showWeekBadge;
       const savingsAmount = hasDiscount ? (product.price - product.clearance_price) : 0;
       const savingsPercent = hasDiscount ? Math.round((savingsAmount / product.price) * 100) : 0;
+      // Barcode (Code128) of SKU / product_code / manual barcode entry
+      const barcodeValue = showBarcode
+        ? (product.sku || product.product_code || product.barcode || '').toString().trim()
+        : '';
+      const barcodeSVG = barcodeValue ? generateBarcodeSVG(barcodeValue, { height: 30, fontSize: 11 }) : '';
       
       return `
       <div class="price-ticket">
@@ -665,6 +730,11 @@ export const PriceTickets = () => {
               ${product.sizes.map(size => `<div class="size-box">${size}</div>`).join('')}
             </div>
           </div>
+        ` : ''}
+
+        <!-- Barcode (Code128 — scans at the till) -->
+        ${barcodeSVG ? `
+          <div class="barcode-section">${barcodeSVG}</div>
         ` : ''}
 
         <!-- Country of Origin -->
@@ -885,6 +955,19 @@ export const PriceTickets = () => {
               justify-content: center;
               gap: 2mm;
             }
+
+            .barcode-section {
+              border-top: 1px solid #ddd;
+              padding-top: 3mm;
+              margin-top: 3mm;
+              display: flex;
+              justify-content: center;
+            }
+
+            .barcode-section svg {
+              max-width: 100%;
+              height: auto;
+            }
             
             .country-section svg {
               width: 30px;
@@ -1026,6 +1109,14 @@ export const PriceTickets = () => {
                       data-testid="manual-clearance-input"
                     />
                   </div>
+                  <Input
+                    type="text"
+                    placeholder="Barcode / SKU (opt) — printed as Code128"
+                    value={manualBarcode}
+                    onChange={(e) => setManualBarcode(e.target.value)}
+                    className="h-8 text-sm"
+                    data-testid="manual-barcode-input"
+                  />
                   <div className="flex gap-2">
                     <button
                       onClick={addManualProduct}
@@ -1040,6 +1131,7 @@ export const PriceTickets = () => {
                         setManualName('');
                         setManualPrice('');
                         setManualClearance('');
+                        setManualBarcode('');
                       }}
                       className="px-3 py-1 bg-gray-200 text-gray-700 text-sm rounded hover:bg-gray-300"
                       data-testid="manual-cancel-btn"
@@ -1259,6 +1351,20 @@ export const PriceTickets = () => {
                   Show &ldquo;This Week Only&rdquo; badge
                 </label>
               </div>
+
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="showBarcode"
+                  checked={showBarcode}
+                  onChange={(e) => setShowBarcode(e.target.checked)}
+                  className="rounded"
+                  data-testid="show-barcode-checkbox"
+                />
+                <label htmlFor="showBarcode" className="text-sm">
+                  Show scannable barcode (Code128 — scans at the till)
+                </label>
+              </div>
             </div>
           </Card>
         </div>
@@ -1464,6 +1570,7 @@ export const PriceTickets = () => {
                       showOriginalPrice={showOriginalPrice}
                       showClearanceBadge={showClearanceBadge}
                       showThisWeekBadge={showThisWeekBadge}
+                      showBarcode={showBarcode}
                       index={idx}
                       paperSize={currentPaperSize}
                     />

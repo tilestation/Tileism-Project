@@ -51,6 +51,7 @@
     "html2canvas": "^1.4.1",
     "http-proxy-middleware": "^2.0.7",
     "input-otp": "^1.4.2",
+    "jsbarcode": "^3.12.3",
     "jspdf": "^4.1.0",
     "jspdf-autotable": "^5.0.7",
     "leaflet": "1.9.4",

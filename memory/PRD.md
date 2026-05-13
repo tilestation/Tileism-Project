@@ -9,7 +9,30 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 ## Recent Sessions (most recent first)
-### [May 13, 2026] 🖨 Price Ticket Printing v2.1 — uniform content scaling
+### [May 13, 2026] 🖨 Price Ticket Printing v3 — Code128 barcodes for till scanning
+
+**Feature**: Each printed ticket now includes a Code128 barcode at the bottom so showroom-floor tickets double as scannable price tags at the till.
+
+**Implementation**:
+1. **Dependency**: `jsbarcode@3.12.3` (pure JS, generates inline SVG — works in both React preview and the popup print window).
+2. **Helper**: `generateBarcodeSVG(value, opts)` — creates an off-screen SVG node, runs JsBarcode in Code128 mode, serialises the SVG via `XMLSerializer`. Returns `''` for empty values so callers can no-op.
+3. **Data source priority**: `product.sku` → `product.product_code` → `product.barcode` (for manual entries).
+4. **Manual barcode input**: new `Barcode / SKU (opt)` field in the manual product form (`data-testid="manual-barcode-input"`). When typed, gets stored on the virtual product as `barcode`. Cleared on form cancel/submit.
+5. **Visibility toggle**: new `Show scannable barcode (Code128)` checkbox in Ticket Settings (`data-testid="show-barcode-checkbox"`), default ON. Drives both the on-screen `<PriceTicket>` and the `handlePrint()` HTML.
+6. **Scales with ticket**: barcode sits inside `.price-ticket-inner` (the scaled A6-reference container from v2.1) so it shrinks for Mini/Small Shelf and enlarges for A5/A4.
+7. **Print CSS**: new `.barcode-section` (top-border + centred flex) + `.barcode-section svg { max-width: 100%; height: auto; }` so the SVG never overflows.
+
+**Smoke-tested (Playwright)**:
+- Real catalogue product (Adhesive 20kg, code `ADH-001`) → barcode renders in preview
+- Manual product (`TILE-DBL-001`) → barcode renders
+- 2 tickets visible → `document.querySelectorAll('[data-testid^=price-ticket-barcode-]').length === 2`
+- A4 preset → barcode scales 2× — still sharp and scannable
+- Toggle OFF → barcodes disappear; toggle ON → return
+- SVG dimensions sample: `width="334px" height="43px"` — proper Code128 output
+
+**Status**: ✅ COMPLETE. Lint clean. Frontend recompiled with no errors.
+
+
 
 **Problem (user-reported with screenshots)**:
 1. Small Shelf (74×105mm) and Mini (52×74mm) tickets → content overflowed the ticket border; "SIZES AVAILABLE" chips printed *outside* the box.
