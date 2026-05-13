@@ -1871,7 +1871,7 @@ async def _get_collection_products_impl(
     })
 
 
-@router.get("/related/{series_name}")
+@router.get("/related/{series_name:path}")
 @bulletproof_endpoint(
     cache_namespace="tiles_related",
     empty_check=lambda r: not (isinstance(r, dict) and (r.get("related_products") or r.get("related_series"))),
