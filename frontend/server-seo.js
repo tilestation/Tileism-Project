@@ -139,6 +139,21 @@ const EXACT = {
   '/status': { title: `System Status · ${BRAND}`, description: 'Live status of our storefront, sample ordering and delivery systems.' },
   '/visualizer': { title: `Tile Visualizer (Coming Soon) · ${BRAND}`, description: 'See real tiles in your own room photo before you buy. Join the early-access waitlist.' },
 
+  // ───────────────────────────────────────────────────────────────
+  // 13 May 2026 — added /clearance + /new-collection EXACT rules so
+  // they get unique, descriptive titles instead of falling through to
+  // FALLBACK (which is brand-only). Both are in sitemap.xml so Google
+  // indexes them; unique titles avoid the duplicate-title cluster.
+  // ───────────────────────────────────────────────────────────────
+  '/clearance': {
+    title: `Tile, Bathroom & Flooring Clearance — Up to 70% Off · ${BRAND}`,
+    description: 'Last-chance deals on porcelain, marble, terrazzo, vinyl and engineered wood. Discontinued lines, end-of-roll vinyl, ex-display bathroom suites — while stocks last.',
+  },
+  '/new-collection': {
+    title: `New In — Fresh Tile, Bathroom & Flooring Collections · ${BRAND}`,
+    description: 'Browse the latest arrivals — new porcelain, marble, terrazzo, vinyl plank and engineered wood ranges added this season. Free samples available.',
+  },
+
   // ─────────────────────────────────────────────────────────────────
   // /shop/* exact pages — added 12 May 2026 after Ahrefs flagged 15
   // "Title tag missing or empty" URLs (all returning the FALLBACK
