@@ -71,8 +71,15 @@ HTTP_TIMEOUT_S = 12.0
 USER_AGENT = "TileStation-SEO-Self-Crawler/1.0 (+https://tilestation.co.uk)"
 
 BRAND_FALLBACK_TITLES = {
+    # Old brand title (pre-13 May 2026 — kept here so crawl results from
+    # before the renaming still flag as "fallback" until those pages get
+    # re-crawled with the new SSR-injected titles)
     "tile station — premium tiles & stone, uk",
     "tile station - premium tiles & stone, uk",
+    # Current brand title
+    "tile station — premium tiles, bathrooms and flooring",
+    "tile station - premium tiles, bathrooms and flooring",
+    # Generic last-resort
     "tile station",
 }
 

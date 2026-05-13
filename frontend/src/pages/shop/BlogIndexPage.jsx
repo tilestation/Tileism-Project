@@ -29,7 +29,7 @@ const BlogIndexPage = () => {
   return (
     <div className="min-h-screen bg-stone-50" data-testid="blog-index-page">
       <SeoHead
-        title="Tile & Stone Inspiration · Guides, Trends, How-To · TileStation"
+        title="Tile, Bathroom & Flooring Inspiration · Guides, Trends, How-To · TileStation"
         description="Expert UK guides on tiles, marble, porcelain, grout, bathroom & kitchen design. New articles every week from the TileStation editorial team."
         canonical="/blog"
       />

@@ -113,7 +113,7 @@ async def refine_prompt(req: RefinePromptReq, current_user: dict = Depends(get_c
         )
     )
     system = (
-        "You are an expert AI-image-prompt critic for a UK tile and stone retailer's "
+        "You are an expert AI-image-prompt critic for a UK tile, bathroom and flooring retailer's "
         "marketing banner generator. The admin will give you their prompt, the target "
         "dimensions, and the model. You return STRICT JSON with three keys:\n"
         "  predicted: 1-2 sentences describing what the image will most likely show.\n"

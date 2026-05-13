@@ -92,13 +92,13 @@ const WEBSITE_JSONLD = {
 // Static pages — exact path → SEO meta
 const EXACT = {
   '/': {
-    title: `${BRAND} — Premium Tiles & Stone, UK Showrooms in Tonbridge, Chingford & Gravesend`,
-    description: 'UK tile specialists with three showrooms across Kent and Essex. Browse 1,000+ porcelain, marble, terrazzo and stone tiles with free samples and trade pricing.',
+    title: `${BRAND} — Premium Tiles, Bathrooms and Flooring · UK Showrooms in Tonbridge, Chingford & Gravesend`,
+    description: 'UK tile, bathroom and flooring specialists with three showrooms across Kent and Essex. Browse 1,000+ porcelain, marble, terrazzo, vinyl and engineered wood with free samples and trade pricing.',
     jsonld: { '@context': 'https://schema.org', '@graph': [ORG_JSONLD, WEBSITE_JSONLD] },
   },
   '/tiles': {
     title: `Shop All Tiles · ${BRAND}`,
-    description: 'Browse our full range of porcelain, marble, terrazzo, stone and ceramic tiles. Free samples, trade prices, fast UK delivery.',
+    description: 'Browse our full range of porcelain, marble, terrazzo, ceramic, vinyl and engineered wood. Free samples, trade prices, fast UK delivery.',
   },
   '/collections': {
     title: `Tile Collections · ${BRAND}`,
@@ -131,7 +131,7 @@ const EXACT = {
   '/login': { title: `Sign In · ${BRAND}`, description: 'Sign in to your Tile Station account.' },
   '/register': { title: `Create Account · ${BRAND}`, description: 'Create a Tile Station account for faster checkout and saved samples.' },
   '/trade': { title: `Trade Account · ${BRAND}`, description: 'Apply for a Tile Station trade account — exclusive pricing and credit terms for installers, contractors and developers.' },
-  '/blog': { title: `Tile & Stone Blog · ${BRAND}`, description: 'Tile guides, design inspiration, installation tips and supplier news from the Tile Station team.' },
+  '/blog': { title: `Blog · ${BRAND}`, description: 'Tile, bathroom and flooring guides, design inspiration, installation tips and supplier news from the Tile Station team.' },
   '/faq': { title: `FAQ · ${BRAND}`, description: 'Answers to the most common tile, stone, sample and delivery questions.' },
   '/delivery': { title: `Delivery & Returns · ${BRAND}`, description: 'How we deliver tiles across the UK, lead times, returns and breakage policy.' },
   '/privacy': { title: `Privacy Policy · ${BRAND}`, description: 'How Tile Station handles your data. GDPR-compliant.' },
@@ -162,7 +162,7 @@ const EXACT = {
   '/shop/contact': { title: `Contact Us · Showrooms in Tonbridge, Chingford & Gravesend · ${BRAND}`, description: 'Visit one of our three UK tile showrooms or contact our team for trade enquiries and project quotes.' },
   '/shop/refer': { title: `Refer a Friend & Earn £25 Credit · ${BRAND}`, description: 'Recommend Tile Station to a friend and you both earn £25 credit on your next tile order.' },
   '/shop/compare': { title: `Compare Tiles Side-by-Side · ${BRAND}`, description: 'Compare up to 4 tiles side-by-side: price, size, material, finish and stock.' },
-  '/shop/all-tiles': { title: `All Tiles · ${BRAND}`, description: 'Browse our complete tile range — 1,000+ porcelain, marble, terrazzo, stone and ceramic tiles.' },
+  '/shop/all-tiles': { title: `All Tiles · ${BRAND}`, description: 'Browse our complete range — 1,000+ porcelain, marble, terrazzo, ceramic, vinyl and engineered wood.' },
   '/shop/tiles': { title: `Shop Tiles · ${BRAND}`, description: 'Browse our tile range by material, size, finish and room. Free UK samples and trade pricing.' },
   '/shop/order-success': { title: `Order Confirmed · ${BRAND}`, description: 'Thank you — your Tile Station order has been confirmed.', noindex: true },
   '/shop/wishlist': { title: `Your Wishlist · ${BRAND}`, description: 'Tiles you\'ve saved for later.', noindex: true },
@@ -330,8 +330,8 @@ const PREFIXES = [
 ];
 
 const FALLBACK = {
-  title: `${BRAND} — Premium Tiles & Stone, UK`,
-  description: 'UK tile specialists with three showrooms. Browse 1,000+ porcelain, marble, terrazzo and stone tiles.',
+  title: `${BRAND} — Premium Tiles, Bathrooms and Flooring`,
+  description: 'UK tile, bathroom and flooring specialists with three showrooms. Browse 1,000+ porcelain, marble, terrazzo, vinyl and engineered wood.',
 };
 
 /**

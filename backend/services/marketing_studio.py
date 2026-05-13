@@ -70,7 +70,7 @@ async def _generate_nano_banana(prompt: str, reference_image_b64: Optional[str] 
     chat = LlmChat(
         api_key=api_key,
         session_id=f"marketing-studio-{os.urandom(4).hex()}",
-        system_message="You are an expert commercial banner designer for a UK tile and stone retailer.",
+        system_message="You are an expert commercial banner designer for a UK tile, bathroom and flooring retailer.",
     )
     chat.with_model("gemini", "gemini-3.1-flash-image-preview").with_params(modalities=["image", "text"])
 

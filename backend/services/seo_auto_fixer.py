@@ -119,16 +119,16 @@ def _description_for_path(path: str, title: str) -> str:
         )
     if len(parts) >= 3 and parts[0] == "shop" and parts[1] == "info":
         name = _titlecase_slug(parts[2])
-        return f"{name} — {BRAND} information page. UK tile and stone specialists with showrooms across Kent and Essex."
+        return f"{name} — {BRAND} information page. UK tile, bathroom and flooring specialists with showrooms across Kent and Essex."
     if len(parts) >= 2 and parts[0] == "tiles":
         return (
             f"Browse {_titlecase_slug(parts[1])} tiles at {BRAND}. "
-            f"Porcelain, marble, ceramic and stone — UK delivery, trade pricing and free samples."
+            f"Porcelain, marble, ceramic, vinyl and engineered wood — UK delivery, trade pricing and free samples."
         )
     # Fallback: derive from title
     base = (title or "").split("·")[0].strip() or "Tile Station"
     return (
-        f"{base} at {BRAND}. UK tile and stone retailer with three showrooms, "
+        f"{base} at {BRAND}. UK tile, bathroom and flooring retailer with three showrooms, "
         f"free samples, trade pricing and fast delivery across the UK."
     )
 
