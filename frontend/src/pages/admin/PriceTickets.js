@@ -9,9 +9,18 @@ import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
 import { Card } from '../../components/ui/card';
 
-// A6 size: 105mm × 148mm - 4 fit on A4 (210mm × 297mm) in 2x2 grid
-const A6_WIDTH = '105mm';
-const A6_HEIGHT = '148mm';
+// Paper size templates — admin can adjust + save custom sizes (13 May 2026)
+// Each template defines the printed ticket dimensions (mm) and how many
+// fit on a single A4 sheet. The `handlePrint` function reads these so
+// the @page rules + per-ticket dimensions match.
+const PAPER_PRESETS = {
+  'A6 Tickets': { width_mm: 105, height_mm: 148, per_a4_cols: 2, per_a4_rows: 2 },  // 4 / A4
+  'A5 Tickets': { width_mm: 148, height_mm: 210, per_a4_cols: 2, per_a4_rows: 1 },  // 2 / A4 portrait — wider format
+  'A4 Full Page': { width_mm: 210, height_mm: 297, per_a4_cols: 1, per_a4_rows: 1 }, // 1 / A4
+  'Small Shelf (74×105mm)': { width_mm: 74, height_mm: 105, per_a4_cols: 2, per_a4_rows: 2 }, // A7 shelf-edge
+  'Mini (52×74mm)': { width_mm: 52, height_mm: 74, per_a4_cols: 4, per_a4_rows: 4 }, // 16 / A4
+};
+const DEFAULT_TEMPLATE_NAME = 'A6 Tickets';
 
 // Country flags with SVG data
 const COUNTRY_FLAGS = {
@@ -37,7 +46,7 @@ const COUNTRY_FLAGS = {
   }
 };
 
-const PriceTicket = ({ product, showOriginalPrice, showClearanceBadge, showThisWeekBadge, index }) => {
+const PriceTicket = ({ product, showOriginalPrice, showClearanceBadge, showThisWeekBadge, index, paperSize }) => {
   const hasDiscount = product.clearance_price && product.clearance_price < product.price;
   const displayPrice = hasDiscount ? product.clearance_price : product.price;
   const originalPrice = product.price;
@@ -46,14 +55,19 @@ const PriceTicket = ({ product, showOriginalPrice, showClearanceBadge, showThisW
   // Calculate savings
   const savingsAmount = hasDiscount ? (originalPrice - displayPrice) : 0;
   const savingsPercent = hasDiscount ? Math.round((savingsAmount / originalPrice) * 100) : 0;
+
+  // Paper size is configurable per-template (13 May 2026 — was hardcoded A6).
+  // `paperSize` falls back to A6 so older calling code keeps working.
+  const widthMm = paperSize?.width_mm || 105;
+  const heightMm = paperSize?.height_mm || 148;
   
   return (
     <div 
       className="price-ticket"
       data-testid={`price-ticket-${index}`}
       style={{ 
-        width: A6_WIDTH, 
-        height: A6_HEIGHT,
+        width: `${widthMm}mm`, 
+        height: `${heightMm}mm`,
         border: '2px solid #1a1a1a',
         backgroundColor: '#ffffff',
         display: 'flex',
@@ -288,32 +302,74 @@ export const PriceTickets = () => {
   const [showThisWeekBadge, setShowThisWeekBadge] = useState(false);
   const [copies, setCopies] = useState(1);
   const [savedTemplates, setSavedTemplates] = useState([]);
-  const [currentTemplateName, setCurrentTemplateName] = useState('A6 Tickets');
+  const [currentTemplateName, setCurrentTemplateName] = useState(DEFAULT_TEMPLATE_NAME);
+  // Custom paper-size dimensions (mm). Inputs in the UI write here; saving
+  // a template stores them in localStorage so future prints get the same size.
+  const [customWidthMm, setCustomWidthMm] = useState(PAPER_PRESETS[DEFAULT_TEMPLATE_NAME].width_mm);
+  const [customHeightMm, setCustomHeightMm] = useState(PAPER_PRESETS[DEFAULT_TEMPLATE_NAME].height_mm);
+  const [customColsPerA4, setCustomColsPerA4] = useState(PAPER_PRESETS[DEFAULT_TEMPLATE_NAME].per_a4_cols);
+  const [customRowsPerA4, setCustomRowsPerA4] = useState(PAPER_PRESETS[DEFAULT_TEMPLATE_NAME].per_a4_rows);
+  // Manual product form — for tickets when the product isn't in the catalogue
+  // (one-off price tickets, in-store-only items, samples, etc.). Adds a
+  // virtual product (no `id`) to selectedProducts. Save Settings is hidden
+  // for manual products because there's nothing to persist server-side.
+  const [showManualForm, setShowManualForm] = useState(false);
+  const [manualName, setManualName] = useState('');
+  const [manualPrice, setManualPrice] = useState('');
+  const [manualClearance, setManualClearance] = useState('');
   const printRef = useRef();
+
+  // Current paper-size object used by PriceTicket + handlePrint
+  const currentPaperSize = {
+    width_mm: customWidthMm,
+    height_mm: customHeightMm,
+    per_a4_cols: customColsPerA4,
+    per_a4_rows: customRowsPerA4,
+  };
 
   // Load saved templates from localStorage on mount
   useEffect(() => {
     const stored = localStorage.getItem('priceTicketTemplates');
     if (stored) {
-      setSavedTemplates(JSON.parse(stored));
+      const parsed = JSON.parse(stored);
+      setSavedTemplates(parsed);
+      // 13 May 2026 — backfill missing paper-size fields on existing
+      // templates so users who saved before this upgrade don't lose
+      // their settings. Default to A6 dimensions when absent.
+      const needsMigration = parsed.some(t => !t.settings?.paperSize);
+      if (needsMigration) {
+        const migrated = parsed.map(t => {
+          const presetMatch = PAPER_PRESETS[t.name] || PAPER_PRESETS[DEFAULT_TEMPLATE_NAME];
+          return {
+            ...t,
+            settings: {
+              ...t.settings,
+              paperSize: t.settings?.paperSize || presetMatch,
+            },
+          };
+        });
+        setSavedTemplates(migrated);
+        localStorage.setItem('priceTicketTemplates', JSON.stringify(migrated));
+      }
     } else {
-      // Create default A6 template
+      // Create default A6 template (now including paper-size dimensions)
       const defaultTemplate = {
         id: 'a6-tickets',
-        name: 'A6 Tickets',
+        name: DEFAULT_TEMPLATE_NAME,
         settings: {
           showOriginalPrice: true,
           showClearanceBadge: true,
           showThisWeekBadge: false,
-          copies: 1
-        }
+          copies: 1,
+          paperSize: PAPER_PRESETS[DEFAULT_TEMPLATE_NAME],
+        },
       };
       setSavedTemplates([defaultTemplate]);
       localStorage.setItem('priceTicketTemplates', JSON.stringify([defaultTemplate]));
     }
   }, []);
 
-  // Save current settings as template
+  // Save current settings as template (incl. paper-size dimensions)
   const saveTemplate = (name) => {
     const newTemplate = {
       id: name.toLowerCase().replace(/\s+/g, '-'),
@@ -322,8 +378,14 @@ export const PriceTickets = () => {
         showOriginalPrice,
         showClearanceBadge,
         showThisWeekBadge,
-        copies
-      }
+        copies,
+        paperSize: {
+          width_mm: customWidthMm,
+          height_mm: customHeightMm,
+          per_a4_cols: customColsPerA4,
+          per_a4_rows: customRowsPerA4,
+        },
+      },
     };
     
     const existingIndex = savedTemplates.findIndex(t => t.name === name);
@@ -342,13 +404,32 @@ export const PriceTickets = () => {
     toast.success(`Template "${name}" saved!`);
   };
 
-  // Load template settings
+  // Apply a preset (built-in or saved). Updates paper-size state.
+  const applyPaperPreset = (presetName) => {
+    const preset = PAPER_PRESETS[presetName];
+    if (!preset) return;
+    setCustomWidthMm(preset.width_mm);
+    setCustomHeightMm(preset.height_mm);
+    setCustomColsPerA4(preset.per_a4_cols);
+    setCustomRowsPerA4(preset.per_a4_rows);
+    setCurrentTemplateName(presetName);
+  };
+
+  // Load template settings (incl. paper-size)
   const loadTemplate = (template) => {
     setShowOriginalPrice(template.settings.showOriginalPrice);
     setShowClearanceBadge(template.settings.showClearanceBadge);
     setShowThisWeekBadge(template.settings.showThisWeekBadge);
     setCopies(template.settings.copies);
     setCurrentTemplateName(template.name);
+    // Backfill from PAPER_PRESETS if missing (older saved templates)
+    const ps = template.settings.paperSize
+      || PAPER_PRESETS[template.name]
+      || PAPER_PRESETS[DEFAULT_TEMPLATE_NAME];
+    setCustomWidthMm(ps.width_mm);
+    setCustomHeightMm(ps.height_mm);
+    setCustomColsPerA4(ps.per_a4_cols);
+    setCustomRowsPerA4(ps.per_a4_rows);
     toast.success(`Template "${template.name}" loaded!`);
   };
 
@@ -389,7 +470,8 @@ export const PriceTickets = () => {
             material: res.data.material,
             sizes: res.data.sizes,
             countryOfOrigin: res.data.country_of_origin,
-            priceUnit: res.data.price_unit
+            priceUnit: res.data.price_unit,
+            templateName: res.data.template_name,
           };
         }
       } catch (err) {
@@ -406,8 +488,59 @@ export const PriceTickets = () => {
         priceUnit: savedSettings.priceUnit || product.ticket_price_unit || 'm2'
       };
       setSelectedProducts([...selectedProducts, productWithDefaults]);
+      // 13 May 2026 — if this product was last printed on a specific
+      // paper template, auto-switch the previewer to that template so
+      // the admin doesn't have to re-pick. Manual override always wins
+      // because state changes downstream.
+      if (savedSettings.templateName) {
+        const savedTpl = savedTemplates.find(t => t.name === savedSettings.templateName);
+        if (savedTpl) {
+          loadTemplate(savedTpl);
+        } else if (PAPER_PRESETS[savedSettings.templateName]) {
+          applyPaperPreset(savedSettings.templateName);
+        }
+      }
       toast.success(`Added ${product.name}`);
     }
+  };
+
+  // 13 May 2026 — manual product entry. Creates a virtual product without
+  // an `id` so it can be added to the ticket batch without polluting the
+  // products collection. Save Settings is hidden for manual products
+  // (nothing to persist).
+  const addManualProduct = () => {
+    const name = manualName.trim();
+    if (!name) {
+      toast.error('Product name is required');
+      return;
+    }
+    const price = parseFloat(manualPrice);
+    if (Number.isNaN(price) || price <= 0) {
+      toast.error('Enter a valid price');
+      return;
+    }
+    const clearance = manualClearance.trim() ? parseFloat(manualClearance) : null;
+    const manualProduct = {
+      // Virtual id so the React key + remove() still works. Marked with
+      // `_manual: true` so save-settings + DB calls are skipped.
+      id: `manual-${Date.now()}`,
+      _manual: true,
+      name,
+      price,
+      clearance_price: clearance && !Number.isNaN(clearance) ? clearance : null,
+      sizes: ['60x60', '60x120'],
+      suitability: 'Wall/Floor',
+      finish: 'Matt',
+      material: 'Porcelain',
+      countryOfOrigin: '',
+      priceUnit: 'm2',
+    };
+    setSelectedProducts([...selectedProducts, manualProduct]);
+    setManualName('');
+    setManualPrice('');
+    setManualClearance('');
+    setShowManualForm(false);
+    toast.success(`Added manual product: ${name}`);
   };
 
   const removeProduct = (productId) => {
@@ -422,6 +555,11 @@ export const PriceTickets = () => {
 
   // Save product ticket settings to database
   const saveProductSettings = async (product) => {
+    // Manual products have no DB id — there's nothing to save server-side.
+    if (product._manual) {
+      toast.info('Manual product — settings live only in this print session');
+      return;
+    }
     try {
       await api.saveProductTicketSettings(product.id, {
         suitability: product.suitability,
@@ -429,7 +567,10 @@ export const PriceTickets = () => {
         material: product.material,
         sizes: product.sizes,
         country_of_origin: product.countryOfOrigin,
-        price_unit: product.priceUnit
+        price_unit: product.priceUnit,
+        // 13 May 2026 — remember the paper template alongside the
+        // product so the next print auto-loads the same size.
+        template_name: currentTemplateName,
       });
       toast.success(`Settings saved for ${product.name}`);
     } catch (err) {
@@ -541,8 +682,8 @@ export const PriceTickets = () => {
             }
             
             .price-ticket {
-              width: 105mm;
-              height: 148.5mm;
+              width: ${customWidthMm}mm;
+              height: ${customHeightMm}mm;
               border: 1px solid #333;
               background: #ffffff;
               display: flex;
@@ -799,6 +940,74 @@ export const PriceTickets = () => {
                 data-testid="product-search-input"
               />
             </div>
+
+            {/* 13 May 2026 — manual product entry. For one-off tickets where
+                the product isn't in the catalogue (sample, in-store-only item,
+                custom order). Adds a virtual product to selectedProducts. */}
+            <div className="mb-3 border-2 border-dashed border-gray-300 rounded-lg p-2" data-testid="manual-product-section">
+              {!showManualForm ? (
+                <button
+                  onClick={() => setShowManualForm(true)}
+                  className="w-full text-sm text-amber-700 hover:bg-amber-50 py-2 rounded font-medium"
+                  data-testid="show-manual-form-btn"
+                >
+                  + Add manual product (not in catalogue)
+                </button>
+              ) : (
+                <div className="space-y-2 p-2">
+                  <p className="text-xs font-semibold text-gray-700">Manual product</p>
+                  <Input
+                    type="text"
+                    placeholder="Product name *"
+                    value={manualName}
+                    onChange={(e) => setManualName(e.target.value)}
+                    className="h-8 text-sm"
+                    data-testid="manual-name-input"
+                  />
+                  <div className="grid grid-cols-2 gap-2">
+                    <Input
+                      type="number"
+                      step="0.01"
+                      placeholder="Price * (£)"
+                      value={manualPrice}
+                      onChange={(e) => setManualPrice(e.target.value)}
+                      className="h-8 text-sm"
+                      data-testid="manual-price-input"
+                    />
+                    <Input
+                      type="number"
+                      step="0.01"
+                      placeholder="Clearance £ (opt)"
+                      value={manualClearance}
+                      onChange={(e) => setManualClearance(e.target.value)}
+                      className="h-8 text-sm"
+                      data-testid="manual-clearance-input"
+                    />
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={addManualProduct}
+                      className="flex-1 px-3 py-1 bg-amber-600 text-white text-sm rounded hover:bg-amber-700"
+                      data-testid="manual-add-btn"
+                    >
+                      Add to tickets
+                    </button>
+                    <button
+                      onClick={() => {
+                        setShowManualForm(false);
+                        setManualName('');
+                        setManualPrice('');
+                        setManualClearance('');
+                      }}
+                      className="px-3 py-1 bg-gray-200 text-gray-700 text-sm rounded hover:bg-gray-300"
+                      data-testid="manual-cancel-btn"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
             
             <div className="max-h-96 overflow-y-auto space-y-2">
               {filteredProducts.slice(0, 50).map(product => (
@@ -850,21 +1059,41 @@ export const PriceTickets = () => {
             </h3>
             
             <div className="space-y-3">
-              {/* Template Selector */}
-              <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
-                <p className="text-sm text-amber-800 font-medium mb-2">Current Template: {currentTemplateName}</p>
+              {/* Template Selector + paper-size editor (13 May 2026 — was just text). */}
+              <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg space-y-3" data-testid="paper-template-card">
+                <p className="text-sm text-amber-800 font-medium">Current Template: {currentTemplateName}</p>
                 <div className="flex gap-2">
                   <select
                     className="flex-1 h-8 px-2 border rounded-md text-sm"
                     value={currentTemplateName}
                     onChange={(e) => {
-                      const template = savedTemplates.find(t => t.name === e.target.value);
-                      if (template) loadTemplate(template);
+                      const val = e.target.value;
+                      // Saved templates win; then fall back to built-in presets
+                      const tpl = savedTemplates.find(t => t.name === val);
+                      if (tpl) {
+                        loadTemplate(tpl);
+                      } else if (PAPER_PRESETS[val]) {
+                        applyPaperPreset(val);
+                      }
                     }}
+                    data-testid="paper-template-select"
                   >
-                    {savedTemplates.map(t => (
-                      <option key={t.id} value={t.name}>{t.name}</option>
-                    ))}
+                    {/* Built-in presets group */}
+                    <optgroup label="Built-in presets">
+                      {Object.keys(PAPER_PRESETS).map(name => (
+                        <option key={`preset-${name}`} value={name}>{name}</option>
+                      ))}
+                    </optgroup>
+                    {/* User-saved templates */}
+                    {savedTemplates.length > 0 && (
+                      <optgroup label="Your saved templates">
+                        {savedTemplates
+                          .filter(t => !PAPER_PRESETS[t.name])
+                          .map(t => (
+                            <option key={t.id} value={t.name}>{t.name}</option>
+                          ))}
+                      </optgroup>
+                    )}
                   </select>
                   <button
                     onClick={() => {
@@ -872,15 +1101,67 @@ export const PriceTickets = () => {
                       if (name) saveTemplate(name);
                     }}
                     className="px-3 py-1 bg-amber-600 text-white text-sm rounded hover:bg-amber-700"
+                    data-testid="save-template-btn"
                   >
                     Save
                   </button>
                 </div>
-              </div>
-
-              <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                <p className="text-sm text-blue-800 font-medium">A6 Size (105×148mm)</p>
-                <p className="text-xs text-blue-600">4 tickets per A4 page</p>
+                {/* Editable paper dimensions */}
+                <div className="grid grid-cols-2 gap-2 pt-2 border-t border-amber-200">
+                  <div>
+                    <label className="text-xs text-amber-800 block mb-0.5">Width (mm)</label>
+                    <Input
+                      type="number"
+                      min="20"
+                      max="500"
+                      value={customWidthMm}
+                      onChange={(e) => setCustomWidthMm(Math.max(20, parseFloat(e.target.value) || 0))}
+                      className="h-8"
+                      data-testid="paper-width-input"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs text-amber-800 block mb-0.5">Height (mm)</label>
+                    <Input
+                      type="number"
+                      min="20"
+                      max="500"
+                      value={customHeightMm}
+                      onChange={(e) => setCustomHeightMm(Math.max(20, parseFloat(e.target.value) || 0))}
+                      className="h-8"
+                      data-testid="paper-height-input"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs text-amber-800 block mb-0.5">Cols / A4</label>
+                    <Input
+                      type="number"
+                      min="1"
+                      max="8"
+                      value={customColsPerA4}
+                      onChange={(e) => setCustomColsPerA4(Math.max(1, parseInt(e.target.value) || 1))}
+                      className="h-8"
+                      data-testid="paper-cols-input"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs text-amber-800 block mb-0.5">Rows / A4</label>
+                    <Input
+                      type="number"
+                      min="1"
+                      max="8"
+                      value={customRowsPerA4}
+                      onChange={(e) => setCustomRowsPerA4(Math.max(1, parseInt(e.target.value) || 1))}
+                      className="h-8"
+                      data-testid="paper-rows-input"
+                    />
+                  </div>
+                </div>
+                <p className="text-xs text-amber-700">
+                  {customWidthMm}×{customHeightMm}mm — {customColsPerA4 * customRowsPerA4} tickets per A4
+                  {' · '}
+                  <span className="italic">Tip: Save Settings on a product to remember this size for its next print.</span>
+                </p>
               </div>
               
               <div>
@@ -961,15 +1242,27 @@ export const PriceTickets = () => {
                         </p>
                       </div>
                       <div className="flex gap-1">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="text-green-600 hover:text-green-700 hover:bg-green-50"
-                          onClick={() => saveProductSettings(product)}
-                          title="Save settings to database"
-                        >
-                          <Save className="h-4 w-4" />
-                        </Button>
+                        {!product._manual && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="text-green-600 hover:text-green-700 hover:bg-green-50"
+                            onClick={() => saveProductSettings(product)}
+                            title="Save settings (including current paper size) to database"
+                            data-testid={`save-settings-${product.id}`}
+                          >
+                            <Save className="h-4 w-4" />
+                          </Button>
+                        )}
+                        {product._manual && (
+                          <span
+                            className="px-2 py-1 text-xs bg-amber-100 text-amber-700 rounded"
+                            title="Manual product — not saved to product database"
+                            data-testid={`manual-badge-${product.id}`}
+                          >
+                            Manual
+                          </span>
+                        )}
                         <Button
                           variant="ghost"
                           size="sm"
@@ -1130,6 +1423,7 @@ export const PriceTickets = () => {
                       showClearanceBadge={showClearanceBadge}
                       showThisWeekBadge={showThisWeekBadge}
                       index={idx}
+                      paperSize={currentPaperSize}
                     />
                   ))}
                 </div>
@@ -1138,7 +1432,7 @@ export const PriceTickets = () => {
             
             {ticketsToRender.length > 0 && (
               <div className="mt-3 text-sm text-muted-foreground text-center">
-                {ticketsToRender.length} ticket(s) = {Math.ceil(ticketsToRender.length / 4)} A4 page(s)
+                {ticketsToRender.length} ticket(s) = {Math.ceil(ticketsToRender.length / (currentPaperSize.per_a4_cols * currentPaperSize.per_a4_rows))} A4 page(s) · {customWidthMm}×{customHeightMm}mm
               </div>
             )}
           </Card>

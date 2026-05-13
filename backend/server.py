@@ -4098,6 +4098,10 @@ class ProductTicketSettings(BaseModel):
     sizes: Optional[List[str]] = None
     country_of_origin: Optional[str] = None
     price_unit: Optional[str] = "m2"
+    # 13 May 2026 — remember which paper-size template the admin last
+    # used for this product so the next print of the same product
+    # auto-loads the same paper size (A6, A5, custom 100x150mm, etc.).
+    template_name: Optional[str] = None
 
 @api_router.put("/products/{product_id}/ticket-settings")
 async def save_product_ticket_settings(
@@ -4117,7 +4121,8 @@ async def save_product_ticket_settings(
         "ticket_material": settings.material,
         "ticket_sizes": settings.sizes,
         "ticket_country_of_origin": settings.country_of_origin,
-        "ticket_price_unit": settings.price_unit
+        "ticket_price_unit": settings.price_unit,
+        "ticket_template_name": settings.template_name,
     }
     
     await db.products.update_one(
@@ -4144,7 +4149,8 @@ async def get_product_ticket_settings(
         "material": product.get("ticket_material"),
         "sizes": product.get("ticket_sizes"),
         "country_of_origin": product.get("ticket_country_of_origin"),
-        "price_unit": product.get("ticket_price_unit", "m2")
+        "price_unit": product.get("ticket_price_unit", "m2"),
+        "template_name": product.get("ticket_template_name"),
     }
 
 # Store Stock Allocation
