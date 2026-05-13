@@ -31,6 +31,12 @@ class UserRegister(BaseModel):
     address: Optional[Address] = None
     invite_code: Optional[str] = None
     role: str = "customer"
+    # Admin-created users (POST /api/admin/users) can be assigned to a
+    # showroom at creation time. Customer self-registration leaves this
+    # blank. Added 12 May 2026 — previously routes/admin.py:create_admin_user
+    # read input.showroom_id which AttributeError'd because the model
+    # didn't define it, causing every admin user-create attempt to 500.
+    showroom_id: Optional[str] = None
 
 
 class UserLogin(BaseModel):

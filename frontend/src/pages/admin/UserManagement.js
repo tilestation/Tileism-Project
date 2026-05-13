@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../../lib/api';
 import { toast } from 'sonner';
+import { extractApiError } from '../../utils/extractApiError';
 import { Users, Plus, Edit2, Trash2, Shield, ShieldCheck, ShieldAlert, Building2, Key } from 'lucide-react';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
@@ -175,7 +176,7 @@ export const UserManagement = () => {
       handleCloseDialog();
       fetchData();
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Operation failed');
+      toast.error(extractApiError(error, 'Could not save user'));
     } finally {
       setSaving(false);
     }
@@ -192,7 +193,7 @@ export const UserManagement = () => {
       setDeletingUser(null);
       fetchData();
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to delete user');
+      toast.error(extractApiError(error, 'Failed to delete user'));
     } finally {
       setSaving(false);
     }
