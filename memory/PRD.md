@@ -9,7 +9,42 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 ## Recent Sessions (most recent first)
+### [May 14, 2026 LATE PM] 🧹 Service worker stripped to push-notification only
+
+Following on from the broken-image incident this afternoon, fully rewrote `/app/frontend/public/service-worker.js` as a minimal push-notification-only build. The network-first cache strategy is gone.
+
+**Rationale**: The SW was responsible for two production incidents in two days (broken images + stale chunks after deploy) and the offline-fallback shell it served had **never** delivered measurable value — the site requires network anyway (catalogue, checkout, account) so the fake offline page only masked real connectivity issues. Web Push is the SW's only real job.
+
+**Removed**:
+- Entire `fetch` event handler (~50 lines)
+- Cache install/STATIC_ASSETS bootstrap
+- Cache name versioning logic
+- Offline HTML fallback Response
+
+**Kept**:
+- `push` handler → `showNotification`
+- `notificationclick` → focus/open the right tab
+- `message` handler for `skipWaiting` (kept for backward compat with existing client-side `useAppUpdate` hook)
+
+**New lifecycle behaviour**:
+- `install` calls `self.skipWaiting()` so the new SW evicts the buggy old one immediately, not after a tab-cycle
+- `activate` purges **all** caches that match `tilestation-*` or `workbox-*` patterns so users don't keep getting stale chunks from a prior session's cache, then calls `clients.claim()`
+- `SW_VERSION = 'push-only-2026-05-14'` constant for future debugging
+
+**Verified**:
+- Lint clean
+- Preview env: SW state is `activated`, scriptURL resolves, zero `Failed to convert value to 'Response'` errors, homepage renders perfectly with full hero/banner/nav
+- Push subscription hook (`PushOptIn.jsx`) still uses `navigator.serviceWorker.ready` which works identically with the new SW
+
+**Operational benefits**:
+- One less moving part between code and the user's browser → fewer "ghost stale asset" bugs after deploys
+- The dynamic SW filename + CRA fingerprinting still triggers stale-checks, so a Railway deploy will replace this SW just like the old one
+- Existing prod users with the buggy old SW will get the new one on next navigation (skipWaiting + clients.claim + clear old caches)
+
 ### [May 14, 2026 PM] 🚨 Broken images on prod search + skeleton-grid rollout
+
+
+
 
 **User-reported (with screenshot of tilestation.co.uk/shop/search?q=dolomite)**:
 - Search results rendered with broken `<img>` placeholders (just alt-text + missing-image icon).
