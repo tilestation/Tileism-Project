@@ -48,21 +48,60 @@ self.addEventListener('activate', (event) => {
 
 // Fetch event - NETWORK FIRST strategy
 // Always try network first, fall back to cache only if offline
+//
+// 14 May 2026 — hardening pass after user reported broken images on the
+// search page accompanied by `TypeError: Failed to convert value to
+// 'Response'` in the console. Two bugs were causing it:
+//   1. The catch-block's inner .then() returned `undefined` when cache
+//      missed AND request was non-navigate → respondWith got a promise
+//      that resolved to undefined → the browser throws "Failed to
+//      convert value to 'Response'" and the resource fails to load.
+//   2. We were intercepting EVERY same-origin GET, including hashed
+//      webpack chunks. After a deploy, the OLD SW (still active for
+//      previously-visited sessions) would try to serve a new chunk
+//      filename, get a 404 cached or no cache entry, then crash.
+//
+// Fix:
+//   * Bail (no respondWith → browser handles natively) for images,
+//     fonts, code-split chunks, and any other request we don't intend
+//     to cache for offline fallback. Those resources have their own
+//     CDN caching.
+//   * In the catch path, always return a real Response — for
+//     non-navigation cache-miss we pass through to a fresh `fetch()`
+//     with `cache: 'no-store'` so the browser can at least retry.
+//   * Wrap `cache.put()` in try/catch so opaque/partial responses
+//     can't crash the SW.
 self.addEventListener('fetch', (event) => {
   const request = event.request;
-  
+
   // Skip non-GET requests
   if (request.method !== 'GET') {
     return;
   }
-  
+
   // Skip API calls - never cache these
   if (request.url.includes('/api/')) {
     return;
   }
-  
-  // Skip external resources
+
+  // Skip external resources (images.tilestation.co.uk, fonts.gstatic.com,
+  // analytics endpoints, Stripe, etc.) — they have their own CDN caching.
   if (!request.url.startsWith(self.location.origin)) {
+    return;
+  }
+
+  // 14 May 2026 — bail for assets we have no business intercepting.
+  // The SW exists only to serve a hashed HTML shell offline; chunks,
+  // images, fonts and stylesheets should hit the browser cache directly.
+  // Intercepting them was causing "Failed to convert value to 'Response'"
+  // when the OLD SW (post-deploy) had stale entries for new chunk names.
+  const dest = request.destination; // 'image' | 'font' | 'script' | 'style' | 'document' | ''
+  if (dest === 'image' || dest === 'font' || dest === 'style') {
+    return;
+  }
+  // Webpack code-split chunks (`/static/js/<hash>.chunk.js`) — let the
+  // browser fetch them natively so a stale SW can't 404 a new chunk.
+  if (/\/static\/(js|css|media)\//.test(new URL(request.url).pathname)) {
     return;
   }
 
@@ -70,12 +109,17 @@ self.addEventListener('fetch', (event) => {
     // NETWORK FIRST - always try to get fresh content
     fetch(request)
       .then((response) => {
-        // If we got a valid response, cache it for offline use
-        if (response && response.status === 200) {
-          const responseToCache = response.clone();
-          caches.open(CACHE_NAME).then((cache) => {
-            cache.put(request, responseToCache);
-          });
+        // If we got a valid response, cache it for offline use.
+        // Wrap put() — opaque/partial responses (e.g. 206 range, CORS)
+        // throw and the unhandled rejection used to surface as an SW
+        // crash. Cache failures are silent now.
+        if (response && response.status === 200 && response.type === 'basic') {
+          try {
+            const responseToCache = response.clone();
+            caches.open(CACHE_NAME).then((cache) => {
+              cache.put(request, responseToCache).catch(() => { /* ignore */ });
+            }).catch(() => { /* ignore */ });
+          } catch (_) { /* ignore */ }
         }
         return response;
       })
@@ -92,6 +136,15 @@ self.addEventListener('fetch', (event) => {
               { headers: { 'Content-Type': 'text/html' } }
             );
           }
+          // 14 May 2026 — non-navigate cache miss: must return a valid
+          // Response (never `undefined`) or the browser throws "Failed
+          // to convert value to 'Response'" and the resource breaks.
+          // Empty 503 lets the caller retry without a hard crash.
+          return new Response('', {
+            status: 503,
+            statusText: 'Service Unavailable',
+            headers: { 'Content-Type': 'text/plain' },
+          });
         });
       })
   );

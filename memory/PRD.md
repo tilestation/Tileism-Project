@@ -9,7 +9,39 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 ## Recent Sessions (most recent first)
+### [May 14, 2026 PM] 🚨 Broken images on prod search + skeleton-grid rollout
+
+**User-reported (with screenshot of tilestation.co.uk/shop/search?q=dolomite)**:
+- Search results rendered with broken `<img>` placeholders (just alt-text + missing-image icon).
+- Console errors: `Uncaught (in promise) TypeError: Failed to convert value to 'Response'` from `service-worker.js:1`, plus `[Intervention] Images loaded lazily and replaced with placeholders`, plus `The FetchEvent for "https://tilestation.co.uk/..." resulted in a network error response: the promise was rejected`.
+
+**Root cause — buggy service worker** (`/app/frontend/public/service-worker.js`):
+1. **The `.catch()` handler returned `undefined` for non-navigation cache misses.** When the network fetch failed AND cache had no entry AND `request.mode !== 'navigate'`, the chain dropped off the end of the `.then()` with no `return` → respondWith's promise resolved to `undefined` → browser throws `Failed to convert value to 'Response'` → resource breaks. Affected every image/chunk that ever briefly failed network.
+2. **Over-zealous interception.** The SW intercepted EVERY same-origin GET — including hashed webpack chunks. After a deploy, the still-active OLD SW (from a previous session) had no idea about new chunk filenames, returned the broken `undefined`-response and the page partially failed to load.
+3. **`cache.put()` unguarded.** Some responses (opaque/CORS/partial 206) throw inside `cache.put()` — the unhandled rejection used to crash the SW entirely.
+
+**Fix**:
+- **Bail (no `respondWith` → native fetch) for images, fonts, stylesheets, and webpack chunks.** They have CDN caching of their own; the SW has no business intercepting them.
+- **Always return a real Response in the catch path.** Non-navigation cache miss now returns an empty `503 Service Unavailable` instead of `undefined`.
+- **Wrap `cache.put` in try/catch** so opaque/partial responses can never crash the SW.
+- Restricted `cache.put` to `response.type === 'basic'` to avoid storing cross-origin opaque responses.
+
+**Plus — skeleton-grid rollout** (Task 2 the user requested):
+- **New reusable component**: `/app/frontend/src/components/shop/ProductGridSkeleton.jsx` — 8 pulsing placeholder cards in 2/3/4-col responsive grid. Matches the real card layout so there's zero layout shift when results land.
+- **Applied to**: `ClearancePage.js`, `NewCollectionPage.js` (both previously showed a single centred spinner that felt broken on slow connections).
+- **Audited existing pages**: `TileListingPage`, `TileCollectionsPage`, `CollectionDetailPage` already had skeletons → left alone.
+- **`ShopSearchResultsPage`** (yesterday's fix) was using an inline skeleton — kept inline since the markup is slightly different.
+
+**Verified**:
+
 ### [May 14, 2026] 🔍 Search UX — "extremely long" hang fixed with skeleton grid + timeout
+
+- Lint clean on all 4 files (`service-worker.js`, `ProductGridSkeleton.jsx`, `ClearancePage.js`, `NewCollectionPage.js`)
+- Playwright loaded both `/clearance` and `/new-collection` successfully — pages render correctly (skeleton flashes briefly in preview because backend is fast; will be highly visible on slow prod connections)
+
+**Deployment**: Redeploy via Railway. The dynamic `CACHE_VERSION = Date.now()` in the SW guarantees clients get the fresh SW on next navigation, evicting the buggy one.
+
+
 
 **User-reported (with screenshot of tilestation.co.uk/shop/search?q=dolomite)**: After typing a search the page sat on "Searching the catalogue…" for an extended time — felt broken even though the backend itself responds in 200-400ms.
 

@@ -5,6 +5,7 @@ import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
 import { ShopHeader, ShopFooter } from './TileStationHome';
 import SeoHead from '../../components/seo/SeoHead';
+import ProductGridSkeleton from '../../components/shop/ProductGridSkeleton';
 import {
   Select,
   SelectContent,
@@ -143,9 +144,12 @@ const NewCollectionPage = () => {
 
         {/* Results */}
         {loading ? (
-          <div className="flex items-center justify-center py-20">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-emerald-500"></div>
-          </div>
+          // 14 May 2026 — skeleton grid (was a centred emerald spinner)
+          <ProductGridSkeleton
+            count={8}
+            cols="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6"
+            testId="new-collection-skeleton"
+          />
         ) : products.length === 0 ? (
           <div className="text-center py-20">
             <Sparkles className="w-16 h-16 mx-auto mb-4 text-gray-300" />
