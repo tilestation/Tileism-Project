@@ -1072,11 +1072,32 @@ const CollectionDetailPage = () => {
 
   function getStockStatus(product) {
     if (!product) return { label: 'Unknown', color: 'text-gray-500', dotColor: 'bg-gray-400' };
-    
+
+    // 14 May 2026 — respect admin's manual override FIRST. Previously
+    // the PDP ignored `stock_status`/`in_stock` and derived everything
+    // from the numeric `stock` field, so admin marking a tile as
+    // "Out of Stock" had no visible effect on the live site.
+    const explicitStatus = (product.stock_status || '').toLowerCase();
+    if (explicitStatus === 'out_of_stock') {
+      return { label: 'Out of Stock', color: 'text-red-600', dotColor: 'bg-red-500' };
+    }
+    if (explicitStatus === 'low_stock') {
+      return { label: 'Low Stock', color: 'text-amber-600', dotColor: 'bg-amber-500' };
+    }
+    if (explicitStatus === 'special_order') {
+      return { label: 'Special Order', color: 'text-blue-600', dotColor: 'bg-blue-500' };
+    }
+    // Boolean override (set by admin alongside stock_status). Only
+    // honoured when the admin explicitly set in_stock=false — a
+    // boolean true here doesn't override the numeric stock check.
+    if (product.in_stock === false) {
+      return { label: 'Out of Stock', color: 'text-red-600', dotColor: 'bg-red-500' };
+    }
+
     if (product.always_in_stock) {
       return { label: 'In Stock', color: 'text-green-600', dotColor: 'bg-green-500' };
     }
-    
+
     const stock = product.stock || product.stock_quantity || product.stock_m2 || 0;
     if (stock <= 0) {
       return { label: 'Out of Stock', color: 'text-red-600', dotColor: 'bg-red-500' };

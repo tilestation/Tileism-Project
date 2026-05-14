@@ -177,8 +177,22 @@ def serialize_tile_for_shop(tile: dict) -> dict:
         "stock": tile.get("stock", 0),
         "stock_quantity": tile.get("stock", 0),
         "always_in_stock": tile.get("always_in_stock", False),
+        # 14 May 2026 — surface the admin's manual stock_status override
+        # (set via /supplier-sync/products/set-stock-status). Defaults
+        # to None so the frontend can distinguish "admin hasn't touched"
+        # from explicit "out_of_stock" / "low_stock" / "in_stock".
+        "stock_status": tile.get("stock_status"),
         "images": tile.get("images", []),
-        "in_stock": tile.get("stock", 0) > 0 or tile.get("always_in_stock", False),
+        # If the admin has explicitly marked this SKU as out of stock,
+        # ALWAYS surface in_stock=False even if a previous supplier sync
+        # set always_in_stock=True. The manual override is authoritative.
+        "in_stock": (
+            False if tile.get("stock_status") == "out_of_stock"
+            else (
+                tile["in_stock"] if isinstance(tile.get("in_stock"), bool)
+                else (tile.get("stock", 0) > 0 or tile.get("always_in_stock", False))
+            )
+        ),
         "attributes": attrs,
         "size": size_str,
         "finish": normalize_finish(tile.get("finish") or attrs.get("finish", "")),

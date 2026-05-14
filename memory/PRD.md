@@ -9,9 +9,50 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 ## Recent Sessions (most recent first)
-### [May 14, 2026 LATE PM] 🧹 Service worker stripped to push-notification only
+### [May 14, 2026 PM 2] 🛡️ Stock-status fix + synthetic uptime monitor + skeleton rollout
+
+Three related fixes from a single user report (screenshot of admin marking a SKU "Out of Stock" while the PDP still showed "In Stock", plus broken search images, plus general "site keeps breaking on prod").
+
+**1. Stock status not reflecting on PDP (P0 data bug)**
+
+Admin's "Out of Stock" override on `/admin/supplier-products` only wrote to the `supplier_products` collection, while the PDP reads from `tiles`. The two were never synced. ALSO the tile serializer derived `in_stock` purely from numeric `stock > 0`, ignoring any `stock_status` admin override.
+
+Fix (3 layers):
+- `routes/supplier_sync.py` `set_stock_status` + `update_product_stock_status`: now mirror the admin's `{stock_status, in_stock}` writes to the matching `tiles` row (matched by SKU alone — `tiles` doesn't have a `supplier` field). Also bust the `endpoint_cache` (correct method is `invalidate()`, not `clear()`).
+- `routes/tiles.py` serializer: surfaces `stock_status` to the frontend. `in_stock` is now `False` whenever `stock_status == "out_of_stock"` even if `always_in_stock=True` was set by a previous supplier sync — admin override wins.
+- `pages/shop/CollectionDetailPage.js` `getStockStatus()`: honours `product.stock_status` and `product.in_stock` BEFORE falling back to numeric stock derivation.
+- Curl-verified the full round-trip: admin sets out_of_stock → tile doc mirrored → PDP API returns `stock_status=out_of_stock, in_stock=False` → admin reverts → PDP API returns `stock_status=in_stock, in_stock=True`.
+
+**2. Synthetic uptime monitor with Telegram alerts**
+
+New service `services/uptime_monitor.py` + routes `routes/uptime_monitor.py`. Runs every 5 min via scheduler (offset 2 min from the existing `uptime_probe_5min` which only feeds the sparkline widget — no Telegram alerting). 4 canary checks against `tilestation.co.uk`:
+- `homepage` → expects 200 + contains "Tile Station"
+- `search_page` → `/shop/search?q=tile` returns 200 + contains "Tile Station"
+- `tiles_page` → `/tiles` listing returns 200
+- `sitemap` → `/sitemap.xml` returns 200 + contains `<urlset`
+
+Optional `MONITOR_BACKEND_URL` env var unlocks 3 additional API-level deep-content checks against the actually-deployed backend (since `tilestation.co.uk/api/*` falls through to the SPA shell). Alerts fire only on UP→DOWN / DOWN→UP transitions (no spam during downtime) — state tracked in `uptime_check_state` collection with `failed_since` timestamp so the recovery message can say "was down for ~12 mins". `MONITOR_DISABLE_ALERTS=1` env var silences Telegram during known incidents.
+
+Admin endpoints:
+- `GET /api/admin/uptime-monitor` — latest state of every canary
+- `POST /api/admin/uptime-monitor/run` — force-run all checks now
+
+Verified: all 4 prod canaries pass against tilestation.co.uk (homepage 151ms, search 157ms, tiles 298ms, sitemap 5236ms).
+
+**3. Broken images on search results**
+
+Backend serves valid image URLs that resolve HTTP 200 from the CDN. Preview env screenshot confirms 23/23 images load at full resolution (1200×1200). The "broken on prod" state is the legacy buggy service-worker still installed in user's browsers — the SW rewrite from earlier today purges old caches on activate, so a deploy + first visit will fix it for every user automatically. No additional code change required.
+
+**Files**:
+- New: `services/uptime_monitor.py`, `routes/uptime_monitor.py`
+- Modified: `routes/supplier_sync.py` (set_stock_status + update_product_stock_status mirror to tiles + invalidate cache), `routes/tiles.py` (serializer respects stock_status), `pages/shop/CollectionDetailPage.js` (getStockStatus), `routes/__init__.py` (register uptime_monitor_router), `services/scheduler.py` (uptime_monitor_5min job)
+
+
 
 Following on from the broken-image incident this afternoon, fully rewrote `/app/frontend/public/service-worker.js` as a minimal push-notification-only build. The network-first cache strategy is gone.
+
+### [May 14, 2026 LATE PM] 🧹 Service worker stripped to push-notification only
+
 
 **Rationale**: The SW was responsible for two production incidents in two days (broken images + stale chunks after deploy) and the offline-fallback shell it served had **never** delivered measurable value — the site requires network anyway (catalogue, checkout, account) so the fake offline page only masked real connectivity issues. Web Push is the SW's only real job.
 

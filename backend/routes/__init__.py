@@ -112,6 +112,7 @@ from .conversion import router as conversion_router
 from .sample_followups import router as sample_followups_router
 from .pallet_pricing_admin import router as pallet_pricing_admin_router
 from .ticket_batches import router as ticket_batches_router
+from .uptime_monitor import router as uptime_monitor_router
 
 # Create main API router that includes all sub-routers
 api_router = APIRouter()
@@ -197,6 +198,7 @@ api_router.include_router(conversion_router)
 api_router.include_router(sample_followups_router)
 api_router.include_router(pallet_pricing_admin_router)
 api_router.include_router(ticket_batches_router)
+api_router.include_router(uptime_monitor_router)
 api_router.include_router(sms_updates_router)
 api_router.include_router(monitoring_router)
 api_router.include_router(health_router)

@@ -1195,6 +1195,40 @@ async def initialize_scheduler():
         except Exception as up_err:  # noqa: BLE001
             logger.warning(f"Could not add uptime probe job: {up_err}")
 
+        # Deep-content uptime monitor with Telegram alerts — every 5 min,
+        # offset by 2 min from the basic probe above so the two don't
+        # share an HTTP burst. This one validates the storefront returns
+        # real content (search returns results, homepage contains the
+        # brand name, etc.) and pings Telegram on every state transition.
+        try:
+            from services.uptime_monitor import run_uptime_tick as run_uptime_monitor_tick
+
+            async def _uptime_monitor_tick():
+                try:
+                    res = await run_uptime_monitor_tick()
+                    if res.get("alerts"):
+                        logger.warning(
+                            f"uptime-monitor: {len(res['alerts'])} alert(s) sent — "
+                            f"{[a['id'] for a in res['alerts']]}"
+                        )
+                except Exception as e:  # noqa: BLE001
+                    logger.warning(f"uptime-monitor tick failed: {e}")
+
+            sched.add_job(
+                _uptime_monitor_tick,
+                trigger=IntervalTrigger(minutes=5),
+                id="uptime_monitor_5min",
+                name="Uptime monitor with Telegram alerts (every 5 min)",
+                replace_existing=True,
+                misfire_grace_time=300,
+                # Offset 2 minutes from `uptime_probe_5min` so they don't
+                # collide. First run ~120s after boot.
+                next_run_time=datetime.now(timezone.utc) + timedelta(seconds=120),
+            )
+            logger.info("Added uptime-monitor + Telegram alerts job (every 5 min)")
+        except Exception as um_err:  # noqa: BLE001
+            logger.warning(f"Could not add uptime-monitor job: {um_err}")
+
         # Daily Ahrefs snapshot — pulls fresh competitor DR + your domain
         # metrics every morning so the SEO Command Centre always renders
         # instantly without a cold-cache hit. Cheap (~50-100 units/day,

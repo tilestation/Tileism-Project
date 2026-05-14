@@ -7854,6 +7854,35 @@ def set_stock_status(data: dict):
         if result.matched_count == 0:
             raise HTTPException(status_code=404, detail="Product not found")
         
+        # 14 May 2026 — mirror the change to the `tiles` collection so the
+        # PDP reflects the new status. Admin reported setting "Out of
+        # Stock" on `supplier_products` had no effect on the PDP because
+        # the `tiles` row (where the storefront reads from) still showed
+        # `in_stock: true` with a positive `stock` count from the last
+        # supplier sync.
+        # NOTE: the `tiles` collection often has no `supplier` field
+        # (legacy schema), so filter by sku alone — SKUs are unique
+        # across the catalogue.
+        try:
+            db.tiles.update_one(
+                {"sku": sku},
+                {"$set": {
+                    "stock_status": stock_status,
+                    "in_stock": in_stock,
+                    "stock_overridden_at": datetime.now(timezone.utc),
+                }},
+            )
+        except Exception as e:
+            logger.warning(f"Failed to mirror stock_status to tiles for {sku}: {e}")
+        
+        # Bust the collection endpoint cache so the PDP picks up the
+        # change immediately rather than after the 60s TTL.
+        try:
+            from utils.endpoint_cache import endpoint_cache
+            endpoint_cache.invalidate()
+        except Exception:
+            pass
+        
         status_labels = {"in_stock": "In Stock", "low_stock": "Low Stock", "out_of_stock": "Out of Stock"}
         
         return {
@@ -7915,6 +7944,31 @@ def update_product_stock_status(data: dict):
         
         if result.matched_count == 0:
             raise HTTPException(status_code=404, detail="Product not found")
+        
+        # 14 May 2026 — mirror to the `tiles` collection (PDP source).
+        # Without this, admin's manual override is invisible on the live
+        # site because the storefront reads `tiles`, not `supplier_products`.
+        # Match by sku alone — `tiles` often lacks the `supplier` field.
+        try:
+            sp_doc = db.supplier_products.find_one({"_id": obj_id}, {"sku": 1})
+            if sp_doc and sp_doc.get("sku"):
+                db.tiles.update_one(
+                    {"sku": sp_doc["sku"]},
+                    {"$set": {
+                        "stock_status": stock_status,
+                        "in_stock": in_stock,
+                        "always_in_stock": stock_status == "always_in_stock",
+                        "stock_overridden_at": datetime.now(timezone.utc),
+                    }},
+                )
+        except Exception as e:
+            logger.warning(f"Failed to mirror stock_status to tiles by id {product_id}: {e}")
+        
+        try:
+            from utils.endpoint_cache import endpoint_cache
+            endpoint_cache.invalidate()
+        except Exception:
+            pass
         
         return {
             "success": True,
