@@ -3015,7 +3015,7 @@ function PageBannersEditor({
 
 // ============ FOOTER EDITOR ============
 const DEFAULT_FOOTER = {
-  description: 'Premium quality tiles for your home. Visit our showrooms in Tonbridge, Gravesend, and Chingford.',
+  description: 'Premium quality tiles for your home. Visit our showrooms in Tonbridge, Gravesend, Chingford and Sydenham.',
   phone: '01732 424242',
   email: 'info@tilestation.co.uk',
   quickLinks: [

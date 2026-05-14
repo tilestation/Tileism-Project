@@ -50,7 +50,7 @@ const ORG_JSONLD = {
   name: BRAND,
   url: SITE_URL,
   logo: `${SITE_URL}/icon-192.png`,
-  description: 'UK tile and stone specialist with three showrooms across Kent and Essex.',
+  description: 'UK tile and stone specialist with four showrooms across Kent, Essex and London.',
   address: [
     {
       '@type': 'PostalAddress',
@@ -73,6 +73,14 @@ const ORG_JSONLD = {
       addressRegion: 'Kent',
       addressCountry: 'GB',
     },
+    {
+      '@type': 'PostalAddress',
+      streetAddress: '329-331 Sydenham Road',
+      addressLocality: 'Sydenham, London',
+      postalCode: 'SE26 5EQ',
+      addressRegion: 'Greater London',
+      addressCountry: 'GB',
+    },
   ],
   sameAs: [],
 };
@@ -92,8 +100,8 @@ const WEBSITE_JSONLD = {
 // Static pages — exact path → SEO meta
 const EXACT = {
   '/': {
-    title: `${BRAND} — Premium Tiles, Bathrooms and Flooring · UK Showrooms in Tonbridge, Chingford & Gravesend`,
-    description: 'UK tile, bathroom and flooring specialists with three showrooms across Kent and Essex. Browse 1,000+ porcelain, marble, terrazzo, vinyl and engineered wood with free samples and trade pricing.',
+    title: `${BRAND} — Premium Tiles, Bathrooms and Flooring · UK Showrooms in Tonbridge, Chingford, Gravesend & Sydenham`,
+    description: 'UK tile, bathroom and flooring specialists with four showrooms across Kent, Essex and London. Browse 1,000+ porcelain, marble, terrazzo, vinyl and engineered wood with free samples and trade pricing.',
     jsonld: { '@context': 'https://schema.org', '@graph': [ORG_JSONLD, WEBSITE_JSONLD] },
   },
   '/tiles': {
@@ -106,15 +114,15 @@ const EXACT = {
   },
   '/about': {
     title: `About ${BRAND} — UK Tile Specialists Since 1985`,
-    description: 'Family-run tile and stone supplier with three Kent and Essex showrooms. Trade and retail customers welcome.',
+    description: 'Family-run tile and stone supplier with four Kent, Essex and London showrooms. Trade and retail customers welcome.',
   },
   '/contact': {
     title: `Contact ${BRAND} — Showroom Locations & Trade Enquiries`,
-    description: 'Visit our Tonbridge, Chingford or Gravesend showrooms, or get in touch with our trade team for project quotes.',
+    description: 'Visit our Tonbridge, Chingford, Gravesend or Sydenham showrooms, or get in touch with our trade team for project quotes.',
   },
   '/showrooms': {
-    title: `Tile Showrooms in Tonbridge, Chingford & Gravesend · ${BRAND}`,
-    description: 'Visit one of our three UK tile showrooms — see thousands of tiles in person, take home free samples, and chat to our specialists.',
+    title: `Tile Showrooms in Tonbridge, Chingford, Gravesend & Sydenham · ${BRAND}`,
+    description: 'Visit one of our four UK tile showrooms — see thousands of tiles in person, take home free samples, and chat to our specialists.',
   },
   '/installer': {
     title: `Find a Tile Installer Near You · ${BRAND}`,
@@ -174,7 +182,7 @@ const EXACT = {
   '/shop/trade/register': { title: `Trade Account Application · ${BRAND}`, description: 'Apply for a Tile Station trade account — exclusive pricing, 30-day credit and priority service for installers, contractors and developers.' },
   '/shop/trade/account': { title: `Trade Account · ${BRAND}`, description: 'Your Tile Station trade account dashboard.', noindex: true },
   '/shop/bathroom': { title: `Bathroom Tiles & Inspiration · ${BRAND}`, description: 'Bathroom tile ideas, designer inspiration and our complete bathroom tile range — porcelain, marble, terrazzo and more.' },
-  '/shop/contact': { title: `Contact Us · Showrooms in Tonbridge, Chingford & Gravesend · ${BRAND}`, description: 'Visit one of our three UK tile showrooms or contact our team for trade enquiries and project quotes.' },
+  '/shop/contact': { title: `Contact Us · Showrooms in Tonbridge, Chingford, Gravesend & Sydenham · ${BRAND}`, description: 'Visit one of our four UK tile showrooms or contact our team for trade enquiries and project quotes.' },
   '/shop/refer': { title: `Refer a Friend & Earn £25 Credit · ${BRAND}`, description: 'Recommend Tile Station to a friend and you both earn £25 credit on your next tile order.' },
   '/shop/compare': { title: `Compare Tiles Side-by-Side · ${BRAND}`, description: 'Compare up to 4 tiles side-by-side: price, size, material, finish and stock.' },
   '/shop/all-tiles': { title: `All Tiles · ${BRAND}`, description: 'Browse our complete range — 1,000+ porcelain, marble, terrazzo, ceramic, vinyl and engineered wood.' },
@@ -183,15 +191,15 @@ const EXACT = {
   '/shop/wishlist': { title: `Your Wishlist · ${BRAND}`, description: 'Tiles you\'ve saved for later.', noindex: true },
   '/shop/tile-samples': { title: `Order Tile Samples · ${BRAND}`, description: 'Touch, feel and compare tiles in your own light. Sample postage £2.99, refunded on purchase.' },
   '/shop/tile-sample-success': { title: `Sample Order Confirmed · ${BRAND}`, description: 'Thanks — your tile samples are on their way.', noindex: true },
-  '/shop/contact-us': { title: `Contact Us · ${BRAND}`, description: 'Get in touch with the Tile Station team — three Kent and Essex showrooms.' },
-  '/shop/stores': { title: `Visit a Showroom · ${BRAND}`, description: 'Visit our Tonbridge, Chingford or Gravesend tile showrooms.' },
+  '/shop/contact-us': { title: `Contact Us · ${BRAND}`, description: 'Get in touch with the Tile Station team — four Kent, Essex and London showrooms.' },
+  '/shop/stores': { title: `Visit a Showroom · ${BRAND}`, description: 'Visit our Tonbridge, Chingford, Gravesend or Sydenham tile showrooms.' },
   '/shop/info/faq': { title: `FAQ · ${BRAND}`, description: 'Tile & stone FAQs — orders, samples, returns, trade accounts, delivery and installation.' },
   '/shop/info/privacy': { title: `Privacy Policy · ${BRAND}`, description: 'How Tile Station handles your data. GDPR-compliant.' },
   '/shop/info/terms': { title: `Terms & Conditions · ${BRAND}`, description: 'Tile Station terms of sale, returns and warranties.' },
   '/shop/info/returns': { title: `Returns & Refunds · ${BRAND}`, description: 'Our returns and refunds policy — easy returns within 30 days.' },
   '/shop/info/delivery': { title: `Delivery Information · ${BRAND}`, description: 'UK delivery times, tracking, lead times and breakage policy.' },
   '/shop/info/reviews': { title: `Customer Reviews · ${BRAND}`, description: 'Real customer reviews of our tile and stone products.' },
-  '/shop/info/about': { title: `About ${BRAND}`, description: 'Family-run UK tile and stone specialist with three Kent and Essex showrooms.' },
+  '/shop/info/about': { title: `About ${BRAND}`, description: 'Family-run UK tile and stone specialist with four Kent, Essex and London showrooms.' },
   '/shop/info/sample-service': { title: `Sample Service · ${BRAND}`, description: 'How our £2.99 tile sample service works — refunded on every purchase.' },
 };
 
@@ -346,7 +354,7 @@ const PREFIXES = [
 
 const FALLBACK = {
   title: `${BRAND} — Premium Tiles, Bathrooms and Flooring`,
-  description: 'UK tile, bathroom and flooring specialists with three showrooms. Browse 1,000+ porcelain, marble, terrazzo, vinyl and engineered wood.',
+  description: 'UK tile, bathroom and flooring specialists with four showrooms. Browse 1,000+ porcelain, marble, terrazzo, vinyl and engineered wood.',
 };
 
 /**
@@ -536,16 +544,23 @@ function injectMeta(html, meta) {
   if (!meta.noindex) {
     const heading = escapeHtml(meta.title || '');
     const paragraph = escapeHtml(meta.description || '');
-    // Visible to crawlers AND to users on slow connections — counts as
-    // a progressive enhancement / pre-hydration placeholder. React's
-    // createRoot().render() wipes #root contents on first paint so the
-    // real UI replaces this within a few hundred ms.
+    // 13 May 2026 — UX fix. Previously the SSR fallback (H1 + nav +
+    // "Loading the full storefront…") was *visually* shown while React
+    // hydrated. On slow connections / large bundles users saw it for
+    // 10+ seconds and thought the site was broken.
+    //
+    // New approach:
+    //   * Off-screen-position the fallback (`.ssr-fallback`) so it stays
+    //     in the DOM (crawlers + screen readers still find it → no SEO
+    //     regression on Soft 404s / outgoing-links audits)
+    //   * Show a tiny brand-coloured spinner in its place so real users
+    //     get a clean "this is loading" signal instead of broken-looking
+    //     skeleton text
     //
     // 12 May 2026 — added internal navigation links to fix Ahrefs
     // "Page has no outgoing links" on 20 URLs. Every SSR-rendered
     // page now has at least 8 outgoing internal links visible to
-    // crawlers, so no page is a "dead end" pre-hydration. Real users
-    // never see this (React replaces it within ~200ms of JS load).
+    // crawlers, so no page is a "dead end" pre-hydration.
     const navLinks = (
       `<nav style="font-size:0.875rem;color:#374151;line-height:2;border-top:1px solid #e5e7eb;border-bottom:1px solid #e5e7eb;padding:16px 0;margin:24px 0;">` +
         `<a href="/" style="color:#1f2937;margin-right:20px;text-decoration:underline;">Home</a>` +
@@ -561,13 +576,39 @@ function injectMeta(html, meta) {
         `<a href="/shop/contact" style="color:#1f2937;text-decoration:underline;">Contact</a>` +
       `</nav>`
     );
+    // Crawler-only content: off-screen for sighted users, still in DOM
+    // for Googlebot/Bingbot/Ahrefs/Screaming Frog/screen readers.
+    // `clip` + `clip-path` is the universally-accepted "visually hidden
+    // but available to assistive tech" pattern (used by GOV.UK,
+    // tailwind's `.sr-only`, react-aria, etc.).
+    const offScreenStyle = (
+      `position:absolute;width:1px;height:1px;padding:0;margin:-1px;` +
+      `overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;`
+    );
+    // Visible-to-users loading indicator. Pure CSS keyframe spinner so
+    // it works pre-hydration. Sized small (32×32) and centred low on
+    // the page so it doesn't dominate the viewport.
+    const spinnerStyle = (
+      `<style>` +
+        `@keyframes ts-spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}` +
+        `.ts-ssr-spinner{position:fixed;left:50%;top:50%;margin:-16px 0 0 -16px;` +
+        `width:32px;height:32px;border:3px solid #e5e7eb;border-top-color:#1f2937;` +
+        `border-radius:50%;animation:ts-spin .8s linear infinite;z-index:1;}` +
+        // React mounts and replaces #root contents → spinner is unmounted
+        // automatically because it lives inside #root.
+      `</style>`
+    );
     const bodyBlock = (
-      `<div class="ssr-fallback" style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:960px;margin:40px auto;padding:0 24px;color:#1f2937;">` +
-        `<h1 style="font-size:2rem;margin:0 0 16px;line-height:1.2;">${heading}</h1>` +
-        `<p style="font-size:1rem;line-height:1.6;color:#374151;">${paragraph}</p>` +
+      spinnerStyle +
+      // The SSR content is positioned off-screen so users never see it
+      // while React boots. Crawlers still see it (it's in the DOM).
+      `<div class="ssr-fallback" style="${offScreenStyle}">` +
+        `<h1>${heading}</h1>` +
+        `<p>${paragraph}</p>` +
         navLinks +
-        `<p style="font-size:0.9rem;color:#6b7280;margin-top:24px;"><em>Loading the full storefront…</em></p>` +
-      `</div>`
+      `</div>` +
+      // Visible spinner — replaced by React on mount.
+      `<div class="ts-ssr-spinner" aria-hidden="true"></div>`
     );
     out = out.replace(
       /(<div id="root">)\s*(<\/div>)/,

@@ -9,6 +9,34 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 ## Recent Sessions (most recent first)
+### [May 13, 2026 PM] 🚨 Homepage UX fix — visible "Loading the full storefront…" + missing Sydenham
+
+**User-reported (with screenshot of tilestation.co.uk)**:
+1. SSR fallback content (H1 + nav + "Loading the full storefront…") was visually shown to real users for ~10s while the React bundle hydrated → site looked broken.
+2. SSR title/H1 only mentioned 3 showrooms — Tonbridge, Chingford & Gravesend — but the **Sydenham** showroom (already live in `routes/shop.py:3454`, `routes/live_analytics.py:444`, `business_config/showrooms.py:58`) was missing from all crawler-facing marketing copy.
+
+**Fix 1 — SSR fallback hidden from users, kept for crawlers** (`/app/frontend/server-seo.js`):
+- Removed the "Loading the full storefront…" `<em>` paragraph entirely (the broken-looking signal users complained about).
+- Wrapped `.ssr-fallback` div in standard `sr-only`-style off-screen positioning (`position:absolute;width:1px;height:1px;clip:rect(0,0,0,0);overflow:hidden;white-space:nowrap`). This is the GOV.UK / TailwindCSS / react-aria-blessed pattern for "visible to assistive tech AND crawlers but not to sighted users".
+- Crawlers (Googlebot, Bingbot, Ahrefs, Screaming Frog) still see the indexed H1 + description + 11 outgoing nav links → no SEO regression on Soft 404 / outgoing-links audits.
+- Replaced with a small (32×32px) pure-CSS keyframe spinner positioned `fixed` centre-screen → clean "loading" signal while React hydrates.
+
+**Fix 2 — Sydenham added everywhere** (8 places):
+- `server-seo.js`: home title, home description, about description, /contact, /showrooms (title + desc), /shop/contact (title + desc), /shop/contact-us, /shop/stores, /shop/info/about, FALLBACK description, ORG_JSONLD addresses (added Sydenham `329-331 Sydenham Road, SE26 5EQ`).
+- `pages/shop/TileStationHome.js`: "Our Showrooms" card description, footer description, SEO description meta.
+- `pages/admin/HomepageManager.jsx`, `pages/admin/HomepageContentEditor.js`, `pages/admin/SampleServiceContent.js`: defaults updated.
+- `routes/website_admin.py`: 2 hardcoded fallback descriptions updated.
+
+**Sample new home title**:
+> Tile Station — Premium Tiles, Bathrooms and Flooring · UK Showrooms in **Tonbridge, Chingford, Gravesend & Sydenham**
+
+**Verified**:
+- Node SSR unit test confirms: title contains Sydenham · description says "four showrooms across Kent, Essex and London" · spinner present · "Loading the full storefront" string absent · ssr-fallback wrapped in clip:rect off-screen
+- `server-seo.test.js` updated for the new structure (spinner `<style>` precedes ssr-fallback) — **56/56 tests pass**
+
+**Deployment note**: Both fixes live in `server-seo.js` which only runs in the production Express SSR layer (Railway). Preview env uses CRA dev server without SSR, so user must **redeploy to Railway** to see the visible change on tilestation.co.uk.
+
+
 ### [May 13, 2026] 📊 Price Ticket — weekly Telegram digest
 
 **Feature**: Every Monday 09:15 Europe/London, an auto-generated Telegram message summarising the week's ticket-print activity goes out to the same bot/chat the SEO + competitor alerts use. Admins can also force-send it any time via a "📊 Send digest now" link on the Saved Batches card.

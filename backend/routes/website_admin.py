@@ -1815,7 +1815,7 @@ async def get_feature_cards():
             {
                 "icon": "MapPin",
                 "title": "Our Showrooms",
-                "description": "Chat with our specialists at our Tonbridge, Gravesend & Chingford stores.",
+                "description": "Chat with our specialists at our Tonbridge, Gravesend, Chingford & Sydenham stores.",
                 "link": "/shop/stores",
                 "display_order": 2,
                 "is_active": True
@@ -1934,7 +1934,7 @@ async def get_public_feature_cards():
         return [
             {"icon": "Palette", "title": "Design Your Dream Room", "description": "Tap into your creativity with help from our online visualiser tool.", "link": "/shop/visualiser"},
             {"icon": "Package", "title": "Free Samples", "description": "Add up to 3 free samples delivered to your door free of charge.", "link": "/shop/sample-service"},
-            {"icon": "MapPin", "title": "Our Showrooms", "description": "Chat with our specialists at our Tonbridge, Gravesend & Chingford stores.", "link": "/shop/stores"},
+            {"icon": "MapPin", "title": "Our Showrooms", "description": "Chat with our specialists at our Tonbridge, Gravesend, Chingford & Sydenham stores.", "link": "/shop/stores"},
             {"icon": "Truck", "title": "Free Delivery", "description": "Free delivery for orders over £499, or collect from store.", "link": "/shop/info/delivery"},
             {"icon": "Star", "title": "Loved By Customers", "description": "Rated 4.9 stars from thousands of happy customers.", "link": "/shop/reviews"},
         ]

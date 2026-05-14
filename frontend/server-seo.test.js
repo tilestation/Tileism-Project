@@ -126,7 +126,10 @@ injectionTests.push({
 });
 injectionTests.push({
   name: 'SSR body content placed INSIDE the empty #root div',
-  check: () => /<div id="root">\s*<div class="ssr-fallback"/.test(collectionHtml),
+  // 13 May 2026 — spinner <style> block now precedes the off-screen
+  // ssr-fallback, both still inside #root. Test updated to allow the
+  // intervening <style> tag.
+  check: () => /<div id="root">(<style[^>]*>[\s\S]*?<\/style>)?<div class="ssr-fallback"/.test(collectionHtml),
 });
 
 // Outgoing links — added 12 May 2026 to fix Ahrefs "Page has no outgoing links"
