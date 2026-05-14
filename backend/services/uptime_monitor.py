@@ -65,7 +65,11 @@ def _backend_url() -> str:
 
 def _make_checks(base: str) -> List[Dict[str, Any]]:
     """Each check is independent so one slow endpoint doesn't mask
-    others. `id` is the stable key written to `uptime_check_state`."""
+    others. `id` is the stable key written to `uptime_check_state`.
+
+    Optional `latency_budget_s` per check overrides the default. The
+    sitemap is intrinsically slower (560 URLs, 6 DB collections, dynamic
+    rebuild) so it gets a 15s budget instead of the global 4s default."""
     checks: List[Dict[str, Any]] = [
         {
             "id": "homepage",
@@ -94,6 +98,12 @@ def _make_checks(base: str) -> List[Dict[str, Any]]:
             "url": f"{base}/sitemap.xml",
             "expect_status": 200,
             "expect_substring": "<urlset",
+            # 14 May 2026 — bumped from default 4s. The sitemap rebuilds
+            # from 6 DB collections (~600 docs total) on cache miss, so
+            # the first request after the 5-min TTL expires can take 4-8s
+            # legitimately. False alarms here would teach the team to
+            # ignore the monitor — kill the false alarm instead.
+            "latency_budget_s": 15.0,
         },
     ]
     # If the backend URL is also configured, do deep content checks
@@ -142,10 +152,18 @@ async def _run_check(client: httpx.AsyncClient, chk: Dict[str, Any]) -> Dict[str
         "checked_at": datetime.now(timezone.utc).isoformat(),
     }
     try:
-        r = await client.get(chk["url"], timeout=HTTP_TIMEOUT_S, follow_redirects=True)
+        # Per-check timeout: use the latency budget so the request only
+        # aborts when it's *truly* hung. Without this, a slow-but-OK
+        # sitemap (4-12s legit response time on a 560-URL rebuild) got
+        # treated as a timeout failure even though it was still serving
+        # correct content. 14 May 2026 — was a single global 10s.
+        request_timeout = chk.get("latency_budget_s", HTTP_TIMEOUT_S) + 5.0
+        r = await client.get(chk["url"], timeout=request_timeout, follow_redirects=True)
         result["status_code"] = r.status_code
         result["latency_ms"] = int((time.time() - started) * 1000)
-        result["slow"] = result["latency_ms"] > LATENCY_BUDGET_S * 1000
+        budget_s = chk.get("latency_budget_s", LATENCY_BUDGET_S)
+        result["slow"] = result["latency_ms"] > budget_s * 1000
+        result["budget_ms"] = int(budget_s * 1000)
 
         if r.status_code != chk.get("expect_status", 200):
             result["error"] = f"status {r.status_code}"
@@ -191,7 +209,10 @@ async def _run_check(client: httpx.AsyncClient, chk: Dict[str, Any]) -> Dict[str
 
     except httpx.TimeoutException:
         result["latency_ms"] = int((time.time() - started) * 1000)
-        result["error"] = f"timeout after {HTTP_TIMEOUT_S}s"
+        # Surface the actual budget we waited up to so the alert text
+        # is honest about how long we waited.
+        budget = chk.get("latency_budget_s", HTTP_TIMEOUT_S) + 5.0
+        result["error"] = f"timeout after {budget:.0f}s"
         return result
     except Exception as exc:  # noqa: BLE001
         result["latency_ms"] = int((time.time() - started) * 1000)

@@ -39,7 +39,9 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 from datetime import datetime, timezone
+from typing import Any, Dict
 from xml.sax.saxutils import escape as xml_escape
 
 from fastapi import APIRouter, Response
@@ -48,6 +50,15 @@ from config import get_db
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["SEO · Public"])
+
+# 14 May 2026 — process-local sitemap cache. The sitemap rebuilds from
+# 6 separate DB cursors + an aggregation pipeline (~600 docs) and was
+# clocking 1.5-4s normally, 11s during the cold-start window — enough
+# to trigger the uptime monitor's 10s budget. TTL of 5 minutes matches
+# the existing Cloudflare `s-maxage=600` hint so behaviour is
+# end-to-end consistent. Reset on every backend restart (cheap).
+_SITEMAP_CACHE: Dict[str, Any] = {"body": None, "cached_at": 0.0}
+_SITEMAP_TTL_S = 300
 
 
 # ─── Hand-curated static URLs ─────────────────────────────────────────
@@ -121,10 +132,28 @@ def _url_xml(loc: str, *, lastmod: str, priority: str, changefreq: str) -> str:
 async def sitemap_xml() -> Response:
     """Return a real XML sitemap covering every URL Google should index.
 
-    Refreshed on every request — these are cheap reads (≤ ~1500 product
-    rows, all indexed) and avoiding a cron means the sitemap is always
-    fresh after a product/page approval.
+    14 May 2026 — added a 5-minute in-memory cache. The previous "build
+    fresh on every request" approach was fine when the catalogue was
+    smaller (~200 URLs) but with 560+ URLs across 6 DB collections it
+    was taking 1.5-4s per request and occasionally 11s under cold-start
+    load — triggering the uptime monitor's 10s budget. Cache TTL matches
+    the existing `s-maxage=600` Cloudflare hint so behaviour is
+    consistent.
     """
+    now_mono = time.monotonic()
+    cached = _SITEMAP_CACHE.get("body")
+    cached_at = _SITEMAP_CACHE.get("cached_at", 0)
+    if cached and (now_mono - cached_at) < _SITEMAP_TTL_S:
+        return Response(
+            content=cached,
+            media_type="application/xml",
+            headers={
+                "Cache-Control": "public, max-age=300, s-maxage=600",
+                "X-Sitemap-Cache": "hit",
+                "X-Sitemap-Cached-Age": f"{int(now_mono - cached_at)}s",
+            },
+        )
+
     db = get_db()
     host = _canonical_host()
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
@@ -285,6 +314,10 @@ async def sitemap_xml() -> Response:
     parts.append("</urlset>\n")
     body = "".join(parts)
 
+    # Cache for the next 5 mins (matches the Cloudflare s-maxage hint).
+    _SITEMAP_CACHE["body"] = body
+    _SITEMAP_CACHE["cached_at"] = time.monotonic()
+
     return Response(
         content=body,
         media_type="application/xml",
@@ -293,6 +326,7 @@ async def sitemap_xml() -> Response:
             # but never longer than that — admin approves new pages all
             # day and we want them in within minutes.
             "Cache-Control": "public, max-age=300, s-maxage=600",
+            "X-Sitemap-Cache": "miss",
         },
     )
 

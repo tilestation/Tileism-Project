@@ -9,9 +9,39 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 ## Recent Sessions (most recent first)
-### [May 14, 2026 LATE NIGHT] 🔍 Search-across-pages — global audit confirmed only one page had the bug
+### [May 14, 2026 LATE NIGHT 2] 🚨 Uptime alert fired correctly — sitemap fixed + budget tuned
+
+The uptime monitor built earlier today posted its first real-world alert: **"Tile Station DOWN — API health failed: timeout after 10.0s · Sitemap failed: timeout after 10.0s"**. User flagged it within minutes (screenshot). Caught a real prod issue **before any customer noticed**.
+
+**Root cause** (`/app/backend/routes/seo_public.py`):
+The `/sitemap.xml` route was rebuilding the entire 217KB sitemap on every request — 6 separate Mongo cursor scans + an aggregation pipeline across ~600 docs. Normally 1.5-4s, but during Railway cold-starts could hit 11s+. The uptime monitor's hard 10s timeout cut it off and reported "down" — correctly: from Google's crawler perspective, a sitemap that takes 11s to respond IS broken.
+
+**Fix 1 — Cache the sitemap**:
+- Added a process-local TTL cache (`_SITEMAP_CACHE` dict, 300s TTL) matching the existing Cloudflare `s-maxage=600` hint
+- Cache key is implicit (single sitemap) so no key collisions
+- New response headers: `X-Sitemap-Cache: hit|miss` + `X-Sitemap-Cached-Age: Xs` for debugging
+- Verified: 5 consecutive hits = 140-430ms each (vs 1.5-4s uncached). Cold miss = same DB rebuild as before, then everyone else benefits for 5 min.
+
+**Fix 2 — Per-check latency budgets**:
+- Each canary in `services/uptime_monitor.py` can now override `latency_budget_s` (default 4s)
+- Request timeout = budget + 5s padding, so genuinely-slow-but-OK responses no longer get cut off as "timeouts"
+- Sitemap canary set to `latency_budget_s=15.0` (legit DB rebuild on cache miss can take 4-8s)
+- The change is communicated in alert messages: `timeout after 20s` instead of `timeout after 10s`
+
+**Verified** (preview):
+- Sitemap: 1381ms ok=True, budget=15000ms, slow=False
+- All other canaries (homepage, search, tiles): all 200ms, ok=True, budget=4000ms
+- Alerts sent: 0 ✅
+
+**Operational note**:
+The first request on a fresh deployment will still hit the DB and could be slow — but only ONCE per 5 min, and the new budget tolerates it. After Railway redeploys, the monitor will warm the cache automatically on its next 5-min tick.
+
+
 
 After fixing the in-page search on `/tiles` (collections), audited **every storefront + admin page that uses pagination** to find any other instance of the same bug. Result: **TileCollectionsPage was the only offender**. All other paginated listings already filter server-side or correctly reset to page=1 on filter changes.
+
+
+### [May 14, 2026 LATE NIGHT] 🔍 Search-across-pages — global audit confirmed only one page had the bug
 
 **Audit method** — bash sweep over `/app/frontend/src/pages/shop/*` looking for the buggy combo:
 - Pagination state (`setPage`, `currentPage`, URL `page=` param)
