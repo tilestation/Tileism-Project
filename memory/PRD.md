@@ -9,11 +9,39 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 ## Recent Sessions (most recent first)
-### [May 14, 2026 EVENING] 🚨🚨 ROOT CAUSE of "broken images on search" — wrong fix x2
+### [May 14, 2026 LATER PM] 🛑 Registration "failing" — Sentry's fetch wrap was eating the response body
+
+**User-reported (with screenshot)**: registration form submits → toast says only `"Registration failed"` → user can't tell what's wrong. Console showed `POST /api/shop/auth/register 400 (Bad Request)` but the body was opaque.
+
+**Root cause** (took 4 steps to nail down):
+1. Hit the prod endpoint directly with curl — it returns `200 OK` for new emails and `{"detail":"Email already registered"}` for duplicates. Backend is fine.
+2. The frontend code `if (!response.ok) throw new Error('Registration failed')` ignored the body entirely. Easy fix — read the body and surface `detail`.
+3. Tried `await response.json()` → "body stream already read". Switched to `await response.clone().text()` → same error.
+4. Traced into `@sentry/core/build/cjs/instrument/fetch.js:209` — `browserTracingIntegration()` calls `response.clone()` and consumes the clone's body via `resolveResponse(...)` for trace data. In Playwright's Chromium this drains the original too — `clone().text()` and `text()` both throw "body stream already read".
+
+**Fix**: switch the auth call from raw `fetch()` to **axios**, which isn't instrumented by Sentry's fetch wrap. Then surface `error.response.data.detail` in the catch.
+
+```
+TOAST BEFORE:  "Registration failed"
+TOAST AFTER:   "This email is already registered. Try signing in or reset your password."
+```
+
+Live Playwright proof (screenshot above shows the friendly toast on a real duplicate email).
+
+**Files**: `/app/frontend/src/pages/shop/TileRegisterPage.js` only.
+
+**Future hardening (not done in this pass)**: `TileLoginPage.js`, `TileSampleCartPage.js`, `TradeLoginPage.jsx`, `TradeSignupPage.js`, `TradeRegisterPage.jsx`, `CustomerRegisterPage.jsx` all use raw `fetch()` for auth-style endpoints and may hit the same Sentry-drain bug if/when they get a non-200. Most already have nuanced handling that masks the issue (e.g. TileLoginPage does an email-exists check), but the same axios migration would be safer.
+
+**Watcher limit workaround**: Preview env was crashing on `ENOSPC: System limit for number of file watchers reached`. Added `WATCHPACK_POLLING=true` and `CHOKIDAR_USEPOLLING=true` to `/app/frontend/.env` so the dev server polls instead of using inotify. Container limit (12288) was too low for the codebase size.
+
+
 
 **This is the 3rd report of the same bug.** Apology owed: the first two attempts blamed the service worker (which had its own real bug, but wasn't the cause here). The actual cause was discovered by directly hitting `https://tile-station-production.up.railway.app/api/shop/search-all` and inspecting the JSON.
 
 **Root cause**: The production backend was upgraded (presumably when the alt-text generator was wired in around 4 May) to return image fields as `{url, alt, alt_generated_at}` objects, while the preview backend still returns bare strings. The frontend was passing the **object** straight into `<img src={obj}>` — React stringified it to `[object Object]` — every image broken.
+
+
+### [May 14, 2026 EVENING] 🚨🚨 ROOT CAUSE of "broken images on search" — wrong fix x2
 
 **Same bug pattern was lurking on EVERY product image across the site** — `<img src={product.images[0]}>` and 14 similar patterns. The user only noticed it on search because that's where they searched.
 

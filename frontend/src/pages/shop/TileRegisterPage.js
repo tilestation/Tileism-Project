@@ -6,6 +6,7 @@ import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
 import { ShopHeader, ShopFooter } from './TileStationHome';
 import { toast } from 'sonner';
+import axios from 'axios';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
 
@@ -49,23 +50,24 @@ const TileRegisterPage = () => {
     setLoading(true);
     
     try {
-      const response = await fetch(`${API_URL}/api/shop/auth/register`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email: formData.email,
-          password: formData.password,
-          name: formData.name,
-          phone: formData.phone,
-          address_line1: formData.address_line1,
-          address_line2: formData.address_line2,
-          city: formData.city,
-          postcode: formData.postcode
-        })
+      // 14 May 2026 — use axios instead of fetch. Sentry's
+      // browserTracingIntegration drains the fetch response body for
+      // tracing, leaving our code unable to read error details (we got
+      // "Response body is already used" on .clone().text()). axios
+      // isn't instrumented by the fetch wrap, so the response body is
+      // always readable. Backend returns `{detail: "Email already
+      // registered"}` on 400 — we surface that as a friendly toast.
+      const response = await axios.post(`${API_URL}/api/shop/auth/register`, {
+        email: formData.email,
+        password: formData.password,
+        name: formData.name,
+        phone: formData.phone,
+        address_line1: formData.address_line1,
+        address_line2: formData.address_line2,
+        city: formData.city,
+        postcode: formData.postcode,
       });
-      
-      if (!response.ok) throw new Error('Registration failed');
-      const data = await response.json();
+      const data = response.data;
       
       // Store token and customer data
       localStorage.setItem('tile_shop_token', data.token);
@@ -74,7 +76,26 @@ const TileRegisterPage = () => {
       toast.success('Account created successfully!');
       navigate(redirect);
     } catch (error) {
-      toast.error(error.message || 'Registration failed');
+      // 14 May 2026 — surface the actual backend error. Axios puts
+      // the response body on error.response.data.
+      let errMsg = error?.message || 'Registration failed';
+      const detail = error?.response?.data?.detail;
+      if (typeof detail === 'string') {
+        errMsg = detail;
+      } else if (Array.isArray(detail) && detail.length) {
+        // FastAPI 422 validation error array
+        errMsg = detail
+          .map(d => d?.msg || (Array.isArray(d?.loc) ? d.loc.join('.') : ''))
+          .filter(Boolean)
+          .join('; ') || errMsg;
+      } else if (error?.response?.data?.message) {
+        errMsg = error.response.data.message;
+      }
+      // Friendlier copy for the most-common case
+      if (/email.*(already|exist)/i.test(errMsg)) {
+        errMsg = 'This email is already registered. Try signing in or reset your password.';
+      }
+      toast.error(errMsg);
     } finally {
       setLoading(false);
     }
