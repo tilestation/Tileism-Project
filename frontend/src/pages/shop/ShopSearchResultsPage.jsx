@@ -335,6 +335,21 @@ const ResultCard = ({ r }) => {
     ? 'bg-indigo-100 text-indigo-900'
     : 'bg-amber-100 text-amber-900';
 
+  // 14 May 2026 — PRODUCTION BUG FIX. The deployed prod backend returns
+  // `image` as `{url, alt, alt_generated_at}` (added when the alt-text
+  // generator was wired in) while the preview backend still returns a
+  // bare string. The frontend was passing the OBJECT directly to
+  // `<img src={...}>` which React stringifies to "[object Object]" →
+  // 100% broken images on production for THREE separate reports.
+  // Coerce to a string url here AND surface a richer alt from the
+  // payload when available.
+  const imageUrl =
+    typeof r.image === 'string'
+      ? r.image
+      : (r.image && typeof r.image === 'object' && r.image.url) || '';
+  const imageAlt =
+    (r.image && typeof r.image === 'object' && r.image.alt) || r.name;
+
   return (
     <Link
       to={r.url}
@@ -342,10 +357,10 @@ const ResultCard = ({ r }) => {
       data-testid={`search-result-${r.type}-${r.id}`}
     >
       <div className="aspect-square bg-gray-100 overflow-hidden">
-        {r.image ? (
+        {imageUrl ? (
           <img
-            src={r.image}
-            alt={r.name}
+            src={imageUrl}
+            alt={imageAlt}
             loading="lazy"
             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
             onError={(e) => { e.currentTarget.style.display = 'none'; }}

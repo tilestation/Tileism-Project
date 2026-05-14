@@ -2,6 +2,7 @@ import React, { useState, useRef, useCallback } from 'react';
 import { Upload, RotateCcw, ZoomIn, ZoomOut, Move, Grid, Download, Image as ImageIcon, Layers } from 'lucide-react';
 import { Button } from '../../components/ui/button';
 import { toast } from 'sonner';
+import { firstImageUrl, imageUrl } from '../../utils/imageUrl';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
 
@@ -272,7 +273,7 @@ const RoomVisualizer = () => {
                 <>
                   <p className="text-sm text-gray-500 mb-2">Our Products</p>
                   <div className="grid grid-cols-3 gap-2 max-h-40 overflow-y-auto">
-                    {products.filter(p => p.images?.[0]).slice(0, 9).map((product) => (
+                    {products.filter(p => firstImageUrl(p.images)).slice(0, 9).map((product) => (
                       <button
                         key={product.id}
                         onClick={() => { setSelectedProduct(product); setSelectedTile(null); }}
@@ -284,7 +285,7 @@ const RoomVisualizer = () => {
                         title={product.display_name || product.name}
                       >
                         <img
-                          src={product.images[0]}
+                          src={firstImageUrl(product.images)}
                           alt={product.name}
                           className="w-full h-full object-cover"
                         />

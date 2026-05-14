@@ -28,6 +28,7 @@ import LiveChatWidget from '../../components/shop/LiveChatWidget';
 import { useTrustBadges } from '../../hooks/useTrustBadges';
 import SeoHead from '../../components/seo/SeoHead';
 import { normaliseImageUrl, safeToFixed, safeArr} from '../../utils/safeStr';
+import { firstImageUrl, imageUrl } from '../../utils/imageUrl';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
 
@@ -60,7 +61,7 @@ const TileDetailPage = () => {
       addToCompare({
         slug: tile.slug,
         name: tile.product_name || tile.name,
-        image: (tile.images && tile.images[0]) || tile.image_url,
+        image: (tile.images && firstImageUrl(tile.images)) || tile.image_url,
         price: currentPrice,
       });
       toast.success('Added to compare');
@@ -453,7 +454,7 @@ const TileDetailPage = () => {
         }
         canonical={`/tiles/${tile.slug || tile.id}`}
         type="product"
-        image={tile.images?.[0] || tile.thumbnail}
+        image={firstImageUrl(tile.images) || tile.thumbnail}
         keywords={`${tile.display_name}, ${tile.size}, ${tile.finish}, ${tile.series_name || ''}, ${tile.category_name || 'tiles'}`}
         jsonLd={{
           '@context': 'https://schema.org/',
@@ -494,7 +495,7 @@ const TileDetailPage = () => {
             <div className="relative aspect-square bg-gray-50 rounded-lg overflow-hidden mb-4 border border-gray-200 shadow-sm">
               {tile.images?.[selectedImage] ? (
                 <ImageZoom
-                  src={tile.images[selectedImage]}
+                  src={imageUrl(tile.images[selectedImage])}
                   alt={tile.display_name}
                   className="w-full h-full"
                 />
@@ -1087,7 +1088,7 @@ const TileDetailPage = () => {
               <ShareProduct 
                 productName={tile.display_name} 
                 productUrl={window.location.href}
-                productImage={tile.images?.[0]}
+                productImage={firstImageUrl(tile.images)}
               />
             </div>
 
@@ -1130,9 +1131,9 @@ const TileDetailPage = () => {
                   className="group bg-white rounded-lg p-3 shadow-sm hover:shadow-md transition"
                 >
                   <div className="aspect-square bg-gray-100 rounded-md overflow-hidden mb-3 relative">
-                    {t.images?.[0] ? (
+                    {firstImageUrl(t.images) ? (
                       <img
-                        src={t.images[0]}
+                        src={firstImageUrl(t.images)}
                         alt={t.display_name}
                         className="w-full h-full object-cover group-hover:scale-105 transition"
                       />
@@ -1189,9 +1190,9 @@ const TileDetailPage = () => {
                   className="group"
                 >
                   <div className="aspect-square bg-gray-100 rounded-lg overflow-hidden mb-3">
-                    {t.images?.[0] ? (
+                    {firstImageUrl(t.images) ? (
                       <img
-                        src={t.images[0]}
+                        src={firstImageUrl(t.images)}
                         alt={t.display_name}
                         className="w-full h-full object-cover group-hover:scale-105 transition"
                       />
@@ -1253,7 +1254,7 @@ const TileDetailPage = () => {
             {/* Product Summary */}
             <div className="bg-gray-50 rounded-lg p-3 flex items-center gap-3">
               {tile?.images?.[0] && (
-                <img src={normaliseImageUrl(tile.images[0])} alt={tile.display_name} className="w-16 h-16 object-cover rounded" />
+                <img src={normaliseImageUrl(firstImageUrl(tile.images))} alt={tile.display_name} className="w-16 h-16 object-cover rounded" />
               )}
               <div>
                 <p className="font-medium text-gray-900">{tile?.display_name}</p>

@@ -13,6 +13,7 @@ import { TradeLoginBox } from '../../components/shop/TradeLoginPrompt';
 import { toast } from 'sonner';
 import { TileCalculator } from '../../components/shop/TileCalculator';
 import { safeToFixed, safeArr} from '../../utils/safeStr';
+import { firstImageUrl, imageUrl } from '../../utils/imageUrl';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
 
@@ -67,7 +68,7 @@ export const ShopProductDetail = () => {
         sku: product.sku,
         price: product.clearance && product.clearance_price ? product.clearance_price : product.price,
         quantity: quantity,
-        image: product.images?.[0] || ''
+        image: firstImageUrl(product.images) || ''
       });
       toast.success(`${quantity}x ${product.name} added to cart`);
     } catch (error) {
@@ -125,7 +126,7 @@ export const ShopProductDetail = () => {
           <div className="aspect-square bg-gray-100 rounded-lg overflow-hidden relative">
             {product.images?.[selectedImage] ? (
               <img
-                src={product.images[selectedImage]}
+                src={imageUrl(product.images[selectedImage])}
                 alt={product.name}
                 className="w-full h-full object-cover"
               />

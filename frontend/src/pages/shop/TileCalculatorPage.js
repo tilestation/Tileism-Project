@@ -5,6 +5,7 @@ import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
 import { toast } from 'sonner';
+import { firstImageUrl, imageUrl } from '../../utils/imageUrl';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
 
@@ -214,7 +215,7 @@ const TileCalculatorPage = () => {
                       }`}
                     >
                       <img 
-                        src={product.images?.[0] || 'https://via.placeholder.com/100'} 
+                        src={firstImageUrl(product.images) || 'https://via.placeholder.com/100'} 
                         alt={product.name}
                         className="w-full h-16 object-cover rounded mb-1"
                       />

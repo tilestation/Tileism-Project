@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Upload, RotateCcw, Layers, Download, X, ZoomIn, ZoomOut, Move, Eye } from 'lucide-react';
 import { Button } from '../ui/button';
 import { toast } from 'sonner';
+import { firstImageUrl, imageUrl } from '../../utils/imageUrl';
 
 const RoomVisualizer = ({ tile, onClose }) => {
   const canvasRef = useRef(null);
@@ -29,7 +30,7 @@ const RoomVisualizer = ({ tile, onClose }) => {
       img.onerror = () => {
         console.log('Could not load tile image for pattern');
       };
-      img.src = tile.images[0];
+      img.src = firstImageUrl(tile.images);
     }
   }, [tile]);
 
@@ -362,9 +363,9 @@ const RoomVisualizer = ({ tile, onClose }) => {
         {/* Tile Preview */}
         {tile && (
           <div className="border-t p-4 bg-gray-50 flex items-center gap-4">
-            {tile.images?.[0] && (
+            {firstImageUrl(tile.images) && (
               <img 
-                src={tile.images[0]} 
+                src={firstImageUrl(tile.images)} 
                 alt={tile.name}
                 className="w-16 h-16 object-cover rounded-lg border"
               />

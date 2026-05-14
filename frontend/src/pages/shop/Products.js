@@ -10,6 +10,7 @@ import { OTPVerification } from '../../components/OTPVerification';
 import { BulkInquiryModal } from '../../components/BulkInquiryModal';
 import { useAuth } from '../../contexts/AuthContext';
 import { safeToFixed, safeArr} from '../../utils/safeStr';
+import { firstImageUrl, imageUrl } from '../../utils/imageUrl';
 
 export const CustomerProducts = () => {
   const { user } = useAuth();
@@ -258,7 +259,7 @@ export const CustomerProducts = () => {
                           {product.images && safeArr(product.images).length > 0 && (
                             <div className="relative w-full h-48 bg-secondary rounded-md overflow-hidden">
                               <img 
-                                src={product.images[0]} 
+                                src={firstImageUrl(product.images)} 
                                 alt={product.name}
                                 className="w-full h-full object-cover"
                                 onError={(e) => {
@@ -340,7 +341,7 @@ export const CustomerProducts = () => {
                         {product.images && safeArr(product.images).length > 0 && (
                           <div className="relative w-full h-48 bg-secondary rounded-md overflow-hidden">
                             <img 
-                              src={product.images[0]} 
+                              src={firstImageUrl(product.images)} 
                               alt={product.name}
                               className="w-full h-full object-cover"
                               onError={(e) => {

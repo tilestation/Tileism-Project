@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { useTradeUser } from '../../hooks/useTradeUser';
+import { firstImageUrl, imageUrl } from '../../utils/imageUrl';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
 
@@ -110,7 +111,7 @@ export const ProductCarousel = ({ title = "Featured Products", category = null, 
             >
               <div className="aspect-square rounded-lg overflow-hidden bg-slate-100 mb-3">
                 <img
-                  src={product.images?.[0] || 'https://via.placeholder.com/300?text=No+Image'}
+                  src={firstImageUrl(product.images) || 'https://via.placeholder.com/300?text=No+Image'}
                   alt={product.website_name || product.name}
                   className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                 />

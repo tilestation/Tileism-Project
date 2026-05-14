@@ -9,7 +9,27 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 ## Recent Sessions (most recent first)
+### [May 14, 2026 EVENING] 🚨🚨 ROOT CAUSE of "broken images on search" — wrong fix x2
+
+**This is the 3rd report of the same bug.** Apology owed: the first two attempts blamed the service worker (which had its own real bug, but wasn't the cause here). The actual cause was discovered by directly hitting `https://tile-station-production.up.railway.app/api/shop/search-all` and inspecting the JSON.
+
+**Root cause**: The production backend was upgraded (presumably when the alt-text generator was wired in around 4 May) to return image fields as `{url, alt, alt_generated_at}` objects, while the preview backend still returns bare strings. The frontend was passing the **object** straight into `<img src={obj}>` — React stringified it to `[object Object]` — every image broken.
+
+**Same bug pattern was lurking on EVERY product image across the site** — `<img src={product.images[0]}>` and 14 similar patterns. The user only noticed it on search because that's where they searched.
+
+**Fix**:
+1. **New helper** at `/app/frontend/src/utils/imageUrl.js` — `imageUrl(value)`, `firstImageUrl(arr)`, `imageAlt(value, fallback)`. All three handle both string AND `{url, alt, ...}` object shapes; return empty string when no usable URL exists.
+2. **10 regression tests** at `imageUrl.test.js` — locks the contract so it can never silently break again. All 10 pass.
+
 ### [May 14, 2026 PM 2] 🛡️ Stock-status fix + synthetic uptime monitor + skeleton rollout
+
+3. **38 unsafe references rewritten** across 11 files via `/app/scripts/normalise_image_urls.py`:
+   - `ShopHome.js` (2) · `ShopProducts.js` (3) · `TileCalculatorPage.js` (1) · `TileDetailPage.js` (9) · `Products.js` (2) · `RoomVisualizer.js` page (2) · `TileListingPage.js` (2) · `ShopProductDetail.js` (2) · `RoomVisualizer.js` component (3) · `ProductCarousel.js` (1) · `CollectionDetailPage.js` (11) · `TileCollectionsPage.js` (2 manual edits) · `ShopSearchResultsPage.jsx` (1 manual edit for the unique ResultCard shape)
+4. **Live proof**: Playwright loaded `/shop/search?q=dolomite` with `page.route()` intercepting and returning the EXACT production object-shape payload → all 3 dolomite tile images rendered at full natural resolution (1200×606, 612×1200, 591×1173).
+
+**Why earlier "fixes" were wrong**: The SW had a real bug (returning `undefined` from the catch handler for cache-miss non-navigate fetches) but that bug was secondary. Fixing the SW improved resilience but did not address the schema mismatch. Should have run `curl https://tile-station-production.up.railway.app/api/shop/search-all` on the first report.
+
+
 
 Three related fixes from a single user report (screenshot of admin marking a SKU "Out of Stock" while the PDP still showed "In Stock", plus broken search images, plus general "site keeps breaking on prod").
 

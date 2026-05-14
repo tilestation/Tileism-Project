@@ -6,6 +6,7 @@ import { Button } from '../../components/ui/button';
 import { Card } from '../../components/ui/card';
 import { Badge } from '../../components/ui/badge';
 import { useTrustBadges } from '../../hooks/useTrustBadges';
+import { firstImageUrl, imageUrl } from '../../utils/imageUrl';
 
 export const ShopHome = () => {
   const [featuredProducts, setFeaturedProducts] = useState([]);
@@ -171,9 +172,9 @@ export const ShopHome = () => {
                 <Link key={product.id} to={`/shop/products/${product.id}`}>
                   <Card className="group overflow-hidden hover:shadow-lg transition-shadow">
                     <div className="aspect-square bg-gray-100 relative overflow-hidden">
-                      {product.images?.[0] ? (
+                      {firstImageUrl(product.images) ? (
                         <img
-                          src={product.images[0]}
+                          src={firstImageUrl(product.images)}
                           alt={product.name}
                           className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                         />

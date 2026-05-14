@@ -12,6 +12,7 @@ import { useShopAuth } from '../../contexts/ShopAuthContext';
 import { useTradeUser } from '../../hooks/useTradeUser';
 import { toast } from 'sonner';
 import { safeArr } from '../../utils/safeStr';
+import { firstImageUrl, imageUrl } from '../../utils/imageUrl';
 
 export const ShopProducts = () => {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -110,7 +111,7 @@ export const ShopProducts = () => {
         sku: product.sku,
         price: product.clearance && product.clearance_price ? product.clearance_price : product.price,
         quantity: 1,
-        image: product.images?.[0] || ''
+        image: firstImageUrl(product.images) || ''
       });
       toast.success(`${product.name} added to cart`);
     } catch (error) {
@@ -307,9 +308,9 @@ export const ShopProducts = () => {
                   <Link key={product.id} to={`/shop/products/${product.id}`}>
                     <Card className={`group overflow-hidden hover:shadow-lg transition-shadow ${viewMode === 'list' ? 'flex' : ''}`}>
                       <div className={`bg-gray-100 relative overflow-hidden ${viewMode === 'list' ? 'w-40 h-40 flex-shrink-0' : 'aspect-square'}`}>
-                        {product.images?.[0] ? (
+                        {firstImageUrl(product.images) ? (
                           <img
-                            src={product.images[0]}
+                            src={firstImageUrl(product.images)}
                             alt={product.name}
                             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                           />

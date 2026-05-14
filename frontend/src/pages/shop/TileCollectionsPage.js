@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Link, useSearchParams, useNavigate } from 'react-router-dom';
+import { imageUrl } from '../../utils/imageUrl';
 import { 
   Home, 
   Image, 
@@ -799,7 +800,7 @@ export const CollectionCard = ({
                   >
                     <div className="w-14 h-14 rounded-lg border border-gray-200 overflow-hidden hover:ring-2 hover:ring-amber-400 hover:ring-offset-1 transition-all shadow-sm">
                       <img 
-                        src={item.image} 
+                        src={imageUrl(item.image)} 
                         alt={colorName}
                         className="w-full h-full object-cover"
                         loading="lazy"
@@ -970,7 +971,7 @@ const RecentlyViewed = ({ onQuickView }) => {
             >
               <div className="aspect-square rounded-lg overflow-hidden bg-gray-100 mb-2">
                 <img 
-                  src={item.image || getLifestyleImage(item.series_name)}
+                  src={imageUrl(item.image) || getLifestyleImage(item.series_name)}
                   alt={item.series_name}
                   className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                 />

@@ -69,6 +69,7 @@ import VolumePricingTable from '../../components/shop/VolumePricingTable';
 import OrderSampleButton from '../../components/shop/OrderSampleButton';
 import PinterestSaveButton from '../../components/shop/PinterestSaveButton';
 import { computePillDims, parseSizeToMm } from '../../utils/sizePill';
+import { firstImageUrl, imageUrl } from '../../utils/imageUrl';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
 
@@ -748,11 +749,11 @@ const CollectionDetailPage = () => {
         if (color && color.trim() && !variantMap.has(color)) {
           variantMap.set(color, {
             name: color,
-            // p.images[0] may be either a string URL (legacy) or
+            // firstImageUrl(p.images) may be either a string URL (legacy) or
             // {url, alt, alt_generated_at} (post-May-2026 SEO migration).
             // normaliseImageUrl returns a clean string URL or '' so React
             // never tries to render src={Object} (= [object Object] = 404).
-            image: normaliseImageUrl(p.images?.[0]) || null,
+            image: normaliseImageUrl(firstImageUrl(p.images)) || null,
             hex: getColorHex(color),
             variantType: 'color'
           });
@@ -766,7 +767,7 @@ const CollectionDetailPage = () => {
         if (firstWord && !variantMap.has(firstWord.toLowerCase())) {
           variantMap.set(firstWord.toLowerCase(), {
             name: firstWord.toLowerCase(),
-            image: normaliseImageUrl(p.images?.[0]) || null,
+            image: normaliseImageUrl(firstImageUrl(p.images)) || null,
             hex: '#CCCCCC',
             variantType: 'name'
           });
@@ -1443,7 +1444,7 @@ const CollectionDetailPage = () => {
       id: selectedProduct.id,
       name: selectedProduct.display_name || selectedProduct.name,
       slug: selectedProduct.slug,
-      image: normaliseImageUrl(selectedProduct.images?.[0]),
+      image: normaliseImageUrl(firstImageUrl(selectedProduct.images)),
       price: displayPrice,
       // Canonical retail (inc-VAT) for cart re-pricing on trade login/logout.
       // currentPrice is always the retail inc-VAT figure (trade discount + ex-VAT
@@ -1499,7 +1500,7 @@ const CollectionDetailPage = () => {
       id: selectedProduct.id,
       name: selectedProduct.display_name || selectedProduct.name,
       slug: selectedProduct.slug,
-      image: normaliseImageUrl(selectedProduct.images?.[0]),
+      image: normaliseImageUrl(firstImageUrl(selectedProduct.images)),
       size: selectedProduct.size,
       finish: selectedProduct.finish,
       color: selectedProduct.color
@@ -1522,7 +1523,7 @@ const CollectionDetailPage = () => {
         id: item.id,
         name: item.display_name || item.name,
         slug: item.slug,
-        image: normaliseImageUrl(item.images?.[0] || item.image),
+        image: normaliseImageUrl(firstImageUrl(item.images) || item.image),
         size: item.size,
         finish: item.finish,
         color: item.color,
@@ -3284,10 +3285,10 @@ const CollectionDetailPage = () => {
                   {/* Pinterest save — pin opens in a new window. Rich Pin
                       meta on this PDP means the resulting pin gets price
                       + availability auto-attached by Pinterest's crawler. */}
-                  {selectedProduct && !selectedProduct?._isPreview && normaliseImageUrl(selectedProduct.images?.[0]) && (
+                  {selectedProduct && !selectedProduct?._isPreview && normaliseImageUrl(firstImageUrl(selectedProduct.images)) && (
                     <PinterestSaveButton
                       url={typeof window !== 'undefined' ? window.location.href : ''}
-                      media={normaliseImageUrl(selectedProduct.images?.[0])}
+                      media={normaliseImageUrl(firstImageUrl(selectedProduct.images))}
                       description={`${selectedProduct.display_name || selectedProduct.name || ''} — Tile Station UK`.slice(0, 480)}
                       size="md"
                       label="Save"
@@ -3722,8 +3723,8 @@ const CollectionDetailPage = () => {
                       data-testid={`fbt-rec-${rec.id}`}
                     >
                       <div className="aspect-square rounded-lg overflow-hidden mb-2 bg-gray-100">
-                        {normaliseImageUrl(rec.images?.[0]) ? (
-                          <img src={normaliseImageUrl(rec.images[0])} alt={rec.display_name || rec.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
+                        {normaliseImageUrl(firstImageUrl(rec.images)) ? (
+                          <img src={normaliseImageUrl(firstImageUrl(rec.images))} alt={rec.display_name || rec.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
                         ) : (
                           <div className="w-full h-full flex items-center justify-center text-gray-400 text-xs">No image</div>
                         )}
@@ -3780,7 +3781,7 @@ const CollectionDetailPage = () => {
                           name: rec.display_name || rec.name,
                           price: Number(rec.room_lot_price ?? rec.price ?? 0),
                           quantity: 1,
-                          image: normaliseImageUrl(rec.images?.[0]),
+                          image: normaliseImageUrl(firstImageUrl(rec.images)),
                           slug: rec.slug,
                         });
                       });

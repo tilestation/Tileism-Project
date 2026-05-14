@@ -8,6 +8,7 @@ import { ShopHeader, ShopFooter } from './TileStationHome';
 import { useTradeUser } from '../../hooks/useTradeUser';
 import SeoHead from '../../components/seo/SeoHead';
 import { safeArr } from '../../utils/safeStr';
+import { firstImageUrl, imageUrl } from '../../utils/imageUrl';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
 
@@ -324,9 +325,9 @@ const TileListingPage = () => {
                       className={`${viewMode === 'list' ? 'w-40 h-40 flex-shrink-0' : ''} bg-gray-100 rounded-lg overflow-hidden`}
                       style={viewMode === 'grid' ? { position: 'relative', width: '100%', paddingBottom: '100%' } : {}}
                     >
-                      {tile.images?.[0] ? (
+                      {firstImageUrl(tile.images) ? (
                         <img
-                          src={tile.images[0]}
+                          src={firstImageUrl(tile.images)}
                           alt={tile.display_name}
                           style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'cover' }}
                           className="group-hover:scale-105 transition duration-300"
