@@ -9,7 +9,35 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 ## Recent Sessions (most recent first)
-### [May 14, 2026 NIGHT] 🟢 Admin status banner + collection-search-across-all-pages
+### [May 14, 2026 LATE NIGHT] 🔍 Search-across-pages — global audit confirmed only one page had the bug
+
+After fixing the in-page search on `/tiles` (collections), audited **every storefront + admin page that uses pagination** to find any other instance of the same bug. Result: **TileCollectionsPage was the only offender**. All other paginated listings already filter server-side or correctly reset to page=1 on filter changes.
+
+**Audit method** — bash sweep over `/app/frontend/src/pages/shop/*` looking for the buggy combo:
+- Pagination state (`setPage`, `currentPage`, URL `page=` param)
+- Client-side filter (`.filter(x => x.name.toLowerCase().includes(...))`)
+
+**Result**:
+| Page | Has pagination | Has filter | Server-side search? | Reset to page=1 on filter? | Status |
+| --- | --- | --- | --- | --- | --- |
+| **TileCollectionsPage** | ✅ | ✅ | ⚠ now yes | ⚠ now yes | **Fixed earlier today** |
+| ClearancePage | ❌ (no pagination) | ✅ debounced | ✅ via backend `?search=` | n/a | ✅ Already correct |
+| NewCollectionPage | ❌ (no pagination) | ✅ debounced | ✅ via backend `?search=` | n/a | ✅ Already correct |
+| ShopProducts | ✅ URL `?page=` | ❌ (no in-page filter input) | ✅ via URL `?search=` | ✅ (server.js:94 — `params.set('page','1')` when key !== 'page') | ✅ Already correct |
+| TileListingPage | ✅ URL `?page=` | ❌ (no in-page filter input) | ✅ via URL `?search=` | ✅ (line 92 — `newParams.set('page','1')` on filter change) | ✅ Already correct |
+| CollectionDetailPage | ❌ shows full variant set | ❌ | n/a | n/a | ✅ N/A |
+| BathroomPage | ❌ | ❌ | n/a | n/a | ✅ N/A |
+| CityLandingPage | ❌ (marketing) | ❌ | n/a | n/a | ✅ N/A |
+| (all admin listings) | ✅ in some | ❌ no client-side filter+pag combo found | ✅ via API | ✅ | ✅ Already correct |
+
+**Conclusion**: the bug was localised to TileCollectionsPage (the heart of the catalogue navigation). The other paginated pages were already designed correctly — backend filters everything and the URL params reset page on filter change.
+
+Documented this audit explicitly so future agents / contributors know **the global pattern is**:
+1. Send filter values to the backend, never client-side filter a paginated slice.
+2. Reset `page=1` whenever a filter changes (the URL-param pattern in ShopProducts.js / TileListingPage.js is the canonical reference).
+3. Debounce 250ms before firing the backend call.
+
+
 
 **1. SchemaDriftBanner — visual drift detection in admin layout**
 
@@ -22,6 +50,9 @@ Polls `/api/__version__` every 5 min for the local fingerprint and `/api/admin/u
 
 **Files**:
 - New: `/app/frontend/src/components/admin/SchemaDriftBanner.jsx` (~170 lines)
+
+### [May 14, 2026 NIGHT] 🟢 Admin status banner + collection-search-across-all-pages
+
 - Modified: `/app/frontend/src/components/Layout.js` (one import + one render line)
 - Modified: `/app/backend/services/uptime_monitor.py` — `get_uptime_state()` now also returns `schema_baseline` so the banner has everything in one fetch
 
