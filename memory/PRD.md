@@ -9,7 +9,46 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 ## Recent Sessions (most recent first)
+### [May 14, 2026] ⚡ Bundle-size optimisation — homepage load 10s → ~2s
+
+**Root cause of the user-reported 10s homepage load**: `App.js` was importing **230 modules eagerly** — every customer hitting `/` downloaded the entire admin dashboard, recharts, xlsx, jsPDF, framer-motion, html2canvas, the tile visualiser, every admin form, etc. Bundle was **7.6 MB uncompressed / 1.95 MB gzipped**.
+
+**Fix**: route-level code-splitting via `React.lazy()` + `<Suspense>`.
+
+**Tooling**: `/app/scripts/lazyify_app.py` — Python script that matches `import Foo from './pages/admin/...'` (default) and `import { Foo } from ...` (named) patterns and rewrites them to `React.lazy()`. Skips eager-critical components (`TileStationHome`, `Layout`, `ShopLayout`, `AuthPage`, `StaffRegister`, `ForgotPassword`, `ResetPassword`, `StorefrontErrorBoundary`, `CompareTray`).
+
+**Wrapper**: single `<React.Suspense>` around the entire `<Routes>` block in `App.js`, with a small spinner fallback (`data-testid="route-suspense-fallback"`).
+
+**Result** (production build):
+| Metric | Before | After | Δ |
+| --- | --- | --- | --- |
+| main.js (uncompressed) | 7.6 MB | **1.3 MB** | -83% |
+| main.js (gzipped) | 1.95 MB | **389 kB** | **-80%** |
+| Number of chunks | 4 | ~80 | properly split |
+| Largest split chunks | n/a | 128 kB, 126 kB, 99 kB | recharts/xlsx/admin dashboards now load on-demand |
+| Estimated homepage load (5 Mbps + slow CPU) | ~10s | **~2-3s** | **5× faster** |
+
+**Imports converted**: 195 (out of ~230 total)
+
+**Smoke-tested via Playwright**:
+- Homepage `/` → renders perfectly (hero, nav, sale banner, etc.)
+- `/admin/login` → AuthPage stays eager (instant)
+- `/admin/price-tickets` → lazy-loaded; saved batches, manual product form, all features intact
+- `/admin/orders` → another lazy route — resolves
+- Zero `Loading chunk failed` errors in console (only pre-existing platform postMessage errors unrelated to this change)
+
+**No SEO regression**: SSR fallback (`server-seo.js`) untouched; crawlers still see H1+nav. The 56 server-seo tests still pass.
+
+**Deployment**: User must redeploy via Railway to ship the new build to tilestation.co.uk.
+
+**Files**:
+- New: `/app/scripts/lazyify_app.py` (transformation script — kept for future re-runs if more imports are added)
+- Modified: `/app/frontend/src/App.js` (195 imports converted to `React.lazy`, `<Suspense>` wrapper added)
+
+
 ### [May 13, 2026 PM] 🚨 Homepage UX fix — visible "Loading the full storefront…" + missing Sydenham
+
+
 
 **User-reported (with screenshot of tilestation.co.uk)**:
 1. SSR fallback content (H1 + nav + "Loading the full storefront…") was visually shown to real users for ~10s while the React bundle hydrated → site looked broken.
