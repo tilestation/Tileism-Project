@@ -9,11 +9,52 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 ## Recent Sessions (most recent first)
-### [May 14, 2026 LATE] 🔒 `/api/__version__` + schema fingerprinting — never miss "preview ≠ prod" again
+### [May 14, 2026 NIGHT] 🟢 Admin status banner + collection-search-across-all-pages
+
+**1. SchemaDriftBanner — visual drift detection in admin layout**
+
+A new banner above every admin page (right under `OutageBanner`) renders one of three states:
+- 🟢 **green** (`schema-drift-banner-match`): prod ↔ preview API contract match. Shows fingerprint + "last checked Xm ago" + dismiss button.
+- 🟡 **slate** (`schema-drift-banner-pending`): baseline not yet recorded — first prod check pending. Disappears once the 5-min uptime monitor establishes baseline.
+- 🔴 **red** (`schema-drift-banner-drift`): API contract drift detected. Lists which endpoints flipped, shows fingerprint diff, links to `/admin/uptime` for investigation. Cannot be dismissed while drift is active.
+
+Polls `/api/__version__` every 5 min for the local fingerprint and `/api/admin/uptime-monitor` (now augmented with `schema_baseline` field) for the recorded prod baseline. The "Xm ago" string refreshes every 30s without re-fetching. Per-fingerprint dismiss (via `localStorage`) so new drifts always re-surface.
+
+**Files**:
+- New: `/app/frontend/src/components/admin/SchemaDriftBanner.jsx` (~170 lines)
+- Modified: `/app/frontend/src/components/Layout.js` (one import + one render line)
+- Modified: `/app/backend/services/uptime_monitor.py` — `get_uptime_state()` now also returns `schema_baseline` so the banner has everything in one fetch
+
+**Verified**: Playwright loaded `/admin` after login → "schema-drift-banner-pending" rendered as expected (preview hasn't seen prod yet, so baseline is empty — exactly the state described).
+
+**2. Collection search now spans ALL pages (P0 bug)**
+
+**User-reported (with two screenshots)**: typing "dolomite" in the in-page search box showed `"1 of 36 collections match"` on page 1 BUT `"0 of 36 collections match"` on page 2 — because the filter was applied AFTER pagination, only matching what was already in the current 24-card slice.
+
+**Root cause**: `inPageQuery` (the search input) was used solely in a client-side `Array.filter` over `sortedCollections` — and `sortedCollections` only contained the current page's results from the backend.
+
+**Fix** (`/app/frontend/src/pages/shop/TileCollectionsPage.js`):
+- New debounced state `inPageDebounced` mirrors `inPageQuery` with a 250ms delay.
+- `effectiveSearch` (which is passed to the backend `?search=` parameter) now prefers `inPageDebounced` over the URL filter.
+- A `useEffect` on `inPageQuery` resets URL to `?page=1` whenever the user types — so they always see page 1 of the FULL matching set.
+- Client-side `Array.filter` retained as a defensive fallback in case the server ever ignores the search param.
+
+**Verified** (Playwright):
+- Opened `/tiles?page=2` (the buggy state from screenshot 2)
+- Typed "dolomite" → URL auto-bounced to `?page=1`
+- Result: `"1 of 1 collections match 'dolomite'"` — Dolomite Onyx (the only Dolomite collection in the whole catalogue)
+- Backend `/api/tiles/collections?search=dolomite` already supported server-side search; just needed the frontend to call it.
+
+**Files**: `/app/frontend/src/pages/shop/TileCollectionsPage.js` only.
+
+
 
 After **4 production incidents in a week** caused by silently-deployed schema changes (images `str` → `{url, alt}`, stock_status field added, build-version drift, etc.), built a tiny but high-leverage system that automatically detects API contract drift between environments before an agent or developer wastes time on the wrong fix.
 
 **Three things, all wired together**:
+
+
+### [May 14, 2026 LATE] 🔒 `/api/__version__` + schema fingerprinting — never miss "preview ≠ prod" again
 
 **1. `GET /api/__version__` (public, anonymous)**
 Returns a single JSON blob with:

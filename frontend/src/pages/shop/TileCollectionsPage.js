@@ -1012,6 +1012,10 @@ const TileCollectionsPage = () => {
   // within the current category (e.g. "matt large format" inside Wall Tiles)
   // without scoping out to the whole catalogue.
   const [inPageQuery, setInPageQuery] = useState('');
+  // 14 May 2026 — debounced mirror of inPageQuery so we don't fire a
+  // backend request on every keystroke. 250 ms feels instant and saves
+  // ~10 round-trips for a 5-char query.
+  const [inPageDebounced, setInPageDebounced] = useState('');
   
   // Page settings from admin
   const [pageSettings, setPageSettings] = useState(null);
@@ -1059,8 +1063,34 @@ const TileCollectionsPage = () => {
   // match against name + supplier + sizes + finishes + colours + labels.
   // All tokens must match (AND) so "wood matt" requires both "wood" AND "matt"
   // to appear somewhere — same UX as the global tile search.
+  // 14 May 2026 — debounce inPageQuery + reset to page=1 whenever it
+  // changes so search results don't get truncated by stale pagination.
+  useEffect(() => {
+    const id = setTimeout(() => {
+      setInPageDebounced(inPageQuery);
+      // When the query becomes non-empty (and changes), bounce to page 1
+      // so the server returns the *first* page of matching collections
+      // rather than e.g. page 3 (which only contained the user's slice
+      // before search was applied).
+      if (inPageQuery.trim() && currentFilters.page !== '1') {
+        const next = new URLSearchParams(searchParams);
+        next.set('page', '1');
+        setSearchParams(next, { replace: true });
+      }
+    }, 250);
+    return () => clearTimeout(id);
+    // currentFilters.page intentionally excluded — we only want to
+    // bounce when the *user* types, not when pagination updates.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [inPageQuery]);
+
   const displayedCollections = useMemo(() => {
-    const q = inPageQuery.trim().toLowerCase();
+    // Server is now responsible for `search` filtering (see
+    // effectiveSearch above). The client-side haystack fallback is
+    // kept only as a defensive measure if the server ignores the
+    // search param for some reason — it filters the already-fetched
+    // page rather than expanding it.
+    const q = inPageDebounced.trim().toLowerCase();
     if (!q) return sortedCollections;
     const tokens = q.split(/\s+/).filter(Boolean);
     return sortedCollections.filter(c => {
@@ -1078,7 +1108,7 @@ const TileCollectionsPage = () => {
       ].filter(Boolean).join(' ').toLowerCase();
       return tokens.every(t => haystack.includes(t));
     });
-  }, [sortedCollections, inPageQuery]);
+  }, [sortedCollections, inPageDebounced]);
 
   usePageTracking();
 
@@ -1139,6 +1169,13 @@ const TileCollectionsPage = () => {
   // ?style=marble-effect|wood-effect|stone-effect|patterned — translate to a
   // search keyword so the backend product list narrows to matching names.
   const effectiveSearch = useMemo(() => {
+    // 14 May 2026 — in-page search box typing on `?page=2` only matched
+    // collections already on screen (e.g. searching "Dolomite" on page 1
+    // returned "0 of 36 collections match" because Dolomite Onyx was on
+    // page 2). Fix: feed the in-page query into the same backend search
+    // param so the server filters across the entire catalogue, not the
+    // current page's slice.
+    if (inPageDebounced.trim()) return inPageDebounced.trim();
     if (currentFilters.search) return currentFilters.search;
     const styleMap = {
       'marble-effect': 'marble',
@@ -1147,7 +1184,7 @@ const TileCollectionsPage = () => {
       'patterned': 'pattern',
     };
     return styleMap[currentFilters.style] || '';
-  }, [currentFilters.search, currentFilters.style]);
+  }, [inPageDebounced, currentFilters.search, currentFilters.style]);
 
   // Context-aware hero — overrides the rotating carousel whenever a filter is
   // active, so 'Outdoor Tiles' link doesn't show a 'Bathroom Tiles' hero.

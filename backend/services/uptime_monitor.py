@@ -414,8 +414,16 @@ async def get_uptime_state() -> Dict[str, Any]:
     Used by /api/admin/uptime."""
     db = get_db()
     docs = await db.uptime_check_state.find({}, {"_id": 0}).to_list(50)
+    # 14 May 2026 — also surface the recorded schema baseline so the
+    # admin "drift banner" can compare client-side without a second
+    # fetch. The baseline is keyed by `_id="prod"` and captures the
+    # last-known-good fingerprint + per-endpoint hashes.
+    baseline = await db.schema_baselines.find_one(
+        {"_id": "prod"}, {"_id": 0}
+    )
     return {
         "base_url": _base_url(),
         "all_ok": all(d.get("ok") for d in docs) if docs else None,
         "checks": docs,
+        "schema_baseline": baseline,
     }

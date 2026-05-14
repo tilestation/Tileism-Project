@@ -3,6 +3,7 @@ import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { cn } from '../lib/utils';
 import OutageBanner from './admin/OutageBanner';
+import SchemaDriftBanner from './admin/SchemaDriftBanner';
 import { 
   Package, 
   LayoutDashboard, 
@@ -438,6 +439,7 @@ export const Layout = () => {
             "Tile Station · Sun May 3" strip is never obscured — users
             know where they are before they know what's broken. */}
         <OutageBanner />
+        <SchemaDriftBanner />
 
         <main ref={mainRef} className="flex-1 overflow-auto p-4 md:p-8 lg:p-10 relative" data-testid="main-content">
           <div className="max-w-[1600px] mx-auto w-full min-w-0">
