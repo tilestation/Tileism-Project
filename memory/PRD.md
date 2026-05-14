@@ -9,7 +9,73 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 ## Recent Sessions (most recent first)
+### [May 14, 2026 LATE] 🔒 `/api/__version__` + schema fingerprinting — never miss "preview ≠ prod" again
+
+After **4 production incidents in a week** caused by silently-deployed schema changes (images `str` → `{url, alt}`, stock_status field added, build-version drift, etc.), built a tiny but high-leverage system that automatically detects API contract drift between environments before an agent or developer wastes time on the wrong fix.
+
+**Three things, all wired together**:
+
+**1. `GET /api/__version__` (public, anonymous)**
+Returns a single JSON blob with:
+- `git_sha` (12-char, from `RAILWAY_GIT_COMMIT_SHA` env or `git rev-parse`)
+- `git_branch`, `build_time`, `env`, `python` version
+- `schema_fingerprint` — a stable 16-hex aggregate hash of the response *shape* of every canary endpoint (NOT content — same shape with different data hashes the same)
+- `schema_endpoints` — per-endpoint hashes so you can pinpoint WHICH endpoint flipped
+- `canary_paths` — the list of paths fingerprinted
+
+Cached for 60s in-memory; `?refresh=1` to force recompute.
+
+Plus `GET /api/__version__/shape?endpoint_id=search_all` returns the full canonical shape dict for one canary — pinpoints exactly which key flipped types between envs.
+
+**2. Schema fingerprint engine** (`services/schema_fingerprint.py`)
+- Recurses any JSON, collapsing values to `"str"`/`"num"`/`"bool"`/`"null"`/`{key: shape}`/`[union of shapes]`
+- Stable to: content changes, key order, list length
+- Sensitive to: new/removed keys, type flips, list-element shape flips
+- 11 pytest tests at `/app/backend/tests/test_schema_fingerprint.py` — **all passing**, including the regression test `test_string_to_object_shape_flip_is_detected` that locks the exact contract that would have caught today's images bug.
+
+**3. Automatic drift alarms via the uptime monitor**
+Every 5-minute uptime tick now also:
+- Calls `/api/__version__` on the configured prod backend
+- Compares the aggregate fingerprint to the recorded baseline (`schema_baselines` collection, keyed by `_id="prod"`)
+- On FIRST run: silently records baseline
+- On DRIFT: posts a Telegram alert listing which endpoints flipped + advising the user/agent to curl `/api/__version__/shape?endpoint_id=<id>` to see the actual key change
+- Updates baseline after alerting so we only ping once per drift event
+
+**Admin endpoints** (auth required):
+- `GET /api/admin/version-drift?left=<url>&right=<url>` — compare any two envs in one request
+- `GET /api/admin/version-drift/probe?url=<url>` — fingerprint a single env (for diagnostics)
+
+**Standalone CLI** at `/app/scripts/check_version_drift.py`:
+```
+$ python3 /app/scripts/check_version_drift.py
+LEFT  : https://feature-verification-7.preview.emergentagent.com
+RIGHT : https://tile-station-production.up.railway.app
+  LEFT  git=1fd2cc5fd945  env=local  fp=849e03eb42ebfaa6
+  RIGHT fetch failed: HTTPError: HTTP Error 404: Not Found
+```
+Exit codes: 0 = match, 1 = drift detected, 2 = fetch error.
+
+**Operational workflow going forward (for the agent + the user)**:
+> Before debugging ANY "X is broken on prod" report:
+> 1. `python3 /app/scripts/check_version_drift.py`
+> 2. If exit 1 (drift): the bug is almost certainly a deploy drift. Curl prod directly. Don't trust preview.
+> 3. If exit 0 (match): the bug exists in code, not deploy. Reproduce on preview.
+
+**Files**:
+- New: `services/schema_fingerprint.py` (170 lines, ruff clean)
+- New: `routes/version_info.py` (190 lines, ruff clean)
+- New: `routes/version_drift.py` (50 lines, ruff clean)
+- New: `tests/test_schema_fingerprint.py` (11 tests, all passing)
+- New: `scripts/check_version_drift.py` (CLI, executable)
+- Modified: `services/uptime_monitor.py` (+`_check_schema_drift` integration)
+- Modified: `routes/__init__.py` (register both new routers)
+
+**Status**: ✅ COMPLETE. All canaries return 200, fingerprints compute, CLI works. **After Railway deploy**, comparing preview vs prod with the CLI will immediately surface the alt-text-object-shape drift that took 4 attempts to diagnose today.
+
+
+
 ### [May 14, 2026 LATER PM] 🛑 Registration "failing" — Sentry's fetch wrap was eating the response body
+
 
 **User-reported (with screenshot)**: registration form submits → toast says only `"Registration failed"` → user can't tell what's wrong. Console showed `POST /api/shop/auth/register 400 (Bad Request)` but the body was opaque.
 

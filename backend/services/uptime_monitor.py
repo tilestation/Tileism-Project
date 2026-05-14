@@ -284,6 +284,94 @@ async def _alert_on_transition(db, result: Dict[str, Any]) -> Optional[str]:
 # ─── Public entrypoints ─────────────────────────────────────────────
 
 
+async def _check_schema_drift(db) -> Optional[Dict[str, Any]]:
+    """Compare the prod backend's schema fingerprint against the
+    fingerprint we last recorded for this commit. If it changed AND we
+    have a previously-recorded baseline → alert via Telegram (this is
+    the classic "prod silently shipped a schema change" failure mode
+    that broke product images on tilestation.co.uk on 14 May 2026).
+
+    Baseline is the fingerprint we saw on the FIRST successful run
+    after boot. The user can reset it by deleting the baseline doc.
+    """
+    backend_url = os.environ.get("MONITOR_BACKEND_URL") or _base_url()
+    try:
+        import httpx
+        async with httpx.AsyncClient(timeout=HTTP_TIMEOUT_S) as client:
+            r = await client.get(f"{backend_url.rstrip('/')}/api/__version__")
+            if r.status_code != 200:
+                return None
+            payload = r.json()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(f"schema_drift check failed: {exc}")
+        return None
+
+    current = payload.get("schema_fingerprint")
+    per_endpoint = payload.get("schema_endpoints") or {}
+    if not current:
+        return None
+
+    baseline = await db.schema_baselines.find_one({"_id": "prod"})
+    now_iso = datetime.now(timezone.utc).isoformat()
+    msg: Optional[str] = None
+
+    if not baseline:
+        # First-ever recording — set baseline silently
+        await db.schema_baselines.update_one(
+            {"_id": "prod"},
+            {"$set": {
+                "_id": "prod",
+                "url": backend_url,
+                "fingerprint": current,
+                "per_endpoint": per_endpoint,
+                "git_sha": payload.get("git_sha"),
+                "captured_at": now_iso,
+            }},
+            upsert=True,
+        )
+        return None
+
+    if baseline.get("fingerprint") != current:
+        # Drift! Identify which endpoints flipped.
+        prev_eps = baseline.get("per_endpoint") or {}
+        flipped = []
+        for cid, info in per_endpoint.items():
+            old_fp = (prev_eps.get(cid) or {}).get("fp")
+            new_fp = (info or {}).get("fp")
+            if old_fp and new_fp and old_fp != new_fp:
+                flipped.append(cid)
+        flipped_str = ", ".join(flipped) if flipped else "(unclear which)"
+        msg = (
+            f"⚠️ <b>Tile Station — schema drift detected</b>\n"
+            f"Production API contract changed since last check.\n"
+            f"git: <code>{baseline.get('git_sha')}</code> → <code>{payload.get('git_sha')}</code>\n"
+            f"fingerprint: <code>{baseline.get('fingerprint')}</code> → <code>{current}</code>\n"
+            f"endpoints flipped: <b>{flipped_str}</b>\n\n"
+            f"This is the same class of bug that broke product images on 14 May. "
+            f"Curl <code>{backend_url}/api/__version__/shape?endpoint_id=&lt;id&gt;</code> "
+            f"to see exactly which key changed shape."
+        )
+        # Update baseline so we only alert once per drift event
+        await db.schema_baselines.update_one(
+            {"_id": "prod"},
+            {"$set": {
+                "fingerprint": current,
+                "per_endpoint": per_endpoint,
+                "git_sha": payload.get("git_sha"),
+                "captured_at": now_iso,
+                "prev_fingerprint": baseline.get("fingerprint"),
+            }},
+        )
+        if os.environ.get("MONITOR_DISABLE_ALERTS") != "1":
+            try:
+                await send_telegram(msg, parse_mode="HTML")
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(f"schema_drift telegram failed: {exc}")
+        return {"drifted": True, "flipped_endpoints": flipped, "alert": msg}
+
+    return {"drifted": False}
+
+
 async def run_uptime_tick() -> Dict[str, Any]:
     """Single sweep of all checks. Idempotent — safe to call multiple
     times in a row. Returns a summary dict for the admin /uptime/run
@@ -305,6 +393,19 @@ async def run_uptime_tick() -> Dict[str, Any]:
             summary["alerts"].append({"id": result["id"], "message": alert})
 
     summary["all_ok"] = all(r["ok"] for r in summary["results"])
+
+    # 14 May 2026 — schema drift detection. Pings /api/__version__ on
+    # the prod backend and alerts when the schema fingerprint flips
+    # since baseline. Caught the alt-text-object-shape bug class.
+    try:
+        drift_info = await _check_schema_drift(db)
+        if drift_info is not None:
+            summary["schema_drift"] = drift_info
+            if drift_info.get("drifted") and drift_info.get("alert"):
+                summary["alerts"].append({"id": "schema_drift", "message": drift_info["alert"]})
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(f"schema_drift check error: {exc}")
+
     return summary
 
 
