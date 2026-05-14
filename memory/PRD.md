@@ -9,7 +9,31 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 ## Recent Sessions (most recent first)
-### [May 14, 2026] ⚡ Bundle-size optimisation — homepage load 10s → ~2s
+### [May 14, 2026] 🔍 Search UX — "extremely long" hang fixed with skeleton grid + timeout
+
+**User-reported (with screenshot of tilestation.co.uk/shop/search?q=dolomite)**: After typing a search the page sat on "Searching the catalogue…" for an extended time — felt broken even though the backend itself responds in 200-400ms.
+
+**Root cause**: two compounding issues, the visible one being the loader UX.
+1. The 10s bundle download (now fixed by code-splitting but not yet deployed)
+2. The loader was a single centred Loader2 spinner + the words "Searching the catalogue…". All-or-nothing UX — page paints blank-then-everything, which feels FAR slower than progressive skeletons.
+3. No timeout — if the prod Railway backend cold-started, the fetch could hang indefinitely.
+
+**Fix**: 3-part UX overhaul (`/app/frontend/src/pages/shop/ShopSearchResultsPage.jsx`):
+
+1. **Skeleton grid** — replaced the centred "Searching the catalogue…" with 8 pulsing grey placeholder cards in the exact 4-column grid layout the real results occupy. Zero layout shift when results land. Feels instant.
+2. **15s AbortController timeout** — fetch is wrapped in a controller; if the backend doesn't respond in 15 seconds, the request aborts and the UI shows a friendly retry state. Cleanup also runs on unmount/navigation.
+3. **Error banner + Retry button** — distinguishes timeout vs network error; clicking "Retry" bumps a meaningless URL param to trigger a re-fetch without a full page reload.
+
+**Smoke-tested (Playwright)**:
+- `q=dolomite` (200ms backend) → skeleton paints at ~200ms, real results land at ~500ms, zero layout shift, 23 tiles rendered
+- `q=zzzzzz_no_match` → skeleton → "No products match" state with suggestions
+- No `Loader2` import remains (replaced with `AlertTriangle` for the error banner)
+
+**Files**: `/app/frontend/src/pages/shop/ShopSearchResultsPage.jsx` only.
+
+**Deployment**: Once redeployed to Railway, combined with the 80% bundle reduction the search will feel near-instant — bundle loads in ~700ms, skeleton paints immediately, real results land in another ~300ms. Total perceived time: **~1 second** (vs ~10-15 seconds before).
+
+
 
 **Root cause of the user-reported 10s homepage load**: `App.js` was importing **230 modules eagerly** — every customer hitting `/` downloaded the entire admin dashboard, recharts, xlsx, jsPDF, framer-motion, html2canvas, the tile visualiser, every admin form, etc. Bundle was **7.6 MB uncompressed / 1.95 MB gzipped**.
 

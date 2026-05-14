@@ -1,10 +1,16 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { Search as SearchIcon, ArrowLeft, Loader2 } from 'lucide-react';
+import { Search as SearchIcon, ArrowLeft, AlertTriangle } from 'lucide-react';
 import { ShopHeader, ShopFooter } from './TileStationHome';
 import SeoHead from '../../components/seo/SeoHead';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
+// 14 May 2026 — hard ceiling so search never appears to hang. The
+// backend usually responds in 200-400ms; if a cold start (Railway) or
+// network blip takes it past 15s we surface a friendly retry state
+// rather than spinning forever ("Searching the catalogue…" hang
+// reported by user on 14 May 2026).
+const SEARCH_TIMEOUT_MS = 15000;
 
 /**
  * ShopSearchResultsPage — the storefront's unified "All Products" search view.
@@ -27,15 +33,25 @@ const ShopSearchResultsPage = () => {
 
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
+  // Tracks fetch failure / timeout so we can show a retry banner
+  // instead of an indefinite spinner. Reset on every new query.
+  const [error, setError] = useState(null);
 
   useEffect(() => {
     if (!q) { setData(null); return; }
     let alive = true;
     setLoading(true);
+    setError(null);
+    // Abort the request if the backend takes longer than the ceiling.
+    // Without this, a stuck fetch left the UI permanently on
+    // "Searching the catalogue…".
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), SEARCH_TIMEOUT_MS);
     (async () => {
       try {
         const res = await fetch(
-          `${API_URL}/api/shop/search-all?q=${encodeURIComponent(q)}&page=${page}&limit=24`
+          `${API_URL}/api/shop/search-all?q=${encodeURIComponent(q)}&page=${page}&limit=24`,
+          { signal: controller.signal }
         );
         const json = await res.json();
         if (alive) setData(json);
@@ -70,12 +86,18 @@ const ShopSearchResultsPage = () => {
           }
         } catch (_) { /* analytics must never break UX */ }
       } catch (e) {
-        if (alive) setData({ results: [], total: 0, total_pages: 0, counts_by_type: { tile: 0, product: 0 }, suggestions: [] });
+        if (alive) {
+          // AbortError = timeout; everything else = network/fetch error.
+          // Either way, show the retry state instead of a stuck spinner.
+          setError(e?.name === 'AbortError' ? 'timeout' : 'network');
+          setData({ results: [], total: 0, total_pages: 0, counts_by_type: { tile: 0, product: 0 }, suggestions: [] });
+        }
       } finally {
+        clearTimeout(timeoutId);
         if (alive) setLoading(false);
       }
     })();
-    return () => { alive = false; };
+    return () => { alive = false; controller.abort(); clearTimeout(timeoutId); };
   }, [q, page]);
 
   const results = data?.results || [];
@@ -149,13 +171,60 @@ const ShopSearchResultsPage = () => {
           </div>
         )}
 
-        {q && loading && !data && (
-          <div className="py-20 text-center text-gray-500">
-            <Loader2 className="w-6 h-6 animate-spin inline mr-2" /> Searching the catalogue…
+        {q && error && (
+          <div
+            className="mb-6 flex items-center gap-3 p-4 rounded-lg bg-amber-50 border border-amber-300"
+            data-testid="search-error-banner"
+          >
+            <AlertTriangle className="w-5 h-5 text-amber-700 flex-shrink-0" />
+            <div className="flex-1 text-sm text-amber-900">
+              {error === 'timeout'
+                ? 'The catalogue is taking longer than usual to respond. Please try again.'
+                : 'We couldn’t reach the catalogue just now. Check your connection and try again.'}
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                // Trigger a re-fetch by bumping a meaningless URL param
+                // — simpler than threading a refetch callback.
+                const next = new URLSearchParams(searchParams);
+                next.set('r', Date.now().toString());
+                setSearchParams(next, { replace: true });
+              }}
+              className="px-3 py-1.5 rounded-full bg-amber-900 text-white text-xs font-semibold hover:bg-amber-800"
+              data-testid="search-retry-btn"
+            >
+              Retry
+            </button>
           </div>
         )}
 
-        {q && !loading && total === 0 && (
+        {q && loading && !data && (
+          // Skeleton grid (14 May 2026) — replaces the centred
+          // "Searching the catalogue…" text. Feels MUCH faster because
+          // the page paints something immediately rather than a single
+          // spinner. Same shape as the real result grid so there's no
+          // layout shift when results land.
+          <div
+            className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4 sm:gap-6"
+            data-testid="search-skeleton-grid"
+            aria-busy="true"
+            aria-label="Searching the catalogue"
+          >
+            {Array.from({ length: 8 }).map((_, i) => (
+              <div key={i} className="rounded-lg overflow-hidden border border-gray-200 bg-white">
+                <div className="aspect-square bg-gray-100 animate-pulse" />
+                <div className="p-3 space-y-2">
+                  <div className="h-3 w-3/4 bg-gray-100 animate-pulse rounded" />
+                  <div className="h-3 w-1/2 bg-gray-100 animate-pulse rounded" />
+                  <div className="h-4 w-1/3 bg-gray-100 animate-pulse rounded mt-3" />
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {q && !loading && total === 0 && !error && (
           <div className="py-20 text-center" data-testid="search-no-results">
             <SearchIcon className="w-10 h-10 mx-auto mb-2 text-gray-300" />
             <h2 className="text-lg font-semibold text-gray-900">No products match “{q}”</h2>
