@@ -9,7 +9,24 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 ## Recent Sessions (most recent first)
+### [May 15, 2026] 🏷️ Cross-sell pill text overflow
+
+**User-reported** (screenshot): "ADHESIVES & UNDERLAY" pill text overflowed its parent card on cross-sell carousels.
+
+**Root cause** (`/app/frontend/src/components/shop/CrossSellSections.jsx:251`): the pill used `tracking-wider` (letter-spacing 0.05em) + uppercase + no max-width, so any label longer than ~15 characters grew wider than the 288px parent card and bled into the next slide.
+
+**Fix**:
+- Dropped `tracking-wider` (saved ~10% width on its own)
+- Added `max-w-[calc(100%-1.5rem)]` (1.5rem = the `left-3` offset doubled, so pill stays inside the card's right edge too)
+- Added `leading-tight` + `wordBreak: 'normal'` + `overflowWrap: 'anywhere'` so very long labels wrap onto 2 lines instead of clipping
+- Added `title={group_label}` so hover gives the full text + `data-testid` for future regression tests
+
 ### [May 14, 2026 LATE NIGHT 2] 🚨 Uptime alert fired correctly — sitemap fixed + budget tuned
+
+
+**Verified** (Playwright on /tiles cross-sell): all pills `overflowsRight: false`, pill width 120px vs card width 288px.
+
+
 
 The uptime monitor built earlier today posted its first real-world alert: **"Tile Station DOWN — API health failed: timeout after 10.0s · Sitemap failed: timeout after 10.0s"**. User flagged it within minutes (screenshot). Caught a real prod issue **before any customer noticed**.
 

@@ -247,8 +247,18 @@ export const YouMayAlsoNeed = ({
               data-testid={`cross-sell-item-${collection.series_name || idx}`}
             >
               {/* Group-label pill — sits above the card and identifies which
-                  cross-sell category this recommendation belongs to. */}
-              <span className="absolute -top-2 left-3 z-20 px-2.5 py-1 bg-amber-500 text-white text-[10px] font-bold uppercase tracking-wider rounded-full shadow-sm">
+                  cross-sell category this recommendation belongs to.
+                  14 May 2026 — was overflowing the card on long labels
+                  like "ADHESIVES & UNDERLAY" because `tracking-wider`
+                  + uppercase + no max-width = ~10% extra width than
+                  the card. Capped at card width minus the left offset,
+                  dropped tracking, and allowed natural word-wrap. */}
+              <span
+                className="absolute -top-2 left-3 z-20 px-2.5 py-1 bg-amber-500 text-white text-[10px] font-bold uppercase rounded-full shadow-sm max-w-[calc(100%-1.5rem)] leading-tight"
+                style={{ wordBreak: 'normal', overflowWrap: 'anywhere' }}
+                data-testid={`cross-sell-label-${collection.series_name || idx}`}
+                title={group_label}
+              >
                 {group_label}
               </span>
               <CollectionCard
