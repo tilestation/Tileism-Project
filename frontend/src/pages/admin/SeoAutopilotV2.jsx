@@ -3,7 +3,7 @@ import axios from 'axios';
 import { Card } from '../../components/ui/card';
 import { Button } from '../../components/ui/button';
 import { Badge } from '../../components/ui/badge';
-import { ShieldCheck, RefreshCw, Search, Trash2, Wrench, AlertTriangle } from 'lucide-react';
+import { ShieldCheck, RefreshCw, Search, Trash2, Wrench, AlertTriangle, Megaphone, CheckCircle2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
@@ -63,6 +63,8 @@ export default function SeoAutopilotV2() {
   const [dashboard, setDashboard] = useState(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(null); // 'crawl' | 'gsc' | 'autofix' | 'fullcycle' | null
+  // 15 May 2026 — re-crawl request state
+  const [recrawl, setRecrawl] = useState({ requesting: false, last: null });
 
   const authHeaders = useCallback(() => ({
     Authorization: `Bearer ${localStorage.getItem('token') || ''}`,
@@ -73,6 +75,12 @@ export default function SeoAutopilotV2() {
     try {
       const { data } = await axios.get(`${API}${ENDPOINT}/dashboard`, { headers: authHeaders() });
       setDashboard(data);
+      // Fetch the last recrawl summary too — independent so its failure
+      // doesn't block the dashboard.
+      try {
+        const last = await axios.get(`${API}/admin/seo/last-recrawl`, { headers: authHeaders() });
+        setRecrawl((s) => ({ ...s, last: last.data && Object.keys(last.data).length ? last.data : null }));
+      } catch (_) { /* ignore */ }
     } catch (e) {
       toast.error('Failed to load autopilot dashboard');
     } finally {
@@ -81,6 +89,30 @@ export default function SeoAutopilotV2() {
   }, [authHeaders]);
 
   useEffect(() => { loadDashboard(); }, [loadDashboard]);
+
+  const requestRecrawl = async () => {
+    if (!window.confirm('Trigger fresh Ahrefs site audit + Google sitemap re-submit + IndexNow ping?')) return;
+    setRecrawl((s) => ({ ...s, requesting: true }));
+    try {
+      const { data } = await axios.post(`${API}/admin/seo/request-recrawl`, {}, {
+        headers: authHeaders(),
+        timeout: 60000,
+      });
+      setRecrawl({ requesting: false, last: data });
+      const parts = [];
+      if (data?.ahrefs?.ok) parts.push('Ahrefs crawl queued');
+      else parts.push(`Ahrefs: ${data?.ahrefs?.reason || 'skipped'}`);
+      if (data?.gsc?.ok) parts.push('GSC sitemap re-submitted');
+      else parts.push(`GSC: ${data?.gsc?.reason || 'skipped'}`);
+      if (data?.indexnow?.ok) parts.push('IndexNow ping sent');
+      else parts.push(`IndexNow: ${data?.indexnow?.reason || 'skipped'}`);
+      if (data?.overall_ok) toast.success(parts.join(' · '));
+      else toast.warning(parts.join(' · '));
+    } catch (e) {
+      setRecrawl((s) => ({ ...s, requesting: false }));
+      toast.error(`Re-crawl failed: ${e?.response?.data?.detail || e.message}`);
+    }
+  };
 
   const trigger = async (path, label) => {
     setBusy(label);
@@ -162,6 +194,56 @@ export default function SeoAutopilotV2() {
             data-testid="autopilot-run-full-btn"
           >
             {busy === 'Full cycle' ? 'Running full cycle…' : 'Run FULL cycle'}
+          </Button>
+        </div>
+      </Card>
+
+      {/* 15 May 2026 — Re-crawl request card. Most SEO fixes don't show
+          up in Ahrefs / GSC for days (weekly crawl cycles). This button
+          tells every crawler "hey, look again" so we validate the fix
+          in hours instead. */}
+      <Card className="p-4" data-testid="recrawl-card">
+        <div className="flex items-start gap-4 flex-wrap">
+          <div className="flex-1 min-w-[280px]">
+            <h3 className="font-semibold flex items-center gap-2">
+              <Megaphone className="w-4 h-4 text-purple-600" />
+              Request fresh re-crawl
+            </h3>
+            <p className="text-xs text-slate-600 mt-1 max-w-xl">
+              Pings <strong>Ahrefs</strong> to trigger a new Site Audit,
+              re-submits the sitemap to <strong>Google Search Console</strong>,
+              and pings <strong>IndexNow</strong> (Bing/Yandex/DuckDuckGo).
+              Use this after a deploy that fixes a batch of SEO issues so
+              you validate the fix in <em>hours</em> instead of waiting for
+              the weekly crawl cycle.
+            </p>
+            {recrawl.last?.requested_at && (
+              <p className="text-xs text-slate-500 mt-2">
+                Last requested: {new Date(recrawl.last.requested_at).toLocaleString('en-GB')}
+                {' · '}
+                Ahrefs: {recrawl.last.ahrefs?.ok ? '✅' : '❌'} {recrawl.last.ahrefs?.reason || ''}
+                {' · '}
+                GSC: {recrawl.last.gsc?.ok ? '✅' : '❌'} {recrawl.last.gsc?.reason || ''}
+                {' · '}
+                IndexNow: {recrawl.last.indexnow?.ok ? '✅' : '❌'} {recrawl.last.indexnow?.reason || ''}
+              </p>
+            )}
+          </div>
+          <Button
+            onClick={requestRecrawl}
+            disabled={recrawl.requesting}
+            className="bg-purple-600 hover:bg-purple-700 text-white"
+            data-testid="recrawl-request-btn"
+          >
+            {recrawl.requesting ? (
+              <>
+                <RefreshCw className="w-4 h-4 mr-2 animate-spin" /> Requesting…
+              </>
+            ) : (
+              <>
+                <Megaphone className="w-4 h-4 mr-2" /> Request re-crawl now
+              </>
+            )}
           </Button>
         </div>
       </Card>

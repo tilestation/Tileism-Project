@@ -9,11 +9,38 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 ## Recent Sessions (most recent first)
-### [May 15, 2026] 🔍 Ahrefs "Duplicate pages without canonical" — explained + 2 real fixes
+### [May 15, 2026 PM] 📢 SEO re-crawl one-click trigger
+
+Built a "Request re-crawl" feature that pings every external crawler so the user can validate SEO fixes in hours instead of waiting for the weekly cycle.
+
+**Three crawlers pinged in one request**:
+1. **Ahrefs** — `POST /site-audit/v3/projects/{id}/crawl/start`. Project ID auto-discovered from `ahrefs_projects` collection; if no project exists yet, surfaces a friendly hint to create one in the Ahrefs UI (their API doesn't allow project creation).
+2. **Google Search Console** — reuses the existing `maybe_auto_submit_sitemap()` helper to re-submit `/sitemap.xml`. Note: GSC's Indexing API is restricted to JobPosting/BroadcastEvent schema, so we can't programmatically "request indexing" for product pages — that has to be done manually in GSC.
+3. **IndexNow** — pings `api.indexnow.org/IndexNow` so Bing, Yandex and DuckDuckGo also re-crawl. Requires `INDEXNOW_KEY` env var (32-128 char hex) + the key file hosted at `/<key>.txt` (one-time setup).
+
+**Audit log**: every request lands in `seo_recrawl_requests` collection with per-service result + triggered_by. UI surfaces "last requested 5m ago" with per-service ✅/❌ status.
+
+**Files**:
+- New: `/app/backend/services/seo_recrawl.py` (250 lines, ruff clean)
+- New: `/app/backend/routes/seo_recrawl.py` (30 lines)
+- Modified: `/app/backend/routes/__init__.py` (router registration)
+- Modified: `/app/frontend/src/pages/admin/SeoAutopilotV2.jsx` (+85 lines for new card + state)
+
+**End-to-end verified**: `POST /api/admin/seo/request-recrawl` returns honest per-service status with actionable error hints (Ahrefs "create project in UI first", GSC "reconnect", IndexNow "set env var").
+
+**Pre-flight setup required for the user** (one-time):
+1. Create an Ahrefs Site Audit project at https://app.ahrefs.com/site-audit/projects for `tilestation.co.uk`
+2. Reconnect Google Search Console via `/admin/seo-autopilot-v2` (token expired)
+3. Set `INDEXNOW_KEY=<32-char hex>` on Railway + serve same key at `/<key>.txt` on the site root (optional but free)
+
+
 
 User shared Ahrefs Site Audit screenshots showing 16 URLs flagged as **"Duplicate pages without canonical"**. After auditing each one, the 16 break down into 4 groups — only 2 needed actual code changes.
 
 **🟢 Group 1: Already fixed, just stale Ahrefs cache (8 URLs)**
+
+### [May 15, 2026] 🔍 Ahrefs "Duplicate pages without canonical" — explained + 2 real fixes
+
 Collection pages (Flowable Grout, Earth Stone, Coral Grey, Catalonia Onyx, Heritage Wood, Cleaning & Maintenance) + 2 PDPs (Alpine Carrara grey/white). Curl-verified all 8 currently return unique titles + correct self-canonicals. Ahrefs report predates today's SSR fix.
 
 **🟢 Group 2: Filter URLs working as designed (4 URLs)**
