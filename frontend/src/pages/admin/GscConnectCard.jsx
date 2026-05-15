@@ -123,6 +123,11 @@ const GscConnectCard = ({ onConnectionChange }) => {
   const connected = !!status?.connected;
   const configured = !!status?.configured;
   const email = status?.google_account_email;
+  // 16 May 2026 — if the refresh token was revoked / expired, the
+  // backend now surfaces `previously_connected: true` so we can show a
+  // "Reconnect" prompt rather than a generic first-time-setup blurb.
+  const previouslyConnected = !connected && !!status?.previously_connected;
+  const tokenRevoked = previouslyConnected && status?.reason === "token_revoked";
 
   return (
     <div
@@ -148,6 +153,13 @@ const GscConnectCard = ({ onConnectionChange }) => {
                 >
                   <CheckCircle2 className="w-3 h-3" /> Connected
                 </span>
+              ) : tokenRevoked ? (
+                <span
+                  className="inline-flex items-center text-[11px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full bg-amber-100 text-amber-700"
+                  data-testid="gsc-status-token-revoked"
+                >
+                  Reconnect required
+                </span>
               ) : (
                 <span
                   className="inline-flex items-center text-[11px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full bg-slate-100 text-slate-600"
@@ -161,6 +173,13 @@ const GscConnectCard = ({ onConnectionChange }) => {
               <p className="text-sm text-slate-600 mt-1">
                 Connected as <span className="font-medium text-slate-800">{email || 'your Google account'}</span>.
                 Phase 1 done — Phase 2 will pull search analytics into this card.
+              </p>
+            ) : tokenRevoked ? (
+              <p className="text-sm text-amber-800 mt-1 max-w-2xl" data-testid="gsc-token-revoked-blurb">
+                Your previous Search Console connection
+                {email ? <> (<span className="font-medium text-amber-900">{email}</span>)</> : null}
+                {' '}was revoked or expired (Google rejected the refresh token). Click
+                <span className="font-medium"> Reconnect Search Console</span> to restore search analytics.
               </p>
             ) : (
               <p className="text-sm text-slate-600 mt-1 max-w-2xl">
@@ -229,11 +248,13 @@ const GscConnectCard = ({ onConnectionChange }) => {
               size="sm"
               onClick={handleConnect}
               disabled={connecting}
-              className="bg-blue-600 hover:bg-blue-700 text-white"
+              className={tokenRevoked
+                ? "bg-amber-600 hover:bg-amber-700 text-white"
+                : "bg-blue-600 hover:bg-blue-700 text-white"}
               data-testid="gsc-connect-btn"
             >
               {connecting ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" /> : <PlugZap className="w-3.5 h-3.5 mr-1.5" />}
-              Connect Search Console
+              {tokenRevoked ? 'Reconnect Search Console' : 'Connect Search Console'}
             </Button>
           )}
           <a

@@ -224,6 +224,26 @@ async def get_status(admin_user_id: str) -> dict[str, Any]:
             "connected": False,
             "configured": is_configured(),
         }
+
+    # 16 May 2026 — if a previous API call hit `invalid_grant` from Google
+    # (refresh token revoked / expired), `get_credentials_for_admin()`
+    # marks the doc with `token_invalid=True`. Surface that as
+    # `connected=False` here so the admin UI shows the "Reconnect" button
+    # instead of a stale "Connected" badge + Disconnect button (which
+    # was the trap that left users unable to reconnect on May 15).
+    if doc.get("token_invalid"):
+        invalidated_at = doc.get("token_invalidated_at")
+        if hasattr(invalidated_at, "isoformat"):
+            invalidated_at = invalidated_at.isoformat()
+        return {
+            "connected": False,
+            "configured": is_configured(),
+            "previously_connected": True,
+            "reason": doc.get("token_invalid_reason") or "token_revoked",
+            "google_account_email": doc.get("google_account_email"),
+            "token_invalidated_at": invalidated_at,
+        }
+
     # Convert datetimes to ISO for JSON payload.
     for k in ("access_token_expires_at", "connected_at", "last_refreshed_at", "last_used_at"):
         if doc.get(k):
@@ -285,6 +305,31 @@ async def get_credentials_for_admin(admin_user_id: str) -> Credentials:
             )
         except Exception as exc:
             logger.error("GSC token refresh failed for %s: %s", admin_user_id, exc)
+            # 16 May 2026 — if Google permanently rejected the refresh
+            # token (invalid_grant = token revoked / consent withdrawn /
+            # 6+ months unused), mark the doc so `get_status()` reports
+            # `connected=False` and the admin UI surfaces the
+            # "Reconnect Search Console" button. Transient failures
+            # (network, 5xx) are left alone so they self-heal next call.
+            exc_str = str(exc).lower()
+            if "invalid_grant" in exc_str or "token has been expired or revoked" in exc_str:
+                try:
+                    await db[TOKENS_COLLECTION].update_one(
+                        {"_id": admin_user_id},
+                        {
+                            "$set": {
+                                "token_invalid": True,
+                                "token_invalid_reason": "token_revoked",
+                                "token_invalidated_at": datetime.now(timezone.utc),
+                            }
+                        },
+                    )
+                except Exception as mark_exc:  # noqa: BLE001 — best effort
+                    logger.warning(
+                        "Failed to mark GSC token as invalid for %s: %s",
+                        admin_user_id,
+                        mark_exc,
+                    )
             raise HTTPException(
                 status_code=401,
                 detail="Google Search Console token refresh failed — please reconnect.",

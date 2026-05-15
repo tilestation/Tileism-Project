@@ -10,6 +10,28 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 
 ## Recent Sessions (most recent first)
 
+### [May 16, 2026 — late evening] 🔓 GSC stale-token trap fix
+
+When Google's refresh token was revoked (expired / consent withdrawn / 6+ months unused), our `get_status()` still returned `connected: True` because it only checked "is there a DB record?" — never tested liveness. Result: admin UI showed a green "Connected" badge with a Disconnect-only button, trapping admins who couldn't see a Connect button to reconnect. Triggered today by `qasim@tilestation.co.uk`'s expired token (logs showed `invalid_grant: Token has been expired or revoked`).
+
+**Fix (3 surgical edits)**:
+1. `services/gsc.py::get_credentials_for_admin` — when refresh raises `invalid_grant`, marks the doc with `token_invalid: True, token_invalid_reason: "token_revoked", token_invalidated_at: <now>`. Transient network/5xx errors are left alone so they self-heal.
+2. `services/gsc.py::get_status` — checks `token_invalid`; if set, returns `{connected: False, previously_connected: True, reason: "token_revoked", google_account_email: <last known>}` so the UI shows the Reconnect button.
+3. `GscConnectCard.jsx` — when `previously_connected === true && reason === "token_revoked"`, shows an **amber "Reconnect required"** badge + amber "Reconnect Search Console" CTA, with copy "Your previous Search Console connection (foo@) was revoked or expired — click Reconnect to restore search analytics."
+
+**Self-healing on reconnect**: the OAuth callback uses `replace_one(upsert=True)` which atomically wipes the invalid flag without needing an explicit `$unset`. Verified by test #4.
+
+**Files**:
+- Modified: `/app/backend/services/gsc.py` (+45 lines)
+- Modified: `/app/frontend/src/pages/admin/GscConnectCard.jsx` (+25 lines)
+- New: `/app/backend/tests/test_gsc_token_trap.py` (4 tests — all pass)
+
+**Tests**:
+- `test_status_returns_not_connected_when_no_doc` — fresh state baseline ✅
+- `test_status_returns_connected_for_healthy_doc` — happy path, no token leak ✅
+- `test_status_returns_token_revoked_when_flagged` — core regression ✅
+- `test_reconnect_clears_invalid_flag_via_replace_one` — self-heal contract ✅
+
 ### [May 16, 2026] 🔑 IndexNow key-file proxy + completed axios migration
 
 **1) IndexNow key file served from env var (no static file needed)**
