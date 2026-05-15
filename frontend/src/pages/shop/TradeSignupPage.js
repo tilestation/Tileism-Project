@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Building2, Percent, Package, Check, Loader2, BadgeCheck } from 'lucide-react';
 import { toast } from 'sonner';
+import axios from 'axios';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
 
@@ -37,23 +38,16 @@ const TradeSignupPage = () => {
     setError('');
     
     try {
-      const response = await fetch(`${API_URL}/api/shop/trade/apply`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData)
-      });
-      
-      if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.detail || 'Failed to submit application');
-      }
+      // 15 May 2026 — axios instead of fetch (Sentry-body-drain).
+      await axios.post(`${API_URL}/api/shop/trade/apply`, formData);
       
       setSubmitted(true);
       toast.success('Application submitted successfully!');
     } catch (err) {
       console.error('Trade application error:', err);
-      setError(err.message || 'Failed to submit application');
-      toast.error(err.message || 'Failed to submit application');
+      const msg = err?.response?.data?.detail || err.message || 'Failed to submit application';
+      setError(msg);
+      toast.error(msg);
     } finally {
       setSubmitting(false);
     }

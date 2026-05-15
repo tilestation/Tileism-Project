@@ -6,6 +6,7 @@ import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
 import { ShopHeader, ShopFooter } from './TileStationHome';
 import { toast } from 'sonner';
+import axios from 'axios';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
 
@@ -50,23 +51,20 @@ const TradeLoginPage = () => {
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch(`${API_URL}/api/shop/auth/me`, {
-          headers: { 'Authorization': `Bearer ${token}` },
+        // 15 May 2026 — axios instead of fetch (Sentry-body-drain).
+        const { data: customer } = await axios.get(`${API_URL}/api/shop/auth/me`, {
+          headers: { Authorization: `Bearer ${token}` },
         });
         if (cancelled) return;
-        if (res.ok) {
-          const customer = await res.json();
-          try { localStorage.setItem('tile_shop_customer', JSON.stringify(customer)); } catch {}
-          window.dispatchEvent(new Event('trade-auth-change'));
-          navigate(customer.is_trade ? redirect : '/shop/account', { replace: true });
-        } else {
-          // Token rejected — clear stale state for a clean re-login.
+        try { localStorage.setItem('tile_shop_customer', JSON.stringify(customer)); } catch {}
+        window.dispatchEvent(new Event('trade-auth-change'));
+        navigate(customer.is_trade ? redirect : '/shop/account', { replace: true });
+      } catch (err) {
+        if (err?.response?.status === 401) {
           localStorage.removeItem('tile_shop_token');
           localStorage.removeItem('tile_shop_customer');
           window.dispatchEvent(new Event('trade-auth-change'));
         }
-      } catch {
-        // Network blip — leave state alone, user can retry login.
       }
     })();
     return () => { cancelled = true; };
@@ -78,39 +76,9 @@ const TradeLoginPage = () => {
     setLoading(true);
 
     try {
-      const response = await fetch(`${API_URL}/api/shop/auth/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password })
-      });
-
-      if (!response.ok) {
-        // After failed login, do a single rate-limited "exists?" check so
-        // we can disambiguate "wrong password" vs "no account" for the user.
-        try {
-          const exRes = await fetch(`${API_URL}/api/shop/auth/email-exists`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email }),
-          });
-          if (exRes.ok) {
-            const ex = await exRes.json();
-            if (ex && ex.exists === false) {
-              setEmailNotFound(true);
-              throw new Error('No account found for this email');
-            }
-          }
-        } catch (innerErr) {
-          if (innerErr && innerErr.message === 'No account found for this email') {
-            throw innerErr;
-          }
-        }
-        // Email exists but password is wrong — bump streak for nudge.
-        setWrongPasswordStreak(s => s + 1);
-        throw new Error('Invalid email or password');
-      }
+      // 15 May 2026 — axios instead of fetch (Sentry-body-drain).
+      const { data } = await axios.post(`${API_URL}/api/shop/auth/login`, { email, password });
       setWrongPasswordStreak(0);
-      const data = await response.json();
 
       localStorage.setItem('tile_shop_token', data.token);
       localStorage.setItem('tile_shop_customer', JSON.stringify(data.customer));
@@ -121,7 +89,18 @@ const TradeLoginPage = () => {
       toast.success('Welcome back!');
       navigate('/shop/trade/account');
     } catch (error) {
-      toast.error(error.message || 'Invalid email or password');
+      let msg = error?.response?.data?.detail || 'Invalid email or password';
+      try {
+        const { data: ex } = await axios.post(`${API_URL}/api/shop/auth/email-exists`, { email });
+        if (ex && ex.exists === false) {
+          setEmailNotFound(true);
+          msg = 'No account found for this email';
+        } else {
+          setWrongPasswordStreak(s => s + 1);
+          msg = 'Invalid email or password';
+        }
+      } catch (_) { /* network blip on exists check — keep msg */ }
+      toast.error(msg);
     } finally {
       setLoading(false);
     }

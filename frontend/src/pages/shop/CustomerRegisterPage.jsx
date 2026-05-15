@@ -9,6 +9,7 @@ import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
 import { ShopHeader, ShopFooter } from './TileStationHome';
 import { toast } from 'sonner';
+import axios from 'axios';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
 
@@ -72,41 +73,37 @@ const CustomerRegisterPage = () => {
     if (formData.password.length < 8) { toast.error('Password must be at least 8 characters'); return; }
     setLoading(true);
     try {
-      const response = await fetch(`${API_URL}/api/shop/auth/register`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email: formData.email, password: formData.password, name: formData.name,
-          phone: formData.phone, address_line1: formData.address_line1, address_line2: formData.address_line2,
-          city: formData.city, postcode: formData.postcode, is_trade: false
-        })
+      // 15 May 2026 — axios instead of fetch (Sentry-body-drain).
+      const { data } = await axios.post(`${API_URL}/api/shop/auth/register`, {
+        email: formData.email,
+        password: formData.password,
+        name: formData.name,
+        phone: formData.phone,
+        address_line1: formData.address_line1,
+        address_line2: formData.address_line2,
+        city: formData.city,
+        postcode: formData.postcode,
+        is_trade: false,
       });
-      if (!response.ok) {
-        // Surface the real reason (e.g. duplicate email, bad postcode)
-        // instead of the generic "Registration failed".
-        let errorMessage = 'Registration failed — please try again';
-        try {
-          const errBody = await response.json();
-          const detail = errBody?.detail;
-          if (typeof detail === 'string') {
-            errorMessage = detail;
-          } else if (Array.isArray(detail) && detail.length > 0) {
-            const firstErr = detail[0];
-            const fieldName = Array.isArray(firstErr?.loc)
-              ? firstErr.loc.filter(p => p !== 'body').join(' → ')
-              : 'field';
-            errorMessage = `${fieldName}: ${firstErr?.msg || 'invalid value'}`;
-          }
-        } catch { /* response wasn't JSON */ }
-        throw new Error(errorMessage);
-      }
-      const data = await response.json();
       localStorage.setItem('tile_shop_token', data.token);
       localStorage.setItem('tile_shop_customer', JSON.stringify(data.customer));
       toast.success('Account created successfully!');
       navigate(redirect);
     } catch (error) {
-      const msg = error.message || 'Registration failed';
+      // Surface the real reason from axios `error.response.data`.
+      let msg = 'Registration failed — please try again';
+      const detail = error?.response?.data?.detail;
+      if (typeof detail === 'string') {
+        msg = detail;
+      } else if (Array.isArray(detail) && detail.length > 0) {
+        const firstErr = detail[0];
+        const fieldName = Array.isArray(firstErr?.loc)
+          ? firstErr.loc.filter(p => p !== 'body').join(' → ')
+          : 'field';
+        msg = `${fieldName}: ${firstErr?.msg || 'invalid value'}`;
+      } else if (error?.message) {
+        msg = error.message;
+      }
       if (/email\s+already\s+registered/i.test(msg)) {
         setEmailAlreadyRegistered(true);
       }

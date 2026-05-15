@@ -6,6 +6,7 @@ import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
 import { ShopHeader, ShopFooter } from './TileStationHome';
 import { toast } from 'sonner';
+import axios from 'axios';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
 
@@ -45,27 +46,27 @@ const TileLoginPage = () => {
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch(`${API_URL}/api/shop/auth/me`, {
-          headers: { 'Authorization': `Bearer ${token}` },
+        // 15 May 2026 — moved from fetch() to axios. Sentry's
+        // browserTracingIntegration consumes fetch response bodies for
+        // tracing, leaving our code unable to read the JSON. Axios
+        // isn't instrumented by Sentry's fetch wrap.
+        const { data: customer } = await axios.get(`${API_URL}/api/shop/auth/me`, {
+          headers: { Authorization: `Bearer ${token}` },
         });
         if (cancelled) return;
-        if (res.ok) {
-          const customer = await res.json();
-          try { localStorage.setItem('tile_shop_customer', JSON.stringify(customer)); } catch {}
-          window.dispatchEvent(new Event('trade-auth-change'));
-          // Forward to wherever they came from (or trade dashboard for trade users).
-          const target = redirect && redirect !== '/tiles'
-            ? redirect
-            : (customer.is_trade ? '/shop/trade/account' : '/shop/account');
-          navigate(target, { replace: true });
-        } else {
-          // Token rejected — clear stale state so the user can re-login cleanly.
+        try { localStorage.setItem('tile_shop_customer', JSON.stringify(customer)); } catch {}
+        window.dispatchEvent(new Event('trade-auth-change'));
+        const target = redirect && redirect !== '/tiles'
+          ? redirect
+          : (customer.is_trade ? '/shop/trade/account' : '/shop/account');
+        navigate(target, { replace: true });
+      } catch (err) {
+        // 401 → token rejected; anything else (network) → leave state alone.
+        if (err?.response?.status === 401) {
           localStorage.removeItem('tile_shop_token');
           localStorage.removeItem('tile_shop_customer');
           window.dispatchEvent(new Event('trade-auth-change'));
         }
-      } catch {
-        // Network blip — leave state alone, user can retry login.
       }
     })();
     return () => { cancelled = true; };
@@ -77,45 +78,10 @@ const TileLoginPage = () => {
     setLoading(true);
     
     try {
-      const response = await fetch(`${API_URL}/api/shop/auth/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password })
-      });
-      
-      if (!response.ok) {
-        // After a failed login, do a single rate-limited "does this email
-        // exist?" check so we can disambiguate "wrong password" vs "no
-        // account" for the user. Quietly fall back to the generic message
-        // if the check fails.
-        try {
-          const exRes = await fetch(`${API_URL}/api/shop/auth/email-exists`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email }),
-          });
-          if (exRes.ok) {
-            const ex = await exRes.json();
-            if (ex && ex.exists === false) {
-              setEmailNotFound(true);
-              throw new Error('No account found for this email');
-            }
-          }
-        } catch (innerErr) {
-          // Surface the more-specific message if we set it; else generic
-          if (innerErr && innerErr.message === 'No account found for this email') {
-            throw innerErr;
-          }
-        }
-        // Email does exist (or check failed) but the password didn't match.
-        // Track consecutive wrong-password attempts to nudge "Forgot password?".
-        setWrongPasswordStreak(s => s + 1);
-        throw new Error('Invalid email or password');
-      }
+      // 15 May 2026 — axios instead of fetch (Sentry-body-drain).
+      const { data } = await axios.post(`${API_URL}/api/shop/auth/login`, { email, password });
       // Success — reset the streak so any future failures start clean.
       setWrongPasswordStreak(0);
-      
-      const data = await response.json();
       
       // Store token and customer data
       localStorage.setItem('tile_shop_token', data.token);
@@ -127,7 +93,21 @@ const TileLoginPage = () => {
       toast.success('Welcome back!');
       navigate(redirect);
     } catch (error) {
-      toast.error(error.message || 'Invalid email or password');
+      // Login failed — distinguish "no account" vs "wrong password" so
+      // the UI can show targeted hints. Quietly fall back to generic
+      // text on any error.
+      let msg = error?.response?.data?.detail || error?.message || 'Invalid email or password';
+      try {
+        const { data: ex } = await axios.post(`${API_URL}/api/shop/auth/email-exists`, { email });
+        if (ex && ex.exists === false) {
+          setEmailNotFound(true);
+          msg = 'No account found for this email';
+        } else {
+          setWrongPasswordStreak(s => s + 1);
+          msg = 'Invalid email or password';
+        }
+      } catch (_) { /* network blip on the exists check — keep generic */ }
+      toast.error(msg);
     } finally {
       setLoading(false);
     }

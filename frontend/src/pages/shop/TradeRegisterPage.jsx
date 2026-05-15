@@ -10,6 +10,7 @@ import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
 import { ShopHeader, ShopFooter } from './TileStationHome';
 import { toast } from 'sonner';
+import axios from 'axios';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
 
@@ -146,38 +147,31 @@ const TradeRegisterPage = () => {
       // confirmPassword is local-only; the backend Pydantic model doesn't
       // accept extra fields cleanly so strip it before sending.
       const { confirmPassword: _ignore, ...body } = formData;
-      const response = await fetch(`${API_URL}/api/shop/auth/trade-register`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...body, is_trade: true, trade_tier: 'bronze', trade_discount: tiers[0]?.discount || 1 })
+      // 15 May 2026 — axios instead of fetch (Sentry-body-drain).
+      await axios.post(`${API_URL}/api/shop/auth/trade-register`, {
+        ...body,
+        is_trade: true,
+        trade_tier: 'bronze',
+        trade_discount: tiers[0]?.discount || 1,
       });
-      if (!response.ok) {
-        // Read the actual error from the backend so the user sees a useful
-        // message instead of the generic "Registration failed". Handles:
-        //  - 400 with `detail: "Email already registered"` (string)
-        //  - 422 with `detail: [{loc, msg}, ...]` (Pydantic validation array)
-        //  - non-JSON / network failures
-        let errorMessage = 'Registration failed — please try again';
-        try {
-          const errBody = await response.json();
-          const detail = errBody?.detail;
-          if (typeof detail === 'string') {
-            errorMessage = detail;
-          } else if (Array.isArray(detail) && detail.length > 0) {
-            const firstErr = detail[0];
-            const fieldName = Array.isArray(firstErr?.loc)
-              ? firstErr.loc.filter(p => p !== 'body').join(' → ')
-              : 'field';
-            errorMessage = `${fieldName}: ${firstErr?.msg || 'invalid value'}`;
-          }
-        } catch { /* response wasn't JSON */ }
-        throw new Error(errorMessage);
-      }
-      await response.json();
       setSubmitted(true);
       toast.success('Trade account application submitted!');
     } catch (error) {
-      const msg = error.message || 'Registration failed';
+      // Surface the actual backend detail. axios puts the response body
+      // on error.response.data — same shape as before but already parsed.
+      let msg = 'Registration failed — please try again';
+      const detail = error?.response?.data?.detail;
+      if (typeof detail === 'string') {
+        msg = detail;
+      } else if (Array.isArray(detail) && detail.length > 0) {
+        const firstErr = detail[0];
+        const fieldName = Array.isArray(firstErr?.loc)
+          ? firstErr.loc.filter(p => p !== 'body').join(' → ')
+          : 'field';
+        msg = `${fieldName}: ${firstErr?.msg || 'invalid value'}`;
+      } else if (error?.message) {
+        msg = error.message;
+      }
       if (/email\s+already\s+registered/i.test(msg)) {
         setEmailAlreadyRegistered(true);
       }
