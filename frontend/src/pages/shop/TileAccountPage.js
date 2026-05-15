@@ -4,6 +4,7 @@ import { User, Mail, Phone, MapPin, Package, LogOut, ChevronRight, Clock, Coins,
 import { Button } from '../../components/ui/button';
 import { ShopHeader, ShopFooter } from './TileStationHome';
 import { toast } from 'sonner';
+import axios from 'axios';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
 
@@ -25,41 +26,45 @@ const TileAccountPage = () => {
   }, [navigate]);
 
   const fetchAccountData = async (token) => {
+    // 16 May 2026 — moved from fetch() to axios. Sentry's BrowserTracing
+    // integration patches window.fetch and consumes the response body
+    // before our code reads it, so JSON parsing silently returns null on
+    // prod and the customer is sent back to login even when their token
+    // is valid. axios isn't intercepted, so we get the real body every time.
+    const authHeaders = { Authorization: `Bearer ${token}` };
     try {
       // Fetch customer profile
-      const profileRes = await fetch(`${API_URL}/api/shop/auth/me`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      
-      if (!profileRes.ok) {
-        // Token invalid, redirect to login
-        localStorage.removeItem('tile_shop_token');
-        localStorage.removeItem('tile_shop_customer');
-        navigate('/shop/tile-login');
-        return;
+      let profileData;
+      try {
+        const profileRes = await axios.get(`${API_URL}/api/shop/auth/me`, { headers: authHeaders });
+        profileData = profileRes.data;
+      } catch (err) {
+        if (err?.response?.status === 401 || err?.response?.status === 403) {
+          // Token invalid, redirect to login
+          localStorage.removeItem('tile_shop_token');
+          localStorage.removeItem('tile_shop_customer');
+          navigate('/shop/tile-login');
+          return;
+        }
+        throw err;
       }
-      
-      const profileData = await profileRes.json();
       setCustomer(profileData);
-      
-      // Fetch orders
-      const ordersRes = await fetch(`${API_URL}/api/shop/orders`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      
-      if (ordersRes.ok) {
-        const ordersData = await ordersRes.json();
-        setOrders(ordersData.slice(0, 5)); // Show last 5 orders
+
+      // Fetch orders — best-effort, don't block account page on order failures
+      try {
+        const ordersRes = await axios.get(`${API_URL}/api/shop/orders`, { headers: authHeaders });
+        setOrders((ordersRes.data || []).slice(0, 5)); // Show last 5 orders
+      } catch (err) {
+        console.warn('[account] orders fetch failed:', err?.message);
       }
 
       // Fetch credit data if trade customer
       if (profileData.is_trade) {
-        const creditRes = await fetch(`${API_URL}/api/shop/trade/credits/summary`, {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-        if (creditRes.ok) {
-          const credits = await creditRes.json();
-          setCreditData(credits);
+        try {
+          const creditRes = await axios.get(`${API_URL}/api/shop/trade/credits/summary`, { headers: authHeaders });
+          setCreditData(creditRes.data);
+        } catch (err) {
+          console.warn('[account] credit summary fetch failed:', err?.message);
         }
       }
     } catch (error) {

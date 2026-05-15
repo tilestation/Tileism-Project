@@ -18,8 +18,27 @@ import useAbandonedCartTracker from '../../hooks/useAbandonedCartTracker';
 import CheckoutMaintenanceWarning from '../../components/shop/CheckoutMaintenanceWarning';
 import { useCheckoutMaintenanceCountdown } from '../../contexts/MaintenanceContext';
 import { normaliseImageUrl, safeToFixed} from '../../utils/safeStr';
+import axios from 'axios';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
+
+// 16 May 2026 — Pull the human-readable error detail out of an axios
+// error. Sentry's fetch interception used to swallow the response body
+// before our code parsed it, which is the whole reason we migrated off
+// fetch. With axios the body sits on `err.response.data` reliably.
+const extractAxiosErrorDetail = (err, fallback = 'Request failed') => {
+  const status = err?.response?.status;
+  const data = err?.response?.data;
+  if (data && typeof data === 'object') {
+    return data.detail || data.message || data.error || fallback;
+  }
+  if (typeof data === 'string' && data.trim()) {
+    // Server returned plain text / HTML — strip tags so toast stays short.
+    return data.replace(/<[^>]+>/g, '').trim().slice(0, 200) || fallback;
+  }
+  if (status) return `${fallback} (HTTP ${status})`;
+  return err?.message || fallback;
+};
 
 const DEFAULT_SETTINGS = {
   delivery: { enabled: true, free_threshold: 499, default_fee: 49.99, label: 'Home Delivery', description: 'Delivered within 3-5 working days', zones: [], congestion_charge: { enabled: true, amount: 15.00, label: 'Congestion Charge (Central London)' }, express: { enabled: true, extra_fee: 25.00, label: 'Express Delivery', description: '2-3 working days', standard_label: 'Standard Delivery', standard_description: '5-7 working days' } },
@@ -134,8 +153,8 @@ const TileCheckoutPage = () => {
       try { setCartItems(JSON.parse(stored)); } catch (e) { /* ignore */ }
     }
     // Fetch checkout settings
-    fetch(`${API_URL}/api/website-admin/public/checkout-settings`)
-      .then(r => r.ok ? r.json() : null)
+    axios.get(`${API_URL}/api/website-admin/public/checkout-settings`)
+      .then(res => res.data)
       .then(d => {
         if (d?.settings && Object.keys(d.settings).length) {
           setSettings(prev => ({
@@ -220,12 +239,10 @@ const TileCheckoutPage = () => {
     setPromoChecking(true);
     setPromoError('');
     try {
-      const res = await fetch(`${API_URL}/api/shop/discount-codes/validate`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code, email: details.email || '', subtotal }),
+      const res = await axios.post(`${API_URL}/api/shop/discount-codes/validate`, {
+        code, email: details.email || '', subtotal,
       });
-      const data = await res.json();
+      const data = res.data;
       if (data?.valid) {
         setPromoApplied({
           code: data.code,
@@ -238,7 +255,16 @@ const TileCheckoutPage = () => {
         setPromoError(data?.reason || 'Invalid code');
       }
     } catch (e) {
-      setPromoError('Could not check code. Try again.');
+      // Axios throws on 4xx — the discount-codes endpoint returns
+      // `{valid: false, reason: "..."}` in the body on bad codes, so
+      // surface that detail when present.
+      const data = e?.response?.data;
+      if (data && typeof data === 'object' && data.reason) {
+        setPromoApplied(null);
+        setPromoError(data.reason);
+      } else {
+        setPromoError('Could not check code. Try again.');
+      }
     } finally {
       setPromoChecking(false);
     }
@@ -375,30 +401,25 @@ const TileCheckoutPage = () => {
         subtotal, delivery_fee: deliveryFee || 0, express_fee: expressFee, total,
         savings_meta,
       };
-      let orderRes;
+      let orderResult;
       try {
-        orderRes = await fetch(`${API_URL}/api/shop/guest-checkout`, {
-          method: 'POST',
+        const orderRes = await axios.post(`${API_URL}/api/shop/guest-checkout`, orderData, {
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(orderData)
         });
-      } catch (netErr) {
-        console.error('[checkout] Network error during order creation:', netErr);
-        toast.error('Cannot reach our server. Check your internet connection and try again.');
-        return;
-      }
-      if (!orderRes.ok) {
-        let errDetail;
-        try {
-          errDetail = (await orderRes.json())?.detail;
-        } catch {
-          errDetail = `Server returned ${orderRes.status} ${orderRes.statusText || ''}`.trim();
+        orderResult = orderRes.data;
+      } catch (err) {
+        // Distinguish network errors (no response) from server errors
+        // (4xx/5xx) so the toast wording matches what actually went wrong.
+        if (!err?.response) {
+          console.error('[checkout] Network error during order creation:', err);
+          toast.error('Cannot reach our server. Check your internet connection and try again.');
+          return;
         }
-        console.error('[checkout] Order creation failed:', orderRes.status, errDetail);
-        toast.error(errDetail || `Failed to place order (HTTP ${orderRes.status})`);
+        const detail = extractAxiosErrorDetail(err, 'Failed to place order');
+        console.error('[checkout] Order creation failed:', err.response.status, detail);
+        toast.error(detail);
         return;
       }
-      const orderResult = await orderRes.json();
 
       // Step 1.5: Apply trade credit (if enabled). Atomic deduction from
       // shop_customers.credit_balance + ledger entry + order.total update.
@@ -408,24 +429,17 @@ const TileCheckoutPage = () => {
       if (tradeCreditEnabled && tradeCreditApplied > 0) {
         try {
           const tradeToken = localStorage.getItem('tile_shop_token');
-          const redeemRes = await fetch(`${API_URL}/api/shop/trade/credits/redeem`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              ...(tradeToken ? { Authorization: `Bearer ${tradeToken}` } : {}),
+          const redeemRes = await axios.post(
+            `${API_URL}/api/shop/trade/credits/redeem`,
+            { order_id: orderResult.order_id, amount: tradeCreditApplied },
+            {
+              headers: {
+                'Content-Type': 'application/json',
+                ...(tradeToken ? { Authorization: `Bearer ${tradeToken}` } : {}),
+              },
             },
-            body: JSON.stringify({
-              order_id: orderResult.order_id,
-              amount: tradeCreditApplied,
-            }),
-          });
-          if (!redeemRes.ok) {
-            const detail = (await redeemRes.json().catch(() => null))?.detail || `HTTP ${redeemRes.status}`;
-            console.error('[checkout] Trade credit redemption failed:', detail);
-            toast.error(`Could not apply trade credit: ${detail}`);
-            return;
-          }
-          const redeemBody = await redeemRes.json();
+          );
+          const redeemBody = redeemRes.data;
           // Refresh the cached customer balance so the dashboard shows the
           // post-redemption figure on next visit.
           try {
@@ -439,58 +453,47 @@ const TileCheckoutPage = () => {
             sessionStorage.removeItem('tile_use_trade_credit');
           } catch (e) { /* ignore cache refresh blip */ }
         } catch (err) {
-          console.error('[checkout] Network error during credit redemption:', err);
-          toast.error('Could not apply trade credit — please try again.');
+          if (!err?.response) {
+            console.error('[checkout] Network error during credit redemption:', err);
+            toast.error('Could not apply trade credit — please try again.');
+            return;
+          }
+          const detail = extractAxiosErrorDetail(err, 'Trade credit redemption failed');
+          console.error('[checkout] Trade credit redemption failed:', detail);
+          toast.error(`Could not apply trade credit: ${detail}`);
           return;
         }
       }
 
       // Step 2: Create Stripe payment session
-      let payRes;
+      let payResult;
       try {
-        payRes = await fetch(`${API_URL}/api/shop/guest-checkout/pay`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
+        const payRes = await axios.post(
+          `${API_URL}/api/shop/guest-checkout/pay`,
+          {
             order_id: orderResult.order_id,
             origin_url: window.location.origin,
             // Selected on Step 3 cards. Backend filters Stripe's payment_method_types
             // so the shopper lands on (or is preselected to) their chosen method.
             preferred_method: selectedMethod,
-          })
-        });
-      } catch (netErr) {
-        console.error('[checkout] Network error during payment setup:', netErr);
-        // Show the actual error message so users + support can triage
-        // (timeouts, CORS, DNS, Railway proxy closing connection mid-response).
-        const msg = netErr?.message ? `Network error: ${netErr.message}` : 'Cannot reach payment service. Please try again.';
-        toast.error(msg);
-        return;
-      }
-      if (!payRes.ok) {
-        // Read the response body ONCE as text, then try JSON — this avoids
-        // the "body already consumed" pitfall and always surfaces *something*
-        // actionable (even if Railway returns a plain HTML 500 page).
-        let errDetail;
-        let rawBody = '';
-        try {
-          rawBody = await payRes.text();
-          try {
-            const parsed = JSON.parse(rawBody);
-            errDetail = parsed?.detail || parsed?.message || parsed?.error;
-          } catch {
-            // Not JSON — strip HTML tags to keep toast short & readable
-            const stripped = rawBody.replace(/<[^>]+>/g, '').trim().slice(0, 200);
-            errDetail = stripped || `Payment service returned ${payRes.status}`;
-          }
-        } catch {
-          errDetail = `Payment service returned ${payRes.status}`;
+          },
+          { headers: { 'Content-Type': 'application/json' } },
+        );
+        payResult = payRes.data;
+      } catch (err) {
+        if (!err?.response) {
+          console.error('[checkout] Network error during payment setup:', err);
+          // Show the actual error message so users + support can triage
+          // (timeouts, CORS, DNS, Railway proxy closing connection mid-response).
+          const msg = err?.message ? `Network error: ${err.message}` : 'Cannot reach payment service. Please try again.';
+          toast.error(msg);
+          return;
         }
-        console.error('[checkout] Payment setup failed:', payRes.status, errDetail, { rawBody });
-        toast.error(errDetail || `Payment setup failed (HTTP ${payRes.status}). Please contact support.`);
+        const detail = extractAxiosErrorDetail(err, 'Payment setup failed');
+        console.error('[checkout] Payment setup failed:', err.response.status, detail, { rawBody: err.response.data });
+        toast.error(detail || `Payment setup failed (HTTP ${err.response.status}). Please contact support.`);
         return;
       }
-      const payResult = await payRes.json();
 
       if (!payResult?.checkout_url) {
         console.error('[checkout] Pay endpoint returned no checkout_url:', payResult);

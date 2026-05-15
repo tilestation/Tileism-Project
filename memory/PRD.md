@@ -9,6 +9,29 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 ## Recent Sessions (most recent first)
+
+### [May 16, 2026] 🔑 IndexNow key-file proxy + completed axios migration
+
+**1) IndexNow key file served from env var (no static file needed)**
+- Added `INDEXNOW_KEY=e3cc1d619b64844648fa953fcadc0370` to backend `.env` (preview). User must replicate on Railway prod.
+- New backend route `GET /api/seo/indexnow/{key}.txt` (file: `/app/backend/routes/indexnow.py`) returns the configured key as plain text iff `{key}` matches `INDEXNOW_KEY`, else 404.
+- New Express proxy in `server.js`: regex `^/[a-f0-9]{8,128}\.txt$` at root → backend `/api/seo/indexnow/{key}.txt`. So `https://tilestation.co.uk/e3cc...0370.txt` is verified by IndexNow with zero static files.
+- Verified curl: matching key → HTTP 200 + body equals key; wrong key → HTTP 404. Key rotation is now one env-var change, no redeploy of static assets.
+
+**2) Completed fetch → axios migration for checkout + account pages**
+- `TileAccountPage.js`: 3 fetch calls migrated (`/api/shop/auth/me`, `/api/shop/orders`, `/api/shop/trade/credits/summary`). 401/403 now correctly redirects to login; non-auth errors no longer wipe the session.
+- `TileCheckoutPage.js`: 5 fetch calls migrated (checkout settings, discount-code validation, guest checkout, trade credit redemption, Stripe pay). New shared helper `extractAxiosErrorDetail()` consistently surfaces `response.data.detail`/`message`/`error` so users see the real failure reason instead of "Something went wrong".
+- Root cause was Sentry's BrowserTracing wrapping `window.fetch` and consuming the response body. axios isn't intercepted.
+- `TileLoginPage.js` and `TileRegisterPage` were migrated earlier this week — auth/forgot/reset pages don't use fetch.
+
+**Files**:
+- New: `/app/backend/routes/indexnow.py`
+- Modified: `/app/backend/.env` (+`INDEXNOW_KEY`)
+- Modified: `/app/backend/routes/__init__.py` (router registration)
+- Modified: `/app/frontend/server.js` (+IndexNow proxy with regex matcher)
+- Modified: `/app/frontend/src/pages/shop/TileAccountPage.js`
+- Modified: `/app/frontend/src/pages/shop/TileCheckoutPage.js`
+
 ### [May 15, 2026 PM] 📢 SEO re-crawl one-click trigger
 
 Built a "Request re-crawl" feature that pings every external crawler so the user can validate SEO fixes in hours instead of waiting for the weekly cycle.

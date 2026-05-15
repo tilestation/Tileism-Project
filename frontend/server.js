@@ -81,6 +81,39 @@ if (!BACKEND_URL) {
   app.head('/sitemap.xml', seoProxy);
   app.head('/robots.txt', seoProxy);
 
+  // ──────────────────────────────────────────────────────────────────
+  // IndexNow key-file proxy (May 16 2026).
+  //
+  // The IndexNow protocol (Bing/Yandex/DuckDuckGo re-indexing) verifies
+  // ownership by GETing `https://tilestation.co.uk/<INDEXNOW_KEY>.txt`
+  // and expecting the file's body to equal the key. We keep the key in
+  // a backend env var so rotation is one-step, then proxy any
+  // `/<32-128 hex>.txt` request at the root to the backend route which
+  // returns the env value (or 404 if the key doesn't match).
+  //
+  // The regex restricts the proxy to hex strings of plausible IndexNow
+  // length so it never collides with a real SPA path.
+  // ──────────────────────────────────────────────────────────────────
+  const indexnowProxy = createProxyMiddleware({
+    target: BACKEND_URL,
+    changeOrigin: true,
+    xfwd: true,
+    pathRewrite: (path) => {
+      // path = "/<hex>.txt" — strip the leading slash + ".txt" and
+      // rebuild the backend URL.
+      const key = path.replace(/^\//, '').replace(/\.txt$/, '');
+      return `/api/seo/indexnow/${key}.txt`;
+    },
+    onError: (err, req, res) => {
+      console.error('[server] IndexNow proxy error for', req.url, '—', err.message);
+      res.statusCode = 503;
+      res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+      res.end('IndexNow verifier temporarily unavailable.');
+    },
+    logLevel: 'warn',
+  });
+  app.get(/^\/[a-f0-9]{8,128}\.txt$/i, indexnowProxy);
+
   // Proxy the Google Search Console OAuth callback through to the
   // backend. Google redirects the user to
   // tilestation.co.uk/api/admin/gsc/callback after consent; without
