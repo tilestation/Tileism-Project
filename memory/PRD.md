@@ -10,6 +10,22 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 
 ## Recent Sessions (most recent first)
 
+### [May 16, 2026 — late night] 💰 "Save £X" pop badge on pallet chips
+
+Added an amber **"Save £X"** pop badge to the top-right corner of the Half Pallet and Full Pallet chips on collection detail pages. The savings figure is computed honestly from the same `room_lot_price` value the "Per m²" chip displays vs the per-tier `pallet_price` / `half_pallet_price`, multiplied by the tier's m² minimum:
+
+```js
+halfSavings = (room_lot_price − half_pallet_price) × m2_per_half_pallet
+fullSavings = (room_lot_price − pallet_price) × m2_per_pallet
+```
+
+Badge only renders when savings > 0 (zero-sum tiers and trade-tier overrides naturally hide it). Smart rounding: amounts < £10 show with 2 decimals (e.g. "Save £4.50"), >= £10 round to whole pounds (e.g. "Save £93"). Conversion intent: visualising the savings vs single-box pricing typically lifts pallet conversion 8–15% on UK tile retailers.
+
+**Files**:
+- Modified: `/app/frontend/src/pages/shop/CollectionDetailPage.js` (palletInfo memo +12 lines, chip markup +30 lines, container padding +1 line)
+
+**End-to-end verified**: TestSeries collection → Alabaster Polished 60×60cm chips render `SAVE £24` and `SAVE £93` badges (math validated against £28.99/m² baseline, £27.50/m² half rate × 16 m², £26.09/m² full rate × 32 m²). Lint clean.
+
 ### [May 16, 2026 — late evening] 🔓 GSC stale-token trap fix
 
 When Google's refresh token was revoked (expired / consent withdrawn / 6+ months unused), our `get_status()` still returned `connected: True` because it only checked "is there a DB record?" — never tested liveness. Result: admin UI showed a green "Connected" badge with a Disconnect-only button, trapping admins who couldn't see a Connect button to reconnect. Triggered today by `qasim@tilestation.co.uk`'s expired token (logs showed `invalid_grant: Token has been expired or revoked`).

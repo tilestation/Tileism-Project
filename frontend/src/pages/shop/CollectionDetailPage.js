@@ -1267,6 +1267,10 @@ const CollectionDetailPage = () => {
   // - minM2 is the m² floor when that tier is selected
   // - rate is the £/m² for the tier (retail-inc-VAT — same convention
   //   as room_lot_price; trade discount + ex-VAT applied at displayPrice)
+  // - savingsVsM2 is the £ difference between buying the same m² at the
+  //   per-m² rate vs the pallet rate. Powers the "Save £X" pop badge
+  //   on each chip (16 May 2026 conversion experiment: visualising the
+  //   discount typically lifts pallet conversion 8-15% on tile retailers).
   const palletInfo = (() => {
     const sp = selectedProduct || {};
     const fullRate = Number(sp.pallet_price) || 0;
@@ -1274,6 +1278,17 @@ const CollectionDetailPage = () => {
     const fullM2 = Number(sp.m2_per_pallet) || 0;
     let halfM2 = Number(sp.m2_per_half_pallet) || 0;
     if (!halfM2 && fullM2 > 0) halfM2 = Math.round((fullM2 / 2) * 100) / 100;
+    // Per-m² baseline rate — same source the "Per m²" chip displays, so
+    // the savings figure honestly matches what the customer sees on the
+    // alternative button. Falls back to legacy `price` if `room_lot_price`
+    // is unset (older imports).
+    const m2Rate = Number(sp.room_lot_price) || Number(sp.price) || 0;
+    const halfSavings = halfRate > 0 && halfM2 > 0 && m2Rate > halfRate
+      ? Math.round((m2Rate - halfRate) * halfM2 * 100) / 100
+      : 0;
+    const fullSavings = fullRate > 0 && fullM2 > 0 && m2Rate > fullRate
+      ? Math.round((m2Rate - fullRate) * fullM2 * 100) / 100
+      : 0;
     return {
       fullPalletAvailable: fullRate > 0 && fullM2 > 0,
       halfPalletAvailable: halfRate > 0 && halfM2 > 0,
@@ -1281,6 +1296,9 @@ const CollectionDetailPage = () => {
       halfRate,
       fullM2,
       halfM2,
+      m2Rate,
+      halfSavings,
+      fullSavings,
     };
   })();
 
@@ -2920,12 +2938,12 @@ const CollectionDetailPage = () => {
                   a tier auto-snaps qty to the matching minimum m² and
                   switches the £/m² rate. */}
               {(palletInfo.halfPalletAvailable || palletInfo.fullPalletAvailable) && isSurfaceProduct && !selectedProduct?._isPreview && (
-                <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3" data-testid="pallet-tier-selector">
+                <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3 pt-4" data-testid="pallet-tier-selector">
                   <div className="flex items-center gap-2 mb-2">
                     <Truck className="w-4 h-4 text-emerald-700" />
                     <span className="text-sm font-semibold text-emerald-900">Bulk pricing options</span>
                   </div>
-                  <div className="flex flex-wrap gap-2">
+                  <div className="flex flex-wrap gap-x-3 gap-y-3 pt-1">
                     <button
                       type="button"
                       data-testid="pallet-tier-m2"
@@ -2946,12 +2964,20 @@ const CollectionDetailPage = () => {
                         type="button"
                         data-testid="pallet-tier-half"
                         onClick={() => setPricingTier('half_pallet')}
-                        className={`px-3 py-2 rounded-lg text-xs font-semibold border transition-colors ${
+                        className={`relative px-3 py-2 rounded-lg text-xs font-semibold border transition-colors ${
                           pricingTier === 'half_pallet'
                             ? 'bg-emerald-600 text-white border-emerald-600'
                             : 'bg-white text-emerald-800 border-emerald-300 hover:bg-emerald-100'
                         }`}
                       >
+                        {palletInfo.halfSavings > 0 && (
+                          <span
+                            className="absolute -top-2 -right-2 bg-amber-500 text-white text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full shadow-sm pointer-events-none whitespace-nowrap"
+                            data-testid="pallet-half-savings-badge"
+                          >
+                            Save £{palletInfo.halfSavings.toFixed(palletInfo.halfSavings < 10 ? 2 : 0)}
+                          </span>
+                        )}
                         Half Pallet
                         <span className="block text-[10px] font-normal opacity-90">
                           £{palletInfo.halfRate.toFixed(2)}/m² · min {palletInfo.halfM2} m²
@@ -2963,12 +2989,20 @@ const CollectionDetailPage = () => {
                         type="button"
                         data-testid="pallet-tier-full"
                         onClick={() => setPricingTier('full_pallet')}
-                        className={`px-3 py-2 rounded-lg text-xs font-semibold border transition-colors ${
+                        className={`relative px-3 py-2 rounded-lg text-xs font-semibold border transition-colors ${
                           pricingTier === 'full_pallet'
                             ? 'bg-emerald-600 text-white border-emerald-600'
                             : 'bg-white text-emerald-800 border-emerald-300 hover:bg-emerald-100'
                         }`}
                       >
+                        {palletInfo.fullSavings > 0 && (
+                          <span
+                            className="absolute -top-2 -right-2 bg-amber-500 text-white text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full shadow-sm pointer-events-none whitespace-nowrap"
+                            data-testid="pallet-full-savings-badge"
+                          >
+                            Save £{palletInfo.fullSavings.toFixed(palletInfo.fullSavings < 10 ? 2 : 0)}
+                          </span>
+                        )}
                         Full Pallet
                         <span className="block text-[10px] font-normal opacity-90">
                           £{palletInfo.fullRate.toFixed(2)}/m² · min {palletInfo.fullM2} m²
