@@ -355,6 +355,16 @@ async def robots_txt() -> Response:
         "Disallow: /forgot-password\n"
         "Disallow: /register\n"
         "\n"
+        "# 15 May 2026 — Ahrefs was flagging webpack chunks (main.*.js)\n"
+        "# as 'Duplicate pages without canonical' because every code-split\n"
+        "# bundle returns identical-looking content. They're code, not\n"
+        "# pages — exclude from crawl budget entirely.\n"
+        "Disallow: /static/\n"
+        "Disallow: /*.js$\n"
+        "Disallow: /*.css$\n"
+        "Disallow: /*.map$\n"
+        "Disallow: /service-worker.js\n"
+        "\n"
         f"Sitemap: {host}/sitemap.xml\n"
     )
     return Response(

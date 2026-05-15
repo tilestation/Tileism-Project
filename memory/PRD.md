@@ -9,7 +9,40 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 ## Recent Sessions (most recent first)
+### [May 15, 2026] 🔍 Ahrefs "Duplicate pages without canonical" — explained + 2 real fixes
+
+User shared Ahrefs Site Audit screenshots showing 16 URLs flagged as **"Duplicate pages without canonical"**. After auditing each one, the 16 break down into 4 groups — only 2 needed actual code changes.
+
+**🟢 Group 1: Already fixed, just stale Ahrefs cache (8 URLs)**
+Collection pages (Flowable Grout, Earth Stone, Coral Grey, Catalonia Onyx, Heritage Wood, Cleaning & Maintenance) + 2 PDPs (Alpine Carrara grey/white). Curl-verified all 8 currently return unique titles + correct self-canonicals. Ahrefs report predates today's SSR fix.
+
+**🟢 Group 2: Filter URLs working as designed (4 URLs)**
+`/tiles?category=…` variants canonicalise to `/tiles` (the parent listing). This is the **correct** behaviour for SEO — filter views shouldn't compete with the parent. Will clear on next crawl.
+
+**🔴 Group 3: Bare `/shop/<page>` paths fell back to generic meta (FIXED)**
+Earlier session added meta for `/shop/info/delivery` etc. but not the bare `/shop/delivery`, `/shop/returns`, `/shop/about`, `/shop/faq`, `/shop/privacy`, `/shop/terms`, `/shop/reviews`, `/shop/sample-service`. Added 8 new EXACT entries to `server-seo.js` — each gets its proper title + description.
+
+**🔴 Group 4: Webpack JS chunks being crawled (FIXED)**
+Ahrefs was treating `/static/js/main.f7ebdb06.js` and `/static/js/main.9593b0d4.js` as indexable pages because robots.txt didn't disallow `/static/`. Added 4 Disallow rules to `/api/robots.txt`:
+- `Disallow: /static/`
+- `Disallow: /*.js$`
+- `Disallow: /*.css$`
+- `Disallow: /*.map$`
+- `Disallow: /service-worker.js`
+
+**Verified**:
+- Node test: all 8 new exact paths return their proper unique titles (no fallback)
+- Preview `/api/robots.txt` now includes the `/static/` disallow rules
+- All 56 `server-seo.test.js` tests still pass
+
+**Will clear on next Ahrefs crawl**:
+- Groups 1, 2: zero work — just re-crawl
+- Groups 3, 4: zero work after Railway deploy ships the fix
+
 ### [May 15, 2026] 🏷️ Cross-sell pill text overflow
+
+
+
 
 **User-reported** (screenshot): "ADHESIVES & UNDERLAY" pill text overflowed its parent card on cross-sell carousels.
 

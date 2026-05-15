@@ -201,6 +201,20 @@ const EXACT = {
   '/shop/info/reviews': { title: `Customer Reviews · ${BRAND}`, description: 'Real customer reviews of our tile and stone products.' },
   '/shop/info/about': { title: `About ${BRAND}`, description: 'Family-run UK tile and stone specialist with four Kent, Essex and London showrooms.' },
   '/shop/info/sample-service': { title: `Sample Service · ${BRAND}`, description: 'How our £2.99 tile sample service works — refunded on every purchase.' },
+
+  // 15 May 2026 — Ahrefs flagged the bare `/shop/<page>` paths as
+  // duplicate-without-canonical because they were falling back to the
+  // generic brand meta. These mirror the `/shop/info/<page>` variants
+  // so both URLs serve the right title/description regardless of
+  // which route a customer (or crawler) hits.
+  '/shop/delivery': { title: `Delivery Information · ${BRAND}`, description: 'UK delivery times, tracking, lead times and breakage policy.' },
+  '/shop/returns': { title: `Returns & Refunds · ${BRAND}`, description: 'Our returns and refunds policy — easy returns within 30 days.' },
+  '/shop/about': { title: `About ${BRAND}`, description: 'Family-run UK tile and stone specialist with four Kent, Essex and London showrooms.' },
+  '/shop/faq': { title: `FAQ · ${BRAND}`, description: 'Tile & stone FAQs — orders, samples, returns, trade accounts, delivery and installation.' },
+  '/shop/privacy': { title: `Privacy Policy · ${BRAND}`, description: 'How Tile Station handles your data. GDPR-compliant.' },
+  '/shop/terms': { title: `Terms & Conditions · ${BRAND}`, description: 'Tile Station terms of sale, returns and warranties.' },
+  '/shop/reviews': { title: `Customer Reviews · ${BRAND}`, description: 'Real customer reviews of our tile and stone products.' },
+  '/shop/sample-service': { title: `Sample Service · ${BRAND}`, description: 'How our £2.99 tile sample service works — refunded on every purchase.' },
 };
 
 // Dynamic prefix patterns — first match wins
