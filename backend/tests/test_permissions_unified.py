@@ -314,6 +314,117 @@ async def test_user_modified_flag_prevents_backfill_re_adding_removed_pages():
         await db.roles.delete_one({"role_id": test_role})
 
 
+async def test_revoking_role_page_blocks_user_end_to_end():
+    """END-TO-END regression for the "I unticked Sync Hub but staff
+    still see it" bug (17 May 2026).
+
+    Pins the full chain:
+      1. Staff role contains sync_hub by default → user `/me` returns it
+      2. Super-admin PUTs role with sync_hub removed (sets user_modified)
+      3. Same staff user calls `/me` → sync_hub is NOT in their pages
+      4. `_ensure_system_roles` runs again (e.g. on next request) → still
+         doesn't re-add sync_hub because user_modified is honoured
+      5. Staff user with stale `permissions: ['products']` legacy array
+         doesn't bypass the revocation — `/me` returns pages from the
+         role, not from that legacy array (no fallback merge at the
+         backend layer)
+
+    If this test fails, the bug is back and showroom admins can't revoke
+    permissions from their staff.
+    """
+    from routes import permissions as perms_mod
+
+    db = get_db()
+    test_role = "pytest_e2e_revoke_role"
+    test_email = "pytest-e2e-revoke@example.com"
+
+    # Seed the role + a user assigned to it. User also has a stale
+    # legacy `permissions: ['products']` array (mimicking pre-migration
+    # data) to prove the new system ignores it.
+    await db.roles.replace_one(
+        {"role_id": test_role},
+        {
+            "role_id": test_role,
+            "role_name": "Pytest E2E",
+            "is_system": True,
+            "is_super_admin": False,
+            "pages": ["dashboard", "epos", "sync_hub"],
+            "actions": [],
+            "user_modified": False,
+        },
+        upsert=True,
+    )
+    await db.users.replace_one(
+        {"email": test_email},
+        {
+            "email": test_email,
+            "name": "Pytest E2E User",
+            "role": test_role,
+            "permissions": ["products", "dashboard"],   # ← legacy stale array
+        },
+        upsert=True,
+    )
+
+    try:
+        # Step 1: user sees sync_hub initially.
+        me1 = await perms_mod.get_my_permissions(
+            current_user={"email": test_email, "role": test_role},
+        )
+        assert "sync_hub" in me1["pages"], "initial state: sync_hub should be granted by role"
+
+        # Step 2: admin removes sync_hub by editing the role doc directly
+        # (mirrors what PUT /roles/{id} does). user_modified=True stamps
+        # the row as authoritative so backfill won't fight us.
+        await db.roles.update_one(
+            {"role_id": test_role},
+            {"$set": {
+                "pages": ["dashboard", "epos"],   # sync_hub deliberately gone
+                "user_modified": True,
+            }},
+        )
+
+        # Step 3: same user, same JWT — sync_hub must now be hidden.
+        # The legacy `permissions: ['products']` array on their doc
+        # MUST NOT add anything back at the backend layer.
+        me2 = await perms_mod.get_my_permissions(
+            current_user={"email": test_email, "role": test_role},
+        )
+        assert "sync_hub" not in me2["pages"], (
+            "After admin removed sync_hub from the role, user `/me` still "
+            "returns it. This means revocations don't take effect — the "
+            "exact bug reported on 17 May 2026."
+        )
+        # Sanity: dashboard + epos still granted.
+        assert "dashboard" in me2["pages"]
+        assert "epos" in me2["pages"]
+
+        # Step 4: trigger the backfill that USED to re-add removed pages.
+        # SYSTEM_ROLE_IDS must include our test role for the backfill to
+        # consider it.
+        perms_mod.SYSTEM_ROLE_IDS.add(test_role)
+        perms_mod.SYSTEM_ROLE_DEFAULTS[test_role] = {
+            "pages": ["dashboard", "epos", "sync_hub"],   # defaults still want sync_hub
+            "actions": [],
+        }
+        try:
+            await perms_mod._ensure_system_roles(db)
+        finally:
+            perms_mod.SYSTEM_ROLE_IDS.discard(test_role)
+            perms_mod.SYSTEM_ROLE_DEFAULTS.pop(test_role, None)
+
+        # Step 5: re-check /me one more time. sync_hub must STILL be gone.
+        me3 = await perms_mod.get_my_permissions(
+            current_user={"email": test_email, "role": test_role},
+        )
+        assert "sync_hub" not in me3["pages"], (
+            "Backfill silently re-added sync_hub after admin removed it. "
+            "user_modified flag is being ignored."
+        )
+    finally:
+        await db.roles.delete_one({"role_id": test_role})
+        await db.users.delete_one({"email": test_email})
+
+
 async def test_default_custom_roles_seeded_once_and_stay_deleted():
     """The Showroom Lead role should auto-seed on first /roles call,
     but if the admin deletes it later, it must STAY deleted (no zombie

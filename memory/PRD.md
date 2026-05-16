@@ -10,6 +10,32 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 
 ## Recent Sessions (most recent first)
 
+### [May 17, 2026 — 06:00] 🔥 The actual "Sync Hub keeps coming back" fix
+
+User reported that even after the May 17 03:30 backfill fix, un-ticking Sync Hub from Staff role was STILL not blocking showroom staff. Investigation revealed the real culprit: the **legacy permission fallback** I added as a migration safety net was actively bypassing every revocation.
+
+**The bug chain**:
+```js
+// Layout.js — sidebar perm check
+if (hasPage(newKey)) return true;                        // ← role-based (new system)
+if (user.permissions.includes(legacyKey)) return true;   // ← stale legacy data, the actual hole
+```
+
+Every Tonbridge/Gravesend/Chingford/Sydenham user has `'products'` in their old `user.permissions[]` array (left over from when they were created via the legacy modal). Every Sync-Hub-related sidebar item maps to `legacyPermission: 'products'`. So no matter what the admin did to the Staff role, the legacy fallback kept granting access.
+
+**Fix**:
+1. **Dropped legacy fallback entirely** from `Layout.js` sidebar check and `useHubCardFilter.js` hub-card check. The role-based system now has comprehensive defaults (Staff has 50 pages) — no user needs the fallback anymore. Optimistic-render-on-load logic kept so the sidebar doesn't briefly empty out during first paint.
+2. **Added route-level `<PageGate>` component** wrapping `<Outlet>` inside `Layout.js`. Reads current pathname, looks up the required permission key from a central `ROUTE_PERMISSIONS` map (90+ admin routes mapped to PAGE_REGISTRY keys), and shows a friendly "Access restricted" panel if the user lacks it. Closes the URL-direct-access bypass — typing `/admin/sync-hub` now respects role perms even though sidebar hides it.
+3. **Exposed `user_modified` flag** in `_serialize_role` so the admin UI can render an "Edited" badge (and so tests can assert on it via API).
+
+**Files**:
+- Modified: `/app/frontend/src/components/Layout.js` (dropped legacy fallback in `hasPermission`, mounted PageGate around Outlet)
+- Modified: `/app/frontend/src/hooks/useHubCardFilter.js` (dropped legacy fallback)
+- New: `/app/frontend/src/components/PageGate.jsx` (90+ route→permission map, denied panel)
+- Modified: `/app/backend/routes/permissions.py` (`_serialize_role` exposes `user_modified`)
+
+**Tests**: 10/10 in `test_permissions_unified.py` pass. New test `test_revoking_role_page_blocks_user_end_to_end` pins the full chain — staff with stale legacy `permissions: ['products']` does NOT bypass admin's revocation of `sync_hub` from the role. End-to-end verified via curl: admin PUT removes sync_hub → user_modified stamped → staff `/me` returns 49 pages → subsequent `_ensure_system_roles` honours the flag and doesn't re-add it.
+
 ### [May 17, 2026 — 04:30] ⭐ Promote-to-Showroom-Lead + user filters
 
 User asked for a "Promote to Showroom Lead" action plus showroom-filtration on /admin/users so they can manually pick which staff to elevate.

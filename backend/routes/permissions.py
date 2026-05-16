@@ -299,6 +299,11 @@ def _serialize_role(doc: dict) -> dict:
         "role_name": doc.get("role_name"),
         "is_system": doc.get("is_system", False),
         "is_super_admin": doc.get("is_super_admin", False),
+        # `user_modified` is True once a super-admin has saved the role
+        # via PUT /roles/{id} — prevents the additive backfill from
+        # silently re-adding pages they removed. Exposed here so the
+        # admin UI can render an "Edited" indicator.
+        "user_modified": bool(doc.get("user_modified", False)),
         "pages": doc.get("pages", []),
         "actions": doc.get("actions", []),
         "created_at": (doc.get("created_at").isoformat() if isinstance(doc.get("created_at"), datetime) else doc.get("created_at")),

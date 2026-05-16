@@ -3,6 +3,7 @@ import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { usePermissions } from '../contexts/PermissionsContext';
 import { cn } from '../lib/utils';
+import PageGate from './PageGate';
 import OutageBanner from './admin/OutageBanner';
 import SchemaDriftBanner from './admin/SchemaDriftBanner';
 import { 
@@ -128,27 +129,30 @@ export const Layout = () => {
   const isAdmin = user?.role === 'admin' || user?.role === 'super_admin' || user?.role === 'manager' || user?.role === 'staff';
   const isSuperAdmin = user?.role === 'super_admin';
 
-  // 16 May 2026 — sidebar gating is now driven by `/api/permissions/me`
-  // (role-based + per-user overrides, managed at /admin/permissions).
-  // We KEEP the legacy `user.permissions[]` array as a fallback so any
-  // user whose role hasn't been seeded yet (or whose token predates the
-  // unification deploy) still sees their old menu surface and doesn't
-  // get locked out. Belt-and-braces — the safer of the two checks wins.
+  // 17 May 2026 — Sidebar is STRICTLY role-based now (via /api/permissions/me).
+  //
+  // We used to also accept a legacy `user.permissions[]` array as a
+  // fallback grant. That broke the admin's ability to revoke permissions:
+  // un-ticking "Sync Hub" from the Staff role had no effect because every
+  // staff user still had `'products'` in their old user.permissions array
+  // from when they were created via the legacy modal, and the fallback
+  // kept granting them Sync Hub anyway.
+  //
+  // The role-based system now has comprehensive defaults (Staff: 50 pages,
+  // Showroom Lead: 49 pages, Admin: 93, Super Admin: full registry) that
+  // any showroom user gets more from than the old grouped keys ever
+  // granted — so dropping the fallback is safe.
+  //
+  // While the perms context is loading on first paint we render
+  // optimistically (return true) so the sidebar doesn't briefly empty
+  // out. The actual permission check kicks in once /me responds.
   const { hasPage, loading: permsLoading } = usePermissions();
-  const legacyUserPermissions = user?.permissions || [];
 
-  const hasPermission = (newKey, legacyKey) => {
+  const hasPermission = (newKey) => {
     if (isSuperAdmin) return true;
-    // While the perms context is loading on first paint, fall back to
-    // legacy so the sidebar isn't briefly empty.
-    if (permsLoading && legacyUserPermissions.length > 0) {
-      return legacyKey ? legacyUserPermissions.includes(legacyKey) : false;
-    }
-    // Modern check (granular page key) first…
-    if (newKey && hasPage(newKey)) return true;
-    // …then legacy fallback (old grouped key) so historical data still works.
-    if (legacyKey && legacyUserPermissions.includes(legacyKey)) return true;
-    return false;
+    if (permsLoading) return true;             // optimistic on first paint
+    if (!newKey) return true;                  // unguarded item
+    return hasPage(newKey);
   };
 
   const toggleGroup = (groupId) => {
@@ -329,7 +333,7 @@ export const Layout = () => {
     ...group,
     items: group.items.filter(item => {
       if (item.superAdminOnly && !isSuperAdmin) return false;
-      return hasPermission(item.permission, item.legacyPermission);
+      return hasPermission(item.permission);
     })
   })).filter(group => group.items.length > 0);
 
@@ -475,7 +479,9 @@ export const Layout = () => {
 
         <main ref={mainRef} className="flex-1 overflow-auto p-4 md:p-8 lg:p-10 relative" data-testid="main-content">
           <div className="max-w-[1600px] mx-auto w-full min-w-0">
-            <Outlet />
+            <PageGate>
+              <Outlet />
+            </PageGate>
           </div>
           
           {/* Mobile Scroll Indicator */}
