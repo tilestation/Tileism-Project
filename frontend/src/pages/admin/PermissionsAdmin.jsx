@@ -12,13 +12,15 @@ import { Badge } from '../../components/ui/badge';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription,
 } from '../../components/ui/dialog';
-import { useNavigate } from 'react-router-dom';
-import { ShieldCheck, Plus, Trash2, Save, Search, Lock, Crown, Bell } from 'lucide-react';
+import { useNavigate, useLocation } from 'react-router-dom';
+import { ShieldCheck, Plus, Trash2, Save, Search, Lock, Crown, Bell, UserCog } from 'lucide-react';
+import UserOverridesTab from './UserOverridesTab';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
 export default function PermissionsAdmin() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { token, user } = useAuth();
   const { refresh: refreshMyPerms } = usePermissions();
 
@@ -32,6 +34,14 @@ export default function PermissionsAdmin() {
   const [showCreate, setShowCreate] = useState(false);
   const [newRoleId, setNewRoleId] = useState('');
   const [newRoleName, setNewRoleName] = useState('');
+
+  // 16 May 2026 — second tab: per-user overrides.
+  // `?tab=users&user=foo@bar.com` deep-link support so the legacy
+  // /admin/users edit modal can hand off cleanly.
+  const params = new URLSearchParams(location.search);
+  const initialTab = params.get('tab') === 'users' ? 'users' : 'roles';
+  const initialUser = params.get('user');
+  const [activeTab, setActiveTab] = useState(initialTab);
 
   const isSuperAdmin = user?.role === 'super_admin';
 
@@ -222,6 +232,52 @@ export default function PermissionsAdmin() {
         </Card>
       )}
 
+      {/* Tabs: Roles vs Per-user overrides
+        *
+        * Roles tab — manages the default permission set for each role
+        * (super_admin, admin, manager, staff, custom). Affects everyone
+        * assigned to that role.
+        *
+        * User overrides tab — adjusts an INDIVIDUAL user's effective
+        * permissions on top of their role baseline (grant extra pages
+        * or deny role-granted pages, scoped to just that one user). The
+        * sidebar reads the merged result via /api/permissions/me.
+        */}
+      <div className="flex items-center gap-2 border-b">
+        <button
+          onClick={() => setActiveTab('roles')}
+          className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
+            activeTab === 'roles'
+              ? 'border-emerald-600 text-emerald-700'
+              : 'border-transparent text-gray-500 hover:text-gray-800'
+          }`}
+          data-testid="permissions-tab-roles"
+        >
+          <ShieldCheck className="w-4 h-4 inline mr-1.5 -mt-0.5" />
+          Roles
+        </button>
+        <button
+          onClick={() => setActiveTab('users')}
+          className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
+            activeTab === 'users'
+              ? 'border-emerald-600 text-emerald-700'
+              : 'border-transparent text-gray-500 hover:text-gray-800'
+          }`}
+          data-testid="permissions-tab-users"
+        >
+          <UserCog className="w-4 h-4 inline mr-1.5 -mt-0.5" />
+          User overrides
+        </button>
+      </div>
+
+      {activeTab === 'users' ? (
+        <UserOverridesTab
+          token={token}
+          registry={registry}
+          roles={roles}
+          initialUserEmail={initialUser}
+        />
+      ) : (
       <div className="grid grid-cols-12 gap-4">
         {/* Roles list */}
         <Card className="col-span-12 lg:col-span-3 h-fit">
@@ -383,6 +439,7 @@ export default function PermissionsAdmin() {
           </CardContent>
         </Card>
       </div>
+      )}
 
       <Dialog open={showCreate} onOpenChange={setShowCreate}>
         <DialogContent>

@@ -244,14 +244,13 @@ export const UserManagement = () => {
                 <th className="px-4 py-3 text-left text-sm font-semibold">User</th>
                 <th className="px-4 py-3 text-left text-sm font-semibold">Role</th>
                 <th className="px-4 py-3 text-left text-sm font-semibold">Store</th>
-                <th className="px-4 py-3 text-left text-sm font-semibold">Permissions</th>
                 <th className="px-4 py-3 text-center text-sm font-semibold">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y">
               {users.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="px-4 py-8 text-center text-muted-foreground">
+                  <td colSpan={4} className="px-4 py-8 text-center text-muted-foreground">
                     <Users className="h-12 w-12 mx-auto mb-3 opacity-30" />
                     <p>No users found</p>
                   </td>
@@ -280,26 +279,6 @@ export const UserManagement = () => {
                       ) : (
                         <span className="text-muted-foreground text-sm italic">All Stores</span>
                       )}
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex flex-wrap gap-1 max-w-md">
-                        {user.role === 'super_admin' ? (
-                          <span className="px-2 py-0.5 text-xs bg-purple-50 text-purple-700 rounded">All Access</span>
-                        ) : user.permissions?.length > 0 ? (
-                          user.permissions.slice(0, 4).map(p => (
-                            <span key={p} className="px-2 py-0.5 text-xs bg-gray-100 rounded">
-                              {PERMISSION_LABELS[p] || p}
-                            </span>
-                          ))
-                        ) : (
-                          <span className="text-muted-foreground text-sm italic">No permissions</span>
-                        )}
-                        {user.permissions?.length > 4 && (
-                          <span className="px-2 py-0.5 text-xs bg-gray-100 rounded">
-                            +{user.permissions.length - 4} more
-                          </span>
-                        )}
-                      </div>
                     </td>
                     <td className="px-4 py-3 text-center">
                       {user.role !== 'super_admin' && (
@@ -423,41 +402,52 @@ export const UserManagement = () => {
               </div>
             </div>
             
-            {/* Permissions Section */}
+            {/* Permissions Section — 16 May 2026
+              *
+              * Per-user permission checkboxes used to live here, but they
+              * wrote to a parallel `user.permissions[]` array whose keys
+              * didn't match the granular keys the admin sidebar checks
+              * for. Result: tons of confusion + the Sydenham incident.
+              *
+              * Permission management has been unified at /admin/permissions:
+              *   - Role defaults  → Roles tab
+              *   - Per-user grants → User Overrides tab (with filters)
+              *
+              * Here we only set role + showroom; the role drives the
+              * permissions automatically.
+              */}
             {editingUser?.role !== 'super_admin' && (
-              <div>
-                <div className="flex items-center justify-between mb-3">
-                  <label className="text-sm font-medium">Permissions</label>
-                  <Button 
-                    type="button" 
-                    variant="outline" 
-                    size="sm"
-                    onClick={handleSelectAllPermissions}
-                  >
-                    {formData.permissions.length === availablePermissions.length ? 'Deselect All' : 'Select All'}
-                  </Button>
+              <div className="rounded-lg border border-blue-200 bg-blue-50 p-4">
+                <div className="flex items-start gap-3">
+                  <Shield className="h-5 w-5 text-blue-600 mt-0.5 shrink-0" />
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-blue-900">
+                      Permissions are managed in one place
+                    </p>
+                    <p className="text-xs text-blue-700 mt-1 leading-relaxed">
+                      This user&apos;s access is determined by their{' '}
+                      <span className="font-semibold">{formData.role}</span> role.
+                      To change what every {formData.role} can see, or to grant this user
+                      extra pages beyond their role, head over to the unified
+                      permissions panel.
+                    </p>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="mt-3 border-blue-300 bg-white text-blue-700 hover:bg-blue-100"
+                      onClick={() => {
+                        const target = editingUser?.email
+                          ? `/admin/permissions?tab=users&user=${encodeURIComponent(editingUser.email)}`
+                          : '/admin/permissions';
+                        window.location.href = target;
+                      }}
+                      data-testid="open-permissions-admin-btn"
+                    >
+                      Open Permissions Admin →
+                    </Button>
+                  </div>
                 </div>
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-3 p-4 border rounded-lg bg-muted/30">
-                  {availablePermissions.map(permission => (
-                    <div key={permission} className="flex items-center space-x-2">
-                      <Checkbox
-                        id={permission}
-                        checked={formData.permissions.includes(permission)}
-                        onCheckedChange={() => handlePermissionToggle(permission)}
-                        data-testid={`permission-${permission}`}
-                      />
-                      <label 
-                        htmlFor={permission} 
-                        className="text-sm cursor-pointer select-none"
-                      >
-                        {PERMISSION_LABELS[permission] || permission}
-                      </label>
-                    </div>
-                  ))}
-                </div>
-                <p className="text-xs text-muted-foreground mt-2">
-                  Select the pages and features this user can access
-                </p>
               </div>
             )}
             

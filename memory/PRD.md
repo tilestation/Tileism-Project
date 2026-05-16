@@ -10,6 +10,46 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 
 ## Recent Sessions (most recent first)
 
+### [May 16, 2026 — overnight] 🛡️ Permissions unification (Roles + per-user overrides)
+
+User flagged that permission management was scattered across 3 places in the codebase. Discovered there were actually TWO parallel systems running side-by-side: the modern role-based `/admin/permissions` page (PAGE_REGISTRY with ~120 granular page keys) and a legacy per-user `/admin/users` modal (12 grouped keys stored on `user.permissions[]`). The admin sidebar (`Layout.js`) was reading from the legacy system, so the modern page was decorative for non-super-admin users.
+
+**What changed**
+
+1. **Sidebar now reads role-based perms** via `usePermissions().hasPage(key)` from `/api/permissions/me`, with **legacy fallback** to `user.permissions.includes(legacyKey)` for backwards compatibility. Every sidebar item now carries BOTH a granular `permission` key (new) AND a `legacyPermission` key (old) — passes if EITHER grants access. Zero-downtime migration.
+2. **Staff role defaults expanded** from 17 → 50 pages in `SYSTEM_ROLE_DEFAULTS` so showroom users get ALL the pages they currently see in production (and a few more, like Stock Transfers + Reorder Suggestions).
+3. **`_ensure_system_roles` now additively backfills** missing default pages onto existing role rows — so production's stale `staff` role row picks up the new defaults on next request, *without* clobbering any custom pages a super-admin has added.
+4. **New per-user overrides system**:
+   - User doc fields: `extra_pages[]`, `denied_pages[]`, `extra_actions[]`, `denied_actions[]`
+   - `/api/permissions/me` computes effective set = role.pages + extra − denied
+   - `GET /api/permissions/users` lists all admin/staff users with showroom/role filters
+   - `GET /api/permissions/users/{email}` returns full breakdown for picker UI
+   - `PUT /api/permissions/users/{email}/overrides` saves the toggle set
+   - Super Admin role is locked — cannot be overridden (returns 400)
+5. **New "User overrides" tab on `/admin/permissions`** — search box, showroom filter, role filter, grouped page checkboxes with "role"/"denied"/"extra" badges, "save / no changes" button. Deep-link support via `?tab=users&user=foo@bar`.
+6. **Stripped permission checkboxes from `/admin/users` Edit modal** — replaced with a friendly blue info box + "Open Permissions Admin →" deep-link button. Permissions column removed from the user table.
+
+**Files**
+- Modified: `/app/backend/routes/permissions.py` (+155 lines — overrides endpoints, expanded staff defaults, additive backfill)
+- Modified: `/app/frontend/src/components/Layout.js` (sidebar rewritten with dual-key check + comprehensive granular mapping)
+- Modified: `/app/frontend/src/pages/admin/PermissionsAdmin.jsx` (tab navigation added)
+- Modified: `/app/frontend/src/pages/admin/UserManagement.js` (stripped per-user checkboxes)
+- New: `/app/frontend/src/pages/admin/UserOverridesTab.jsx` (350+ lines, fully self-contained)
+- New: `/app/backend/tests/test_permissions_unified.py` (7 tests covering me/overrides/backfill safety)
+
+**Tests**: All 25 permission-related tests pass (unified + drift + token-trap + schema fingerprint). Lint clean both ends. End-to-end smoke-tested in preview:
+- Sidebar renders for super_admin
+- `/admin/permissions` shows both tabs
+- User overrides tab loads users with filters working
+- Deep-link `?tab=users&user=…` auto-selects user
+- Staff user "H Qasim · Gravesend" shows 50 role-granted pages pre-ticked correctly
+- Edit User modal shows the blue info box + deep-link button (no more dead checkboxes)
+
+**Production safety guarantees**
+- Showroom users (Tonbridge/Gravesend/Chingford/Sydenham — all role=staff) inherit the new 50-page Staff defaults automatically on next request thanks to additive backfill. **Sydenham gets a working sidebar immediately on deploy** without any manual intervention.
+- Legacy `user.permissions[]` arrays remain in the DB and continue to be honoured as a fallback. Users with stale tokens still work.
+- All `/api/admin/permissions` endpoints kept working but now redirect to the modern system via the UI. Backend AVAILABLE_PERMISSIONS lists are still validated to prevent typo-poisoned data.
+
 ### [May 16, 2026 — late night #2] 🔧 Permission drift bug (Sydenham incident)
 
 User created a new Sydenham showroom user via the Edit User modal on production. Sidebar rendered empty and "Admin access required" banner showed even though the user had 9 permissions ticked. Root cause: **three drifted definitions of `AVAILABLE_PERMISSIONS`** in the backend.

@@ -213,14 +213,41 @@ SYSTEM_ROLE_DEFAULTS: Dict[str, Dict[str, List[str]]] = {
         "actions": ["supplier_products.action.preview"],
     },
     "staff": {
+        # 16 May 2026 — EXPANDED to cover everything showrooms currently
+        # see in the legacy sidebar (Tonbridge/Gravesend/Chingford/Sydenham
+        # had grouped keys `dashboard, epos, products, orders, customers,
+        # customer_pricing` — these expanded to many sub-pages). The
+        # granular keys below preserve that exact surface so no showroom
+        # user loses anything when the sidebar switches to role-based
+        # gating. Super-admin-only items (audit, user_management, etc.)
+        # are intentionally excluded.
         "pages": [
-            "dashboard", "epos", "cash_counter", "showroom_dashboard",
-            "invoice", "quotation", "cash_quotation",
-            "orders", "online_orders",
-            "supplier_products",
-            "stock_allocation", "delivery_check_in", "batch_tracking",
-            "customers_hub", "trade_accounts",
-            "staff_chat", "tasks",
+            # Main
+            "dashboard",
+            # Sales & EPOS
+            "epos", "cash_counter", "showroom_dashboard", "sales_hub",
+            "invoice", "invoice_history",
+            "quotation", "quotation_history",
+            "cash_quotation", "cash_quotation_history",
+            "refund", "refund_history",
+            "credit_note", "credit_note_history",
+            "orders", "order_management", "delivery_management", "online_orders",
+            # Products & Suppliers
+            "products_hub", "supplier_products", "supplier_health", "sync_hub",
+            "suppliers", "supplier_sync",
+            # Stock
+            "stock_hub", "stock_allocation", "bulk_stock",
+            "delivery_check_in", "stock_transfers", "reorder_suggestions",
+            "batch_tracking", "to_order_report", "stock_cost", "stocktake_report",
+            # Customers
+            "customers_hub", "trade_accounts", "customer_pricing",
+            "customer_invites", "bulk_inquiries", "trade_list",
+            # Communication
+            "communication_hub", "staff_chat", "tasks", "inbox", "email_composer",
+            # Reports (basic — analytics/audit are admin+)
+            "reports_hub", "analytics", "reports",
+            # Settings (basic — full settings_hub is admin+)
+            "general_settings",
         ],
         "actions": ["supplier_products.action.preview"],
     },
@@ -241,22 +268,68 @@ def _serialize_role(doc: dict) -> dict:
 
 
 async def _ensure_system_roles(db) -> None:
-    """Seed system roles on first read if they're missing. Idempotent — never overwrites existing rows."""
+    """Seed system roles on first read, and additively backfill any new
+    default pages/actions on subsequent reads.
+
+    The first pass inserts the row if missing. On every subsequent call
+    we *add* any default pages/actions that are present in the code
+    constants but missing from the stored doc — without ever removing
+    pages a super-admin has explicitly toggled on. This means when we
+    extend `SYSTEM_ROLE_DEFAULTS` (e.g. May 16 2026 staff expansion),
+    existing production rows pick up the new grants automatically.
+
+    Super Admin defaults are always re-synced to match the current
+    PAGE/ACTION_REGISTRY so a fresh page/action ships with super-admin
+    access immediately.
+    """
+    now = datetime.now(timezone.utc)
     for role_id in SYSTEM_ROLE_IDS:
+        defaults = SYSTEM_ROLE_DEFAULTS.get(role_id, {"pages": [], "actions": []})
         existing = await db.roles.find_one({"role_id": role_id})
+
         if not existing:
-            defaults = SYSTEM_ROLE_DEFAULTS.get(role_id, {"pages": [], "actions": []})
-            now = datetime.now(timezone.utc)
             await db.roles.insert_one({
                 "role_id": role_id,
                 "role_name": role_id.replace("_", " ").title(),
                 "is_system": True,
                 "is_super_admin": role_id == "super_admin",
-                "pages": defaults["pages"],
-                "actions": defaults["actions"],
+                "pages": list(defaults["pages"]),
+                "actions": list(defaults["actions"]),
                 "created_at": now,
                 "updated_at": now,
             })
+            continue
+
+        # Super Admin: always full access — re-sync to current registry
+        # in case new pages were added since seed.
+        if role_id == "super_admin":
+            full_pages = [p["key"] for p in PAGE_REGISTRY]
+            full_actions = [a["key"] for a in ACTION_REGISTRY]
+            if set(existing.get("pages", [])) != set(full_pages) or set(existing.get("actions", [])) != set(full_actions):
+                await db.roles.update_one(
+                    {"role_id": role_id},
+                    {"$set": {"pages": full_pages, "actions": full_actions, "updated_at": now}},
+                )
+            continue
+
+        # Other system roles: additively backfill missing defaults so
+        # extending the defaults list in code propagates automatically
+        # without clobbering any admin-customised additions.
+        current_pages = set(existing.get("pages", []))
+        current_actions = set(existing.get("actions", []))
+        missing_pages = [p for p in defaults["pages"] if p not in current_pages]
+        missing_actions = [a for a in defaults["actions"] if a not in current_actions]
+        if missing_pages or missing_actions:
+            await db.roles.update_one(
+                {"role_id": role_id},
+                {
+                    "$addToSet": {
+                        "pages": {"$each": missing_pages} if missing_pages else {"$each": []},
+                        "actions": {"$each": missing_actions} if missing_actions else {"$each": []},
+                    },
+                    "$set": {"updated_at": now},
+                },
+            )
 
 
 def _require_super_admin(current_user: dict):
@@ -276,7 +349,16 @@ async def get_registry(current_user: dict = Depends(get_current_user)):
 
 @router.get("/me")
 async def get_my_permissions(current_user: dict = Depends(get_current_user)):
-    """Return the current user's effective pages + actions."""
+    """Return the current user's effective pages + actions.
+
+    Effective set = role defaults
+                  + user.extra_pages   (super_admin grants beyond role)
+                  − user.denied_pages  (super_admin removals below role)
+
+    Same merge applies to actions. Super Admin role short-circuits to
+    full access regardless of overrides (you cannot demote a super_admin
+    via an override).
+    """
     db = get_db()
     await _ensure_system_roles(db)
     role_id = current_user.get("role") or "staff"
@@ -290,13 +372,46 @@ async def get_my_permissions(current_user: dict = Depends(get_current_user)):
         }
 
     role = await db.roles.find_one({"role_id": role_id}, {"_id": 0})
-    if not role:
-        return {"role": role_id, "is_super_admin": False, "pages": [], "actions": []}
+    role_pages = list(role.get("pages", [])) if role else []
+    role_actions = list(role.get("actions", [])) if role else []
+
+    # Pull per-user overrides from the user doc. Missing fields default
+    # to empty lists — only super_admins can edit these via the new
+    # `/permissions/users/{email}/overrides` endpoint.
+    user_doc = await db.users.find_one(
+        {"email": current_user.get("email")},
+        {"_id": 0, "extra_pages": 1, "denied_pages": 1, "extra_actions": 1, "denied_actions": 1},
+    ) or {}
+    extra_pages = set(user_doc.get("extra_pages") or [])
+    denied_pages = set(user_doc.get("denied_pages") or [])
+    extra_actions = set(user_doc.get("extra_actions") or [])
+    denied_actions = set(user_doc.get("denied_actions") or [])
+
+    effective_pages = [p for p in role_pages if p not in denied_pages]
+    for p in extra_pages:
+        if p not in effective_pages:
+            effective_pages.append(p)
+
+    effective_actions = [a for a in role_actions if a not in denied_actions]
+    for a in extra_actions:
+        if a not in effective_actions:
+            effective_actions.append(a)
+
     return {
         "role": role_id,
-        "is_super_admin": role.get("is_super_admin", False),
-        "pages": role.get("pages", []),
-        "actions": role.get("actions", []),
+        "is_super_admin": role.get("is_super_admin", False) if role else False,
+        "pages": effective_pages,
+        "actions": effective_actions,
+        # Surface the breakdown for the admin UI to show "inherited from role"
+        # vs "personal grant" without an extra round-trip.
+        "_breakdown": {
+            "role_pages": role_pages,
+            "role_actions": role_actions,
+            "extra_pages": sorted(extra_pages),
+            "denied_pages": sorted(denied_pages),
+            "extra_actions": sorted(extra_actions),
+            "denied_actions": sorted(denied_actions),
+        },
     }
 
 
@@ -387,3 +502,188 @@ async def delete_role(role_id: str, current_user: dict = Depends(get_current_use
 
     await db.roles.delete_one({"role_id": role_id})
     return {"success": True, "role_id": role_id}
+
+
+# ---------------------------------------------------------------------------
+# Per-user overrides (16 May 2026 — unification of permissions admin)
+#
+# Lets a super-admin grant extra pages/actions to ONE user beyond their
+# role's defaults, or deny specific pages/actions just for that user.
+# All admin/staff/manager users share the same role defaults — these
+# overrides exist for one-off cases (e.g. one Sydenham staffer needing
+# Stock Transfers access without bumping the whole Staff role).
+# ---------------------------------------------------------------------------
+
+class UserOverridesPayload(BaseModel):
+    extra_pages: Optional[List[str]] = None
+    denied_pages: Optional[List[str]] = None
+    extra_actions: Optional[List[str]] = None
+    denied_actions: Optional[List[str]] = None
+
+
+@router.get("/users")
+async def list_admin_users_with_perms(
+    showroom_id: Optional[str] = None,
+    role: Optional[str] = None,
+    search: Optional[str] = None,
+    current_user: dict = Depends(get_current_user),
+):
+    """List all admin/staff users with their effective permission summary.
+
+    Filters:
+      - `showroom_id`: only users assigned to this showroom
+      - `role`: only users with this role_id
+      - `search`: case-insensitive substring match against name OR email
+
+    Returns minimal data (no full role page list — call /users/{email} for that)
+    so the picker UI is fast even with hundreds of users.
+    """
+    _require_super_admin(current_user)
+    db = get_db()
+    await _ensure_system_roles(db)
+
+    q: dict = {"role": {"$in": ["super_admin", "admin", "manager", "staff"]}}
+    if showroom_id:
+        q["showroom_id"] = showroom_id
+    if role:
+        q["role"] = role
+    if search:
+        # Case-insensitive on name/email — MongoDB $regex with `i` flag.
+        rx = {"$regex": search.strip(), "$options": "i"}
+        q["$or"] = [{"email": rx}, {"name": rx}]
+
+    cursor = db.users.find(
+        q,
+        {
+            "_id": 0, "email": 1, "name": 1, "role": 1,
+            "showroom_id": 1, "showroom_name": 1,
+            "extra_pages": 1, "denied_pages": 1,
+            "extra_actions": 1, "denied_actions": 1,
+        },
+    ).sort("email", 1).limit(500)
+
+    users = []
+    async for u in cursor:
+        users.append({
+            "email": u.get("email"),
+            "name": u.get("name"),
+            "role": u.get("role"),
+            "showroom_id": u.get("showroom_id"),
+            "showroom_name": u.get("showroom_name"),
+            "override_count": (
+                len(u.get("extra_pages") or [])
+                + len(u.get("denied_pages") or [])
+                + len(u.get("extra_actions") or [])
+                + len(u.get("denied_actions") or [])
+            ),
+        })
+    return users
+
+
+@router.get("/users/{email}")
+async def get_user_permissions_detail(email: str, current_user: dict = Depends(get_current_user)):
+    """Full permission breakdown for ONE user — role defaults +
+    per-user overrides + effective merged set. Powers the User
+    Overrides tab on /admin/permissions."""
+    _require_super_admin(current_user)
+    db = get_db()
+    await _ensure_system_roles(db)
+
+    user_doc = await db.users.find_one({"email": email}, {"_id": 0, "password": 0})
+    if not user_doc:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    role_id = user_doc.get("role") or "staff"
+
+    # Super Admin: full access, no overrides allowed.
+    if role_id == "super_admin":
+        return {
+            "email": email,
+            "name": user_doc.get("name"),
+            "role": role_id,
+            "showroom_id": user_doc.get("showroom_id"),
+            "showroom_name": user_doc.get("showroom_name"),
+            "is_super_admin": True,
+            "role_pages": [p["key"] for p in PAGE_REGISTRY],
+            "role_actions": [a["key"] for a in ACTION_REGISTRY],
+            "extra_pages": [], "denied_pages": [],
+            "extra_actions": [], "denied_actions": [],
+            "effective_pages": [p["key"] for p in PAGE_REGISTRY],
+            "effective_actions": [a["key"] for a in ACTION_REGISTRY],
+        }
+
+    role = await db.roles.find_one({"role_id": role_id}, {"_id": 0})
+    role_pages = list(role.get("pages", [])) if role else []
+    role_actions = list(role.get("actions", [])) if role else []
+
+    extra_pages = list(user_doc.get("extra_pages") or [])
+    denied_pages = list(user_doc.get("denied_pages") or [])
+    extra_actions = list(user_doc.get("extra_actions") or [])
+    denied_actions = list(user_doc.get("denied_actions") or [])
+
+    effective_pages = [p for p in role_pages if p not in denied_pages]
+    for p in extra_pages:
+        if p not in effective_pages:
+            effective_pages.append(p)
+
+    effective_actions = [a for a in role_actions if a not in denied_actions]
+    for a in extra_actions:
+        if a not in effective_actions:
+            effective_actions.append(a)
+
+    return {
+        "email": email,
+        "name": user_doc.get("name"),
+        "role": role_id,
+        "showroom_id": user_doc.get("showroom_id"),
+        "showroom_name": user_doc.get("showroom_name"),
+        "is_super_admin": False,
+        "role_pages": role_pages,
+        "role_actions": role_actions,
+        "extra_pages": extra_pages,
+        "denied_pages": denied_pages,
+        "extra_actions": extra_actions,
+        "denied_actions": denied_actions,
+        "effective_pages": effective_pages,
+        "effective_actions": effective_actions,
+    }
+
+
+@router.put("/users/{email}/overrides")
+async def update_user_overrides(
+    email: str,
+    payload: UserOverridesPayload,
+    current_user: dict = Depends(get_current_user),
+):
+    """Set per-user permission overrides. Pass `None` for any field you
+    don't want to touch — to clear an override, pass an empty list `[]`.
+
+    All values are validated against PAGE_REGISTRY / ACTION_REGISTRY;
+    unknown keys are silently dropped so a typo in the UI can't poison
+    the DB."""
+    _require_super_admin(current_user)
+    db = get_db()
+
+    user_doc = await db.users.find_one({"email": email}, {"_id": 0, "role": 1, "email": 1})
+    if not user_doc:
+        raise HTTPException(status_code=404, detail="User not found")
+    if user_doc.get("role") == "super_admin":
+        raise HTTPException(status_code=400, detail="Super Admin permissions cannot be overridden")
+
+    valid_pages = {p["key"] for p in PAGE_REGISTRY}
+    valid_actions = {a["key"] for a in ACTION_REGISTRY}
+
+    update_doc: Dict = {"updated_at": datetime.now(timezone.utc)}
+    if payload.extra_pages is not None:
+        update_doc["extra_pages"] = [p for p in payload.extra_pages if p in valid_pages]
+    if payload.denied_pages is not None:
+        update_doc["denied_pages"] = [p for p in payload.denied_pages if p in valid_pages]
+    if payload.extra_actions is not None:
+        update_doc["extra_actions"] = [a for a in payload.extra_actions if a in valid_actions]
+    if payload.denied_actions is not None:
+        update_doc["denied_actions"] = [a for a in payload.denied_actions if a in valid_actions]
+
+    await db.users.update_one({"email": email}, {"$set": update_doc})
+
+    # Return the recomputed breakdown so the UI doesn't need a follow-up GET.
+    return await get_user_permissions_detail(email, current_user)

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { usePermissions } from '../contexts/PermissionsContext';
 import { cn } from '../lib/utils';
 import OutageBanner from './admin/OutageBanner';
 import SchemaDriftBanner from './admin/SchemaDriftBanner';
@@ -126,11 +127,28 @@ export const Layout = () => {
 
   const isAdmin = user?.role === 'admin' || user?.role === 'super_admin' || user?.role === 'manager' || user?.role === 'staff';
   const isSuperAdmin = user?.role === 'super_admin';
-  const userPermissions = user?.permissions || [];
 
-  const hasPermission = (permission) => {
+  // 16 May 2026 — sidebar gating is now driven by `/api/permissions/me`
+  // (role-based + per-user overrides, managed at /admin/permissions).
+  // We KEEP the legacy `user.permissions[]` array as a fallback so any
+  // user whose role hasn't been seeded yet (or whose token predates the
+  // unification deploy) still sees their old menu surface and doesn't
+  // get locked out. Belt-and-braces — the safer of the two checks wins.
+  const { hasPage, loading: permsLoading } = usePermissions();
+  const legacyUserPermissions = user?.permissions || [];
+
+  const hasPermission = (newKey, legacyKey) => {
     if (isSuperAdmin) return true;
-    return userPermissions.includes(permission);
+    // While the perms context is loading on first paint, fall back to
+    // legacy so the sidebar isn't briefly empty.
+    if (permsLoading && legacyUserPermissions.length > 0) {
+      return legacyKey ? legacyUserPermissions.includes(legacyKey) : false;
+    }
+    // Modern check (granular page key) first…
+    if (newKey && hasPage(newKey)) return true;
+    // …then legacy fallback (old grouped key) so historical data still works.
+    if (legacyKey && legacyUserPermissions.includes(legacyKey)) return true;
+    return false;
   };
 
   const toggleGroup = (groupId) => {
@@ -141,13 +159,24 @@ export const Layout = () => {
     );
   };
 
-  // Navigation structure with groups
+  // Navigation structure with groups.
+  //
+  // Each item carries TWO permission keys:
+  //   `permission`       — granular page key matching PAGE_REGISTRY in
+  //                        /app/backend/routes/permissions.py (new system,
+  //                        managed via /admin/permissions)
+  //   `legacyPermission` — old grouped key that was checked against
+  //                        user.permissions[] before May 16, 2026.
+  //                        Kept as a fallback so historical staff users
+  //                        with the old keys still see their menu.
+  //
+  // `hasPermission(newKey, legacyKey)` returns true if EITHER passes.
   const navGroups = [
     {
       id: 'main',
       label: null,
       items: [
-        { to: '/admin', icon: LayoutDashboard, label: 'Dashboard', end: true, permission: 'dashboard' },
+        { to: '/admin', icon: LayoutDashboard, label: 'Dashboard', end: true, permission: 'dashboard', legacyPermission: 'dashboard' },
       ]
     },
     {
@@ -156,9 +185,9 @@ export const Layout = () => {
       icon: ShoppingBag,
       hubLink: '/admin/sales-hub',
       items: [
-        { to: '/admin/epos', icon: Monitor, label: 'EPOS', permission: 'epos' },
-        { to: '/admin/cash-counter', icon: Banknote, label: 'Cash Counter', permission: 'dashboard' },
-        { to: '/admin/showroom-dashboard', icon: Store, label: 'Store Dashboard', permission: 'dashboard' },
+        { to: '/admin/epos', icon: Monitor, label: 'EPOS', permission: 'epos', legacyPermission: 'epos' },
+        { to: '/admin/cash-counter', icon: Banknote, label: 'Cash Counter', permission: 'cash_counter', legacyPermission: 'dashboard' },
+        { to: '/admin/showroom-dashboard', icon: Store, label: 'Store Dashboard', permission: 'showroom_dashboard', legacyPermission: 'dashboard' },
       ]
     },
     {
@@ -167,10 +196,10 @@ export const Layout = () => {
       icon: Package,
       hubLink: '/admin/products-hub',
       items: [
-        { to: '/admin/supplier-products', icon: Package, label: 'Products', permission: 'products' },
-        { to: '/admin/supplier-health', icon: Activity, label: 'Supplier Health', permission: 'products' },
-        { to: '/admin/sync-hub', icon: RefreshCw, label: 'Sync Hub', permission: 'products' },
-        { to: '/admin/suppliers', icon: Building2, label: 'Supplier Contacts', permission: 'products' },
+        { to: '/admin/supplier-products', icon: Package, label: 'Products', permission: 'supplier_products', legacyPermission: 'products' },
+        { to: '/admin/supplier-health', icon: Activity, label: 'Supplier Health', permission: 'supplier_health', legacyPermission: 'products' },
+        { to: '/admin/sync-hub', icon: RefreshCw, label: 'Sync Hub', permission: 'sync_hub', legacyPermission: 'products' },
+        { to: '/admin/suppliers', icon: Building2, label: 'Supplier Contacts', permission: 'suppliers', legacyPermission: 'products' },
       ]
     },
     {
@@ -179,16 +208,16 @@ export const Layout = () => {
       icon: Warehouse,
       hubLink: '/admin/stock-hub',
       items: [
-        { to: '/admin/stock-allocation', icon: Boxes, label: 'Stock Allocation', permission: 'products' },
-        { to: '/admin/bulk-stock', icon: Layers, label: 'Bulk Stock Edit', permission: 'products' },
-        { to: '/admin/stock-import', icon: Upload, label: 'Stock Import', permission: 'products', superAdminOnly: true },
-        { to: '/admin/delivery-check-in', icon: Truck, label: 'Delivery Check-In', permission: 'products' },
-        { to: '/admin/stock-transfers', icon: ArrowLeftRight, label: 'Stock Transfers', permission: 'products' },
-        { to: '/admin/reorder-suggestions', icon: TrendingUp, label: 'Reorder Suggestions', permission: 'products' },
-        { to: '/admin/batch-tracking', icon: Package, label: 'Batch Tracking', permission: 'products' },
-        { to: '/admin/to-order', icon: PackageSearch, label: 'To Order Report', permission: 'reports' },
-        { to: '/admin/stock-cost', icon: PoundSterling, label: 'Stock Value', permission: 'reports' },
-        { to: '/admin/stocktake-report', icon: ClipboardList, label: 'Stocktake Report', permission: 'reports' },
+        { to: '/admin/stock-allocation', icon: Boxes, label: 'Stock Allocation', permission: 'stock_allocation', legacyPermission: 'products' },
+        { to: '/admin/bulk-stock', icon: Layers, label: 'Bulk Stock Edit', permission: 'bulk_stock', legacyPermission: 'products' },
+        { to: '/admin/stock-import', icon: Upload, label: 'Stock Import', permission: 'stock_import', legacyPermission: 'products', superAdminOnly: true },
+        { to: '/admin/delivery-check-in', icon: Truck, label: 'Delivery Check-In', permission: 'delivery_check_in', legacyPermission: 'products' },
+        { to: '/admin/stock-transfers', icon: ArrowLeftRight, label: 'Stock Transfers', permission: 'stock_transfers', legacyPermission: 'products' },
+        { to: '/admin/reorder-suggestions', icon: TrendingUp, label: 'Reorder Suggestions', permission: 'reorder_suggestions', legacyPermission: 'products' },
+        { to: '/admin/batch-tracking', icon: Package, label: 'Batch Tracking', permission: 'batch_tracking', legacyPermission: 'products' },
+        { to: '/admin/to-order', icon: PackageSearch, label: 'To Order Report', permission: 'to_order_report', legacyPermission: 'reports' },
+        { to: '/admin/stock-cost', icon: PoundSterling, label: 'Stock Value', permission: 'stock_cost', legacyPermission: 'reports' },
+        { to: '/admin/stocktake-report', icon: ClipboardList, label: 'Stocktake Report', permission: 'stocktake_report', legacyPermission: 'reports' },
       ]
     },
     {
@@ -197,11 +226,11 @@ export const Layout = () => {
       icon: Contact,
       hubLink: '/admin/customers-hub',
       items: [
-        { to: '/admin/trade-accounts', icon: Building2, label: 'Trade Accounts', permission: 'customers' },
-        { to: '/admin/pricing', icon: Users, label: 'Customer Pricing', permission: 'customer_pricing' },
-        { to: '/admin/invites', icon: UserPlus, label: 'Invite Customers', permission: 'customer_invites' },
-        { to: '/admin/inquiries', icon: MessageSquare, label: 'Bulk Inquiries', permission: 'bulk_inquiries' },
-        { to: '/admin/trade-list', icon: Handshake, label: 'Trade List (Legacy)', permission: 'customers' },
+        { to: '/admin/trade-accounts', icon: Building2, label: 'Trade Accounts', permission: 'trade_accounts', legacyPermission: 'customers' },
+        { to: '/admin/pricing', icon: Users, label: 'Customer Pricing', permission: 'customer_pricing', legacyPermission: 'customer_pricing' },
+        { to: '/admin/invites', icon: UserPlus, label: 'Invite Customers', permission: 'customer_invites', legacyPermission: 'customer_invites' },
+        { to: '/admin/inquiries', icon: MessageSquare, label: 'Bulk Inquiries', permission: 'bulk_inquiries', legacyPermission: 'bulk_inquiries' },
+        { to: '/admin/trade-list', icon: Handshake, label: 'Trade List (Legacy)', permission: 'trade_list', legacyPermission: 'customers' },
       ]
     },
     {
@@ -210,11 +239,11 @@ export const Layout = () => {
       icon: Radio,
       hubLink: '/admin/communication-hub',
       items: [
-        { to: '/admin/chat', icon: MessageCircle, label: 'Staff Chat', permission: 'dashboard' },
-        { to: '/admin/tasks', icon: ClipboardList, label: 'Tasks & Notes', permission: 'dashboard' },
-        { to: '/admin/inbox', icon: Mail, label: 'Inbox', permission: 'marketing' },
-        { to: '/admin/email', icon: Send, label: 'Send Email', permission: 'marketing' },
-        { to: '/admin/notifications', icon: Bell, label: 'Notifications', permission: 'marketing', superAdminOnly: true },
+        { to: '/admin/chat', icon: MessageCircle, label: 'Staff Chat', permission: 'staff_chat', legacyPermission: 'dashboard' },
+        { to: '/admin/tasks', icon: ClipboardList, label: 'Tasks & Notes', permission: 'tasks', legacyPermission: 'dashboard' },
+        { to: '/admin/inbox', icon: Mail, label: 'Inbox', permission: 'inbox', legacyPermission: 'marketing' },
+        { to: '/admin/email', icon: Send, label: 'Send Email', permission: 'email_composer', legacyPermission: 'marketing' },
+        { to: '/admin/notifications', icon: Bell, label: 'Notifications', permission: 'notifications', legacyPermission: 'marketing', superAdminOnly: true },
       ]
     },
     {
@@ -223,21 +252,21 @@ export const Layout = () => {
       icon: TrendingUp,
       hubLink: '/admin/seo',
       items: [
-        { to: '/admin/seo', icon: Trophy, label: 'SEO Command Centre', permission: 'marketing' },
-        { to: '/admin/marketing-studio', icon: Wand2, label: 'Marketing Studio', permission: 'marketing' },
-        { to: '/admin/visualizer', icon: Sparkles, label: 'Tile Visualizer', permission: 'marketing' },
-        { to: '/admin/marketing', icon: Megaphone, label: 'Marketing Campaigns', permission: 'marketing' },
-        { to: '/admin/promo-codes', icon: Tag, label: 'Promo Codes', permission: 'marketing' },
-        { to: '/admin/abandoned-baskets', icon: ShoppingCart, label: 'Abandoned Baskets', permission: 'marketing' },
-        { to: '/admin/email-hub', icon: Mail, label: 'Email Hub', permission: 'marketing' },
-        { to: '/admin/pinterest-pack', icon: ImageIcon, label: 'Pinterest Pack', permission: 'marketing' },
-        { to: '/admin/trade-credit-emails', icon: Mail, label: 'Trade Credit Emails', permission: 'marketing' },
-        { to: '/admin/failed-payments', icon: AlertTriangle, label: 'Failed Payments', permission: 'marketing' },
-        { to: '/admin/stripe-reconcile', icon: ShieldAlert, label: 'Stripe Reconcile', permission: 'marketing' },
-        { to: '/admin/seo-autopilot-v2', icon: ShieldCheck, label: 'SEO Autopilot (Full)', permission: 'marketing' },
-        { to: '/admin/mission-topps', icon: Target, label: 'Mission: Catch Topps', permission: 'marketing' },
-        { to: '/admin/weekly-digest', icon: CalendarDays, label: 'Weekly Digest', permission: 'marketing', superAdminOnly: true },
-        { to: '/admin/health', icon: ShieldAlert, label: 'Health Monitor', permission: 'admin' },
+        { to: '/admin/seo', icon: Trophy, label: 'SEO Command Centre', permission: 'marketing', legacyPermission: 'marketing' },
+        { to: '/admin/marketing-studio', icon: Wand2, label: 'Marketing Studio', permission: 'marketing', legacyPermission: 'marketing' },
+        { to: '/admin/visualizer', icon: Sparkles, label: 'Tile Visualizer', permission: 'marketing', legacyPermission: 'marketing' },
+        { to: '/admin/marketing', icon: Megaphone, label: 'Marketing Campaigns', permission: 'marketing', legacyPermission: 'marketing' },
+        { to: '/admin/promo-codes', icon: Tag, label: 'Promo Codes', permission: 'marketing', legacyPermission: 'marketing' },
+        { to: '/admin/abandoned-baskets', icon: ShoppingCart, label: 'Abandoned Baskets', permission: 'marketing', legacyPermission: 'marketing' },
+        { to: '/admin/email-hub', icon: Mail, label: 'Email Hub', permission: 'marketing', legacyPermission: 'marketing' },
+        { to: '/admin/pinterest-pack', icon: ImageIcon, label: 'Pinterest Pack', permission: 'marketing', legacyPermission: 'marketing' },
+        { to: '/admin/trade-credit-emails', icon: Mail, label: 'Trade Credit Emails', permission: 'marketing', legacyPermission: 'marketing' },
+        { to: '/admin/failed-payments', icon: AlertTriangle, label: 'Failed Payments', permission: 'marketing', legacyPermission: 'marketing' },
+        { to: '/admin/stripe-reconcile', icon: ShieldAlert, label: 'Stripe Reconcile', permission: 'marketing', legacyPermission: 'marketing' },
+        { to: '/admin/seo-autopilot-v2', icon: ShieldCheck, label: 'SEO Autopilot (Full)', permission: 'marketing', legacyPermission: 'marketing' },
+        { to: '/admin/mission-topps', icon: Target, label: 'Mission: Catch Topps', permission: 'marketing', legacyPermission: 'marketing' },
+        { to: '/admin/weekly-digest', icon: CalendarDays, label: 'Weekly Digest', permission: 'marketing', legacyPermission: 'marketing', superAdminOnly: true },
+        { to: '/admin/health', icon: ShieldAlert, label: 'Health Monitor', permission: 'marketing', legacyPermission: 'admin' },
       ]
     },
     {
@@ -246,9 +275,9 @@ export const Layout = () => {
       icon: BarChart3,
       hubLink: '/admin/reports-hub',
       items: [
-        { to: '/admin/analytics', icon: TrendingUp, label: 'Analytics', permission: 'reports' },
-        { to: '/admin/reports', icon: BarChart3, label: 'Sales Reports', permission: 'reports' },
-        { to: '/admin/audit-trail', icon: History, label: 'Audit Trail', permission: 'user_management', superAdminOnly: true },
+        { to: '/admin/analytics', icon: TrendingUp, label: 'Analytics', permission: 'analytics', legacyPermission: 'reports' },
+        { to: '/admin/reports', icon: BarChart3, label: 'Sales Reports', permission: 'reports', legacyPermission: 'reports' },
+        { to: '/admin/audit-trail', icon: History, label: 'Audit Trail', permission: 'audit_trail', legacyPermission: 'user_management', superAdminOnly: true },
       ]
     },
     {
@@ -257,12 +286,13 @@ export const Layout = () => {
       icon: Settings,
       hubLink: '/admin/settings-hub',
       items: [
-        { to: '/admin/showrooms', icon: Building2, label: 'Stores', permission: 'showrooms' },
-        { to: '/admin/users', icon: Shield, label: 'User Management', permission: 'user_management', superAdminOnly: true },
-        { to: '/admin/staff-pins', icon: KeyRound, label: 'Staff PINs', permission: 'user_management', superAdminOnly: true },
-        { to: '/admin/staff-invites', icon: Link2, label: 'Staff Invites', permission: 'user_management', superAdminOnly: true },
-        { to: '/admin/trash', icon: Trash2, label: 'Trash', permission: 'user_management', superAdminOnly: true },
-        { to: '/admin/settings', icon: Settings, label: 'Settings', permission: 'dashboard' },
+        { to: '/admin/showrooms', icon: Building2, label: 'Stores', permission: 'showrooms', legacyPermission: 'showrooms' },
+        { to: '/admin/users', icon: Shield, label: 'User Management', permission: 'user_management', legacyPermission: 'user_management', superAdminOnly: true },
+        { to: '/admin/permissions', icon: Shield, label: 'Permissions', permission: 'permissions_admin', legacyPermission: 'user_management', superAdminOnly: true },
+        { to: '/admin/staff-pins', icon: KeyRound, label: 'Staff PINs', permission: 'staff_pins', legacyPermission: 'user_management', superAdminOnly: true },
+        { to: '/admin/staff-invites', icon: Link2, label: 'Staff Invites', permission: 'staff_invites', legacyPermission: 'user_management', superAdminOnly: true },
+        { to: '/admin/trash', icon: Trash2, label: 'Trash', permission: 'trash', legacyPermission: 'user_management', superAdminOnly: true },
+        { to: '/admin/settings', icon: Settings, label: 'Settings', permission: 'general_settings', legacyPermission: 'dashboard' },
       ]
     },
     {
@@ -272,32 +302,34 @@ export const Layout = () => {
       hubLink: '/admin/website-hub',
       superAdminOnly: true, // Only visible to super admins
       items: [
-        { to: '/admin/website-preview', icon: Eye, label: 'Preview Website', permission: 'products', superAdminOnly: true },
-        { to: '/admin/homepage-content', icon: Home, label: 'Homepage', permission: 'products', superAdminOnly: true },
-        { to: '/admin/collections', icon: Layers, label: 'Collections', permission: 'products', superAdminOnly: true },
-        { to: '/admin/trade-account-settings', icon: Building2, label: 'Trade Account', permission: 'products', superAdminOnly: true },
-        { to: '/admin/customer-account-settings', icon: User, label: 'Customer Account', permission: 'products', superAdminOnly: true },
-        { to: '/admin/checkout-settings', icon: ShoppingCart, label: 'Checkout Page', permission: 'products', superAdminOnly: true },
-        { to: '/admin/navigation-menu', icon: MenuIcon, label: 'Navigation Menu', permission: 'products', superAdminOnly: true },
-        { to: '/admin/website-categories', icon: LayoutGrid, label: 'Website Categories', permission: 'products', superAdminOnly: true },
-        { to: '/admin/manage-categories', icon: FolderOpen, label: 'Product Categories', permission: 'categories', superAdminOnly: true },
-        { to: '/admin/website-filters', icon: Filter, label: 'Filters', permission: 'products', superAdminOnly: true },
-        { to: '/admin/website-products', icon: ShoppingBag, label: 'Products Editor', permission: 'products', superAdminOnly: true },
-        { to: '/admin/sample-service-content', icon: FileEdit, label: 'Sample Service', permission: 'products', superAdminOnly: true },
-        { to: '/admin/website-settings', icon: Palette, label: 'Settings & Branding', permission: 'products', superAdminOnly: true },
-        { to: '/admin/website-analytics', icon: BarChart3, label: 'Website Analytics', permission: 'reports', superAdminOnly: true },
-        { to: '/admin/live-chat', icon: MessageCircle, label: 'Live Chat', permission: 'reports', superAdminOnly: true },
-        { to: '/admin/whatsapp', icon: Phone, label: 'WhatsApp Messages', permission: 'products', superAdminOnly: true },
+        { to: '/admin/website-preview', icon: Eye, label: 'Preview Website', permission: 'website_preview', legacyPermission: 'products', superAdminOnly: true },
+        { to: '/admin/homepage-content', icon: Home, label: 'Homepage', permission: 'homepage_content', legacyPermission: 'products', superAdminOnly: true },
+        { to: '/admin/collections', icon: Layers, label: 'Collections', permission: 'collections', legacyPermission: 'products', superAdminOnly: true },
+        { to: '/admin/trade-account-settings', icon: Building2, label: 'Trade Account', permission: 'trade_account_settings', legacyPermission: 'products', superAdminOnly: true },
+        { to: '/admin/customer-account-settings', icon: User, label: 'Customer Account', permission: 'customer_account_settings', legacyPermission: 'products', superAdminOnly: true },
+        { to: '/admin/checkout-settings', icon: ShoppingCart, label: 'Checkout Page', permission: 'checkout_settings', legacyPermission: 'products', superAdminOnly: true },
+        { to: '/admin/navigation-menu', icon: MenuIcon, label: 'Navigation Menu', permission: 'navigation_menu', legacyPermission: 'products', superAdminOnly: true },
+        { to: '/admin/website-categories', icon: LayoutGrid, label: 'Website Categories', permission: 'website_categories', legacyPermission: 'products', superAdminOnly: true },
+        { to: '/admin/manage-categories', icon: FolderOpen, label: 'Product Categories', permission: 'manage_categories', legacyPermission: 'categories', superAdminOnly: true },
+        { to: '/admin/website-filters', icon: Filter, label: 'Filters', permission: 'website_filters', legacyPermission: 'products', superAdminOnly: true },
+        { to: '/admin/website-products', icon: ShoppingBag, label: 'Products Editor', permission: 'website_products', legacyPermission: 'products', superAdminOnly: true },
+        { to: '/admin/sample-service-content', icon: FileEdit, label: 'Sample Service', permission: 'sample_service_content', legacyPermission: 'products', superAdminOnly: true },
+        { to: '/admin/website-settings', icon: Palette, label: 'Settings & Branding', permission: 'website_settings', legacyPermission: 'products', superAdminOnly: true },
+        { to: '/admin/website-analytics', icon: BarChart3, label: 'Website Analytics', permission: 'website_analytics', legacyPermission: 'reports', superAdminOnly: true },
+        { to: '/admin/live-chat', icon: MessageCircle, label: 'Live Chat', permission: 'live_chat', legacyPermission: 'reports', superAdminOnly: true },
+        { to: '/admin/whatsapp', icon: Phone, label: 'WhatsApp Messages', permission: 'whatsapp', legacyPermission: 'products', superAdminOnly: true },
       ]
     },
   ];
 
-  // Filter items based on permissions
+  // Filter items based on permissions. Each item is shown if EITHER its
+  // new granular key OR its legacy grouped key grants access — see
+  // `hasPermission()` above for the resolution order.
   const filteredGroups = navGroups.map(group => ({
     ...group,
     items: group.items.filter(item => {
       if (item.superAdminOnly && !isSuperAdmin) return false;
-      return hasPermission(item.permission);
+      return hasPermission(item.permission, item.legacyPermission);
     })
   })).filter(group => group.items.length > 0);
 
