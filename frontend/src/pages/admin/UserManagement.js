@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { api } from '../../lib/api';
 import { toast } from 'sonner';
 import { extractApiError } from '../../utils/extractApiError';
-import { Users, Plus, Edit2, Trash2, Shield, ShieldCheck, ShieldAlert, Building2, Key } from 'lucide-react';
+import { Users, Plus, Edit2, Trash2, Shield, ShieldCheck, ShieldAlert, Building2, Key, Star, ArrowDown } from 'lucide-react';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
 import { Card } from '../../components/ui/card';
@@ -204,6 +204,7 @@ export const UserManagement = () => {
       super_admin: <span className="px-2 py-1 text-xs font-medium rounded-full bg-purple-100 text-purple-800">Super Admin</span>,
       admin: <span className="px-2 py-1 text-xs font-medium rounded-full bg-blue-100 text-blue-800">Admin</span>,
       manager: <span className="px-2 py-1 text-xs font-medium rounded-full bg-green-100 text-green-800">Manager</span>,
+      showroom_lead: <span className="px-2 py-1 text-xs font-medium rounded-full bg-amber-100 text-amber-800 inline-flex items-center gap-1"><Star className="h-3 w-3" /> Showroom Lead</span>,
       staff: <span className="px-2 py-1 text-xs font-medium rounded-full bg-gray-100 text-gray-800">Staff</span>
     };
     return badges[role] || <span className="px-2 py-1 text-xs rounded-full bg-gray-100">{role}</span>;
@@ -214,7 +215,30 @@ export const UserManagement = () => {
       case 'super_admin': return <ShieldAlert className="h-5 w-5 text-purple-500" />;
       case 'admin': return <ShieldCheck className="h-5 w-5 text-blue-500" />;
       case 'manager': return <Shield className="h-5 w-5 text-green-500" />;
+      case 'showroom_lead': return <Star className="h-5 w-5 text-amber-500" />;
       default: return <Users className="h-5 w-5 text-gray-500" />;
+    }
+  };
+
+  // 17 May 2026 — one-click promote / demote between Staff ↔ Showroom Lead.
+  // Pre-condition: only super_admin can call this; only applies to users
+  // whose current role is one of those two. Backend uses PUT /admin/users/{email}/permissions
+  // which we already use elsewhere — just toggles the `role` field.
+  // Permissions stay derived from the role automatically (no copy of an array).
+  const promoteToShowroomLead = async (user) => {
+    const isCurrentlyLead = user.role === 'showroom_lead';
+    const targetRole = isCurrentlyLead ? 'staff' : 'showroom_lead';
+    const verb = isCurrentlyLead ? 'demote' : 'promote';
+    const confirmMsg = isCurrentlyLead
+      ? `Demote ${user.name} back to Staff? They will lose Stock Transfers, Reorder Suggestions, and the inventory reports.`
+      : `Promote ${user.name} to Showroom Lead? They will gain Stock Transfers (between showrooms), Reorder Suggestions, To Order Report, Stock Value and Stocktake Report — on top of their current Staff access.`;
+    if (!window.confirm(confirmMsg)) return;
+    try {
+      await api.updateUserPermissions(user.email, { role: targetRole });
+      toast.success(`${user.name} ${verb}d successfully — they must log out and back in for it to take effect.`);
+      await fetchData();
+    } catch (error) {
+      toast.error(extractApiError(error, `Failed to ${verb} user`));
     }
   };
 
@@ -283,6 +307,28 @@ export const UserManagement = () => {
                     <td className="px-4 py-3 text-center">
                       {user.role !== 'super_admin' && (
                         <div className="flex justify-center gap-1">
+                          {/* Promote-to / Demote-from Showroom Lead — only
+                            * surfaced for Staff and Showroom Lead roles to
+                            * keep the row tidy. Admin/Manager rows skip it.
+                            */}
+                          {(user.role === 'staff' || user.role === 'showroom_lead') && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => promoteToShowroomLead(user)}
+                              className={user.role === 'showroom_lead'
+                                ? 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'
+                                : 'text-amber-600 hover:text-amber-700 hover:bg-amber-50'}
+                              title={user.role === 'showroom_lead'
+                                ? 'Demote to Staff'
+                                : 'Promote to Showroom Lead'}
+                              data-testid={`promote-lead-${user.email}`}
+                            >
+                              {user.role === 'showroom_lead'
+                                ? <ArrowDown className="h-4 w-4" />
+                                : <Star className="h-4 w-4" />}
+                            </Button>
+                          )}
                           <Button 
                             variant="ghost" 
                             size="sm" 
@@ -380,6 +426,7 @@ export const UserManagement = () => {
                   data-testid="user-role-select"
                 >
                   <option value="staff">Staff</option>
+                  <option value="showroom_lead">Showroom Lead</option>
                   <option value="manager">Manager</option>
                   <option value="admin">Admin</option>
                 </select>
