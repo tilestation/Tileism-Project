@@ -558,26 +558,28 @@ function injectMeta(html, meta) {
 
   const block = `\n        <!-- SSR-injected SEO (server.js) -->\n        ${tags.join('\n        ')}\n        <!-- /SSR-injected SEO -->\n`;
 
-  // 17 May 2026 — Inline strip-on-mount script.
+  // 17 May 2026 — REVERTED the inline strip-on-mount approach (took down
+  // 77 pages' title tags on production for ~1 hour). The plan was:
+  //   1. mark every SSR SEO tag with data-ssr-seo="1"
+  //   2. emit an inline script that runs before React mounts and strips
+  //      those tags so <SeoHead/> can be the single source of truth
   //
-  // JS-rendering crawlers (Ahrefs, Screaming Frog with JS on, browsers)
-  // will execute this script BEFORE the React bundle mounts. It removes
-  // every SEO tag we injected here so React 19's `<SeoHead/>` can
-  // populate them cleanly without creating duplicates. Non-JS bots
-  // (Googlebot's first-pass static fetch, some social crawlers) never
-  // reach this script and keep the SSR tags — so we never lose SEO
-  // coverage either way.
+  // What actually happened: on 77 collection/category pages, <SeoHead/>
+  // either isn't rendered at all OR mounts after a slow API fetch.
+  // Result: strip script ran, removed the title — and nothing replaced
+  // it. Ahrefs reported "Title tag missing" on 77 pages and the Health
+  // Score dropped 90s → 63 within one crawl.
   //
-  // Guarded with a try/catch + window flag so it can't crash the page
-  // even if the DOM API throws (defensive — `document.head` is always
-  // present at this point in the lifecycle).
-  const stripScript = (
-    `<script>(function(){try{if(window.__seoSsrStripped)return;` +
-      `var ts=document.head.querySelectorAll('[data-ssr-seo]');` +
-      `for(var i=0;i<ts.length;i++){ts[i].remove();}` +
-      `window.__seoSsrStripped=true;}catch(e){}})();</script>`
-  );
-  const blockWithStripper = `${block}        ${stripScript}\n`;
+  // Lesson: duplicate <title>/<meta> tags are a WARNING on Ahrefs. A
+  // missing title is a critical ERROR that tanks indexing. The cure
+  // was worse than the disease. We keep the data-ssr-seo markers (they
+  // cost nothing and are useful for future per-page cleanups) but the
+  // strip script is removed entirely.
+  //
+  // Proper fix for the duplicate-tags issue lives inside <SeoHead/>
+  // itself — it should clean up matching SSR tags before injecting its
+  // own. Tracked in /app/memory/PRD.md.
+  const blockWithStripper = block;
 
   // Strip any previously-injected block + its strip script (idempotency
   // on rebuilds). We do this in TWO passes to avoid a regex that has to

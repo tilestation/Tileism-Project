@@ -10,7 +10,36 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 
 ## Recent Sessions (most recent first)
 
-### [May 17, 2026 — 08:00] 🔍 Ahrefs duplicate-tags root cause + fix
+### [May 17, 2026 — 11:00] 🚨 REVERTED the duplicate-tag fix (took down 77 pages on prod)
+
+The strip-on-mount approach from the previous session backfired catastrophically. On collection/category pages where `<SeoHead/>` either isn't present OR mounts after a slow API fetch, the strip script ran first, removed the SSR-injected `<title>` and other SEO tags, and nothing replaced them. Result:
+- Ahrefs Site Audit Health Score **crashed from 90s → 63 in one crawl**
+- 77 pages reported "Title tag missing or empty" (up from 17)
+- 53 new orphan pages, 24 new "no outgoing links", 16 new "duplicate without canonical"
+- AI insight on Ahrefs explicitly called it out: *"Seven collection and category pages were switched to indexable and had their title and meta description removed."*
+
+**Revert**:
+- Inline strip script removed from `server-seo.js::injectMeta`. Pages now serve the SSR tags exactly as before the May 17 08:00 attempt.
+- `data-ssr-seo="1"` markers KEPT on every SSR tag — they cost nothing and will be useful when the proper fix lands.
+- Idempotency regex simplified back to one-pass (only the SEO comment block needs stripping on rebuild now).
+- Tests updated: Test 2 now ASSERTS the strip script is absent (guard against accidental reintroduction).
+
+**Lesson learned**: duplicate `<title>` tags are an Ahrefs WARNING. Missing `<title>` tags are a critical ERROR that tanks indexing. The cure was worse than the disease.
+
+**Proper duplicate-tag fix for later**:
+- Move the cleanup INTO `<SeoHead/>` itself: when the component mounts, query `[data-ssr-seo]` matching the tag types it's about to render, and remove those specific tags right before its own tags hoist.
+- This way only pages that USE `<SeoHead/>` trigger cleanup. Pages without `<SeoHead/>` keep their SSR tags forever.
+- Tracked in ROADMAP.
+
+**Files**:
+- Modified: `/app/frontend/server-seo.js` (removed strip script generation, kept markers)
+- Modified: `/app/frontend/tests/server-seo.test.js` (Test 2 now asserts strip script absent)
+
+**Verified**: 5/5 tests pass. Standalone node run prints `Strip script present: false, Title present: true, data-ssr-seo present: true`.
+
+**Estimated impact after deploy**: Health Score should recover to 90s within 1-2 Ahrefs crawls (24-48h). The "Multiple title tags (62)" warning will return but that's an Ahrefs Info-level alert, not the critical-level Title-Missing error.
+
+### [May 17, 2026 — 08:00] 🔍 Ahrefs duplicate-tags root cause + fix [REVERTED]
 
 User flagged that Ahrefs Site Audit keeps emailing daily alerts. Investigation revealed the biggest one ("Multiple title tags — 62 pages" + "Multiple meta description tags — 62 pages") had a real bug behind it:
 
