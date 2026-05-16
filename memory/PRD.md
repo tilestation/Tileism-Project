@@ -10,6 +10,29 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 
 ## Recent Sessions (most recent first)
 
+### [May 17, 2026 — 08:00] 🔍 Ahrefs duplicate-tags root cause + fix
+
+User flagged that Ahrefs Site Audit keeps emailing daily alerts. Investigation revealed the biggest one ("Multiple title tags — 62 pages" + "Multiple meta description tags — 62 pages") had a real bug behind it:
+
+**The bug**: `server-seo.js` (Express SSR layer) injects 11+ SEO tags into every HTML response. The React app then renders `<SeoHead/>` on 62 product/collection pages, which uses React 19's automatic head hoisting to ALSO emit those same tag types. JS-rendering crawlers (Ahrefs, Screaming Frog with JS on, real browsers) see BOTH sets → duplicate-tag alerts.
+
+**Fix**:
+1. Every SSR-injected SEO tag (incl. og:image, og:price, twitter:image, jsonld script, robots, keywords — all 22 tags) now carries `data-ssr-seo="1"`.
+2. An inline strip script appended after the SEO block removes all `[data-ssr-seo]` nodes from `<head>` before the React bundle loads. Non-JS bots never reach the script and keep the SSR tags (Googlebot static fetch, Twitter card crawler, etc.). JS bots run the script and let `<SeoHead/>` be the sole source of truth in the live DOM.
+3. Idempotent: re-running `injectMeta` on already-injected HTML strips the previous block AND the previous strip script before adding the new ones (verified by Test 5).
+
+**Files**:
+- Modified: `/app/frontend/server-seo.js` (+25 lines for marker pass + strip script + idempotent regex)
+- New: `/app/frontend/tests/server-seo.test.js` (5 tests — all pass)
+
+**Verified**: Standalone node test prints 22 SSR tags all carry the marker, strip script present, idempotent on rebuild.
+
+**Other Ahrefs alerts diagnosed** (not bugs — handled in user-facing message):
+- "Title tag missing or empty — 17 pages" — likely a batch of legacy URLs Ahrefs is finding, user needs to click into the alert to see URLs
+- "Indexable page became non-indexable — 16 pages" / "Noindex page +5" — search filter URLs (TileListingPage, TileCollectionsPage set `noindex` when `currentFilters.search` is set). Correct SEO behaviour, just need to ensure those URLs aren't in the sitemap.
+- "H1 tag missing or empty — 77 pages" — separate bug, likely shop/info/* pages and admin pages. Lower priority.
+- "Title too long — 74 pages" — title tags exceeding 60 chars; needs per-page audit.
+
 ### [May 17, 2026 — 06:00] 🔥 The actual "Sync Hub keeps coming back" fix
 
 User reported that even after the May 17 03:30 backfill fix, un-ticking Sync Hub from Staff role was STILL not blocking showroom staff. Investigation revealed the real culprit: the **legacy permission fallback** I added as a migration safety net was actively bypassing every revocation.

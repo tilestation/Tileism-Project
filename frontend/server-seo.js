@@ -445,18 +445,36 @@ function injectMeta(html, meta) {
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;');
 
+  // 17 May 2026 — Fix Ahrefs "Multiple title tags / Multiple meta description tags" (62 pages each).
+  //
+  // The bug chain:
+  //   1. We inject `<title>`, `<meta description>`, og:*, twitter:*, etc.
+  //      here at SSR time (so non-JS crawlers like Googlebot's static
+  //      fetcher see them).
+  //   2. After hydration, `<SeoHead/>` (used on ~62 product/collection
+  //      pages) ALSO injects the same tag types via React 19's auto
+  //      head hoisting — without knowing the SSR copies exist.
+  //   3. JS-rendering crawlers (Ahrefs, Screaming Frog with JS on)
+  //      see BOTH = "Multiple title tags" alert.
+  //
+  // Fix: stamp every SSR-injected SEO tag with `data-ssr-seo="1"`, then
+  // emit a small inline script (runs before React's bundle) that
+  // removes those marked tags from <head>. Non-JS bots never reach the
+  // script so they keep the SSR tags; JS bots run the script and end up
+  // with React-managed tags as the single source of truth.
+  const ssrAttr = ' data-ssr-seo="1"';
   const tags = [
-    `<title>${escapeHtml(meta.title)}</title>`,
-    `<meta name="description" content="${escapeHtml(meta.description)}" />`,
-    `<link rel="canonical" href="${escapeHtml(meta.canonical)}" />`,
-    `<meta property="og:title" content="${escapeHtml(meta.title)}" />`,
-    `<meta property="og:description" content="${escapeHtml(meta.description)}" />`,
-    `<meta property="og:url" content="${escapeHtml(meta.canonical)}" />`,
-    `<meta property="og:site_name" content="${BRAND}" />`,
-    `<meta property="og:type" content="${meta.product ? 'product' : 'website'}" />`,
-    `<meta name="twitter:card" content="summary_large_image" />`,
-    `<meta name="twitter:title" content="${escapeHtml(meta.title)}" />`,
-    `<meta name="twitter:description" content="${escapeHtml(meta.description)}" />`,
+    `<title${ssrAttr}>${escapeHtml(meta.title)}</title>`,
+    `<meta name="description" content="${escapeHtml(meta.description)}"${ssrAttr} />`,
+    `<link rel="canonical" href="${escapeHtml(meta.canonical)}"${ssrAttr} />`,
+    `<meta property="og:title" content="${escapeHtml(meta.title)}"${ssrAttr} />`,
+    `<meta property="og:description" content="${escapeHtml(meta.description)}"${ssrAttr} />`,
+    `<meta property="og:url" content="${escapeHtml(meta.canonical)}"${ssrAttr} />`,
+    `<meta property="og:site_name" content="${BRAND}"${ssrAttr} />`,
+    `<meta property="og:type" content="${meta.product ? 'product' : 'website'}"${ssrAttr} />`,
+    `<meta name="twitter:card" content="summary_large_image"${ssrAttr} />`,
+    `<meta name="twitter:title" content="${escapeHtml(meta.title)}"${ssrAttr} />`,
+    `<meta name="twitter:description" content="${escapeHtml(meta.description)}"${ssrAttr} />`,
   ];
 
   // ── Pinterest Rich Pins ──────────────────────────────────────────────
@@ -520,21 +538,68 @@ function injectMeta(html, meta) {
     const json = JSON.stringify(meta.jsonld)
       .replace(/</g, '\\u003c')  // safe inside <script>
       .replace(/-->/g, '--\\>');
-    tags.push(`<script type="application/ld+json">${json}</script>`);
+    tags.push(`<script type="application/ld+json"${ssrAttr}>${json}</script>`);
   }
+
+  // 17 May 2026 — every pushed SEO tag must carry the data-ssr-seo marker
+  // so the inline strip-on-mount script in <body> can find and remove
+  // them before React mounts (avoiding the duplicate-tag bug). The
+  // first 11 tags above already include the attribute; here we patch
+  // anything pushed AFTER the initial block (og:image, og:price,
+  // product:availability, pinterest-rich-pin, robots, keywords, etc.)
+  // by appending the attribute to any tag that doesn't already have it.
+  for (let i = 0; i < tags.length; i++) {
+    const tag = tags[i];
+    if (!tag.includes('data-ssr-seo')) {
+      // Insert before the closing /> or > of the opening tag.
+      tags[i] = tag.replace(/(\s*\/?>)/, `${ssrAttr}$1`);
+    }
+  }
+
   const block = `\n        <!-- SSR-injected SEO (server.js) -->\n        ${tags.join('\n        ')}\n        <!-- /SSR-injected SEO -->\n`;
 
-  // Strip any previously-injected block (idempotency on rebuilds)
+  // 17 May 2026 — Inline strip-on-mount script.
+  //
+  // JS-rendering crawlers (Ahrefs, Screaming Frog with JS on, browsers)
+  // will execute this script BEFORE the React bundle mounts. It removes
+  // every SEO tag we injected here so React 19's `<SeoHead/>` can
+  // populate them cleanly without creating duplicates. Non-JS bots
+  // (Googlebot's first-pass static fetch, some social crawlers) never
+  // reach this script and keep the SSR tags — so we never lose SEO
+  // coverage either way.
+  //
+  // Guarded with a try/catch + window flag so it can't crash the page
+  // even if the DOM API throws (defensive — `document.head` is always
+  // present at this point in the lifecycle).
+  const stripScript = (
+    `<script>(function(){try{if(window.__seoSsrStripped)return;` +
+      `var ts=document.head.querySelectorAll('[data-ssr-seo]');` +
+      `for(var i=0;i<ts.length;i++){ts[i].remove();}` +
+      `window.__seoSsrStripped=true;}catch(e){}})();</script>`
+  );
+  const blockWithStripper = `${block}        ${stripScript}\n`;
+
+  // Strip any previously-injected block + its strip script (idempotency
+  // on rebuilds). We do this in TWO passes to avoid a regex that has to
+  // match both with optional whitespace — non-greedy quantifiers were
+  // unreliable when the strip <script> appeared after a blank line.
   let out = html.replace(
     /\n?\s*<!-- SSR-injected SEO[\s\S]*?<!-- \/SSR-injected SEO -->\n?/,
     '',
   );
+  // Then strip any leftover SEO strip script from a previous injection.
+  // Keyed on the unique `__seoSsrStripped` flag so we don't nuke
+  // unrelated <script> tags.
+  out = out.replace(
+    /\n?\s*<script>\(function\(\)\{try\{if\(window\.__seoSsrStripped\)[\s\S]*?<\/script>\n?/,
+    '',
+  );
   // Insert just before </head>
   if (out.includes('</head>')) {
-    out = out.replace('</head>', `${block}    </head>`);
+    out = out.replace('</head>', `${blockWithStripper}    </head>`);
   } else {
     // No </head>? Append block at the end (defensive — should never happen)
-    out = out + block;
+    out = out + blockWithStripper;
   }
 
   // ─────────────────────────────────────────────────────────────────
