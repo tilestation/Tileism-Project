@@ -10,6 +10,31 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 
 ## Recent Sessions (most recent first)
 
+### [May 16, 2026 — late night #2] 🔧 Permission drift bug (Sydenham incident)
+
+User created a new Sydenham showroom user via the Edit User modal on production. Sidebar rendered empty and "Admin access required" banner showed even though the user had 9 permissions ticked. Root cause: **three drifted definitions of `AVAILABLE_PERMISSIONS`** in the backend.
+
+| File | What it held | Status |
+|---|---|---|
+| `server.py:219` | 12 grouped keys (`dashboard, products, epos, ...`) | ✅ Canonical — sidebar checks these |
+| `routes/invites.py:39` | Union of grouped + legacy (24 keys) | ✅ Backwards-compat for invite flow |
+| `routes/admin.py:17` | 16 legacy slugs (`create_invoice, edit_invoice, ...`) | ❌ The bug |
+
+The Edit User modal fetched `/api/admin/permissions` → got the 16 legacy slugs → rendered them as checkboxes → new users got dead permissions that no sidebar item matched.
+
+**Fix**:
+1. `routes/admin.py::AVAILABLE_PERMISSIONS` replaced with the canonical 12 grouped keys (mirroring server.py + the invite flow).
+2. `update_user_permissions` now validates against `ALL_ACCEPTED_PERMISSIONS = AVAILABLE_PERMISSIONS | LEGACY_PERMISSION_SLUGS` so existing users with historical data aren't locked out when their showroom is reassigned.
+3. Added `tests/test_permissions_drift.py` (3 tests, all pass) to pin the contract.
+
+**Files**:
+- Modified: `/app/backend/routes/admin.py` (+44 lines incl. doc comments)
+- New: `/app/backend/tests/test_permissions_drift.py`
+
+**Verified**: `GET /api/admin/permissions` now returns the 12 grouped keys; backend lint clean; tests pass.
+
+**Sydenham still needs cleanup**: after this fix deploys to prod, Sydenham's DB doc still holds the bad legacy slugs. The super_admin (qasim@) needs to re-open the Edit User modal for `sydenham@tilestation.co.uk`, untick everything, then tick the 6 grouped boxes (Dashboard, Products, Orders, EPOS (Invoices), Reports, Customers — or whatever Tonbridge has), then Save. Once deployed, Tonbridge/Gravesend/Chingford will *also* show their existing permissions ticked correctly (they were stored as grouped keys all along via the invite flow).
+
 ### [May 16, 2026 — late night] 💰 "Save £X" pop badge on pallet chips
 
 Added an amber **"Save £X"** pop badge to the top-right corner of the Half Pallet and Full Pallet chips on collection detail pages. The savings figure is computed honestly from the same `room_lot_price` value the "Per m²" chip displays vs the per-tier `pallet_price` / `half_pallet_price`, multiplied by the tier's m² minimum:

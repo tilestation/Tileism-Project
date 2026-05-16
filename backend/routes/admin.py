@@ -13,8 +13,39 @@ from services import get_current_user, is_admin_user, log_audit, hash_password
 
 router = APIRouter(prefix="/admin", tags=["Admin"])
 
-# Available permissions list
+# Canonical permission keys — must match the grouped keys checked by the
+# admin sidebar (`/app/frontend/src/components/Layout.js`) and rendered
+# with labels by `PERMISSION_LABELS` in
+# `/app/frontend/src/pages/admin/UserManagement.js`.
+#
+# 16 May 2026 — Fixed permission-drift bug: this list used to contain the
+# legacy granular slugs (`create_invoice`, `edit_invoice`, ...) which
+# never matched the grouped keys the sidebar checks for. Result: any user
+# created via the Edit User modal got dead permissions and an empty
+# sidebar (see Sydenham showroom incident). We now share the same set
+# server.py and the invite flow already use.
+#
+# Legacy slugs are still accepted by the invite flow (`routes/invites.py`)
+# for backwards compatibility with old DB records, but new users must use
+# these grouped keys.
 AVAILABLE_PERMISSIONS = [
+    "dashboard",
+    "products",
+    "categories",
+    "orders",
+    "epos",
+    "customer_pricing",
+    "customer_invites",
+    "bulk_inquiries",
+    "marketing",
+    "showrooms",
+    "reports",
+    "user_management",
+]
+
+# Legacy slugs we still accept on PUT (so existing users with old data
+# don't get locked out), but we never offer them as new checkboxes.
+LEGACY_PERMISSION_SLUGS = [
     "create_invoice",
     "edit_invoice",
     "delete_invoice",
@@ -30,8 +61,9 @@ AVAILABLE_PERMISSIONS = [
     "view_cost_price",
     "manage_pricing",
     "view_audit_logs",
-    "manage_staff_pins"
+    "manage_staff_pins",
 ]
+ALL_ACCEPTED_PERMISSIONS = set(AVAILABLE_PERMISSIONS) | set(LEGACY_PERMISSION_SLUGS)
 
 
 @router.get("/users")
@@ -98,8 +130,11 @@ async def update_user_permissions(
     if input.role is not None:
         update_data["role"] = input.role
     if input.permissions is not None:
-        # Validate permissions
-        invalid = [p for p in input.permissions if p not in AVAILABLE_PERMISSIONS]
+        # Validate permissions. Accept both the canonical grouped keys
+        # (what the modal now offers) AND the legacy slugs (for any
+        # historical users whose docs still hold old keys — we don't
+        # want to lock them out when an admin tweaks their showroom).
+        invalid = [p for p in input.permissions if p not in ALL_ACCEPTED_PERMISSIONS]
         if invalid:
             raise HTTPException(status_code=400, detail=f"Invalid permissions: {invalid}")
         update_data["permissions"] = input.permissions
