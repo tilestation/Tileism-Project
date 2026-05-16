@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { api } from '../../lib/api';
 import { toast } from 'sonner';
 import { extractApiError } from '../../utils/extractApiError';
-import { Users, Plus, Edit2, Trash2, Shield, ShieldCheck, ShieldAlert, Building2, Key, Star, ArrowDown } from 'lucide-react';
+import { Users, Plus, Edit2, Trash2, Shield, ShieldCheck, ShieldAlert, Building2, Key, Star, ArrowDown, Search, X } from 'lucide-react';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
 import { Card } from '../../components/ui/card';
@@ -51,6 +51,14 @@ export const UserManagement = () => {
     showroom_id: '',
     permissions: []
   });
+
+  // 17 May 2026 — filter bar above the user table. Lets the super-admin
+  // drill to "all staff at Gravesend" in one click before deciding who
+  // to promote to Showroom Lead. All filtering is client-side because
+  // the staff list is small (<50 rows in practice).
+  const [filterSearch, setFilterSearch] = useState('');
+  const [filterShowroom, setFilterShowroom] = useState('all');
+  const [filterRole, setFilterRole] = useState('all');
 
   useEffect(() => {
     fetchData();
@@ -246,6 +254,27 @@ export const UserManagement = () => {
     return <div className="flex items-center justify-center h-64">Loading users...</div>;
   }
 
+  // Apply filter bar to the user list. Note: the search input matches
+  // name OR email OR showroom name so the super-admin can find people
+  // however they remember them.
+  const term = filterSearch.trim().toLowerCase();
+  const filteredUsers = users.filter((u) => {
+    if (filterRole !== 'all' && u.role !== filterRole) return false;
+    if (filterShowroom !== 'all') {
+      if (filterShowroom === '__none__') {
+        if (u.showroom_id) return false;
+      } else if (u.showroom_id !== filterShowroom) {
+        return false;
+      }
+    }
+    if (term) {
+      const haystack = `${u.name || ''} ${u.email || ''} ${u.showroom_name || ''}`.toLowerCase();
+      if (!haystack.includes(term)) return false;
+    }
+    return true;
+  });
+  const filtersActive = !!term || filterShowroom !== 'all' || filterRole !== 'all';
+
   return (
     <div className="space-y-6" data-testid="user-management-page">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -258,6 +287,78 @@ export const UserManagement = () => {
           Add User
         </Button>
       </div>
+
+      {/* Filter bar */}
+      <Card className="p-4">
+        <div className="flex flex-col md:flex-row gap-3 items-stretch md:items-center">
+          <div className="relative flex-1 min-w-0">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+            <Input
+              type="text"
+              value={filterSearch}
+              onChange={(e) => setFilterSearch(e.target.value)}
+              placeholder="Search by name, email, or store…"
+              className="pl-9 pr-9"
+              data-testid="user-filter-search"
+            />
+            {filterSearch && (
+              <button
+                type="button"
+                onClick={() => setFilterSearch('')}
+                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-muted-foreground hover:text-foreground"
+                aria-label="Clear search"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
+          <select
+            value={filterShowroom}
+            onChange={(e) => setFilterShowroom(e.target.value)}
+            className="h-10 px-3 text-sm border rounded-md bg-white min-w-[180px]"
+            data-testid="user-filter-showroom"
+          >
+            <option value="all">All stores</option>
+            <option value="__none__">— No store assigned —</option>
+            {showrooms.map((s) => (
+              <option key={s.id} value={s.id}>{s.name}</option>
+            ))}
+          </select>
+          <select
+            value={filterRole}
+            onChange={(e) => setFilterRole(e.target.value)}
+            className="h-10 px-3 text-sm border rounded-md bg-white min-w-[160px]"
+            data-testid="user-filter-role"
+          >
+            <option value="all">All roles</option>
+            <option value="super_admin">Super Admin</option>
+            <option value="admin">Admin</option>
+            <option value="manager">Manager</option>
+            <option value="showroom_lead">Showroom Lead</option>
+            <option value="staff">Staff</option>
+          </select>
+          {filtersActive && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => { setFilterSearch(''); setFilterShowroom('all'); setFilterRole('all'); }}
+              data-testid="user-filter-clear"
+            >
+              <X className="h-3.5 w-3.5 mr-1" />
+              Clear filters
+            </Button>
+          )}
+        </div>
+        {filtersActive && (
+          <p className="text-xs text-muted-foreground mt-2" data-testid="user-filter-count">
+            Showing <strong>{filteredUsers.length}</strong> of {users.length} users
+            {filterShowroom !== 'all' && filterShowroom !== '__none__' && (
+              <> at <strong>{showrooms.find((s) => s.id === filterShowroom)?.name || 'this store'}</strong></>
+            )}
+            {filterRole !== 'all' && <> with role <strong>{filterRole.replace('_', ' ')}</strong></>}
+          </p>
+        )}
+      </Card>
 
       {/* Users Table */}
       <Card>
@@ -272,15 +373,25 @@ export const UserManagement = () => {
               </tr>
             </thead>
             <tbody className="divide-y">
-              {users.length === 0 ? (
+              {filteredUsers.length === 0 ? (
                 <tr>
                   <td colSpan={4} className="px-4 py-8 text-center text-muted-foreground">
                     <Users className="h-12 w-12 mx-auto mb-3 opacity-30" />
-                    <p>No users found</p>
+                    <p>No users match the current filters</p>
+                    {filtersActive && (
+                      <Button
+                        variant="link"
+                        size="sm"
+                        onClick={() => { setFilterSearch(''); setFilterShowroom('all'); setFilterRole('all'); }}
+                        className="mt-1"
+                      >
+                        Clear filters
+                      </Button>
+                    )}
                   </td>
                 </tr>
               ) : (
-                users.map((user) => (
+                filteredUsers.map((user) => (
                   <tr key={user.email} data-testid={`user-row-${user.email}`}>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-3">

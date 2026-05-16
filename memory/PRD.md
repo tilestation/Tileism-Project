@@ -10,6 +10,24 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 
 ## Recent Sessions (most recent first)
 
+### [May 17, 2026 — 04:30] ⭐ Promote-to-Showroom-Lead + user filters
+
+User asked for a "Promote to Showroom Lead" action plus showroom-filtration on /admin/users so they can manually pick which staff to elevate.
+
+**What shipped**:
+1. **Filter bar at top of /admin/users** — search (matches name/email/store), store dropdown (incl. "— No store assigned —"), role dropdown (super_admin/admin/manager/showroom_lead/staff), "Clear filters" button + active-filter count pill ("Showing X of Y users with role staff at Gravesend").
+2. **⭐ Promote button** — amber star icon next to edit/delete on Staff rows. Click → confirm dialog spelling out the granted perms (Stock Transfers, Reorder Suggestions, To Order Report, Stock Value, Stocktake Report) → role flips to `showroom_lead` → toast tells admin the user must log out & back in.
+3. **↓ Demote button** — same icon position but grey down-arrow for Showroom Lead rows; confirms before flipping back to Staff.
+4. **Role dropdown in the Edit User dialog** now includes "Showroom Lead" as a selectable option.
+5. **Role badges/icons** added for `showroom_lead` — amber pill + Star icon, consistent with the rest of the role badge palette.
+
+**Files**:
+- Modified: `/app/frontend/src/pages/admin/UserManagement.js` (filter state + filter bar Card + promote/demote handler + button + role badge for showroom_lead)
+
+**Verified in preview**: 7 users → role=staff filter → 2 visible → star button visible on both rows → count pill correctly reads "Showing 2 of 7 users with role staff".
+
+**Production note for user**: Login accounts are currently SHARED per showroom (tonbridge@/gravesend@/chingford@/sydenham@). Promoting the shared account grants Lead perms to everyone at that showroom. For a single-person elevation, create an individual account first via "Add User", then promote it.
+
 ### [May 17, 2026 — 03:30] 🐛🐛 Two follow-up perm bugs + Showroom Lead role
 
 After yesterday's permissions unification, user reported two bugs and asked for the Showroom Lead role:
