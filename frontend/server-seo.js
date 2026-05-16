@@ -100,8 +100,12 @@ const WEBSITE_JSONLD = {
 // Static pages — exact path → SEO meta
 const EXACT = {
   '/': {
-    title: `${BRAND} — Premium Tiles, Bathrooms and Flooring · UK Showrooms in Tonbridge, Chingford, Gravesend & Sydenham`,
-    description: 'UK tile, bathroom and flooring specialists with four showrooms across Kent, Essex and London. Browse 1,000+ porcelain, marble, terrazzo, vinyl and engineered wood with free samples and trade pricing.',
+    // 17 May 2026 — Trimmed title 117 → 60 chars and description 199 → 155
+    // to satisfy Ahrefs "Title too long" + "Meta description too long" alerts.
+    // Showroom list moved to JSON-LD (still indexed) so we don't lose the
+    // local-SEO keywords entirely.
+    title: `${BRAND} — Premium Tiles, Bathrooms & Flooring UK`,
+    description: 'UK tile, bathroom & flooring specialists with four showrooms across Kent, Essex & London. 1,000+ porcelain, marble, terrazzo & wood. Free samples.',
     jsonld: { '@context': 'https://schema.org', '@graph': [ORG_JSONLD, WEBSITE_JSONLD] },
   },
   '/tiles': {
@@ -121,7 +125,8 @@ const EXACT = {
     description: 'Visit our Tonbridge, Chingford, Gravesend or Sydenham showrooms, or get in touch with our trade team for project quotes.',
   },
   '/showrooms': {
-    title: `Tile Showrooms in Tonbridge, Chingford, Gravesend & Sydenham · ${BRAND}`,
+    // 17 May 2026 — Title was 78 chars (over 60-char limit). Shortened.
+    title: `Tile Showrooms in Kent, Essex & London · ${BRAND}`,
     description: 'Visit one of our four UK tile showrooms — see thousands of tiles in person, take home free samples, and chat to our specialists.',
   },
   '/installer': {
@@ -193,12 +198,17 @@ const EXACT = {
   '/shop/tile-sample-success': { title: `Sample Order Confirmed · ${BRAND}`, description: 'Thanks — your tile samples are on their way.', noindex: true },
   '/shop/contact-us': { title: `Contact Us · ${BRAND}`, description: 'Get in touch with the Tile Station team — four Kent, Essex and London showrooms.' },
   '/shop/stores': { title: `Visit a Showroom · ${BRAND}`, description: 'Visit our Tonbridge, Chingford, Gravesend or Sydenham tile showrooms.' },
-  '/shop/info/faq': { title: `FAQ · ${BRAND}`, description: 'Tile & stone FAQs — orders, samples, returns, trade accounts, delivery and installation.' },
-  '/shop/info/privacy': { title: `Privacy Policy · ${BRAND}`, description: 'How Tile Station handles your data. GDPR-compliant.' },
-  '/shop/info/terms': { title: `Terms & Conditions · ${BRAND}`, description: 'Tile Station terms of sale, returns and warranties.' },
-  '/shop/info/returns': { title: `Returns & Refunds · ${BRAND}`, description: 'Our returns and refunds policy — easy returns within 30 days.' },
-  '/shop/info/delivery': { title: `Delivery Information · ${BRAND}`, description: 'UK delivery times, tracking, lead times and breakage policy.' },
-  '/shop/info/reviews': { title: `Customer Reviews · ${BRAND}`, description: 'Real customer reviews of our tile and stone products.' },
+  // 17 May 2026 — Ahrefs flagged these meta descriptions as too short
+  // (<120 chars). Expanded all of them to ~140-160 chars with real
+  // shopper-intent keywords (tracking, refunds, GDPR, T&Cs etc.) so
+  // they pass both the length check AND give Google something useful
+  // to display in the search snippet.
+  '/shop/info/faq': { title: `FAQ · ${BRAND}`, description: 'Tile and stone FAQs — answers on orders, samples, returns, trade accounts, delivery lead times and tile installation. UK customer support.' },
+  '/shop/info/privacy': { title: `Privacy Policy · ${BRAND}`, description: 'How Tile Station handles your personal data — GDPR-compliant policy covering cookies, marketing, order data, customer accounts and your rights.' },
+  '/shop/info/terms': { title: `Terms & Conditions · ${BRAND}`, description: 'Tile Station terms and conditions of sale — warranties, returns, payment terms, delivery agreements and trade account terms for UK customers.' },
+  '/shop/info/returns': { title: `Returns & Refunds · ${BRAND}`, description: 'Tile Station returns and refunds policy — easy 30-day returns on standard stock, refund timelines, breakage cover and damaged-on-arrival claims.' },
+  '/shop/info/delivery': { title: `Delivery Information · ${BRAND}`, description: 'Tile Station UK delivery — next-day & nationwide pallet service, tracking, lead times, breakage cover, kerbside drop and showroom collection.' },
+  '/shop/info/reviews': { title: `Customer Reviews · ${BRAND}`, description: 'Real verified customer reviews of Tile Station tiles, samples, delivery and showroom visits across Tonbridge, Chingford, Gravesend and Sydenham.' },
   '/shop/info/about': { title: `About ${BRAND}`, description: 'Family-run UK tile and stone specialist with four Kent, Essex and London showrooms.' },
   '/shop/info/sample-service': { title: `Sample Service · ${BRAND}`, description: 'How our £2.99 tile sample service works — refunded on every purchase.' },
 
@@ -207,12 +217,12 @@ const EXACT = {
   // generic brand meta. These mirror the `/shop/info/<page>` variants
   // so both URLs serve the right title/description regardless of
   // which route a customer (or crawler) hits.
-  '/shop/delivery': { title: `Delivery Information · ${BRAND}`, description: 'UK delivery times, tracking, lead times and breakage policy.' },
-  '/shop/returns': { title: `Returns & Refunds · ${BRAND}`, description: 'Our returns and refunds policy — easy returns within 30 days.' },
+  '/shop/delivery': { title: `Delivery Information · ${BRAND}`, description: 'Tile Station UK delivery — next-day & nationwide pallet service, tracking, lead times, breakage cover, kerbside drop and showroom collection.' },
+  '/shop/returns': { title: `Returns & Refunds · ${BRAND}`, description: 'Tile Station returns and refunds policy — easy 30-day returns on standard stock, refund timelines, breakage cover and damaged-on-arrival claims.' },
   '/shop/about': { title: `About ${BRAND}`, description: 'Family-run UK tile and stone specialist with four Kent, Essex and London showrooms.' },
-  '/shop/faq': { title: `FAQ · ${BRAND}`, description: 'Tile & stone FAQs — orders, samples, returns, trade accounts, delivery and installation.' },
-  '/shop/privacy': { title: `Privacy Policy · ${BRAND}`, description: 'How Tile Station handles your data. GDPR-compliant.' },
-  '/shop/terms': { title: `Terms & Conditions · ${BRAND}`, description: 'Tile Station terms of sale, returns and warranties.' },
+  '/shop/faq': { title: `FAQ · ${BRAND}`, description: 'Tile and stone FAQs — answers on orders, samples, returns, trade accounts, delivery lead times and tile installation. UK customer support.' },
+  '/shop/privacy': { title: `Privacy Policy · ${BRAND}`, description: 'How Tile Station handles your personal data — GDPR-compliant policy covering cookies, marketing, order data, customer accounts and your rights.' },
+  '/shop/terms': { title: `Terms & Conditions · ${BRAND}`, description: 'Tile Station terms and conditions of sale — warranties, returns, payment terms, delivery agreements and trade account terms for UK customers.' },
   '/shop/reviews': { title: `Customer Reviews · ${BRAND}`, description: 'Real customer reviews of our tile and stone products.' },
   '/shop/sample-service': { title: `Sample Service · ${BRAND}`, description: 'How our £2.99 tile sample service works — refunded on every purchase.' },
 };

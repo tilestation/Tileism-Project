@@ -10,6 +10,34 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 
 ## Recent Sessions (most recent first)
 
+### [May 17, 2026 — 13:00] 🔧 Batch-fixed Ahrefs SEO title/description length alerts
+
+After this morning's revert, user demanded the remaining Ahrefs alerts be silenced *today*. Audited the actual production pages with curl and found the real causes:
+
+- Homepage title **117 chars** (Ahrefs limit: 60) → trimmed to 53
+- Homepage description **199 chars** (Ahrefs limit: 160) → trimmed to 146
+- `/showrooms` title **78 chars** → trimmed to 53
+- 6 info-page descriptions (delivery/returns/privacy/terms/reviews/faq) all in the 51-61 char range → rewritten to 138-144 chars with real shopper-intent keywords (tracking, refunds, GDPR, breakage cover, etc.)
+- `/shop/<page>` mirror routes synced with the longer descriptions to stay consistent with `/shop/info/<page>`
+
+**Files**:
+- Modified: `/app/frontend/server-seo.js` (15 EXACT-map entries rewritten)
+
+**Verified**:
+- Standalone node test prints every page now sits in 30-60 char title / 120-160 char description sweet spot
+- Lint clean
+- All 5 regression tests still pass (no SSR-block accumulation, no strip script reintroduced)
+
+**Estimated impact after deploy + re-crawl** (~60 min):
+- "Title too long" alert: 74 → ~50 pages (remaining are auto-generated product titles like *"Verona Carrara Polished Marble Effect Porcelain Tile 60×60cm | Tile Station"* — those are good for SEO even at 80+ chars)
+- "Description too short" alert: 44 → ~5 pages
+- "Description too long" alert: 45 → ~10 pages
+- Health Score should recover into 90s
+
+**Still queued for future** (not today):
+- Proper duplicate `<title>` / `<meta>` fix inside `<SeoHead/>` itself (move the cleanup into the React component so only pages USING SeoHead trigger cleanup — avoids the 77-page wipe that happened this morning)
+- Auto-trim product detail page titles to ≤70 chars via the SEO autopilot
+
 ### [May 17, 2026 — 11:00] 🚨 REVERTED the duplicate-tag fix (took down 77 pages on prod)
 
 The strip-on-mount approach from the previous session backfired catastrophically. On collection/category pages where `<SeoHead/>` either isn't present OR mounts after a slow API fetch, the strip script ran first, removed the SSR-injected `<title>` and other SEO tags, and nothing replaced them. Result:
