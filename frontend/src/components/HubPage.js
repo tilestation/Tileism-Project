@@ -3,29 +3,36 @@ import { Link } from 'react-router-dom';
 import { Search, ArrowRight } from 'lucide-react';
 import { Card, CardContent } from './ui/card';
 import { Input } from './ui/input';
+import { useHubCardFilter } from '../hooks/useHubCardFilter';
 
 export default function HubPage({ title, subtitle, cards, sections, icon: Icon, preCardsContent }) {
   const [searchTerm, setSearchTerm] = useState('');
+  // 16 May 2026 — hub cards are now gated by the same role+overrides
+  // permission system as the sidebar. If a Staff role's `sync_hub` page
+  // is removed, the Sync Hub card disappears from the Products Hub too.
+  // Cards may opt out by omitting the `permission` field entirely.
+  const keepByPermission = useHubCardFilter();
 
   // Support both flat cards array and grouped sections
   const hasGroupedSections = sections && sections.length > 0;
 
-  // Filter function - also search tabs
+  // Filter function — combines permission gate AND search.
   const matchesSearch = (card) => {
     const term = searchTerm.toLowerCase();
     return card.title.toLowerCase().includes(term) ||
       card.description.toLowerCase().includes(term) ||
       (card.tabs && card.tabs.some(t => t.toLowerCase().includes(term)));
   };
+  const matchesFilter = (card) => keepByPermission(card) && matchesSearch(card);
 
   // Filter flat cards
-  const filteredCards = cards ? cards.filter(matchesSearch) : [];
+  const filteredCards = cards ? cards.filter(matchesFilter) : [];
 
   // Filter grouped sections
-  const filteredSections = hasGroupedSections 
+  const filteredSections = hasGroupedSections
     ? sections.map(section => ({
         ...section,
-        cards: section.cards.filter(matchesSearch)
+        cards: section.cards.filter(matchesFilter)
       })).filter(section => section.cards.length > 0)
     : [];
 

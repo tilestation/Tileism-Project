@@ -253,6 +253,45 @@ SYSTEM_ROLE_DEFAULTS: Dict[str, Dict[str, List[str]]] = {
     },
 }
 
+# Custom roles that ship pre-configured for convenience but can be
+# freely edited or deleted by the super-admin. Seeded ONCE on first
+# backend boot (marker doc in `system_state`). If admin deletes them
+# they stay deleted — no zombie re-seeding on restart.
+DEFAULT_CUSTOM_ROLES = {
+    "showroom_lead": {
+        "role_name": "Showroom Lead",
+        # Staff baseline + senior responsibilities: reporting,
+        # transfer authority, reorder decisions. Excludes anything
+        # commercial-sensitive (pricing changes, user mgmt, marketing).
+        "pages": [
+            # Everything Staff sees…
+            "dashboard",
+            "epos", "cash_counter", "showroom_dashboard", "sales_hub",
+            "invoice", "invoice_history",
+            "quotation", "quotation_history",
+            "cash_quotation", "cash_quotation_history",
+            "refund", "refund_history",
+            "credit_note", "credit_note_history",
+            "orders", "order_management", "delivery_management", "online_orders",
+            "products_hub", "supplier_products", "supplier_health", "sync_hub",
+            "suppliers", "supplier_sync",
+            "stock_hub", "stock_allocation", "bulk_stock",
+            "delivery_check_in", "batch_tracking",
+            "customers_hub", "trade_accounts",
+            "customer_invites", "bulk_inquiries", "trade_list",
+            "communication_hub", "staff_chat", "tasks", "inbox", "email_composer",
+            "reports_hub",
+            "general_settings",
+            # …PLUS the senior extras: stock transfers between showrooms,
+            # reorder visibility, and the three big inventory reports.
+            "stock_transfers", "reorder_suggestions",
+            "to_order_report", "stock_cost", "stocktake_report",
+            "analytics", "reports",
+        ],
+        "actions": [],
+    },
+}
+
 
 def _serialize_role(doc: dict) -> dict:
     return {
@@ -265,6 +304,40 @@ def _serialize_role(doc: dict) -> dict:
         "created_at": (doc.get("created_at").isoformat() if isinstance(doc.get("created_at"), datetime) else doc.get("created_at")),
         "updated_at": (doc.get("updated_at").isoformat() if isinstance(doc.get("updated_at"), datetime) else doc.get("updated_at")),
     }
+
+
+async def _ensure_default_custom_roles(db) -> None:
+    """Seed DEFAULT_CUSTOM_ROLES exactly once per database.
+
+    Uses a marker doc in `system_state` to track which custom roles
+    have already been offered. If the admin deletes the role, it stays
+    deleted — no zombie re-seeding on backend restart.
+    """
+    now = datetime.now(timezone.utc)
+    for role_id, spec in DEFAULT_CUSTOM_ROLES.items():
+        marker_id = f"custom_role_seeded:{role_id}"
+        marker = await db.system_state.find_one({"_id": marker_id})
+        if marker:
+            continue  # already seeded once, never again
+        # Only seed if the role isn't already present (covers manual
+        # creation by admin before this code ran).
+        existing = await db.roles.find_one({"role_id": role_id})
+        if not existing:
+            await db.roles.insert_one({
+                "role_id": role_id,
+                "role_name": spec["role_name"],
+                "is_system": False,         # admin can rename + delete
+                "is_super_admin": False,
+                "pages": list(spec["pages"]),
+                "actions": list(spec["actions"]),
+                "created_at": now,
+                "updated_at": now,
+            })
+        await db.system_state.update_one(
+            {"_id": marker_id},
+            {"$set": {"seeded_at": now, "role_id": role_id}},
+            upsert=True,
+        )
 
 
 async def _ensure_system_roles(db) -> None:
@@ -314,7 +387,16 @@ async def _ensure_system_roles(db) -> None:
 
         # Other system roles: additively backfill missing defaults so
         # extending the defaults list in code propagates automatically
-        # without clobbering any admin-customised additions.
+        # — BUT only if a super-admin hasn't yet touched the role via
+        # the UI. Once `user_modified=true` is stamped (set by the PUT
+        # /roles/{id} handler), we treat the admin's choices as
+        # authoritative and never auto-add pages back. This is the fix
+        # for the "I unticked Sync Hub but it keeps coming back" bug:
+        # the previous behaviour silently re-introduced any page the
+        # admin removed if it still appeared in SYSTEM_ROLE_DEFAULTS.
+        if existing.get("user_modified"):
+            continue
+
         current_pages = set(existing.get("pages", []))
         current_actions = set(existing.get("actions", []))
         missing_pages = [p for p in defaults["pages"] if p not in current_pages]
@@ -420,6 +502,7 @@ async def list_roles(current_user: dict = Depends(get_current_user)):
     _require_super_admin(current_user)
     db = get_db()
     await _ensure_system_roles(db)
+    await _ensure_default_custom_roles(db)
     roles = await db.roles.find({}, {"_id": 0}).sort("role_id", 1).to_list(1000)
     return [_serialize_role(r) for r in roles]
 
@@ -470,6 +553,11 @@ async def update_role(role_id: str, payload: RoleUpdate, current_user: dict = De
     valid_actions = {a["key"] for a in ACTION_REGISTRY}
 
     update_doc = {"updated_at": datetime.now(timezone.utc)}
+    # 16 May 2026 — Stamp `user_modified=true` so the additive backfill
+    # in `_ensure_system_roles` knows the admin is now in charge of
+    # this role's pages and never silently re-adds defaults that the
+    # admin explicitly removed.
+    update_doc["user_modified"] = True
     if payload.role_name is not None and not existing.get("is_system", False):
         update_doc["role_name"] = payload.role_name.strip()
     if payload.pages is not None:

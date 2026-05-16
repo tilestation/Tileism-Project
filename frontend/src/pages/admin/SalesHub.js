@@ -15,56 +15,64 @@ export default function SalesHub() {
       description: 'Point of sale system for processing transactions',
       icon: Monitor,
       link: '/admin/epos',
-      color: 'bg-blue-600'
+      color: 'bg-blue-600',
+      permission: 'epos', legacyPermission: 'epos',
     },
     {
       title: 'Cash Counter',
       description: 'End of day cash reconciliation',
       icon: Banknote,
       link: '/admin/cash-counter',
-      color: 'bg-green-600'
+      color: 'bg-green-600',
+      permission: 'cash_counter', legacyPermission: 'dashboard',
     },
     {
       title: 'Store Dashboard',
       description: 'Real-time store performance metrics',
       icon: Store,
       link: '/admin/showroom-dashboard',
-      color: 'bg-purple-600'
+      color: 'bg-purple-600',
+      permission: 'showroom_dashboard', legacyPermission: 'dashboard',
     },
     {
       title: 'Invoice History',
       description: 'View and manage all invoices',
       icon: Receipt,
       link: '/admin/invoices',
-      color: 'bg-orange-600'
+      color: 'bg-orange-600',
+      permission: 'invoice_history', legacyPermission: 'epos',
     },
     {
       title: 'Quotations',
       description: 'Create and manage customer quotes',
       icon: FileText,
       link: '/admin/quotations',
-      color: 'bg-cyan-600'
+      color: 'bg-cyan-600',
+      permission: 'quotation', legacyPermission: 'epos',
     },
     {
       title: 'Deposit Orders',
       description: 'Track orders with deposits',
       icon: CreditCard,
       link: '/admin/deposit-orders',
-      color: 'bg-pink-600'
+      color: 'bg-pink-600',
+      permission: 'orders', legacyPermission: 'orders',
     },
     {
       title: 'Refunds',
       description: 'Process and track refunds',
       icon: History,
       link: '/admin/refunds',
-      color: 'bg-red-600'
+      color: 'bg-red-600',
+      permission: 'refund', legacyPermission: 'epos',
     },
     {
       title: 'Tile Calculator',
       description: 'Calculate tile requirements',
       icon: Calculator,
       link: '/admin/calculator',
-      color: 'bg-slate-600'
+      color: 'bg-slate-600',
+      // Unguarded — universally useful, no permission needed.
     },
   ];
 

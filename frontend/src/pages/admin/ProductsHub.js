@@ -6,6 +6,7 @@ import {
   Image, RefreshCw, ArrowRight, TrendingUp, AlertCircle, Database, Activity
 } from 'lucide-react';
 import { Card, CardContent } from '../../components/ui/card';
+import { useHubCardFilter } from '../../hooks/useHubCardFilter';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
 
@@ -64,7 +65,9 @@ export default function ProductsHub() {
       link: '/admin/products',
       color: 'bg-blue-500',
       stat: stats.totalProducts,
-      statLabel: 'products'
+      statLabel: 'products',
+      permission: 'supplier_products',
+      legacyPermission: 'products',
     },
     {
       title: 'Supplier Products',
@@ -73,7 +76,9 @@ export default function ProductsHub() {
       link: '/admin/supplier-products',
       color: 'bg-green-500',
       stat: stats.supplierProducts,
-      statLabel: 'supplier items'
+      statLabel: 'supplier items',
+      permission: 'supplier_products',
+      legacyPermission: 'products',
     },
     {
       title: 'Sync Hub',
@@ -82,7 +87,9 @@ export default function ProductsHub() {
       link: '/admin/sync-hub',
       color: 'bg-cyan-500',
       stat: null,
-      statLabel: null
+      statLabel: null,
+      permission: 'sync_hub',
+      legacyPermission: 'products',
     },
     {
       title: 'Categories',
@@ -91,7 +98,9 @@ export default function ProductsHub() {
       link: '/admin/categories',
       color: 'bg-purple-500',
       stat: stats.categories,
-      statLabel: 'categories'
+      statLabel: 'categories',
+      permission: 'manage_categories',
+      legacyPermission: 'categories',
     },
     {
       title: 'Supplier Contacts',
@@ -100,7 +109,9 @@ export default function ProductsHub() {
       link: '/admin/suppliers',
       color: 'bg-orange-500',
       stat: null,
-      statLabel: null
+      statLabel: null,
+      permission: 'suppliers',
+      legacyPermission: 'products',
     },
     {
       title: 'Supplier Health',
@@ -109,7 +120,9 @@ export default function ProductsHub() {
       link: '/admin/supplier-health',
       color: 'bg-emerald-500',
       stat: null,
-      statLabel: null
+      statLabel: null,
+      permission: 'supplier_health',
+      legacyPermission: 'products',
     }
   ];
 
@@ -119,44 +132,67 @@ export default function ProductsHub() {
       description: 'Bulk import products from spreadsheet',
       icon: Upload,
       link: '/admin/products/import',
-      color: 'bg-slate-600'
+      color: 'bg-slate-600',
+      permission: 'stock_import',
+      legacyPermission: 'products',
+      superAdminOnly: true,
     },
     {
       title: 'Price Tickets',
       description: 'Generate and print price labels',
       icon: Tag,
       link: '/admin/price-tickets',
-      color: 'bg-slate-600'
+      color: 'bg-slate-600',
+      permission: 'supplier_products',
+      legacyPermission: 'products',
     },
     {
       title: 'Tiles Info',
       description: 'Tile specifications and details',
       icon: Grid3X3,
       link: '/admin/tiles-info',
-      color: 'bg-slate-600'
+      color: 'bg-slate-600',
+      permission: 'supplier_products',
+      legacyPermission: 'products',
     },
     {
       title: 'Image Scraper',
       description: 'Scrape product images from suppliers',
       icon: Image,
       link: '/admin/image-scraper',
-      color: 'bg-slate-600'
+      color: 'bg-slate-600',
+      permission: 'image_scraper',
+      legacyPermission: 'products',
+      superAdminOnly: true,
     },
     {
       title: 'Verona Sync Log',
       description: 'View extension sync history',
       icon: RefreshCw,
       link: '/admin/supplier-sync',
-      color: 'bg-slate-600'
+      color: 'bg-slate-600',
+      permission: 'supplier_sync',
+      legacyPermission: 'products',
     },
     {
       title: 'Scraping Portal',
       description: 'Manage automated overnight scrapers',
       icon: Database,
       link: '/admin/scraping-portal',
-      color: 'bg-teal-600'
+      color: 'bg-teal-600',
+      permission: 'scraping_portal',
+      legacyPermission: 'products',
+      superAdminOnly: true,
     }
   ];
+
+  // Filter cards by the current user's effective permissions
+  // (16 May 2026 fix — hub pages used to render ALL cards regardless
+  // of who was viewing them, so removing pages from the Staff role
+  // didn't actually hide the corresponding hub cards. Now they do.)
+  const keepCard = useHubCardFilter();
+  const visibleMainCards = mainCards.filter(keepCard);
+  const visibleToolCards = toolCards.filter(keepCard);
 
   return (
     <div className="p-6 space-y-8" data-testid="products-hub">
@@ -219,56 +255,62 @@ export default function ProductsHub() {
       {/* Main Navigation Cards */}
       <div>
         <h2 className="text-lg font-semibold mb-4">Main Sections</h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
-          {mainCards.map((card) => (
-            <Link key={card.link} to={card.link}>
-              <Card className="h-full hover:shadow-lg transition-all cursor-pointer group border-2 hover:border-gray-300">
-                <CardContent className="pt-6">
-                  <div className={`w-12 h-12 rounded-lg ${card.color} flex items-center justify-center mb-4`}>
-                    <card.icon className="w-6 h-6 text-white" />
-                  </div>
-                  <h3 className="font-semibold text-lg mb-1 group-hover:text-blue-600 flex items-center gap-2">
-                    {card.title}
-                    <ArrowRight className="w-4 h-4 opacity-0 group-hover:opacity-100 transition-opacity" />
-                  </h3>
-                  <p className="text-sm text-gray-500 mb-3">{card.description}</p>
-                  {card.stat !== null && (
-                    <div className="flex items-center gap-1 text-sm">
-                      <TrendingUp className="w-4 h-4 text-green-500" />
-                      <span className="font-medium">{card.stat}</span>
-                      <span className="text-gray-400">{card.statLabel}</span>
+        {visibleMainCards.length === 0 ? (
+          <p className="text-sm text-gray-400 italic">No sections available for your role.</p>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+            {visibleMainCards.map((card) => (
+              <Link key={card.link} to={card.link}>
+                <Card className="h-full hover:shadow-lg transition-all cursor-pointer group border-2 hover:border-gray-300">
+                  <CardContent className="pt-6">
+                    <div className={`w-12 h-12 rounded-lg ${card.color} flex items-center justify-center mb-4`}>
+                      <card.icon className="w-6 h-6 text-white" />
                     </div>
-                  )}
-                </CardContent>
-              </Card>
-            </Link>
-          ))}
-        </div>
+                    <h3 className="font-semibold text-lg mb-1 group-hover:text-blue-600 flex items-center gap-2">
+                      {card.title}
+                      <ArrowRight className="w-4 h-4 opacity-0 group-hover:opacity-100 transition-opacity" />
+                    </h3>
+                    <p className="text-sm text-gray-500 mb-3">{card.description}</p>
+                    {card.stat !== null && (
+                      <div className="flex items-center gap-1 text-sm">
+                        <TrendingUp className="w-4 h-4 text-green-500" />
+                        <span className="font-medium">{card.stat}</span>
+                        <span className="text-gray-400">{card.statLabel}</span>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              </Link>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Tools Section */}
-      <div>
-        <h2 className="text-lg font-semibold mb-4">Tools & Utilities</h2>
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
-          {toolCards.map((card) => (
-            <Link key={card.link} to={card.link}>
-              <Card className="hover:shadow-md transition-all cursor-pointer group">
-                <CardContent className="pt-4 pb-4">
-                  <div className="flex items-center gap-3">
-                    <div className={`w-10 h-10 rounded-lg ${card.color} flex items-center justify-center`}>
-                      <card.icon className="w-5 h-5 text-white" />
+      {visibleToolCards.length > 0 && (
+        <div>
+          <h2 className="text-lg font-semibold mb-4">Tools & Utilities</h2>
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
+            {visibleToolCards.map((card) => (
+              <Link key={card.link} to={card.link}>
+                <Card className="hover:shadow-md transition-all cursor-pointer group">
+                  <CardContent className="pt-4 pb-4">
+                    <div className="flex items-center gap-3">
+                      <div className={`w-10 h-10 rounded-lg ${card.color} flex items-center justify-center`}>
+                        <card.icon className="w-5 h-5 text-white" />
+                      </div>
+                      <div>
+                        <h3 className="font-medium text-sm group-hover:text-blue-600">{card.title}</h3>
+                        <p className="text-xs text-gray-400">{card.description}</p>
+                      </div>
                     </div>
-                    <div>
-                      <h3 className="font-medium text-sm group-hover:text-blue-600">{card.title}</h3>
-                      <p className="text-xs text-gray-400">{card.description}</p>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            </Link>
-          ))}
+                  </CardContent>
+                </Card>
+              </Link>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

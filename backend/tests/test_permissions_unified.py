@@ -202,31 +202,161 @@ async def test_ensure_system_roles_additively_backfills_new_defaults():
     """
     db = get_db()
 
-    # Seed a "stale" staff role that's missing several modern pages
-    # plus has one custom page that an admin added via the UI.
-    await db.roles.replace_one(
-        {"role_id": "staff"},
-        {
-            "role_id": "staff",
-            "role_name": "Staff",
-            "is_system": True,
-            "is_super_admin": False,
-            "pages": ["dashboard", "epos", "admin_added_custom_page"],
+    # Use a throwaway test role_id so we don't pollute the real `staff`
+    # row in the preview DB.
+    test_role = "pytest_backfill_test_role"
+    try:
+        await db.roles.replace_one(
+            {"role_id": test_role},
+            {
+                "role_id": test_role,
+                "role_name": "Pytest Test",
+                "is_system": True,
+                "is_super_admin": False,
+                "pages": ["dashboard", "epos", "admin_added_custom_page"],
+                "actions": [],
+                "created_at": None,
+                "updated_at": None,
+            },
+            upsert=True,
+        )
+
+        # Temporarily register this role in SYSTEM_ROLE_IDS / DEFAULTS so
+        # `_ensure_system_roles` includes it in the backfill pass.
+        from routes import permissions as perms_mod
+        perms_mod.SYSTEM_ROLE_IDS.add(test_role)
+        perms_mod.SYSTEM_ROLE_DEFAULTS[test_role] = {
+            "pages": ["dashboard", "epos", "cash_counter", "showroom_dashboard"],
             "actions": [],
-            "created_at": None,
-            "updated_at": None,
-        },
-        upsert=True,
-    )
+        }
 
-    await _ensure_system_roles(db)
+        try:
+            await _ensure_system_roles(db)
+            refreshed = await db.roles.find_one({"role_id": test_role}, {"_id": 0})
+            # New defaults should be present…
+            assert "cash_counter" in refreshed["pages"]
+            assert "showroom_dashboard" in refreshed["pages"]
+            # …existing pages preserved…
+            assert "dashboard" in refreshed["pages"]
+            assert "epos" in refreshed["pages"]
+            # …and the admin's custom addition not wiped.
+            assert "admin_added_custom_page" in refreshed["pages"]
+        finally:
+            perms_mod.SYSTEM_ROLE_IDS.discard(test_role)
+            perms_mod.SYSTEM_ROLE_DEFAULTS.pop(test_role, None)
+    finally:
+        await db.roles.delete_one({"role_id": test_role})
 
-    refreshed = await db.roles.find_one({"role_id": "staff"}, {"_id": 0})
-    # New defaults should be present…
-    assert "cash_counter" in refreshed["pages"]
-    assert "showroom_dashboard" in refreshed["pages"]
-    # …existing pages preserved…
-    assert "dashboard" in refreshed["pages"]
-    assert "epos" in refreshed["pages"]
-    # …and the admin's custom addition not wiped.
-    assert "admin_added_custom_page" in refreshed["pages"]
+
+async def test_user_modified_flag_prevents_backfill_re_adding_removed_pages():
+    """CRITICAL BUG FIX (May 16 2026):
+
+    When a super-admin opens /admin/permissions and UNTICKS a page from
+    the Staff role (e.g. removes Sync Hub), the previous backfill logic
+    silently put it back on the next request because the page was still
+    listed in SYSTEM_ROLE_DEFAULTS["staff"].
+
+    Fix: PUT /roles/{id} now stamps `user_modified=true`, and
+    `_ensure_system_roles` skips the backfill entirely for any role with
+    that flag set. The admin's choices become authoritative.
+
+    This test pins that contract so a future refactor can't reintroduce
+    the silent re-add bug.
+    """
+    db = get_db()
+    test_role = "pytest_user_modified_role"
+
+    try:
+        # Admin's state: removed sync_hub (which IS in defaults) and
+        # PUT handler stamped user_modified=true.
+        await db.roles.replace_one(
+            {"role_id": test_role},
+            {
+                "role_id": test_role,
+                "role_name": "Pytest UM",
+                "is_system": True,
+                "is_super_admin": False,
+                # Note: sync_hub deliberately ABSENT — admin removed it.
+                "pages": ["dashboard", "epos", "cash_counter"],
+                "actions": [],
+                "user_modified": True,    # ← THE flag that protects from backfill
+                "created_at": None,
+                "updated_at": None,
+            },
+            upsert=True,
+        )
+
+        from routes import permissions as perms_mod
+        perms_mod.SYSTEM_ROLE_IDS.add(test_role)
+        perms_mod.SYSTEM_ROLE_DEFAULTS[test_role] = {
+            "pages": ["dashboard", "epos", "cash_counter", "sync_hub"],  # sync_hub in defaults
+            "actions": [],
+        }
+
+        try:
+            # Run the function that USED to re-add sync_hub.
+            await _ensure_system_roles(db)
+
+            # sync_hub must STILL be absent — admin's removal is honoured.
+            refreshed = await db.roles.find_one({"role_id": test_role}, {"_id": 0})
+            assert "sync_hub" not in refreshed["pages"], (
+                "Backfill re-added a page the admin removed. The "
+                "user_modified flag is being ignored. This is the "
+                "'Sync Hub keeps coming back' bug."
+            )
+            # Sanity: the pages we kept stay kept.
+            assert "dashboard" in refreshed["pages"]
+            assert "epos" in refreshed["pages"]
+        finally:
+            perms_mod.SYSTEM_ROLE_IDS.discard(test_role)
+            perms_mod.SYSTEM_ROLE_DEFAULTS.pop(test_role, None)
+    finally:
+        await db.roles.delete_one({"role_id": test_role})
+
+
+async def test_default_custom_roles_seeded_once_and_stay_deleted():
+    """The Showroom Lead role should auto-seed on first /roles call,
+    but if the admin deletes it later, it must STAY deleted (no zombie
+    re-seeding on backend restart)."""
+    from routes import permissions as perms_mod
+
+    db = get_db()
+    test_role = "pytest_custom_role_seed_test"
+    marker_id = f"custom_role_seeded:{test_role}"
+
+    # Inject a throwaway custom-role spec to avoid touching the real
+    # showroom_lead row.
+    perms_mod.DEFAULT_CUSTOM_ROLES[test_role] = {
+        "role_name": "Pytest Custom",
+        "pages": ["dashboard", "stock_transfers", "reorder_suggestions"],
+        "actions": [],
+    }
+
+    try:
+        # Clean slate.
+        await db.roles.delete_one({"role_id": test_role})
+        await db.system_state.delete_one({"_id": marker_id})
+
+        await perms_mod._ensure_default_custom_roles(db)
+
+        # First call: role is seeded with our extras.
+        seeded = await db.roles.find_one({"role_id": test_role})
+        assert seeded is not None
+        assert seeded["is_system"] is False
+        assert "stock_transfers" in seeded["pages"]
+        assert "reorder_suggestions" in seeded["pages"]
+
+        # Admin deletes the role.
+        await db.roles.delete_one({"role_id": test_role})
+
+        # Second call: must NOT re-seed.
+        await perms_mod._ensure_default_custom_roles(db)
+        after = await db.roles.find_one({"role_id": test_role})
+        assert after is None, (
+            "Custom role re-seeded after deletion — should stay deleted "
+            "forever once the admin explicitly removes it."
+        )
+    finally:
+        perms_mod.DEFAULT_CUSTOM_ROLES.pop(test_role, None)
+        await db.roles.delete_one({"role_id": test_role})
+        await db.system_state.delete_one({"_id": marker_id})

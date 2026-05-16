@@ -10,6 +10,41 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 
 ## Recent Sessions (most recent first)
 
+### [May 17, 2026 — 03:30] 🐛🐛 Two follow-up perm bugs + Showroom Lead role
+
+After yesterday's permissions unification, user reported two bugs and asked for the Showroom Lead role:
+
+**Bug 1 — additive backfill silently re-added pages an admin removed.**
+
+The May 16 backfill pass (which expanded Staff defaults from 17 → 50 pages on existing rows) had a side effect: any time the admin removed a page from a role (e.g. unticked Sync Hub from Staff), the next `/api/permissions/roles` request silently `$addToSet`'d it back because the page was still in `SYSTEM_ROLE_DEFAULTS`.
+
+**Fix**: PUT `/roles/{id}` now stamps `user_modified: true` on the role doc. `_ensure_system_roles` checks that flag and skips backfill for any admin-touched role. Once the admin has the role open in the UI, their list is authoritative forever.
+
+**Bug 2 — hub pages rendered ALL cards regardless of permissions.**
+
+`/admin/products-hub`, `/admin/sales-hub`, `/admin/stock-hub`, etc. were hardcoded grids that didn't check the user's effective permissions. So even if you removed `sync_hub` from Staff, the Sync Hub card still rendered for them on the Products Hub.
+
+**Fix**:
+- New `useHubCardFilter()` hook → returns a `keep(card)` predicate combining super-admin bypass, perms-loading optimism, new role-based `hasPage()` check, and legacy `user.permissions[]` fallback
+- Patched the shared `<HubPage>` component to filter cards through the predicate
+- Annotated every hub card across `ProductsHub`, `SalesHub`, `StockHub`, `CustomersHub`, `CommunicationHub`, `ReportsHub`, `SettingsHub` with `{permission, legacyPermission}` keys mapping to PAGE_REGISTRY
+
+**Showroom Lead custom role (seeded, deletable)**:
+
+Added `DEFAULT_CUSTOM_ROLES` registry and `_ensure_default_custom_roles()` that seeds non-system roles **once** per database (uses a marker doc in `system_state`). If the admin deletes the role, it stays deleted — no zombie re-seeding. Showroom Lead spec = Staff baseline + Stock Transfers, Reorder Suggestions, To Order Report, Stock Cost, Stocktake Report, Analytics, Sales Reports.
+
+**Files**:
+- Modified: `/app/backend/routes/permissions.py` (+50 lines — `user_modified` flag + `DEFAULT_CUSTOM_ROLES` + `_ensure_default_custom_roles`)
+- Modified: `/app/frontend/src/components/HubPage.js` (filters by perms)
+- New: `/app/frontend/src/hooks/useHubCardFilter.js`
+- Modified: 7 hub files (`ProductsHub.js`, `SalesHub.js`, `StockHub.js`, `CustomersHub.js`, `CommunicationHub.js`, `ReportsHub.js`, `SettingsHub.js`) — annotated every card with permission keys
+
+**Tests**: 9/9 pass in `test_permissions_unified.py`, all using throwaway test role IDs (no DB pollution). Two new tests pin the bug fixes:
+- `test_user_modified_flag_prevents_backfill_re_adding_removed_pages`
+- `test_default_custom_roles_seeded_once_and_stay_deleted`
+
+**Verified in preview**: Showroom Lead appears in roles list with 49 pages ticked, ALL staff baseline + senior extras. Editable + deletable.
+
 ### [May 16, 2026 — overnight] 🛡️ Permissions unification (Roles + per-user overrides)
 
 User flagged that permission management was scattered across 3 places in the codebase. Discovered there were actually TWO parallel systems running side-by-side: the modern role-based `/admin/permissions` page (PAGE_REGISTRY with ~120 granular page keys) and a legacy per-user `/admin/users` modal (12 grouped keys stored on `user.permissions[]`). The admin sidebar (`Layout.js`) was reading from the legacy system, so the modern page was decorative for non-super-admin users.
