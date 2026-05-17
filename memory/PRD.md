@@ -8,6 +8,37 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Backend**: FastAPI, MongoDB (deployed on Railway)
 - **Deployment**: Railway (production), Emergent (preview)
 
+
+### [Feb 24, 2026 — Forked session] ✅ FINISH SEO TODAY — Ahrefs warnings batch-fix
+
+User demanded: *"FINISH SEO TODAY I DON'T WANT TO SEE THE SAME EMAILS POPPING UP AGAIN AND AGAIN"*. Completed in a single batch, safely (no repeat of the May 17 strip-script disaster).
+
+**What was shipped**:
+1. **Duplicate Title / Meta Description tags (62 pages)** — Fixed via React-side `useLayoutEffect` dedupe in `/app/frontend/src/components/seo/SeoHead.jsx` (lines 97-106). Runs AFTER React 19 commits its own tags, then removes any element in `<head>` carrying `data-ssr-seo="1"`. Critical: only affects pages that mount `<SeoHead/>` — pages without it keep their SSR tags untouched (no risk of the 77-pages-with-no-title regression).
+2. **Title Too Long (74 pages)** — Added `clampTitle()`/`buildClampedTitle()` helpers in `server-seo.js` that auto-truncate dynamic-route titles at a word boundary while preserving the brand suffix. Manually shortened 3 EXACT entries (`/clearance` 66→52, `/new-collection` 67→42, `/shop/contact` 83→34).
+3. **Meta Too Long (45 pages)** — Added `clampDesc()` helper for dynamic routes; manually shortened `/clearance` description (163→141 chars).
+4. **Meta Too Short (44 pages)** — Padded all <120-char descriptions on indexed pages to be 120-160 chars. Padded all PREFIX builders so dynamic descriptions always start at ≥80 chars even with short slugs.
+5. **Title Tag Missing (17 pages)** — Added 16 new EXACT entries to `server-seo.js` for routes that previously fell through to FALLBACK (`/forgot-password`, `/reset-password`, `/unsubscribe`, `/showroom-signup`, `/shop/products`, `/shop/login`, `/shop/register`, `/shop/trade/login`, `/shop/tile-checkout`, `/shop/tile-wishlist`, `/shop/tile-order-success`, `/shop/tile-account`, `/shop/calculator`, `/shop/search`, `/customer/dashboard`, `/customer/orders`). Added catch-all noindex PREFIXES for `/admin/*`, `/customer/*`, `/staff-register/*`.
+6. **H1 Missing (77 pages)** — Already handled by the SSR `bodyBlock` injector in `server-seo.js` for all non-noindex pages (existing functionality, verified).
+7. **SeoHead parity on /shop/contact** — Added `<SeoHead/>` to `ContactPage.jsx` so SPA navigation also sets head correctly (was previously SSR-only).
+
+**Tests**:
+- 86 server-seo.test.js tests pass (12 NEW length-clamp tests + fixed 2 outdated regex tests)
+- 5 NEW `seo-head-dedupe.test.js` tests for the React-side dedupe behaviour
+- 5 existing `tests/server-seo.test.js` SSR-tag tests pass
+- 10 backend pytest tests pass (SEO endpoints, auth, overrides feed shape)
+- Live smoke: homepage + 3 fixed pages each have exactly 1 `<title>`, 1 `<meta description>`, 1 `<link canonical>`, 0 React errors
+
+**Files changed**:
+- `/app/frontend/server-seo.js` (EXACT +16, PREFIXES +3 catch-alls, clamp helpers, length fixes)
+- `/app/frontend/src/components/seo/SeoHead.jsx` (useLayoutEffect dedupe)
+- `/app/frontend/src/pages/shop/ContactPage.jsx` (SeoHead parity)
+- `/app/frontend/server-seo.test.js` (2 regex fixes + 12 new length tests)
+- `/app/frontend/tests/seo-head-dedupe.test.js` (NEW — 5 regression tests)
+- `/app/backend/tests/test_seo_iter181.py` (NEW — 10 pytest cases by testing agent)
+
+**Status**: Issue 1 (Duplicate Tags) RESOLVED. Issue 2 (Remaining Ahrefs Warnings) RESOLVED. Will be live after the next push to GitHub → Vercel/Railway deploy.
+
 ## Recent Sessions (most recent first)
 
 ### [May 17, 2026 — 15:30] 🚨 CRITICAL: Added Telegram + email fanout to ALL order flows

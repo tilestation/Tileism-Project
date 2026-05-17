@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { usePageTracking } from '../../hooks/usePageTracking';
 import LiveChatWidget from '../../components/shop/LiveChatWidget';
+import SeoHead from '../../components/seo/SeoHead';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL || '';
 
@@ -165,6 +166,15 @@ export default function ContactPage() {
 
   return (
     <div className="min-h-screen bg-gray-50" data-testid="contact-page">
+      {/* SEO parity for SPA navigation — Express SSR injects equivalent
+          tags on first paint, but client-side route changes need React
+          to set the head. Title/desc kept in sync with server-seo.js
+          `/shop/contact` EXACT entry. */}
+      <SeoHead
+        title="Contact Us · Tile Station Tile Showrooms"
+        description="Visit our Tonbridge, Chingford, Gravesend or Sydenham tile showrooms, or contact our trade team for project quotes and UK-wide delivery pricing."
+        canonical="/shop/contact"
+      />
       {/* Hero Section */}
       <div className="relative bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 text-white">
         <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHZpZXdCb3g9IjAgMCA2MCA2MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48ZyBmaWxsPSJub25lIiBmaWxsLXJ1bGU9ImV2ZW5vZGQiPjxnIGZpbGw9IiNmZmYiIGZpbGwtb3BhY2l0eT0iMC4wMyI+PHBhdGggZD0iTTM2IDM0djItSDI0di0yaDEyek0zNiAyNHYySDI0di0yaDEyeiIvPjwvZz48L2c+PC9zdmc+')] opacity-50"></div>
