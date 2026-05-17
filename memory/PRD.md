@@ -10,6 +10,38 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 
 ## Recent Sessions (most recent first)
 
+### [May 17, 2026 — 13:45] 🚨 CRITICAL FIX: Silent sample-order bug
+
+User noticed via Stripe dashboard that a £2.99 sample payment from Alexandra Simmons (Tatsfield, TN16) on May 14 went through successfully but they received NO email confirmation. They reported this was the SECOND time orders went silent.
+
+**Root cause**: `GET /api/shop/samples/checkout/status/{session_id}` (the endpoint the success page calls after Stripe redirect) flipped the order to `status: paid` correctly — but never fired any notification. Two separate problems:
+
+1. **No customer confirmation email** → buyer paid £2.99, saw a thank-you page, then heard nothing. Many probably emailed support asking "where are my samples?"
+2. **No admin/showroom alert** → dispatch team had no idea an order existed. Only way to find them: manually scroll the Stripe dashboard.
+
+**The 2nd-attempted-orders pattern**: The `stripe_reconcile.py` cron runs daily and DOES send a "we noticed your order went quiet, here's a recovery email" message — but only for orders that never had the success page redirect AT ALL. Happy-path orders never went through that path because `status` was already `paid`.
+
+**Fix shipped**:
+- New `_send_sample_confirmation_fanout()` helper in `shop.py` fires TWO emails on first-paid-flip:
+  - **Customer email** ("Sample order #X confirmed · Tile Station") — listing every sample they ordered (name, size, price) + delivery address
+  - **Admin email** to `SAMPLES_ADMIN_EMAIL` env (default `samples@tilestation.co.uk`) — full dispatch details for the showroom team
+- **Idempotency**: atomic compare-and-set on a new `confirmation_sent_at` field. Repeat status calls (success-page refreshes, cron retries, etc.) skip cleanly.
+- **Failure-safe**: SMTP errors are caught + logged. Success page never blocks on email infra. The daily recovery cron remains the safety-net.
+- **Self-healing**: orders paid BEFORE this fix get the email on the NEXT status check (the `if confirmation_sent_at is None` branch fires the fanout even for already-paid orders).
+
+**Files**:
+- Modified: `/app/backend/routes/shop.py` (rewrote `get_sample_checkout_status` + added `_send_sample_confirmation_fanout`)
+- New: `/app/backend/tests/test_sample_order_confirmation.py` (4 tests — happy path, idempotency, empty products, email-service-down)
+
+**Tests**: 4/4 pass. Lint clean (all remaining errors in shop.py are pre-existing, not from my changes).
+
+**For the user's specific case (Alexandra Simmons, pi_3TX8AaRrO4AkXmfS18ZxdEsz)**:
+After deploy, the user can either:
+1. Hit `https://tilestation.co.uk/admin/stripe-reconcile` and search by session ID → it'll run the recovery flow which sends an apology-style email + admin alert
+2. OR just open the customer's sample success page URL (if they have it) — the new code will fire the confirmation email retroactively because `confirmation_sent_at` is missing on the old order
+
+**Env var to set on Railway** (optional, has default): `SAMPLES_ADMIN_EMAIL=samples@tilestation.co.uk` — controls where the admin alerts go.
+
 ### [May 17, 2026 — 13:00] 🔧 Batch-fixed Ahrefs SEO title/description length alerts
 
 After this morning's revert, user demanded the remaining Ahrefs alerts be silenced *today*. Audited the actual production pages with curl and found the real causes:

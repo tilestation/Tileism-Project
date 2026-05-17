@@ -6453,7 +6453,19 @@ async def create_sample_checkout(order_id: str, payload: SampleCheckoutRequest, 
 async def get_sample_checkout_status(session_id: str):
     """Verify a sample-postage Stripe session and flip the order to `paid`
     once Stripe confirms. Called from the sample-success page. Idempotent —
-    repeat calls after `paid` just return the current state."""
+    repeat calls after `paid` just return the current state.
+
+    17 May 2026 — Added confirmation-email + admin-alert fanout. Up
+    to today this endpoint flipped status to `paid` and that was it:
+    the customer got NO email confirming their samples were on the way
+    and the showroom team got NO notification an order existed. The
+    only way orders were surfacing was via the cron-based recovery
+    scan in `stripe_reconcile.py` (which DID send an apology email).
+    That meant happy-path orders went silent for hours/days. Now we
+    fire both notifications immediately on first-paid-flip, with a
+    `confirmation_sent_at` idempotency stamp so repeat calls (or the
+    recovery cron also catching it) never double-send.
+    """
     db = get_db()
     order = await db.sample_orders.find_one(
         {"stripe_session_id": session_id}, {"_id": 0}
@@ -6461,8 +6473,12 @@ async def get_sample_checkout_status(session_id: str):
     if not order:
         raise HTTPException(status_code=404, detail="Sample order not found")
 
-    # Already marked paid → short-circuit
+    # Already marked paid → short-circuit. If for some reason confirmation
+    # was never sent (e.g. email service was down at the time of payment),
+    # try once more — the `confirmation_sent_at` guard prevents duplicates.
     if order.get("status") in ("paid", "shipped", "delivered", "completed"):
+        if not order.get("confirmation_sent_at"):
+            await _send_sample_confirmation_fanout(order)
         return {
             "payment_status": "paid",
             "order_status": order.get("status"),
@@ -6489,6 +6505,19 @@ async def get_sample_checkout_status(session_id: str):
                 "paid_at": datetime.now(timezone.utc).isoformat(),
             }},
         )
+        # Re-read the freshly-updated doc so the email/alert fanout
+        # sees the new `status` + `paid_at` and the confirmation guard
+        # writes to a doc that already says paid.
+        order = await db.sample_orders.find_one(
+            {"stripe_session_id": session_id}, {"_id": 0}
+        ) or order
+
+        # Fire confirmation email to customer + alert to showroom team.
+        # Errors are swallowed inside the helper so a flaky email
+        # service can never block the success-page response — admin
+        # gets a daily recovery digest as a safety net.
+        await _send_sample_confirmation_fanout(order)
+
         # Sweep any abandoned-basket capture(s) for this email so they
         # don't end up in tomorrow's apology-email batch.
         await _mark_basket_recovered(order.get("customer_email", ""))
@@ -6498,6 +6527,112 @@ async def get_sample_checkout_status(session_id: str):
         "order_status": "paid" if payment_status == "paid" else order.get("status"),
         "order_number": order.get("order_number"),
     }
+
+
+async def _send_sample_confirmation_fanout(order: dict) -> None:
+    """Send customer confirmation + admin/showroom alert for a freshly-
+    paid sample order.
+
+    Idempotent: stamps `confirmation_sent_at` on the order before
+    returning. Repeated calls (e.g. the recovery cron also catching
+    this order) check the stamp and bail before sending.
+
+    Errors are caught and logged — never propagated. The success page
+    must always render even if SMTP is down. The daily reconciliation
+    digest (stripe_reconcile.py) is the fallback safety net.
+    """
+    if not order:
+        return
+    db = get_db()
+    order_id = order.get("id")
+
+    # Idempotency: atomic compare-and-set on `confirmation_sent_at`.
+    # If it's already set, another caller (cron, retry, refresh) beat
+    # us to it — bail without sending.
+    sent_marker = datetime.now(timezone.utc).isoformat()
+    res = await db.sample_orders.update_one(
+        {"id": order_id, "confirmation_sent_at": {"$exists": False}},
+        {"$set": {"confirmation_sent_at": sent_marker}},
+    )
+    if res.modified_count == 0:
+        logger.info(
+            "Sample confirmation already sent for order %s — skipping fanout",
+            order_id,
+        )
+        return
+
+    # ── Build the items list — the bit that's been missing from your
+    # Stripe dashboard / your inbox for the past several sample orders ──
+    products = order.get("products") or []
+    items_html = "".join(
+        f"<li style='margin:4px 0'>"
+        f"<strong>{(p.get('name') or 'Sample')}</strong>"
+        f"{(' — ' + p.get('size_human')) if p.get('size_human') else ''}"
+        f"{' · £' + format(p.get('price_gbp') or 0, '.2f') if (p.get('price_gbp') or 0) > 0 else ' · FREE'}"
+        f"</li>"
+        for p in products
+    )
+    order_number = order.get("order_number") or order.get("id") or "—"
+    total = float(order.get("total") or 0)
+    customer_name = order.get("customer_name") or "there"
+    customer_email = order.get("customer_email") or ""
+    customer_phone = order.get("customer_phone") or "—"
+    delivery_address = order.get("delivery_address") or {}
+    addr_lines = [
+        delivery_address.get("line1") or "",
+        delivery_address.get("line2") or "",
+        delivery_address.get("city") or "",
+        delivery_address.get("county") or "",
+        delivery_address.get("postcode") or "",
+    ]
+    addr_block = "<br/>".join(line for line in addr_lines if line)
+
+    # ── Customer confirmation email ──
+    try:
+        from services import email as email_svc
+        cust_subject = f"Sample order #{order_number} confirmed · Tile Station"
+        cust_html = (
+            f"<p>Hi {customer_name},</p>"
+            f"<p>Thanks for your sample order — payment received ✅. "
+            f"We'll pop your samples in the post within one working day.</p>"
+            f"<p><strong>Order #{order_number}</strong><br/>"
+            f"Total paid: £{total:.2f}</p>"
+            f"<p><strong>Your samples:</strong></p>"
+            f"<ul>{items_html}</ul>"
+            f"<p><strong>Delivering to:</strong><br/>{addr_block}</p>"
+            f"<p>Any questions, just reply to this email and one of our team will help.</p>"
+            f"<p>Thanks,<br/>Tile Station</p>"
+        )
+        send_fn = getattr(email_svc, "send_simple_email_if_possible", None)
+        if send_fn and customer_email:
+            await send_fn(customer_email, cust_subject, cust_html)
+    except Exception:
+        logger.exception("Sample confirmation email to customer failed (non-fatal)")
+
+    # ── Admin / showroom alert ──
+    # Goes to the central samples@tilestation.co.uk inbox so whichever
+    # showroom is on dispatch duty that day sees it. Could be expanded
+    # to Telegram later via the existing notification service.
+    try:
+        from services import email as email_svc
+        admin_to = os.environ.get("SAMPLES_ADMIN_EMAIL", "samples@tilestation.co.uk")
+        admin_subject = f"🟢 New sample order — #{order_number} · £{total:.2f}"
+        admin_html = (
+            f"<p><strong>New paid sample order ready to dispatch.</strong></p>"
+            f"<p><strong>Order:</strong> #{order_number}<br/>"
+            f"<strong>Total:</strong> £{total:.2f}<br/>"
+            f"<strong>Customer:</strong> {customer_name} &lt;{customer_email}&gt;<br/>"
+            f"<strong>Phone:</strong> {customer_phone}</p>"
+            f"<p><strong>Samples ({len(products)}):</strong></p>"
+            f"<ul>{items_html}</ul>"
+            f"<p><strong>Delivering to:</strong><br/>{addr_block}</p>"
+            f"<p>Stripe payment: <code>{order.get('stripe_session_id','—')}</code></p>"
+        )
+        send_fn = getattr(email_svc, "send_simple_email_if_possible", None)
+        if send_fn:
+            await send_fn(admin_to, admin_subject, admin_html)
+    except Exception:
+        logger.exception("Sample admin alert email failed (non-fatal)")
 
 
 @router.get("/samples/status/{order_id}")
