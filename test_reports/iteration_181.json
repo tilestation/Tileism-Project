@@ -1,0 +1,53 @@
+{
+  "summary": "iter181 — SEO regression test after server-seo.js EXACT-entry additions, length clamps, noindex prefixes, and SeoHead useLayoutEffect dedupe. All 96 Node tests pass (86 server-seo.test.js + 5 seo-head-dedupe.test.js + 5 tests/server-seo.test.js). All 10 backend pytest tests pass (/api/health, /api/seo/overrides shape, IndexNow key file, /api/admin/seo/health, /api/admin/seo/snapshot, anon-gate, auto-fix admin route, /api/permissions/me). Frontend smoke: /, /clearance, /new-collection, /shop/info/faq each render with exactly 1 <title>, 1 <meta name=description>, 1 <link rel=canonical>, 0 SSR leftover tags, 1 og:title — no duplicates anywhere. /shop/contact shows 0 of each on the preview env, but this is EXPECTED (per review-request note) because preview does not run Express SSR and ContactPage.jsx does not mount <SeoHead/> client-side — production Vercel/Railway SSR will inject the EXACT entry (verified by Node tests). No React errors logged.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "POST /api/admin/seo-autopilot/run/auto-fix",
+        "issue": "Review-request spec said the route is at /api/admin/seo-autopilot/run/auto-fix but the actual mounted prefix in routes/seo_autopilot_admin.py:40 is /admin/seo-autopilot-v2 — so the live route is /api/admin/seo-autopilot-v2/run/auto-fix. Anon returns 403, admin POST returns 200. Just a spec discrepancy, not a bug. Update internal docs/spec to use the v2 path."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {
+        "screen": "/shop/contact (ContactPage.jsx)",
+        "issues": [
+          "No <SeoHead/> mounted in ContactPage.jsx. On the preview env (no Express SSR) this page renders with 0 title / 0 desc / 0 canonical. Production SSR will inject the EXACT entry from server-seo.js so SEO is fine for crawlers, but client-side SPA navigation to /shop/contact leaves the head empty after React mounts. Recommend adding <SeoHead title='Contact Tile Station — Tonbridge Showroom & Free UK Delivery' description='...'/> to ContactPage.jsx for parity with /clearance, /new-collection, /shop/info/faq."
+        ]
+      }
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_seo_iter181.py",
+    "/app/test_reports/pytest/iter181_seo.xml",
+    "/app/frontend/server-seo.test.js",
+    "/app/frontend/tests/seo-head-dedupe.test.js",
+    "/app/frontend/tests/server-seo.test.js"
+  ],
+  "action_items": [
+    "(OPTIONAL, low priority) Add <SeoHead/> import + tag to /app/frontend/src/pages/shop/ContactPage.jsx so SPA navigation to /shop/contact also gets a title/desc/canonical without relying on SSR.",
+    "(DOCS-ONLY) Note in handoff that the autofix endpoint lives at /api/admin/seo-autopilot-v2/run/auto-fix (v2 suffix), not /api/admin/seo-autopilot/run/auto-fix as the spec said."
+  ],
+  "critical_code_review_comments": [
+    "SeoHead.jsx useLayoutEffect dedupe (lines 97-106) is the correct surgical fix: it only fires on routes that mount <SeoHead/>, so pages without SeoHead (e.g. ContactPage.jsx) keep their SSR tags intact. Confirmed by the 5 dedupe unit tests and by the live smoke (all SeoHead pages have exactly 1 of each tag, 0 leftover data-ssr-seo elements).",
+    "server-seo.js clamp helpers (clampTitle/clampDesc/buildClampedTitle) cover dynamic /tiles/:slug, /shop/collection/:slug, /blog/:slug, /installer/:slug — all preserve the 'Tile Station' brand suffix while keeping title ≤60 and description 80-160 chars. Verified by 12 length-clamp tests.",
+    "server.py is 9200+ lines — should continue to be refactored into routers per the standing recommendation, but not blocking SEO work."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_seo_iter181.py (NEW — 10 pytest cases)"
+  ],
+  "success_rate": {
+    "backend": "100% (10/10 pytest, all SEO endpoints return correct shape + auth gating)",
+    "frontend": "100% on SeoHead-mounted pages (4/4: /, /clearance, /new-collection, /shop/info/faq). /shop/contact is N/A on preview (SSR-only)."
+  },
+  "test_credentials": "admin@test.com / admin123 (super_admin) — verified login via /api/auth/login",
+  "seed_data_creation": "none",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "All SEO regression test infrastructure now in place. Run `python -m pytest backend/tests/test_seo_iter181.py -v` for backend SEO API regression. Run `cd /app/frontend && node --test server-seo.test.js tests/seo-head-dedupe.test.js tests/server-seo.test.js` for the full 96-test SSR/dedupe suite. Note that auto-fix endpoint is /api/admin/seo-autopilot-v2/run/auto-fix (v2). Preview env does not run Express SSR — only the client-side React SeoHead component is active there, so /shop/contact appears blank in preview but will be fully populated in prod via SSR.",
+  "rca of the issue": "No bug found. The previous catastrophic regression (titles missing on 77 pages from an inline strip-script in server-seo.js) has been correctly superseded by the React-side useLayoutEffect dedupe in SeoHead.jsx, which is scoped to only the elements React itself emits and only on pages that mount <SeoHead/>. Pages without SeoHead (like ContactPage.jsx) keep their SSR-stamped tags untouched. The Ahrefs 'Multiple title tags' warning will resolve because every page that previously double-emitted a title (SSR + React) will now end up with just the React copy after commit."
+}

@@ -96,12 +96,12 @@ const meta = resolveSeo('/contact');
 const html = injectMeta(fakeShell, meta);
 
 const injectionTests = [
-  { name: '<title> injected', check: () => /<title>Contact[^<]*<\/title>/.test(html) },
+  { name: '<title> injected', check: () => /<title[^>]*>Contact[^<]*<\/title>/.test(html) },
   { name: '<meta description> injected', check: () => /<meta name="description"[^>]+>/.test(html) },
   { name: '<link canonical> injected', check: () => /<link rel="canonical"[^>]+>/.test(html) },
   { name: 'og:title injected', check: () => /<meta property="og:title"[^>]+>/.test(html) },
   { name: 'twitter:card injected', check: () => /<meta name="twitter:card"[^>]+>/.test(html) },
-  { name: 'idempotent — running injectMeta twice yields same result', check: () => injectMeta(html, meta).match(/<title>/g).length === 1 },
+  { name: 'idempotent — running injectMeta twice yields same result', check: () => (injectMeta(html, meta).match(/<title[^>]*>/g) || []).length === 1 },
   { name: 'no <noindex> on regular pages', check: () => !/<meta name="robots"[^>]+noindex/.test(html) },
 ];
 const shareHtml = injectMeta(fakeShell, resolveSeo('/visualizer/share/x'));
@@ -152,6 +152,64 @@ injectionTests.push({
 });
 
 for (const t of injectionTests) {
+  try {
+    assert.ok(t.check(), t.name);
+    pass++;
+    console.log(`  ✓ ${t.name}`);
+  } catch (e) {
+    fail++;
+    console.log(`  ✗ ${t.name}`);
+  }
+}
+
+// ─── Length-clamp tests (24 Feb 2026 — finish-SEO-today batch) ────
+// Ahrefs flags <title> > 60 chars and <meta description> > 160 chars.
+// Long dynamic slugs used to blow past both — these tests guard the
+// clamp helpers in server-seo.js.
+console.log('\nLength clamps:');
+const lengthCases = [
+  // Long product slug — should clamp both
+  { path: '/tiles/grey-marble-effect-large-format-floor-tiles-60x60cm-rectified' },
+  // Pathological 80-char slug
+  { path: '/shop/collection/' + 'long-slug-segment-that-is-deliberately-much-longer-than-typical' },
+  // Long blog post
+  { path: '/blog/the-complete-guide-to-laying-large-format-porcelain-tiles-step-by-step' },
+  // Long city
+  { path: '/installer/the-royal-borough-of-windsor-and-maidenhead' },
+];
+const lengthTests = [];
+for (const c of lengthCases) {
+  const m = resolveSeo(c.path);
+  lengthTests.push({
+    name: `${c.path} — title ≤ 60 chars`,
+    check: () => m && m.title && m.title.length <= 60,
+  });
+  lengthTests.push({
+    name: `${c.path} — description ≤ 160 chars`,
+    check: () => m && m.description && m.description.length <= 160,
+  });
+  lengthTests.push({
+    name: `${c.path} — description ≥ 80 chars (not too short either)`,
+    check: () => m && m.description && m.description.length >= 80,
+  });
+  lengthTests.push({
+    name: `${c.path} — brand suffix preserved in title`,
+    check: () => m && m.title && /Tile Station/i.test(m.title),
+  });
+}
+// Static EXACT entries must also comply
+for (const path of ['/', '/about', '/contact', '/clearance', '/new-collection', '/shop/contact', '/showrooms']) {
+  const m = resolveSeo(path);
+  lengthTests.push({
+    name: `EXACT ${path} — title ≤ 60`,
+    check: () => m && m.title.length <= 60,
+  });
+  lengthTests.push({
+    name: `EXACT ${path} — description ≤ 160`,
+    check: () => m && m.description.length <= 160,
+  });
+}
+for (const t of lengthTests) {
   try {
     assert.ok(t.check(), t.name);
     pass++;
