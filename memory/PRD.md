@@ -10,6 +10,37 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 
 ## Recent Sessions (most recent first)
 
+### [May 17, 2026 — 15:30] 🚨 CRITICAL: Added Telegram + email fanout to ALL order flows
+
+User asked "why am I not getting Telegram notifications when someone orders?" — investigation revealed two enormous gaps in order notification fanout:
+
+**What was actually wrong**:
+1. `get_sample_checkout_status` (sample order success-page handler) — flipped order to `paid` and that was it. No email, no Telegram. (Earlier today's fix added email + admin alert.)
+2. `get_guest_checkout_status` (REAL shop order success-page handler) — same pattern. Marked `payment_status=paid`, updated abandoned cart, and... nothing else. **No customer email, no admin email, no Telegram alert.** This is why the owner found out about real customer orders by manually scrolling Stripe days later.
+3. Telegram infrastructure was fully built (`services/telegram_notify.py`, with `"new_order": True` as a default-enabled event) — but **no code path anywhere called `notify_event("new_order", ...)`**. The bot was configured and working (uptime alerts came through fine), but order events never fired.
+
+**What I shipped**:
+1. **Sample-order fanout** (`_send_sample_confirmation_fanout`) — now ALSO fires `notify_event("new_order", ...)` with order #, total, customer details, sample names + delivery address. Dedupe key = `sample:{order_number}` to prevent double-alerts on success-page refresh.
+2. **New `_send_shop_order_alert_fanout`** for the real customer guest-checkout flow:
+   - Telegram alert (`💰 New order — #{order_number}` with items list + address)
+   - Admin email to `ORDERS_ADMIN_EMAIL` (default `orders@tilestation.co.uk`) with full dispatch details
+   - Customer confirmation email (`Order #{order_number} confirmed`)
+3. **Idempotency on shop orders** — new `confirmation_sent_at` field on `shop_orders` doc + atomic compare-and-set in `get_guest_checkout_status` before invoking the fanout. Refreshing the success page can't double-alert.
+4. **Failure-safe everywhere** — every email/Telegram block is wrapped in `try/except logger.exception(... 'non-fatal')`. The success page renders even if Telegram, Resend, or both are down.
+
+**Files**:
+- Modified: `/app/backend/routes/shop.py` (added Telegram block to sample fanout; added full fanout block + new `_send_shop_order_alert_fanout` helper for shop orders)
+- Modified: `/app/backend/tests/test_sample_order_confirmation.py` (+3 new tests covering Telegram fanout for both order types AND telegram-down failure mode)
+
+**Tests**: 7/7 pass. Verifies items are in alert text, dedupe keys correct, telegram-down doesn't propagate.
+
+**Env vars (optional, all have defaults)**:
+- `SAMPLES_ADMIN_EMAIL` — default `samples@tilestation.co.uk`
+- `ORDERS_ADMIN_EMAIL` — default `orders@tilestation.co.uk`
+- Telegram bot token + chat IDs already configured via admin UI (uptime alerts confirm it's working)
+
+**Self-healing**: orders paid BEFORE this fix that haven't had a success-page revisit will fire the alert when the customer (or anyone) hits the status endpoint again. The `confirmation_sent_at: {"$exists": False}` guard ensures one alert per order even across deploys.
+
 ### [May 17, 2026 — 13:45] 🚨 CRITICAL FIX: Silent sample-order bug
 
 User noticed via Stripe dashboard that a £2.99 sample payment from Alexandra Simmons (Tatsfield, TN16) on May 14 went through successfully but they received NO email confirmation. They reported this was the SECOND time orders went silent.

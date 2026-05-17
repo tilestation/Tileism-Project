@@ -215,3 +215,120 @@ async def test_fanout_swallows_email_errors_so_success_page_never_blocks():
         )
     finally:
         await _cleanup_test_order()
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Telegram alert fanout (17 May 2026 — owner couldn't see new orders
+# without manually scrolling Stripe. The bot infra existed; nothing
+# called it.)
+# ─────────────────────────────────────────────────────────────────────
+
+async def test_sample_fanout_fires_telegram_new_order_alert():
+    """A paid sample order must trigger a Telegram alert via
+    notify_event("new_order", ...). Without this, the owner has zero
+    visibility on new sample orders without manually scrolling Stripe."""
+    await _seed_test_order(status="paid", confirmation_sent=False)
+    try:
+        tg_calls = []
+        async def fake_notify(event, text, dedupe_key=None):
+            tg_calls.append({"event": event, "text": text, "dedupe_key": dedupe_key})
+
+        async def noop_email(to, subject, html):
+            return
+
+        db = get_db()
+        order = await db.sample_orders.find_one({"id": _TEST_ORDER_ID}, {"_id": 0})
+
+        with patch("services.telegram_notify.notify_event", new=fake_notify), \
+             patch("services.email.send_simple_email_if_possible", new=noop_email):
+            await shop_route._send_sample_confirmation_fanout(order)
+
+        assert len(tg_calls) == 1, f"Expected one Telegram alert, got {len(tg_calls)}"
+        call = tg_calls[0]
+        assert call["event"] == "new_order", "Must use the 'new_order' event type"
+        # The dedupe_key prevents a refresh of the success page from
+        # double-alerting. Must be unique per order.
+        assert call["dedupe_key"] == f"sample:{order['order_number']}"
+        # Owner needs to see: order number, total, customer name, items, address
+        text = call["text"]
+        assert "TS-PYTEST-0001" in text
+        assert "£2.99" in text
+        assert "Pytest Customer" in text
+        assert "Verona Carrara" in text       # actual sample names
+        assert "Troutroost" in text           # delivery address
+    finally:
+        await _cleanup_test_order()
+
+
+async def test_shop_order_fanout_fires_telegram_with_dedupe():
+    """A paid SHOP order (not sample) must fire its own Telegram
+    alert via _send_shop_order_alert_fanout. Same omission as sample
+    orders — fixed in the same session."""
+    tg_calls = []
+    async def fake_notify(event, text, dedupe_key=None):
+        tg_calls.append({"event": event, "text": text, "dedupe_key": dedupe_key})
+
+    async def noop_email(to, subject, html):
+        return
+
+    shop_order = {
+        "id": "pytest-shop-order-1",
+        "order_number": "TS-2026-0042",
+        "stripe_session_id": "cs_test_shop_pytest",
+        "customer_name": "Test Shopper",
+        "customer_email": "shopper@example.com",
+        "customer_phone": "07000 000001",
+        "total": 612.50,
+        "delivery_method": "delivery",
+        "items": [
+            {"name": "Verona Carrara 60x60cm", "size": "60×60cm",
+             "quantity": 32, "line_total": 580.00},
+            {"name": "Tile Trim Black 2.4m", "size": "2.4m",
+             "quantity": 4, "line_total": 32.50},
+        ],
+        "delivery_address": {
+            "line1": "10 Test Lane", "city": "London",
+            "postcode": "SW1A 1AA",
+        },
+    }
+
+    with patch("services.telegram_notify.notify_event", new=fake_notify), \
+         patch("services.email.send_simple_email_if_possible", new=noop_email):
+        await shop_route._send_shop_order_alert_fanout(shop_order)
+
+    assert len(tg_calls) == 1
+    call = tg_calls[0]
+    assert call["event"] == "new_order"
+    assert call["dedupe_key"] == "order:TS-2026-0042"
+    text = call["text"]
+    # Must include the headline figures and the actual item names.
+    assert "TS-2026-0042" in text
+    assert "£612.50" in text
+    assert "Test Shopper" in text
+    assert "Verona Carrara" in text
+    assert "Tile Trim" in text
+    assert "SW1A 1AA" in text
+
+
+async def test_shop_order_fanout_swallows_telegram_errors():
+    """If the Telegram service blows up (network, bot token revoked,
+    Telegram API outage), the shop-order fanout must NOT propagate.
+    The customer's success page must always render."""
+    async def exploding_notify(event, text, dedupe_key=None):
+        raise RuntimeError("Telegram API down")
+
+    async def noop_email(to, subject, html):
+        return
+
+    shop_order = {
+        "id": "pytest-shop-order-2",
+        "order_number": "TS-2026-0099",
+        "customer_email": "x@y.com",
+        "total": 100.0,
+        "items": [],
+    }
+
+    with patch("services.telegram_notify.notify_event", new=exploding_notify), \
+         patch("services.email.send_simple_email_if_possible", new=noop_email):
+        # MUST NOT RAISE
+        await shop_route._send_shop_order_alert_fanout(shop_order)

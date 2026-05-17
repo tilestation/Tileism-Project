@@ -3220,6 +3220,32 @@ async def get_guest_checkout_status(session_id: str):
                         )
                     except Exception:
                         logger.exception("Failed to mark abandoned cart recovered")
+
+                # 17 May 2026 — Telegram + admin alert on first-paid-flip.
+                #
+                # This block was missing entirely until today. Real customer
+                # orders were transitioning to `paid` in the DB but no one
+                # got told. The owner only discovered them by manually
+                # scrolling the Stripe dashboard days later.
+                #
+                # We re-read the full order doc (the projection above
+                # excludes some fields we want for the alert) and stamp
+                # `confirmation_sent_at` for idempotency before firing
+                # so a refresh of the success page can't double-alert.
+                try:
+                    full_order = await db.shop_orders.find_one(
+                        {"id": order["id"]}, {"_id": 0},
+                    )
+                    if full_order and not full_order.get("confirmation_sent_at"):
+                        sent_at = datetime.now(timezone.utc).isoformat()
+                        guard = await db.shop_orders.update_one(
+                            {"id": order["id"], "confirmation_sent_at": {"$exists": False}},
+                            {"$set": {"confirmation_sent_at": sent_at}},
+                        )
+                        if guard.modified_count > 0:
+                            await _send_shop_order_alert_fanout(full_order)
+                except Exception:
+                    logger.exception("Shop order alert fanout failed (non-fatal)")
             order["payment_status"] = "paid"
             order["status"] = "confirmed"
         return {"status": checkout_status.payment_status, "order": order}
@@ -6633,6 +6659,159 @@ async def _send_sample_confirmation_fanout(order: dict) -> None:
             await send_fn(admin_to, admin_subject, admin_html)
     except Exception:
         logger.exception("Sample admin alert email failed (non-fatal)")
+
+    # ── Telegram alert ──
+    # The bot infrastructure has been in place since Feb 2026 with
+    # `new_order` event enabled by default — but no code path was firing
+    # it. Result: owner found out about paid orders by manually scrolling
+    # Stripe, days later. This closes the loop: every paid sample order
+    # now pings the owner's Telegram within seconds of payment.
+    #
+    # Dedupe key uses the order_number so a refresh/retry of the success
+    # page doesn't double-alert (the email fanout's confirmation_sent_at
+    # flag already prevents that, but the dedupe inside notify_event is
+    # belt-and-braces against any future code path that re-enters this
+    # helper without checking the flag first).
+    try:
+        from services.telegram_notify import notify_event
+        product_lines = "\n".join(
+            f"  • {(p.get('name') or 'Sample')}"
+            + (f" — {p.get('size_human')}" if p.get('size_human') else "")
+            for p in products
+        )
+        tg_text = (
+            f"🟢 <b>New sample order — #{order_number}</b>\n"
+            f"<b>£{total:.2f}</b> · {len(products)} sample(s)\n\n"
+            f"<b>Customer:</b> {customer_name}\n"
+            f"<b>Email:</b> {customer_email}\n"
+            f"<b>Phone:</b> {customer_phone}\n\n"
+            f"<b>Samples:</b>\n{product_lines}\n\n"
+            f"<b>Delivering to:</b>\n{(addr_block or '—').replace('<br/>', chr(10))}"
+        )
+        await notify_event("new_order", tg_text, dedupe_key=f"sample:{order_number}")
+    except Exception:
+        logger.exception("Sample Telegram alert failed (non-fatal)")
+
+
+async def _send_shop_order_alert_fanout(order: dict) -> None:
+    """Fire Telegram + admin email + customer confirmation for a freshly-
+    paid shop order (NOT a sample order — those have their own fanout).
+
+    Called from `get_guest_checkout_status` after the order flips to
+    `payment_status=paid`. The caller stamps `confirmation_sent_at` on
+    the order BEFORE calling so this helper can never double-fire.
+    Errors are caught and logged — never propagated. The success page
+    must always render even if Telegram or SMTP is down.
+    """
+    if not order:
+        return
+    try:
+        order_number = order.get("order_number") or order.get("id") or "—"
+        total = float(order.get("total") or 0)
+        customer_name = order.get("customer_name") or "—"
+        customer_email = order.get("customer_email") or ""
+        customer_phone = order.get("customer_phone") or "—"
+        items = order.get("items") or []
+        addr = order.get("delivery_address") or {}
+        delivery_method = order.get("delivery_method") or "delivery"
+
+        item_lines_text = "\n".join(
+            f"  • {it.get('quantity', 1)}× {it.get('name', 'Item')}"
+            + (f" — {it.get('size')}" if it.get('size') else "")
+            + (f" · £{float(it.get('line_total') or it.get('subtotal') or 0):.2f}"
+               if (it.get('line_total') or it.get('subtotal')) else "")
+            for it in items
+        )
+        addr_text = "\n".join(
+            l for l in [
+                addr.get("line1"), addr.get("line2"), addr.get("city"),
+                addr.get("county"), addr.get("postcode"),
+            ] if l
+        ) or "(Collection / no address)"
+
+        # ── Telegram ──
+        try:
+            from services.telegram_notify import notify_event
+            tg_text = (
+                f"💰 <b>New order — #{order_number}</b>\n"
+                f"<b>£{total:.2f}</b> · {len(items)} item(s)\n\n"
+                f"<b>Customer:</b> {customer_name}\n"
+                f"<b>Email:</b> {customer_email}\n"
+                f"<b>Phone:</b> {customer_phone}\n"
+                f"<b>Method:</b> {delivery_method}\n\n"
+                f"<b>Items:</b>\n{item_lines_text or '  (no items)'}\n\n"
+                f"<b>Address:</b>\n{addr_text}"
+            )
+            await notify_event("new_order", tg_text, dedupe_key=f"order:{order_number}")
+        except Exception:
+            logger.exception("Shop order Telegram alert failed (non-fatal)")
+
+        # ── Admin email — same showroom inbox the EPOS team monitors ──
+        try:
+            from services import email as email_svc
+            admin_to = os.environ.get("ORDERS_ADMIN_EMAIL", "orders@tilestation.co.uk")
+            items_html = "".join(
+                f"<li>{it.get('quantity', 1)}× <strong>{it.get('name', 'Item')}</strong>"
+                + (f" — {it.get('size')}" if it.get('size') else "")
+                + (f" · £{float(it.get('line_total') or it.get('subtotal') or 0):.2f}"
+                   if (it.get('line_total') or it.get('subtotal')) else "")
+                + "</li>"
+                for it in items
+            )
+            addr_html = "<br/>".join(
+                l for l in [
+                    addr.get("line1"), addr.get("line2"), addr.get("city"),
+                    addr.get("county"), addr.get("postcode"),
+                ] if l
+            ) or "(Collection / no address)"
+            admin_html = (
+                f"<p><strong>New paid order ready to process.</strong></p>"
+                f"<p><strong>Order:</strong> #{order_number}<br/>"
+                f"<strong>Total:</strong> £{total:.2f}<br/>"
+                f"<strong>Customer:</strong> {customer_name} &lt;{customer_email}&gt;<br/>"
+                f"<strong>Phone:</strong> {customer_phone}<br/>"
+                f"<strong>Method:</strong> {delivery_method}</p>"
+                f"<p><strong>Items ({len(items)}):</strong></p>"
+                f"<ul>{items_html or '<li>(no items)</li>'}</ul>"
+                f"<p><strong>Delivering to:</strong><br/>{addr_html}</p>"
+                f"<p>Stripe session: <code>{order.get('stripe_session_id','—')}</code></p>"
+            )
+            send_fn = getattr(email_svc, "send_simple_email_if_possible", None)
+            if send_fn:
+                await send_fn(admin_to, f"💰 New order #{order_number} · £{total:.2f}", admin_html)
+        except Exception:
+            logger.exception("Shop order admin alert email failed (non-fatal)")
+
+        # ── Customer confirmation ──
+        try:
+            from services import email as email_svc
+            items_html = "".join(
+                f"<li>{it.get('quantity', 1)}× <strong>{it.get('name', 'Item')}</strong>"
+                + (f" — {it.get('size')}" if it.get('size') else "")
+                + "</li>"
+                for it in items
+            )
+            cust_html = (
+                f"<p>Hi {customer_name},</p>"
+                f"<p>Thanks for your order — payment received ✅.</p>"
+                f"<p><strong>Order #{order_number}</strong><br/>"
+                f"Total: £{total:.2f}</p>"
+                f"<p><strong>Your order:</strong></p>"
+                f"<ul>{items_html or '<li>(no items)</li>'}</ul>"
+                f"<p>We'll be in touch shortly with delivery details.</p>"
+                f"<p>Thanks,<br/>Tile Station</p>"
+            )
+            send_fn = getattr(email_svc, "send_simple_email_if_possible", None)
+            if send_fn and customer_email:
+                await send_fn(
+                    customer_email,
+                    f"Order #{order_number} confirmed · Tile Station",
+                    cust_html,
+                )
+        except Exception:
+            logger.exception("Shop order customer confirmation email failed (non-fatal)")
+    except Exception:
+        logger.exception("_send_shop_order_alert_fanout outer failure")
 
 
 @router.get("/samples/status/{order_id}")
