@@ -9,6 +9,29 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Feb 24, 2026 — Forked session] ✅ Trade Credit Emails Card: Collapsible + Source Stamp + Trader Breakdown
+
+**User intent**: *"1. Make this collapsible — list is growing, requires lots of scrolling to get to EPOS tabs. 2. Stamp where credit is earned/used (showroom name, online vs in-store). 3. Show breakdown of earned/used credit history when clicking the trader's name."*
+
+**Three changes shipped:**
+
+1. **Collapsible card on Sales & EPOS** — header is now a toggle button (chevron-down/up icon). **Collapsed by default** to stop the growing list pushing EPOS tabs off-screen. Preference persisted to `localStorage` (`credit-emails-card-collapsed`) so an admin who likes it open isn't forced to re-expand every visit.
+
+2. **Source column with showroom badge** — every credit_transactions insert (5 paths in `invoices.py`, 2 paths in `refunds.py`) now stamps `channel` ("in_store" / "online") + `showroom_id` + `showroom_name`. The recent-emails table renders this as a tiny green "🏪 Showroom Name" pill (in-store) or sky-blue "🌐 Online" pill. Legacy rows without these fields are silently back-filled from the linked invoice on read.
+
+3. **Click trader name → credit history modal** — backend endpoint `GET /api/invoices/credit-history/{trade_account_number}` returns lifetime earned/redeemed, per-store breakdown, plus the latest 50 transactions with source badges. Modal renders:
+   - 3 tiles: Lifetime Earned / Lifetime Redeemed / Current Balance
+   - "By store / channel" mini-table
+   - Latest-50 transaction list with date, ±£amount, source pill, description, invoice link
+
+**Files**:
+- `backend/routes/invoices.py` (5 credit_transactions stamps + new `/credit-history/{trade_ref}` endpoint)
+- `backend/routes/refunds.py` (2 credit_transactions stamps with showroom from refund doc)
+- `frontend/src/components/admin/RecentCreditEmailsCard.jsx` (collapsible, SourceBadge component, credit-history dialog)
+
+**Tests**: Live smoke screenshot confirms — card collapsed by default with click-to-expand, Source column visible on every row, trader-name click opens the history dialog with all 3 tile values + per-store table + transaction list with source pills.
+
+
 ### [Feb 24, 2026 — Forked session] ✅ One-Click Device Approval via Email Magic Link
 
 **User intent**: *"Same magic-link pattern as refunds — approve/deny devices straight from the email body, no admin login needed."*

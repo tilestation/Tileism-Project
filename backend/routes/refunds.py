@@ -543,6 +543,13 @@ async def reverse_credits_for_refund(
             "invoice_no": invoice_no,
             "refund_id": refund_id,
             "refund_no": refund_no,
+            # The reversal happens wherever the REFUND is issued, not where
+            # the original credit was earned — those can be different
+            # showrooms. We stamp the refund's showroom so the credit
+            # history view shows the reversal at the till that processed it.
+            "channel": "in_store",
+            "showroom_id": refund_dict.get("showroom_id"),
+            "showroom_name": refund_dict.get("showroom_name"),
             "description": f"Reversed credit-back from invoice {invoice_no} via refund {refund_no} ({(ratio*100):.1f}% of invoice)",
             "created_at": now,
         })
@@ -567,6 +574,9 @@ async def reverse_credits_for_refund(
             "invoice_no": invoice_no,
             "refund_id": refund_id,
             "refund_no": refund_no,
+            "channel": "in_store",
+            "showroom_id": refund_dict.get("showroom_id"),
+            "showroom_name": refund_dict.get("showroom_name"),
             "description": f"Refunded credit redemption from invoice {invoice_no} via refund {refund_no} ({(ratio*100):.1f}% of invoice)",
             "created_at": now,
         })

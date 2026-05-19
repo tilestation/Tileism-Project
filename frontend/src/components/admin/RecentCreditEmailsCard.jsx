@@ -1,8 +1,9 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import axios from 'axios';
 import { toast } from 'sonner';
-import { Mail, RefreshCw, CheckCircle2, AlertCircle, Send, Loader2, ChevronDown, ChevronUp, ClipboardCopy, Check } from 'lucide-react';
+import { Mail, RefreshCw, CheckCircle2, AlertCircle, Send, Loader2, ChevronDown, ChevronUp, ClipboardCopy, Check, Store, Globe, X } from 'lucide-react';
 import { Button } from '../ui/button';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '../ui/dialog';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
 
@@ -13,6 +14,10 @@ const API_URL = process.env.REACT_APP_BACKEND_URL;
  * Renders on /admin/sales-hub above the regular hub cards. Reads from
  * `GET /api/invoices/credit-emails/recent` and re-fires via
  * `POST /api/invoices/{id}/credit-emails/resend`.
+ *
+ * 24 Feb 2026 — added collapsed-by-default state (the list was growing
+ * and pushing EPOS tabs off-screen) + per-row showroom-source badge +
+ * click-trader-name → tiny earn/redeem breakdown popup.
  */
 function relativeTime(iso) {
   if (!iso) return '';
@@ -29,6 +34,29 @@ function relativeTime(iso) {
   return new Date(iso).toLocaleDateString();
 }
 
+// Tiny pill showing where a credit transaction came from — in-store
+// shows the showroom name; online shows a globe + "Online". Falls back
+// to a dash so legacy data doesn't render an empty pill.
+function SourceBadge({ channel, showroomName }) {
+  if (channel === 'online') {
+    return (
+      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] bg-sky-50 text-sky-800 border border-sky-200 font-medium">
+        <Globe className="h-2.5 w-2.5" />
+        Online
+      </span>
+    );
+  }
+  if (!showroomName) {
+    return <span className="text-[11px] text-muted-foreground">—</span>;
+  }
+  return (
+    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] bg-emerald-50 text-emerald-800 border border-emerald-200 font-medium" title={`In-store at ${showroomName}`}>
+      <Store className="h-2.5 w-2.5" />
+      {showroomName}
+    </span>
+  );
+}
+
 export default function RecentCreditEmailsCard() {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -36,6 +64,48 @@ export default function RecentCreditEmailsCard() {
   const [resendingId, setResendingId] = useState(null);
   const [expandedId, setExpandedId] = useState(null);
   const [copiedId, setCopiedId] = useState(null);
+
+  // Collapsed by default. The list grew large enough to push EPOS tabs
+  // off-screen on small monitors. Persist preference to localStorage so
+  // an admin who likes it open isn't forced to re-expand every visit.
+  const [collapsed, setCollapsed] = useState(() => {
+    try {
+      const saved = localStorage.getItem('credit-emails-card-collapsed');
+      return saved === null ? true : saved === '1';
+    } catch { return true; }
+  });
+  const toggleCollapsed = () => {
+    setCollapsed((c) => {
+      const next = !c;
+      try { localStorage.setItem('credit-emails-card-collapsed', next ? '1' : '0'); } catch { /* ignore */ }
+      return next;
+    });
+  };
+
+  // Trade-credit history modal — opens when a trader name is clicked.
+  const [historyTrader, setHistoryTrader] = useState(null); // { trade_account_number, name }
+  const [historyData, setHistoryData] = useState(null);
+  const [historyLoading, setHistoryLoading] = useState(false);
+
+  const openTraderHistory = async (tradeAccountNumber, displayName) => {
+    if (!tradeAccountNumber) return;
+    setHistoryTrader({ trade_account_number: tradeAccountNumber, name: displayName });
+    setHistoryData(null);
+    setHistoryLoading(true);
+    try {
+      const token = localStorage.getItem('token') || localStorage.getItem('access_token') || '';
+      const res = await axios.get(
+        `${API_URL}/api/invoices/credit-history/${encodeURIComponent(tradeAccountNumber)}?limit=50`,
+        { headers: token ? { Authorization: `Bearer ${token}` } : {} }
+      );
+      setHistoryData(res.data);
+    } catch (err) {
+      toast.error('Could not load credit history');
+      setHistoryTrader(null);
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
 
   const load = useCallback(async () => {
     try {
@@ -141,12 +211,26 @@ export default function RecentCreditEmailsCard() {
       data-testid="credit-emails-card"
     >
       <div className="flex items-center justify-between p-4 border-b border-gray-100 flex-wrap gap-2">
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-md bg-emerald-100 flex items-center justify-center">
+        <button
+          type="button"
+          onClick={toggleCollapsed}
+          className="flex items-center gap-2 text-left flex-1 min-w-0 group"
+          aria-expanded={!collapsed}
+          aria-controls="credit-emails-body"
+          data-testid="credit-emails-toggle"
+        >
+          <div className="w-8 h-8 rounded-md bg-emerald-100 flex items-center justify-center shrink-0">
             <Mail className="w-4 h-4 text-emerald-700" />
           </div>
-          <div>
-            <h3 className="font-semibold text-gray-900 text-sm">Trade Credit Emails — recent dispatches</h3>
+          <div className="min-w-0 flex-1">
+            <h3 className="font-semibold text-gray-900 text-sm flex items-center gap-1.5">
+              Trade Credit Emails — recent dispatches
+              {collapsed ? (
+                <ChevronDown className="w-4 h-4 text-gray-400 group-hover:text-gray-600 transition-colors" />
+              ) : (
+                <ChevronUp className="w-4 h-4 text-gray-400 group-hover:text-gray-600 transition-colors" />
+              )}
+            </h3>
             <p className="text-xs text-gray-500 mt-0.5">
               {stats.total > 0 ? (
                 <>
@@ -158,35 +242,40 @@ export default function RecentCreditEmailsCard() {
                       <span className="text-rose-700 font-medium">{stats.failed_count} failed</span>
                     </>
                   )}
+                  {collapsed && ' · click to expand'}
                 </>
               ) : (
                 'No emails dispatched yet'
               )}
             </p>
           </div>
-        </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={load}
-          disabled={loading}
-          data-testid="credit-emails-refresh"
-        >
-          {loading ? (
-            <Loader2 className="w-3 h-3 mr-1 animate-spin" />
-          ) : (
-            <RefreshCw className="w-3 h-3 mr-1" />
-          )}
-          Refresh
-        </Button>
+        </button>
+        {!collapsed && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={load}
+            disabled={loading}
+            data-testid="credit-emails-refresh"
+          >
+            {loading ? (
+              <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+            ) : (
+              <RefreshCw className="w-3 h-3 mr-1" />
+            )}
+            Refresh
+          </Button>
+        )}
       </div>
 
-      <div className="overflow-x-auto">
+      {!collapsed && (
+      <div id="credit-emails-body" className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead className="bg-gray-50 text-xs uppercase tracking-wide text-gray-500">
             <tr>
               <th className="text-left py-2 px-4 font-semibold">Invoice</th>
               <th className="text-left py-2 px-4 font-semibold">Trader</th>
+              <th className="text-left py-2 px-4 font-semibold">Source</th>
               <th className="text-right py-2 px-4 font-semibold">Credit</th>
               <th className="text-left py-2 px-4 font-semibold">Email</th>
               <th className="text-left py-2 px-4 font-semibold">When</th>
@@ -211,9 +300,21 @@ export default function RecentCreditEmailsCard() {
                     </td>
                     <td className="py-2 px-4">
                       <div className="text-xs">
-                        <div className="font-medium text-gray-900">
-                          {r.trade_business_name || r.customer_name || '—'}
-                        </div>
+                        {r.trade_account_number ? (
+                          <button
+                            type="button"
+                            onClick={() => openTraderHistory(r.trade_account_number, r.trade_business_name || r.customer_name)}
+                            className="font-medium text-gray-900 hover:text-emerald-700 hover:underline focus:outline-none focus:underline text-left"
+                            title="View credit history for this trader"
+                            data-testid={`credit-email-trader-${r.id}`}
+                          >
+                            {r.trade_business_name || r.customer_name || '—'}
+                          </button>
+                        ) : (
+                          <div className="font-medium text-gray-900">
+                            {r.trade_business_name || r.customer_name || '—'}
+                          </div>
+                        )}
                         <div className="text-gray-500 truncate max-w-[200px]">
                           {r.customer_email}
                         </div>
@@ -223,6 +324,9 @@ export default function RecentCreditEmailsCard() {
                           </div>
                         )}
                       </div>
+                    </td>
+                    <td className="py-2 px-4">
+                      <SourceBadge channel={r.channel || 'in_store'} showroomName={r.showroom_name} />
                     </td>
                     <td className="py-2 px-4 text-right tabular-nums">
                       <span className="font-semibold text-emerald-700">
@@ -302,7 +406,7 @@ export default function RecentCreditEmailsCard() {
                       className="bg-emerald-50/30 border-t border-emerald-100"
                       data-testid={`credit-email-breakdown-${r.id}`}
                     >
-                      <td colSpan={6} className="py-3 px-4">
+                      <td colSpan={7} className="py-3 px-4">
                         <div className="max-w-2xl rounded-md border border-emerald-200 bg-white overflow-hidden">
                           <div className="flex items-center justify-between gap-2 px-3 py-2 bg-emerald-50 border-b border-emerald-100">
                             <div>
@@ -383,6 +487,129 @@ export default function RecentCreditEmailsCard() {
           </tbody>
         </table>
       </div>
+      )}
+
+      {/* Trader credit-history breakdown — opens when a trader name is
+          clicked in the table above. Shows lifetime totals, per-store
+          breakdown, and the latest 50 transactions with source. */}
+      <Dialog open={!!historyTrader} onOpenChange={(open) => !open && setHistoryTrader(null)}>
+        <DialogContent className="sm:max-w-2xl" data-testid="credit-history-dialog">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-emerald-700">
+              <Mail className="h-5 w-5" />
+              Credit history — {historyTrader?.name || '—'}
+            </DialogTitle>
+            <DialogDescription>
+              {historyData?.customer?.trade_account_number ? (
+                <>Trade account <code className="font-mono text-amber-700">{historyData.customer.trade_account_number}</code>
+                {historyData?.customer?.credit_balance != null && (
+                  <> · Current balance <strong className="text-emerald-700">£{Number(historyData.customer.credit_balance).toFixed(2)}</strong></>
+                )}</>
+              ) : 'Loading…'}
+            </DialogDescription>
+          </DialogHeader>
+
+          {historyLoading && (
+            <div className="py-10 flex items-center justify-center text-sm text-muted-foreground">
+              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              Loading history…
+            </div>
+          )}
+
+          {!historyLoading && historyData && (
+            <div className="space-y-4">
+              {/* Lifetime tiles */}
+              <div className="grid grid-cols-3 gap-2 text-center text-xs">
+                <div className="bg-emerald-50 border border-emerald-200 rounded p-2">
+                  <div className="text-emerald-700 font-semibold uppercase text-[10px]">Lifetime Earned</div>
+                  <div className="text-lg font-bold text-emerald-900 tabular-nums">£{Number(historyData.lifetime_earned || 0).toFixed(2)}</div>
+                </div>
+                <div className="bg-amber-50 border border-amber-200 rounded p-2">
+                  <div className="text-amber-700 font-semibold uppercase text-[10px]">Lifetime Redeemed</div>
+                  <div className="text-lg font-bold text-amber-900 tabular-nums">£{Number(historyData.lifetime_redeemed || 0).toFixed(2)}</div>
+                </div>
+                <div className="bg-sky-50 border border-sky-200 rounded p-2">
+                  <div className="text-sky-700 font-semibold uppercase text-[10px]">Current Balance</div>
+                  <div className="text-lg font-bold text-sky-900 tabular-nums">£{Number(historyData.customer?.credit_balance || 0).toFixed(2)}</div>
+                </div>
+              </div>
+
+              {/* Per-store breakdown */}
+              {Array.isArray(historyData.by_showroom) && historyData.by_showroom.length > 0 && (
+                <div>
+                  <div className="text-xs font-semibold text-gray-700 mb-1.5">By store / channel</div>
+                  <div className="bg-gray-50 border border-gray-200 rounded overflow-hidden">
+                    <table className="w-full text-xs">
+                      <thead className="bg-gray-100 text-gray-600 uppercase text-[10px]">
+                        <tr>
+                          <th className="text-left px-2 py-1">Source</th>
+                          <th className="text-right px-2 py-1">Earned</th>
+                          <th className="text-right px-2 py-1">Redeemed</th>
+                          <th className="text-right px-2 py-1">Net</th>
+                          <th className="text-right px-2 py-1">Txns</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {historyData.by_showroom.map((row, i) => (
+                          <tr key={i} className="border-t border-gray-200">
+                            <td className="px-2 py-1.5">
+                              <SourceBadge channel={row.channel} showroomName={row.showroom_name} />
+                            </td>
+                            <td className="text-right px-2 py-1.5 text-emerald-700 font-semibold tabular-nums">£{Number(row.earned || 0).toFixed(2)}</td>
+                            <td className="text-right px-2 py-1.5 text-amber-700 font-semibold tabular-nums">£{Number(row.redeemed || 0).toFixed(2)}</td>
+                            <td className="text-right px-2 py-1.5 font-semibold tabular-nums">£{Number(row.net || 0).toFixed(2)}</td>
+                            <td className="text-right px-2 py-1.5 text-gray-600 tabular-nums">{row.transaction_count}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* Last 50 transactions */}
+              <div>
+                <div className="text-xs font-semibold text-gray-700 mb-1.5">
+                  Latest transactions ({historyData.transactions?.length || 0})
+                </div>
+                <div className="max-h-72 overflow-y-auto bg-white border border-gray-200 rounded">
+                  {(!historyData.transactions || historyData.transactions.length === 0) && (
+                    <div className="text-xs text-muted-foreground italic px-3 py-4 text-center">
+                      No transactions on record.
+                    </div>
+                  )}
+                  {(historyData.transactions || []).map((t) => {
+                    const isEarn = (t.amount || 0) > 0;
+                    return (
+                      <div key={t.id} className="flex items-center gap-2 px-3 py-1.5 border-b border-gray-100 last:border-b-0 text-xs">
+                        <span className="font-mono text-gray-500 text-[10px] min-w-[80px]">
+                          {t.created_at ? new Date(t.created_at).toLocaleDateString('en-GB') : '—'}
+                        </span>
+                        <span className={`px-1.5 py-0.5 rounded font-semibold text-[10px] ${isEarn ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                          {isEarn ? '+' : '−'}£{Math.abs(t.amount || 0).toFixed(2)}
+                        </span>
+                        <SourceBadge channel={t.channel || 'in_store'} showroomName={t.showroom_name} />
+                        <span className="text-gray-600 truncate flex-1" title={t.description}>
+                          {t.description || t.type}
+                        </span>
+                        {t.invoice_no && (
+                          <span className="font-mono text-amber-700 text-[10px]">{t.invoice_no}</span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="flex justify-end">
+                <Button variant="outline" size="sm" onClick={() => setHistoryTrader(null)} data-testid="credit-history-close">
+                  <X className="w-3.5 h-3.5 mr-1" /> Close
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

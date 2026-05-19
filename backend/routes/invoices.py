@@ -66,6 +66,11 @@ async def reverse_invoice_credits(db, invoice: dict, *, reason: str = "invoice_d
             "source": "epos_invoice",
             "invoice_id": invoice_id,
             "invoice_no": invoice_no,
+            # Carry forward the showroom of the ORIGINAL transaction so
+            # the credit history view shows the reversal at the same store.
+            "channel": "in_store",
+            "showroom_id": invoice.get("showroom_id"),
+            "showroom_name": invoice.get("showroom_name"),
             "description": f"Reversed credit-back from invoice {invoice_no} ({reason})",
             "created_at": now,
         })
@@ -90,6 +95,9 @@ async def reverse_invoice_credits(db, invoice: dict, *, reason: str = "invoice_d
             "source": "epos_invoice",
             "invoice_id": invoice_id,
             "invoice_no": invoice_no,
+            "channel": "in_store",
+            "showroom_id": invoice.get("showroom_id"),
+            "showroom_name": invoice.get("showroom_name"),
             "description": f"Refunded credit redemption from invoice {invoice_no} ({reason})",
             "created_at": now,
         })
@@ -175,6 +183,9 @@ async def reapply_invoice_credits(db, invoice: dict, *, reason: str = "invoice_r
             "source": "epos_invoice",
             "invoice_id": invoice_id,
             "invoice_no": invoice_no,
+            "channel": "in_store",
+            "showroom_id": invoice.get("showroom_id"),
+            "showroom_name": invoice.get("showroom_name"),
             "description": f"Re-applied credit-back to invoice {invoice_no} ({reason})",
             "created_at": now,
         })
@@ -204,6 +215,9 @@ async def reapply_invoice_credits(db, invoice: dict, *, reason: str = "invoice_r
             "source": "epos_invoice",
             "invoice_id": invoice_id,
             "invoice_no": invoice_no,
+            "channel": "in_store",
+            "showroom_id": invoice.get("showroom_id"),
+            "showroom_name": invoice.get("showroom_name"),
             "description": f"Re-applied credit redemption to invoice {invoice_no} ({reason})",
             "created_at": now,
         })
@@ -1164,6 +1178,13 @@ async def save_invoice(input: InvoiceCreate, current_user: dict = Depends(get_cu
                     "source": "epos_invoice",
                     "invoice_id": invoice_dict["id"],
                     "invoice_no": invoice_dict["invoice_no"],
+                    # Where the credit was earned — added 24 Feb 2026 so the
+                    # admin "credit history" view can show per-store breakdowns
+                    # (which showroom is generating the most trade-credit
+                    # liability, what's online vs in-store, etc.).
+                    "channel": "in_store",
+                    "showroom_id": invoice_dict.get("showroom_id"),
+                    "showroom_name": invoice_dict.get("showroom_name"),
                     "description": (
                         f"Credit back from in-store invoice {invoice_dict['invoice_no']} "
                         f"(per-product rates, blended {blended_rate}% of £{credit_calc['total_net']:.2f})"
@@ -1245,6 +1266,10 @@ async def save_invoice(input: InvoiceCreate, current_user: dict = Depends(get_cu
             "source": "epos_invoice",
             "invoice_id": invoice_dict["id"],
             "invoice_no": invoice_dict["invoice_no"],
+            # Where it was spent — see matching field on the earn path.
+            "channel": "in_store",
+            "showroom_id": invoice_dict.get("showroom_id"),
+            "showroom_name": invoice_dict.get("showroom_name"),
             "description": f"Credit redeemed at till on invoice {invoice_dict['invoice_no']}",
             "created_at": datetime.now(timezone.utc).isoformat(),
         })
@@ -2683,4 +2708,128 @@ async def resend_credit_email(
         "error": result.get("error"),
         "invoice_no": invoice.get("invoice_no"),
         "customer_email": invoice.get("customer_email"),
+    }
+
+
+
+@router.get("/credit-history/{trade_account_number}")
+async def get_trade_credit_history(
+    trade_account_number: str,
+    limit: int = 50,
+    current_user: dict = Depends(get_current_user),
+):
+    """Return earn/redeem history for a trader, with per-store breakdown.
+
+    Powers the "click trader name → tiny breakdown" feature in the
+    RecentCreditEmailsCard. Returns:
+
+    - `transactions`: latest N credit_transactions for the trader, each
+      including channel ("in_store" / "online") and showroom_name.
+      Legacy rows (pre 24 Feb 2026) without these fields are filled in
+      live by joining to the linked invoice / refund.
+    - `summary`: per-showroom and per-channel totals (earned / redeemed /
+      net) so the UI can render the breakdown in 3-5 lines.
+    - `balance`: customer's current credit balance.
+    - `lifetime_earned` / `lifetime_redeemed`: all-time totals for context.
+    """
+    if not can_access_epos(current_user):
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    db = get_db()
+    t_ref = (trade_account_number or "").strip()
+    if not t_ref:
+        raise HTTPException(status_code=400, detail="trade_account_number is required")
+
+    customer = await db.shop_customers.find_one(
+        {"trade_account_number": t_ref},
+        {"_id": 0, "id": 1, "name": 1, "business_name": 1,
+         "credit_balance": 1, "trade_account_number": 1},
+    )
+    if not customer:
+        raise HTTPException(status_code=404, detail="Trade account not found")
+
+    capped = max(1, min(int(limit or 50), 200))
+    cursor = db.credit_transactions.find(
+        {"trade_account_number": t_ref},
+        {"_id": 0},
+    ).sort("created_at", -1).limit(capped)
+    txns = await cursor.to_list(capped)
+
+    # Back-fill `showroom_name` and `channel` for legacy rows by looking
+    # up the linked invoice. Cheap because the txns list is capped.
+    inv_ids = list({t.get("invoice_id") for t in txns if not t.get("showroom_name") and t.get("invoice_id")})
+    inv_map = {}
+    if inv_ids:
+        async for inv in db.invoices.find(
+            {"id": {"$in": inv_ids}},
+            {"_id": 0, "id": 1, "showroom_id": 1, "showroom_name": 1},
+        ):
+            inv_map[inv["id"]] = inv
+    for t in txns:
+        if not t.get("showroom_name") and t.get("invoice_id") in inv_map:
+            inv = inv_map[t["invoice_id"]]
+            t["showroom_id"] = inv.get("showroom_id")
+            t["showroom_name"] = inv.get("showroom_name")
+        if not t.get("channel"):
+            ttype = (t.get("type") or "").lower()
+            t["channel"] = "online" if "online" in ttype else "in_store"
+
+    # Per-showroom + per-channel aggregation across ALL transactions for
+    # this trader (not just the visible page) so the breakdown reflects
+    # the full picture.
+    pipeline = [
+        {"$match": {"trade_account_number": t_ref}},
+        {"$group": {
+            "_id": {
+                "channel": {"$ifNull": ["$channel", "in_store"]},
+                "showroom_name": {"$ifNull": ["$showroom_name", None]},
+            },
+            "earned": {"$sum": {"$cond": [
+                {"$in": ["$type", ["earned_in_store", "earned_online", "reapplied_earned_in_store"]]},
+                "$amount", 0,
+            ]}},
+            "redeemed": {"$sum": {"$cond": [
+                {"$in": ["$type", ["redeemed_in_store", "redeemed_online", "reapplied_redeemed_in_store"]]},
+                {"$abs": "$amount"}, 0,
+            ]}},
+            "reversed": {"$sum": {"$cond": [
+                {"$in": ["$type", ["reversed_earned_in_store", "reversed_earned_via_refund", "reversed_redeemed_in_store", "reversed_redeemed_via_refund"]]},
+                "$amount", 0,
+            ]}},
+            "count": {"$sum": 1},
+        }},
+        {"$sort": {"earned": -1}},
+    ]
+    agg = await db.credit_transactions.aggregate(pipeline).to_list(50)
+
+    by_showroom = []
+    lifetime_earned = 0.0
+    lifetime_redeemed = 0.0
+    for row in agg:
+        key = row["_id"] or {}
+        earned = round(float(row.get("earned") or 0), 2)
+        redeemed = round(float(row.get("redeemed") or 0), 2)
+        lifetime_earned += earned
+        lifetime_redeemed += redeemed
+        by_showroom.append({
+            "channel": key.get("channel") or "in_store",
+            "showroom_name": key.get("showroom_name"),
+            "earned": earned,
+            "redeemed": redeemed,
+            "net": round(earned - redeemed, 2),
+            "transaction_count": row.get("count", 0),
+        })
+
+    return {
+        "customer": {
+            "id": customer.get("id"),
+            "name": customer.get("name"),
+            "business_name": customer.get("business_name"),
+            "trade_account_number": customer.get("trade_account_number"),
+            "credit_balance": round(float(customer.get("credit_balance") or 0), 2),
+        },
+        "transactions": txns,
+        "by_showroom": by_showroom,
+        "lifetime_earned": round(lifetime_earned, 2),
+        "lifetime_redeemed": round(lifetime_redeemed, 2),
     }
