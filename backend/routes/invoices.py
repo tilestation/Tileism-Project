@@ -1417,15 +1417,26 @@ async def get_invoices(
 
 @router.get("/audit/mis-dated-deposits")
 async def get_mis_dated_deposit_invoices(current_user: dict = Depends(get_current_user)):
-    """Return invoices whose deposit/payment dates differ from the invoice date by > 1 day.
+    """Return invoices where the deposit date looks WRONG, not merely "different".
 
-    Use case: a user backdates an invoice but the deposit defaults to today — the
-    payment appears under the wrong day on Invoice History. This audit surfaces all
-    such cases (including legacy data) so revenue can be reconciled.
+    Smart-audit logic (24 Feb 2026 rewrite):
 
-    Response:
-      { "count": N, "invoices": [ {id, invoice_no, date, customer_name, total,
-        deposits: [{date, amount, diff_days}], max_diff_days} ] }
+    Original use case (real bug we still want to catch):
+      User backdates an invoice to last Friday. The "Add Deposit" form
+      auto-defaults to today. They miss it and save — revenue gets
+      attributed to today instead of Friday.
+
+    False positive we used to flag (now ignored):
+      A correctly-dated initial deposit on the invoice date, followed by
+      a legitimate part-payment days/weeks later. This is the normal
+      "pay deposit now, balance on collection" flow and is NOT a bug.
+
+    Rule: an invoice is only flagged when NONE of its non-zero deposits
+    match the invoice date (within ±1 day). If at least one deposit was
+    taken on/near the invoice date, any later deposits are presumed to
+    be legitimate part-payments and the invoice is skipped.
+
+    Response shape is unchanged from the original implementation.
     """
     if not can_access_epos(current_user):
         raise HTTPException(status_code=403, detail="Admin access required")
@@ -1456,8 +1467,12 @@ async def get_mis_dated_deposit_invoices(current_user: dict = Depends(get_curren
         if not inv_date:
             continue
         deposits = inv.get("deposits") or []
-        bad_deposits = []
-        max_diff = 0
+
+        # First pass — parse all non-zero deposits and check if ANY
+        # of them sit on (or within 1 day of) the invoice date. If yes,
+        # this is a normal "deposit + part-payments" invoice — skip it.
+        parsed_deposits = []
+        any_match_invoice_date = False
         for dep in deposits:
             try:
                 amt = float(dep.get("amount") or 0)
@@ -1469,15 +1484,36 @@ async def get_mis_dated_deposit_invoices(current_user: dict = Depends(get_curren
             if not dep_date:
                 continue
             diff = abs((dep_date - inv_date).days)
-            if diff > 1:
+            parsed_deposits.append({
+                "raw": dep,
+                "date_obj": dep_date,
+                "amount": amt,
+                "diff": diff,
+            })
+            if diff <= 1:
+                any_match_invoice_date = True
+
+        # Skip — at least one deposit lines up with the invoice date,
+        # so any other dates are legitimate part-payments, not a bug.
+        if any_match_invoice_date:
+            continue
+
+        # Otherwise — every single deposit is dated away from the
+        # invoice date. That's the original "auto-defaulted to today
+        # on a backdated invoice" scenario we want to surface.
+        bad_deposits = []
+        max_diff = 0
+        for p in parsed_deposits:
+            if p["diff"] > 1:
                 bad_deposits.append({
-                    "date": dep.get("date"),
-                    "amount": amt,
-                    "method": dep.get("method"),
-                    "diff_days": diff,
+                    "date": p["raw"].get("date"),
+                    "amount": p["amount"],
+                    "method": p["raw"].get("method"),
+                    "diff_days": p["diff"],
                 })
-                if diff > max_diff:
-                    max_diff = diff
+                if p["diff"] > max_diff:
+                    max_diff = p["diff"]
+
         if bad_deposits:
             mis_dated.append({
                 "id": inv.get("id"),

@@ -158,6 +158,27 @@ export const InvoiceHistory = () => {
   };
 
   const handleSyncDepositDates = async (invoiceIds = null) => {
+    // 24 Feb 2026 — confirmation dialog added after a near-miss where
+    // "Sync Now" was about to re-attribute a legitimate part-payment
+    // back to the invoice date. The button is destructive — moves
+    // revenue from the payment date to the invoice date — so we now
+    // make absolutely sure the user knows what they're doing.
+    const targetCount = invoiceIds ? invoiceIds.length : depositAudit.count;
+    if (targetCount === 0) {
+      toast.info('No invoices to sync');
+      return;
+    }
+    const confirmed = window.confirm(
+      `Sync ${targetCount} invoice${targetCount === 1 ? '' : 's'}?\n\n` +
+      `This will set EVERY deposit date on the selected invoice${targetCount === 1 ? '' : 's'} ` +
+      `to match the invoice date — moving that revenue from the payment ` +
+      `date back to the invoice date on Sales reports.\n\n` +
+      `Only use this if you originally took the payment on the invoice ` +
+      `date but the form accidentally defaulted to today.\n\n` +
+      `DO NOT use this for legitimate part-payments taken on a later date — ` +
+      `it will re-attribute their revenue to the wrong day.`
+    );
+    if (!confirmed) return;
     try {
       setSyncingDeposit(true);
       const res = await api.syncDepositDates(invoiceIds);
@@ -1792,12 +1813,14 @@ export const InvoiceHistory = () => {
               <AlertTriangle className="h-5 w-5 text-amber-600 mt-0.5 shrink-0" />
               <div>
                 <p className="font-semibold text-amber-900">
-                  {depositAudit.count} invoice{depositAudit.count === 1 ? '' : 's'} with mis-dated payments
+                  {depositAudit.count} invoice{depositAudit.count === 1 ? '' : 's'} where every deposit is dated away from the invoice date
                 </p>
                 <p className="text-sm text-amber-800 mt-0.5">
-                  The deposit date differs from the invoice date by more than 1 day, so revenue
-                  is attributed to the wrong day on this page. Open the invoice and correct the
-                  deposit date to reconcile.
+                  None of the deposit dates match the invoice date, which usually means the
+                  invoice was backdated but the deposit auto-defaulted to today. Sales for these
+                  invoices are landing on the deposit date — open each invoice to confirm.
+                  Legitimate part-payments (one deposit on the invoice date plus a later balance
+                  payment) are already excluded from this list and counted on the correct day.
                 </p>
               </div>
             </div>
