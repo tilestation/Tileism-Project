@@ -81,6 +81,15 @@ export const DocumentForm = ({ documentType = 'refund' }) => {
   const [invoiceSearchResults, setInvoiceSearchResults] = useState([]);
   const [showInvoiceSearch, setShowInvoiceSearch] = useState(false);
 
+  // 24 Feb 2026 — no-invoice override flow (super-admin only)
+  // Staff cannot issue a refund without a linked original invoice. If a
+  // Super Admin needs to override that rule, this dialog collects a
+  // mandatory written reason and confirmation. Telegram alert fires
+  // on the backend so absentee Super Admin gets notified of every override.
+  const [showNoInvoiceDialog, setShowNoInvoiceDialog] = useState(false);
+  const [noInvoiceReason, setNoInvoiceReason] = useState('');
+  const isSuperAdmin = user?.role === 'super_admin';
+
   // Configuration based on document type
   const isRefund = documentType === 'refund';
   const config = {
@@ -355,8 +364,32 @@ export const DocumentForm = ({ documentType = 'refund' }) => {
     }
   };
 
-  // Save document
-  const saveDocument = async (staffData) => {
+  // Save document.
+  //
+  // Optional `overrideReason` lets the Super Admin no-invoice override
+  // dialog re-trigger this function after collecting a reason. Without
+  // a reason, refunds without a linked original invoice are rejected at
+  // the API (and earlier at the UI pre-flight check below).
+  const saveDocument = async (staffData, overrideReason = null) => {
+    // Pre-flight: refunds (not credit notes) MUST link to an original
+    // invoice unless a Super Admin explicitly overrides. Staff get a
+    // clear error; Super Admins get the override dialog so they can
+    // record a reason (audited + Telegram-notified backend-side).
+    const hasInvoiceLink = !!((documentData.originalInvoiceId || documentData.originalInvoiceNo || '').toString().trim());
+    if (isRefund && !hasInvoiceLink && !overrideReason) {
+      if (!isSuperAdmin) {
+        toast.error(
+          'Refunds must be linked to the original invoice. Use the "Search invoice" button above, ' +
+          'or ask a Super Admin to issue this refund.',
+          { duration: 7000 },
+        );
+        return;
+      }
+      // Super Admin → open the override dialog
+      setShowNoInvoiceDialog(true);
+      return;
+    }
+
     setSaving(true);
     try {
       // Build line items with correct field names for API
@@ -404,7 +437,15 @@ export const DocumentForm = ({ documentType = 'refund' }) => {
         staff_id: staffData?.staff_id || staffData?.id || null,
         staff_name: staffData?.staff_name || staffData?.name || null,
         showroom_id: selectedStore?.id || null,
-        showroom_name: selectedStore?.name || ''
+        showroom_name: selectedStore?.name || '',
+        // Super-admin no-invoice override — only ever sent when this
+        // is a refund without a linked invoice AND a Super Admin has
+        // confirmed via the override dialog. Backend will reject
+        // override=true from non-super-admins.
+        ...(isRefund && !hasInvoiceLink && overrideReason ? {
+          no_invoice_override: true,
+          no_invoice_reason: overrideReason,
+        } : {}),
       };
       
       console.log('Saving document:', payload);
@@ -680,7 +721,10 @@ export const DocumentForm = ({ documentType = 'refund' }) => {
                 </div>
               </div>
               <div>
-                <label className="text-sm text-muted-foreground">Original Invoice</label>
+                <label className="text-sm text-muted-foreground">
+                  Original Invoice
+                  {isRefund && <span className="text-red-600 ml-1" title="Required for refunds">*</span>}
+                </label>
                 <div className="relative">
                   <Input
                     value={documentData.originalInvoiceNo}
@@ -688,6 +732,11 @@ export const DocumentForm = ({ documentType = 'refund' }) => {
                     placeholder="Search invoice..."
                     onFocus={() => setShowInvoiceSearch(true)}
                     data-testid="original-invoice-input"
+                    className={
+                      isRefund && !documentData.originalInvoiceNo && !documentData.originalInvoiceId
+                        ? 'border-red-300 focus-visible:ring-red-400'
+                        : ''
+                    }
                   />
                   <Button
                     variant="ghost"
@@ -698,6 +747,16 @@ export const DocumentForm = ({ documentType = 'refund' }) => {
                     <Search className="h-4 w-4" />
                   </Button>
                 </div>
+                {isRefund && !documentData.originalInvoiceNo && !documentData.originalInvoiceId && (
+                  <p
+                    className="text-xs mt-1 text-red-700"
+                    data-testid="refund-no-invoice-warning"
+                  >
+                    {isSuperAdmin
+                      ? '⚠ Refund without invoice — you (Super Admin) will be prompted to confirm and provide a reason on Save.'
+                      : '⚠ Required. Staff cannot issue refunds without a linked invoice — ask a Super Admin.'}
+                  </p>
+                )}
               </div>
             </div>
           </Card>
@@ -1153,6 +1212,85 @@ export const DocumentForm = ({ documentType = 'refund' }) => {
                   Yes, Send Email
                 </>
               )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* No-Invoice Override Dialog (Super Admin only) ─────────────
+          Triggered when a Super Admin clicks Save on a refund that
+          isn't linked to an original invoice. Collects a written
+          reason (≥6 chars) so the audit trail records WHY policy
+          was bypassed. Backend stamps the doc + Telegram-alerts. */}
+      <Dialog open={showNoInvoiceDialog} onOpenChange={(open) => {
+        if (!open && !saving) {
+          setShowNoInvoiceDialog(false);
+          setNoInvoiceReason('');
+        }
+      }}>
+        <DialogContent className="sm:max-w-md" data-testid="no-invoice-override-dialog">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-amber-700">
+              <Lock className="h-5 w-5" />
+              Super Admin Override Required
+            </DialogTitle>
+            <DialogDescription>
+              This refund is not linked to an original invoice. Issuing it
+              bypasses our standard fraud-prevention policy and will:
+            </DialogDescription>
+          </DialogHeader>
+
+          <ul className="text-sm text-amber-900 bg-amber-50 border border-amber-200 rounded p-3 space-y-1 list-disc pl-5 my-2">
+            <li>Be permanently flagged in the audit log</li>
+            <li>Send a Telegram alert to all Super Admins</li>
+            <li>Record your account ({user?.email || 'you'}) as the approver</li>
+            <li>Require the reason you write below to be retained</li>
+          </ul>
+
+          <div className="py-2">
+            <label className="text-sm font-medium block mb-1">
+              Reason for issuing without an original invoice <span className="text-red-600">*</span>
+            </label>
+            <textarea
+              value={noInvoiceReason}
+              onChange={(e) => setNoInvoiceReason(e.target.value)}
+              placeholder="e.g. Customer lost original receipt; verified purchase via Stripe charge ID #ch_xyz."
+              maxLength={500}
+              rows={3}
+              className="w-full rounded border border-input bg-background px-3 py-2 text-sm"
+              data-testid="no-invoice-reason-input"
+              disabled={saving}
+              autoFocus
+            />
+            <p className="text-xs text-muted-foreground mt-1">
+              {noInvoiceReason.trim().length}/500 characters (minimum 6).
+            </p>
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => { setShowNoInvoiceDialog(false); setNoInvoiceReason(''); }}
+              disabled={saving}
+              data-testid="no-invoice-override-cancel"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={async () => {
+                if (noInvoiceReason.trim().length < 6) {
+                  toast.error('Please write a reason of at least 6 characters');
+                  return;
+                }
+                setShowNoInvoiceDialog(false);
+                await saveDocument(verifiedStaff, noInvoiceReason.trim());
+                setNoInvoiceReason('');
+              }}
+              disabled={saving || noInvoiceReason.trim().length < 6}
+              className="bg-amber-600 hover:bg-amber-700 text-white"
+              data-testid="no-invoice-override-confirm"
+            >
+              Approve & Issue Refund
             </Button>
           </DialogFooter>
         </DialogContent>

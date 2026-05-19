@@ -3,6 +3,9 @@ Refund management routes
 """
 import uuid
 import logging
+
+logger = logging.getLogger(__name__)
+
 from datetime import datetime, timezone
 from typing import Optional, List
 from fastapi import APIRouter, HTTPException, Depends
@@ -169,6 +172,12 @@ class RefundCreate(BaseModel):
     gross_total: float
     restocking_fee: Optional[float] = 0
     net_refund: Optional[float] = None  # gross_total - restocking_fee
+    # 24 Feb 2026 — Super Admin override for the "must have original
+    # invoice" rule. Required + acknowledged for any refund without a
+    # linked invoice. UI surfaces a checkbox + reason field when the
+    # current user is super_admin. Non-super-admins cannot submit this.
+    no_invoice_override: Optional[bool] = False
+    no_invoice_reason: Optional[str] = None
 
 class RefundUpdate(BaseModel):
     refund_no: Optional[str] = None
@@ -201,7 +210,56 @@ async def create_refund(input: RefundCreate, current_user: dict = Depends(get_cu
     has_access = is_admin_user(current_user) or "epos" in user_permissions
     if not has_access:
         raise HTTPException(status_code=403, detail="Access denied. You need admin role or EPOS permission.")
-    
+
+    # ─── Original-invoice policy (24 Feb 2026) ──────────────────────
+    # User intent (logged 19/05/2026): "Do not let anyone issue the
+    # refund without Original Invoice linked. If just in case it's a
+    # must to process refund without the original Invoice linked, then
+    # only Super Admin should approve. Super Admin needs to receive a
+    # notification."
+    #
+    # Implementation:
+    #   1. Every refund MUST link to an original invoice unless the
+    #      caller is super_admin AND explicitly passes
+    #      no_invoice_override=true with a non-empty no_invoice_reason.
+    #   2. When a no-invoice refund IS approved (super_admin path),
+    #      we stamp `no_invoice_override=true` + `no_invoice_reason`
+    #      + `no_invoice_approved_by` on the refund doc for the audit
+    #      trail, and fire a Telegram notification to super admins
+    #      who aren't physically in the showroom.
+    has_invoice_link = bool(
+        (input.original_invoice_id or "").strip()
+        or (input.original_invoice_no or "").strip()
+    )
+    is_super_admin = current_user.get("role") == "super_admin"
+
+    if not has_invoice_link:
+        if not is_super_admin:
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    "Refunds must be linked to the original invoice. "
+                    "If the invoice cannot be located, ask a Super Admin "
+                    "to process this refund and approve the override."
+                ),
+            )
+        # Super admin path — still requires explicit acknowledgement
+        # + a written reason so we have something in the audit trail.
+        if not input.no_invoice_override:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "This refund has no linked invoice. As Super Admin, "
+                    "set no_invoice_override=true and provide "
+                    "no_invoice_reason to proceed."
+                ),
+            )
+        if not (input.no_invoice_reason or "").strip() or len((input.no_invoice_reason or "").strip()) < 6:
+            raise HTTPException(
+                status_code=400,
+                detail="no_invoice_reason is required and must be at least 6 characters.",
+            )
+
     # Validate line items
     if not input.line_items or len(input.line_items) == 0:
         raise HTTPException(status_code=400, detail="Refund must have at least one line item")
@@ -262,7 +320,14 @@ async def create_refund(input: RefundCreate, current_user: dict = Depends(get_cu
         "net_refund": net_refund,
         "status": "completed",
         "created_by": current_user["email"],
-        "created_at": datetime.now(timezone.utc).isoformat()
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        # No-invoice-override audit fields (only set when Super Admin
+        # approves a refund with no linked original invoice). Always
+        # stored so the columns are queryable for reports later.
+        "no_invoice_override": bool(input.no_invoice_override and not has_invoice_link),
+        "no_invoice_reason": (input.no_invoice_reason or "").strip() if (input.no_invoice_override and not has_invoice_link) else None,
+        "no_invoice_approved_by": current_user.get("email") if (input.no_invoice_override and not has_invoice_link) else None,
+        "no_invoice_approved_at": datetime.now(timezone.utc).isoformat() if (input.no_invoice_override and not has_invoice_link) else None,
     }
     
     await db.refunds.insert_one(refund_dict)
@@ -294,11 +359,37 @@ async def create_refund(input: RefundCreate, current_user: dict = Depends(get_cu
             "gross_total": refund_dict["gross_total"],
             "net_refund": refund_dict["net_refund"],
             "showroom_name": refund_dict.get("showroom_name"),
-            "items_count": len(refund_dict["line_items"])
+            "items_count": len(refund_dict["line_items"]),
+            "no_invoice_override": refund_dict["no_invoice_override"],
+            "no_invoice_reason": refund_dict.get("no_invoice_reason"),
         },
         details=f"Refund {refund_dict['refund_no']} created for £{refund_dict['net_refund']:.2f}"
     )
-    
+
+    # Notify Super Admins on Telegram for any no-invoice override.
+    # Super Admin isn't physically present in the showrooms — this is the
+    # only way they hear about an override approval. Sent fire-and-forget
+    # so a slow / failing Telegram doesn't block the refund response.
+    if refund_dict["no_invoice_override"]:
+        try:
+            from services.telegram_notify import fire_and_forget as _telegram_fire
+            text = (
+                "🚨 <b>No-invoice refund issued</b>\n"
+                f"<b>Ref:</b> {refund_dict['refund_no']}\n"
+                f"<b>Amount:</b> £{refund_dict['net_refund']:.2f} ({refund_dict.get('refund_method') or '—'})\n"
+                f"<b>Customer:</b> {refund_dict.get('customer_name') or '—'}\n"
+                f"<b>Showroom:</b> {refund_dict.get('showroom_name') or '—'}\n"
+                f"<b>Approved by:</b> {refund_dict['no_invoice_approved_by']}\n"
+                f"<b>Reason:</b> {refund_dict.get('no_invoice_reason') or '—'}"
+            )
+            _telegram_fire(
+                "no_invoice_refund",
+                text,
+                dedupe_key=refund_dict["refund_no"],
+            )
+        except Exception as e:  # pragma: no cover — never block refund on notify failure
+            logger.warning("Telegram no_invoice_refund notify failed: %s", e)
+
     return {
         "message": "Refund processed and stock restored",
         "refund_id": refund_dict["id"],
@@ -306,6 +397,7 @@ async def create_refund(input: RefundCreate, current_user: dict = Depends(get_cu
         "net_refund": refund_dict["net_refund"],
         "staff_name": staff_member["name"] if staff_member else None,
         "credits_reversed": credit_summary,
+        "no_invoice_override": refund_dict["no_invoice_override"],
     }
 
 

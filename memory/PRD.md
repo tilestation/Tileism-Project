@@ -9,6 +9,22 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Feb 24, 2026 — Forked session] ✅ Refunds Require Original Invoice (Super-Admin Override Only)
+
+**User intent (verbatim screenshot 19/05/2026)**: *"Do not let anyone issue the refund without Original Invoice linked. If just in case it's a must to process refund without the original Invoice linked, then only Super Admin should approve. Don't forget Super Admin needs to receive notification as Super Admin is not physically present in showrooms."*
+
+**Policy implemented**:
+1. Every refund MUST have a linked `original_invoice_id` or `original_invoice_no` (whitespace doesn't count)
+2. Non-super-admin staff → server rejects with `403`, frontend shows red "ask Super Admin" warning + disables save
+3. Super Admin without an invoice → server requires `no_invoice_override=true` + `no_invoice_reason` (≥6 chars). Frontend opens an amber confirmation dialog listing the consequences (audit log, Telegram alert, approver name, reason kept) and collects the reason
+4. On approved override, doc stamps `no_invoice_override`, `no_invoice_reason`, `no_invoice_approved_by`, `no_invoice_approved_at` for the audit trail
+5. **Telegram alert fires** (`no_invoice_refund` event) to all configured chat IDs with ref number, amount, customer, showroom, approver and reason — so the absent Super Admin always sees what was overridden in real time
+
+**Tests (6/6 pass)**: invoice-link happy path, no-override rejected, short-reason rejected, valid-override succeeds + stamps fields, empty-string treated as no-link, whitespace-only treated as no-link
+
+**Files**: `backend/routes/refunds.py` (RefundCreate model + create_refund policy + Telegram fire-and-forget), `backend/services/telegram_notify.py` (new `no_invoice_refund` event toggle), `frontend/src/components/documents/DocumentForm.js` (red-asterisk + warning + override dialog).
+
+
 ### [Feb 24, 2026 — Forked session] ✅ Outstanding Balances Widget + Quote→Invoice Date Fix + £273 Discrepancy Fix
 
 **1. Outstanding Balances widget on EPOS (per user request — not in sidebar)**
