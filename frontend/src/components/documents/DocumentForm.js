@@ -88,7 +88,6 @@ export const DocumentForm = ({ documentType = 'refund' }) => {
   // on the backend so absentee Super Admin gets notified of every override.
   const [showNoInvoiceDialog, setShowNoInvoiceDialog] = useState(false);
   const [noInvoiceReason, setNoInvoiceReason] = useState('');
-  const isSuperAdmin = user?.role === 'super_admin';
 
   // Configuration based on document type
   const isRefund = documentType === 'refund';
@@ -372,20 +371,12 @@ export const DocumentForm = ({ documentType = 'refund' }) => {
   // the API (and earlier at the UI pre-flight check below).
   const saveDocument = async (staffData, overrideReason = null) => {
     // Pre-flight: refunds (not credit notes) MUST link to an original
-    // invoice unless a Super Admin explicitly overrides. Staff get a
-    // clear error; Super Admins get the override dialog so they can
-    // record a reason (audited + Telegram-notified backend-side).
+    // invoice. If not, ANY caller (staff or super admin) gets the
+    // approval-request dialog where they write a reason — the backend
+    // then emails Super Admins with magic-link Approve/Deny buttons.
+    // Nothing is processed until a Super Admin clicks Approve in the email.
     const hasInvoiceLink = !!((documentData.originalInvoiceId || documentData.originalInvoiceNo || '').toString().trim());
     if (isRefund && !hasInvoiceLink && !overrideReason) {
-      if (!isSuperAdmin) {
-        toast.error(
-          'Refunds must be linked to the original invoice. Use the "Search invoice" button above, ' +
-          'or ask a Super Admin to issue this refund.',
-          { duration: 7000 },
-        );
-        return;
-      }
-      // Super Admin → open the override dialog
       setShowNoInvoiceDialog(true);
       return;
     }
@@ -460,8 +451,23 @@ export const DocumentForm = ({ documentType = 'refund' }) => {
       
       console.log('Save response:', response.data);
       setIsSaved(true);
+
+      // 24 Feb 2026 — for refunds without an invoice link, the backend
+      // does NOT process the refund. It parks the payload as `pending`
+      // and emails Super Admins with magic-link Approve/Deny buttons.
+      // Show a clear toast and bounce back to the history page so the
+      // requester understands nothing has happened yet.
+      if (isRefund && response.data?.status === 'pending_approval') {
+        toast.success(
+          'Approval request emailed to Super Admin. The refund will be processed once approved via the email link.',
+          { duration: 8000 },
+        );
+        navigate(config.historyRoute);
+        return;
+      }
+
       toast.success(`${config.title} saved successfully`);
-      
+
       // Show email dialog if customer has email
       // Backend returns 'refund_id' for refunds and 'credit_note_id' for credit notes
       const savedId = isRefund ? response.data?.refund_id : response.data?.credit_note_id;
@@ -752,9 +758,10 @@ export const DocumentForm = ({ documentType = 'refund' }) => {
                     className="text-xs mt-1 text-red-700"
                     data-testid="refund-no-invoice-warning"
                   >
-                    {isSuperAdmin
-                      ? '⚠ Refund without invoice — you (Super Admin) will be prompted to confirm and provide a reason on Save.'
-                      : '⚠ Required. Staff cannot issue refunds without a linked invoice — ask a Super Admin.'}
+                    ⚠ Required. Refund without an invoice will be parked as
+                    <strong> pending</strong> and emailed to Super Admin
+                    for approval — it will only process after they click
+                    Approve in the email.
                   </p>
                 )}
               </div>
@@ -1217,11 +1224,11 @@ export const DocumentForm = ({ documentType = 'refund' }) => {
         </DialogContent>
       </Dialog>
 
-      {/* No-Invoice Override Dialog (Super Admin only) ─────────────
-          Triggered when a Super Admin clicks Save on a refund that
-          isn't linked to an original invoice. Collects a written
-          reason (≥6 chars) so the audit trail records WHY policy
-          was bypassed. Backend stamps the doc + Telegram-alerts. */}
+      {/* No-Invoice Override Dialog — request approval (24 Feb 2026
+          rewrite). Refund is NOT processed on submit — instead the
+          backend emails all Super Admins with magic-link Approve/Deny
+          buttons. Refund executes only after a Super Admin clicks
+          the email's Approve button. */}
       <Dialog open={showNoInvoiceDialog} onOpenChange={(open) => {
         if (!open && !saving) {
           setShowNoInvoiceDialog(false);
@@ -1232,24 +1239,23 @@ export const DocumentForm = ({ documentType = 'refund' }) => {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-amber-700">
               <Lock className="h-5 w-5" />
-              Super Admin Override Required
+              Request Super Admin Approval
             </DialogTitle>
             <DialogDescription>
-              This refund is not linked to an original invoice. Issuing it
-              bypasses our standard fraud-prevention policy and will:
+              This refund has no linked invoice. Submitting will:
             </DialogDescription>
           </DialogHeader>
 
           <ul className="text-sm text-amber-900 bg-amber-50 border border-amber-200 rounded p-3 space-y-1 list-disc pl-5 my-2">
-            <li>Be permanently flagged in the audit log</li>
-            <li>Send a Telegram alert to all Super Admins</li>
-            <li>Record your account ({user?.email || 'you'}) as the approver</li>
-            <li>Require the reason you write below to be retained</li>
+            <li><strong>Email all Super Admins</strong> with one-click Approve / Deny buttons</li>
+            <li>Park the refund as <strong>pending</strong> — no money refunded yet</li>
+            <li>Record your account ({user?.email || 'you'}) as the requester</li>
+            <li>The refund only processes <strong>after</strong> a Super Admin clicks Approve in the email</li>
           </ul>
 
           <div className="py-2">
             <label className="text-sm font-medium block mb-1">
-              Reason for issuing without an original invoice <span className="text-red-600">*</span>
+              Reason for requesting without an original invoice <span className="text-red-600">*</span>
             </label>
             <textarea
               value={noInvoiceReason}
@@ -1290,7 +1296,7 @@ export const DocumentForm = ({ documentType = 'refund' }) => {
               className="bg-amber-600 hover:bg-amber-700 text-white"
               data-testid="no-invoice-override-confirm"
             >
-              Approve & Issue Refund
+              Send Approval Request
             </Button>
           </DialogFooter>
         </DialogContent>

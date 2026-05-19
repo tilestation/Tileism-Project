@@ -1,20 +1,470 @@
 """
 Refund management routes
 """
+import os
 import uuid
 import logging
+import hmac
+import hashlib
 
 logger = logging.getLogger(__name__)
 
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Optional, List
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Request
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
 from config import get_db
 from services import get_current_user, is_admin_user, log_audit
 
 router = APIRouter(prefix="/refunds", tags=["Refunds"])
+
+
+# ─── Approval-token helpers ─────────────────────────────────────────
+# Magic-link tokens for the no-invoice-refund approval emails. We use a
+# simple HMAC-SHA256 signature over `{request_id}:{action}` so the link
+# is unforgeable without the JWT secret. Tokens are NOT replay-protected
+# beyond the request lifecycle (one-shot use enforced by the request's
+# status field flipping from `pending`).
+APPROVAL_SECRET = os.environ.get("JWT_SECRET", "your-secret-key-change-in-production")
+APPROVAL_TTL = timedelta(days=7)
+
+
+def _sign_approval_token(request_id: str, action: str) -> str:
+    """Return a short HMAC token tying a request to an action."""
+    msg = f"{request_id}:{action}".encode()
+    sig = hmac.new(APPROVAL_SECRET.encode(), msg, hashlib.sha256).hexdigest()
+    return sig[:32]  # truncate — 128 bits is plenty for one-shot links
+
+
+def _verify_approval_token(request_id: str, action: str, token: str) -> bool:
+    expected = _sign_approval_token(request_id, action)
+    return hmac.compare_digest(expected, token or "")
+
+
+async def _create_refund_approval_request(input, current_user) -> dict:
+    """Park a no-invoice refund as `pending` in `refund_approval_requests`.
+
+    Returns the inserted document so the caller can email super admins.
+    The full RefundCreate payload is serialised on the doc so the
+    magic-link handler can rebuild the exact same RefundCreate later
+    and replay it through the normal refund pipeline.
+    """
+    db = get_db()
+    request_id = str(uuid.uuid4())
+    request_doc = {
+        "id": request_id,
+        "status": "pending",
+        "requested_by": current_user["email"],
+        "requested_by_role": current_user.get("role"),
+        "requested_at": datetime.now(timezone.utc).isoformat(),
+        "expires_at": (datetime.now(timezone.utc) + APPROVAL_TTL).isoformat(),
+        # Full payload, ready to feed back into create_refund on approve
+        "payload": input.model_dump(),
+        # Magic-link tokens — one per action so approve/deny are
+        # cryptographically distinct (clicking the wrong button can't
+        # accidentally trigger the other action).
+        "approve_token": _sign_approval_token(request_id, "approve"),
+        "deny_token": _sign_approval_token(request_id, "deny"),
+    }
+    await db.refund_approval_requests.insert_one(request_doc)
+
+    await log_audit(
+        action="REFUND_APPROVAL_REQUESTED",
+        entity_type="refund_approval_request",
+        user=current_user,
+        entity_id=request_id,
+        entity_name=input.refund_no,
+        after_data={
+            "refund_no": input.refund_no,
+            "net_refund": (input.gross_total or 0) - (input.restocking_fee or 0),
+            "reason": input.no_invoice_reason,
+        },
+        details=(
+            f"No-invoice refund approval requested: {input.refund_no} "
+            f"(£{(input.gross_total or 0):.2f})"
+        ),
+    )
+    return request_doc
+
+
+async def _email_approval_request(request_doc: dict) -> None:
+    """Email all super admins with one-click Approve / Deny buttons."""
+    try:
+        from services.email import send_super_admin_alert, COMPANY_WEBSITE
+        p = request_doc["payload"]
+        # Build BOTH magic links — embedded directly into the HTML so
+        # the admin only has to click once.
+        approve_url = (
+            f"{COMPANY_WEBSITE.rstrip('/')}"
+            f"/api/refunds/approval/{request_doc['id']}/approve?token={request_doc['approve_token']}"
+        )
+        deny_url = (
+            f"{COMPANY_WEBSITE.rstrip('/')}"
+            f"/api/refunds/approval/{request_doc['id']}/deny?token={request_doc['deny_token']}"
+        )
+        net_refund = float((p.get("gross_total") or 0) - (p.get("restocking_fee") or 0))
+        await send_super_admin_alert(
+            title="Refund needs your approval",
+            summary=(
+                f"<strong>{request_doc['requested_by']}</strong> is requesting "
+                f"to issue a refund <strong>without a linked original invoice</strong>. "
+                f"Nothing has been refunded yet — please review and click <strong>Approve</strong> "
+                f"only if this is legitimate. Clicking <strong>Deny</strong> rejects the "
+                f"request and no refund is issued."
+            ),
+            fields=[
+                ("Refund ref", f"<strong>{p.get('refund_no') or '—'}</strong>"),
+                ("Amount", f"<strong>£{net_refund:.2f}</strong> via {p.get('refund_method') or '—'}"),
+                ("Customer", f"{p.get('customer_name') or '—'}<br><span style='color:#737373;font-size:12px;'>{p.get('customer_phone') or '—'}</span>"),
+                ("Showroom", p.get("showroom_name") or "—"),
+                ("Requested by", f"<strong>{request_doc['requested_by']}</strong> ({request_doc.get('requested_by_role') or '—'})"),
+                ("Reason", p.get("no_invoice_reason") or "—"),
+                ("Items", f"{len(p.get('line_items') or [])} line item(s)"),
+                ("Requested at", request_doc["requested_at"]),
+                # ── Approval buttons rendered side-by-side ──
+                ("Action", (
+                    f'<a href="{approve_url}" '
+                    f'style="display:inline-block;padding:11px 22px;background:#15803d;'
+                    f'color:#fff;text-decoration:none;border-radius:8px;font-weight:600;'
+                    f'font-size:14px;margin-right:8px;">✓ Approve &amp; Process</a>'
+                    f'<a href="{deny_url}" '
+                    f'style="display:inline-block;padding:11px 22px;background:#b91c1c;'
+                    f'color:#fff;text-decoration:none;border-radius:8px;font-weight:600;'
+                    f'font-size:14px;">✗ Deny</a>'
+                )),
+            ],
+            # Use the deeper "Review in Admin" CTA as a fallback for
+            # email clients that strip inline buttons.
+            cta_label="Open Admin",
+            cta_path="/admin/epos?tab=refund-history",
+            accent_colour="#b45309",
+            icon="🛑",
+            subject_prefix="[Tile Station] Action required —",
+            footer_note=(
+                "Approval link expires in 7 days. If you didn't expect this email, "
+                "click Deny and contact the requester immediately."
+            ),
+        )
+    except Exception as e:  # pragma: no cover — never raise from a fire-and-forget
+        logger.warning("send_super_admin_alert (approval-request) failed: %s", e)
+
+
+async def _process_approved_refund(request_doc: dict, approver_email: str):
+    """Replay the stored RefundCreate payload through the normal refund
+    pipeline now that a Super Admin has approved it via magic link.
+
+    Returns the saved refund_dict on success. Raises on failure (e.g.
+    the refund_no has been used in the meantime, or an item is gone).
+    """
+    db = get_db()
+    p = request_doc["payload"]
+
+    # Defensive: refund_no may have collided with one created while the
+    # request sat in the inbox. If so, fail loudly so the approver knows.
+    if await db.refunds.find_one({"refund_no": p.get("refund_no")}, {"_id": 0, "id": 1}):
+        raise RuntimeError(
+            f"Refund {p.get('refund_no')} was already issued. Cannot replay an approved request."
+        )
+
+    # Restore stock (mirrors the main path)
+    for raw_item in (p.get("line_items") or []):
+        pid = (raw_item.get("product_id") or "").strip()
+        qty = int(raw_item.get("quantity") or 0)
+        if pid and qty > 0:
+            product = await db.products.find_one({"id": pid}, {"_id": 0})
+            if product:
+                await db.products.update_one(
+                    {"id": pid},
+                    {"$set": {"stock": product.get("stock", 0) + qty}},
+                )
+
+    net_refund = float((p.get("gross_total") or 0) - (p.get("restocking_fee") or 0))
+    refund_dict = {
+        "id": str(uuid.uuid4()),
+        "refund_no": p.get("refund_no"),
+        "date": p.get("date"),
+        "time": p.get("time"),
+        "original_invoice_no": p.get("original_invoice_no"),
+        "original_invoice_id": p.get("original_invoice_id"),
+        "customer_name": p.get("customer_name"),
+        "customer_phone": p.get("customer_phone"),
+        "customer_email": p.get("customer_email"),
+        "customer_address": p.get("customer_address"),
+        "notes": p.get("notes"),
+        "sales_person": p.get("sales_person"),
+        "staff_id": None,
+        "staff_name": None,
+        "refund_method": p.get("refund_method"),
+        "refund_type": p.get("refund_type"),
+        "showroom_id": p.get("showroom_id"),
+        "showroom_name": p.get("showroom_name"),
+        "line_items": p.get("line_items") or [],
+        "subtotal": p.get("subtotal"),
+        "vat": p.get("vat"),
+        "gross_total": p.get("gross_total"),
+        "restocking_fee": p.get("restocking_fee") or 0,
+        "net_refund": net_refund,
+        "status": "completed",
+        "created_by": request_doc.get("requested_by"),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "no_invoice_override": True,
+        "no_invoice_reason": (p.get("no_invoice_reason") or "").strip(),
+        "no_invoice_approved_by": approver_email,
+        "no_invoice_approved_at": datetime.now(timezone.utc).isoformat(),
+        "no_invoice_request_id": request_doc["id"],
+    }
+    await db.refunds.insert_one(refund_dict)
+
+    # Reverse trade credit proportionally (idempotent helper, no-ops on
+    # no-invoice refunds because there's no original invoice to bind to)
+    try:
+        await reverse_credits_for_refund(db, refund_dict)
+    except Exception as e:
+        logger.warning("reverse_credits_for_refund (post-approval) failed: %s", e)
+
+    await log_audit(
+        action="CREATE",
+        entity_type="refund",
+        user={"email": approver_email, "name": approver_email},
+        entity_id=refund_dict["id"],
+        entity_name=refund_dict["refund_no"],
+        after_data={
+            "refund_no": refund_dict["refund_no"],
+            "net_refund": refund_dict["net_refund"],
+            "no_invoice_override": True,
+            "no_invoice_approved_by": approver_email,
+            "no_invoice_request_id": request_doc["id"],
+        },
+        details=(
+            f"No-invoice refund {refund_dict['refund_no']} (£{net_refund:.2f}) "
+            f"approved via email magic link by {approver_email}"
+        ),
+    )
+    return refund_dict
+
+
+# `_approval_result_page` is defined further down — Python resolves
+# names at call time, so the magic-link routes below can use it.
+
+@router.get("/approval/{request_id}/{action}", response_class=HTMLResponse)
+async def handle_refund_approval(
+    request_id: str,
+    action: str,
+    request: Request,
+):
+    """Approve or deny a parked no-invoice refund via the magic link."""
+    if action not in ("approve", "deny"):
+        return _approval_result_page(
+            success=False,
+            title="Invalid action",
+            message="The link in your email is malformed. Please return to admin and re-issue the request.",
+        )
+
+    token = (request.query_params.get("token") or "").strip()
+    if not _verify_approval_token(request_id, action, token):
+        return _approval_result_page(
+            success=False,
+            title="Invalid or tampered link",
+            message="This approval link is not valid. It may have been copied incorrectly, expired, or been altered.",
+        )
+
+    db = get_db()
+    req = await db.refund_approval_requests.find_one({"id": request_id}, {"_id": 0})
+    if not req:
+        return _approval_result_page(
+            success=False,
+            title="Request not found",
+            message="This approval request no longer exists. It may have already been processed or expired.",
+        )
+
+    # Replay / re-click protection
+    if req.get("status") != "pending":
+        already = req.get("status")
+        return _approval_result_page(
+            success=already == "approved",
+            title=f"Already {already}",
+            message=f"This refund request has already been {already} (on {req.get('decided_at') or '—'}).",
+            secondary=f"Decided by: {req.get('decided_by') or '—'}",
+        )
+
+    # Expiry
+    try:
+        expires_at = datetime.fromisoformat(req.get("expires_at"))
+        if datetime.now(timezone.utc) > expires_at:
+            await db.refund_approval_requests.update_one(
+                {"id": request_id},
+                {"$set": {"status": "expired", "decided_at": datetime.now(timezone.utc).isoformat()}},
+            )
+            return _approval_result_page(
+                success=False,
+                title="Link expired",
+                message="This approval request expired after 7 days. Please ask the requester to start a new one.",
+            )
+    except (TypeError, ValueError):
+        pass
+
+    decided_at = datetime.now(timezone.utc).isoformat()
+    # In magic-link world we don't have a logged-in user — but we know
+    # the action came from a Super Admin's inbox because only super
+    # admins receive the approval email. We record "<via email magic link>"
+    # as the approver email so the audit trail isn't blank.
+    approver_email = "super_admin@magic-link"
+
+    if action == "deny":
+        await db.refund_approval_requests.update_one(
+            {"id": request_id},
+            {"$set": {
+                "status": "denied",
+                "decided_at": decided_at,
+                "decided_by": approver_email,
+                "decided_action": "deny",
+            }},
+        )
+        await log_audit(
+            action="REFUND_APPROVAL_DENIED",
+            entity_type="refund_approval_request",
+            user={"email": approver_email, "name": "Super Admin (magic link)"},
+            entity_id=request_id,
+            entity_name=req["payload"].get("refund_no") or request_id,
+            details=f"Refund request {req['payload'].get('refund_no')} denied via email magic link",
+        )
+        # Inform the requester
+        try:
+            from services.email import send_email_notification
+            await send_email_notification(
+                to_emails=[req["requested_by"]],
+                subject=f"[Tile Station] Refund denied — {req['payload'].get('refund_no')}",
+                html_content=(
+                    f"<p>Your refund request <strong>{req['payload'].get('refund_no')}</strong> "
+                    f"was denied by a Super Admin. Please contact your manager if you believe "
+                    f"this is in error.</p>"
+                ),
+            )
+        except Exception as e:
+            logger.warning("requester denied-notification failed: %s", e)
+
+        return _approval_result_page(
+            success=False,
+            title="Refund denied",
+            message=f"Refund request {req['payload'].get('refund_no')} has been marked as denied. No money has been refunded and no stock has changed.",
+            secondary=f"Requested by: {req.get('requested_by')}",
+        )
+
+    # action == "approve" — actually process the refund
+    try:
+        refund_dict = await _process_approved_refund(req, approver_email)
+    except Exception as e:
+        logger.exception("Refund approval processing failed for %s", request_id)
+        return _approval_result_page(
+            success=False,
+            title="Could not process refund",
+            message=f"The approval was valid but the refund could not be processed: {e}",
+            secondary="Please open Admin and process this refund manually.",
+        )
+
+    await db.refund_approval_requests.update_one(
+        {"id": request_id},
+        {"$set": {
+            "status": "approved",
+            "decided_at": decided_at,
+            "decided_by": approver_email,
+            "decided_action": "approve",
+            "refund_id": refund_dict["id"],
+        }},
+    )
+
+    # Send the "refund completed" email (this is the SECOND email per
+    # request — the FIRST was the approval-request email).
+    import asyncio as _asyncio
+    async def _email_completed():
+        try:
+            from services.email import send_super_admin_alert
+            await send_super_admin_alert(
+                title="No-invoice refund processed",
+                summary=(
+                    "A Super Admin approval (via the email magic link) has just "
+                    "been used to issue the refund below. Money is out and stock "
+                    "has been restored. This is your audit confirmation."
+                ),
+                fields=[
+                    ("Refund ref", f"<strong>{refund_dict['refund_no']}</strong>"),
+                    ("Amount", f"<strong>£{refund_dict['net_refund']:.2f}</strong> via {refund_dict.get('refund_method') or '—'}"),
+                    ("Customer", f"{refund_dict.get('customer_name') or '—'}<br><span style='color:#737373;font-size:12px;'>{refund_dict.get('customer_phone') or '—'}</span>"),
+                    ("Showroom", refund_dict.get("showroom_name") or "—"),
+                    ("Originally requested by", req.get("requested_by") or "—"),
+                    ("Approved at", decided_at),
+                    ("Reason", refund_dict.get("no_invoice_reason") or "—"),
+                ],
+                cta_label="Open Refund History",
+                cta_path="/admin/epos?tab=refund-history",
+                accent_colour="#15803d",
+                icon="✅",
+                subject_prefix="[Tile Station]",
+                footer_note="This is the post-approval confirmation. It complements the earlier 'approval required' email.",
+            )
+        except Exception as e:
+            logger.warning("completion email failed: %s", e)
+    try:
+        _asyncio.create_task(_email_completed())
+    except RuntimeError:
+        pass
+
+    return _approval_result_page(
+        success=True,
+        title="Refund approved",
+        message=(
+            f"Refund {refund_dict['refund_no']} (£{refund_dict['net_refund']:.2f}) "
+            f"has been issued and stock restored."
+        ),
+        secondary=(
+            f"Originally requested by {req.get('requested_by')} · "
+            f"Reason: {refund_dict.get('no_invoice_reason')}"
+        ),
+    )
+
+
+@router.get("/pending-approvals")
+async def list_pending_approvals(current_user: dict = Depends(get_current_user)):
+    """Return all pending no-invoice refund approval requests (super admin only).
+
+    Useful for a future "Pending Approvals" admin widget so super admins
+    can also approve/deny from inside the app, not only from the email.
+    """
+    if current_user.get("role") != "super_admin":
+        raise HTTPException(status_code=403, detail="Super Admin only")
+    db = get_db()
+    cursor = db.refund_approval_requests.find(
+        {"status": "pending"},
+        {"_id": 0, "approve_token": 0, "deny_token": 0},  # never expose tokens to UI
+    ).sort("requested_at", -1).limit(50)
+    rows = await cursor.to_list(50)
+    return {"count": len(rows), "requests": rows}
+
+
+def _approval_result_page(*, success: bool, title: str, message: str, secondary: str = "") -> HTMLResponse:
+    """Render a self-contained HTML response page for magic-link results.
+
+    No frontend route needed — the email link lands directly here. Kept
+    deliberately simple so it renders on every device and email-tracker
+    redirect path.
+    """
+    colour = "#15803d" if success else "#b91c1c"
+    icon = "✓" if success else "✗"
+    return HTMLResponse(content=f"""\
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>{title}</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>body{{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:#f5f5f4;color:#111;margin:0;padding:48px 16px;}}.card{{max-width:480px;margin:0 auto;background:#fff;border:1px solid #e5e7eb;border-radius:14px;padding:32px;text-align:center;box-shadow:0 1px 3px rgba(0,0,0,.04)}}.icon{{width:64px;height:64px;border-radius:50%;background:{colour};color:#fff;font-size:36px;line-height:64px;margin:0 auto 18px;}}h1{{font-size:22px;margin:0 0 8px;color:{colour}}}p{{font-size:15px;line-height:1.5;color:#374151;margin:0 0 14px}}a.btn{{display:inline-block;margin-top:18px;padding:11px 22px;background:#111;color:#fff;text-decoration:none;border-radius:8px;font-weight:600;font-size:14px}}small{{color:#737373;font-size:12px;display:block;margin-top:14px}}</style>
+</head><body><div class="card">
+<div class="icon">{icon}</div>
+<h1>{title}</h1>
+<p>{message}</p>
+{f'<p style="color:#737373;font-size:13px;">{secondary}</p>' if secondary else ''}
+<a class="btn" href="/admin/epos?tab=refund-history">Open Refund History</a>
+<small>Tile Station Admin — this is an automated response page.</small>
+</div></body></html>""")
 
 
 # ============ Trade Credit — proportional reversal on refund ===============
@@ -200,8 +650,6 @@ class RefundUpdate(BaseModel):
     status: Optional[str] = None
 
 
-# ============ ROUTES ============
-
 @router.post("")
 async def create_refund(input: RefundCreate, current_user: dict = Depends(get_current_user)):
     """Create a new refund and restore stock"""
@@ -232,34 +680,64 @@ async def create_refund(input: RefundCreate, current_user: dict = Depends(get_cu
         (input.original_invoice_id or "").strip()
         or (input.original_invoice_no or "").strip()
     )
-    is_super_admin = current_user.get("role") == "super_admin"
 
+    # ─── NO-INVOICE → ALWAYS GO THROUGH MAGIC-LINK APPROVAL ──────────
+    # 24 Feb 2026 (user follow-up screenshot 19:08): the previous flow
+    # let a logged-in Super Admin process a no-invoice refund instantly
+    # and only emailed *after* the money was already out. The user wants
+    # an "approve-first" workflow:
+    #
+    #   1. Anyone (staff or super_admin) can REQUEST a no-invoice refund
+    #   2. The refund is parked in `refund_approval_requests` (status=pending)
+    #      with the full payload. No stock change, no money out yet.
+    #   3. ALL super admins get an email with two magic-link buttons:
+    #      "Approve & Process" + "Deny". Either button is one-click —
+    #      no separate login required (HMAC-signed token gates the URL).
+    #   4. Clicking "Approve" executes the refund (calls the rest of
+    #      this function via _process_validated_refund). Sends the
+    #      existing "refund completed" email afterwards.
+    #   5. Clicking "Deny" marks the request as denied; nothing happens
+    #      to stock or refunds collection.
+    #
+    # Requestor still has to supply a reason (≥6 chars) up-front — that
+    # text travels in the approval email so the approver knows what
+    # they're being asked to sign off on.
     if not has_invoice_link:
-        if not is_super_admin:
-            raise HTTPException(
-                status_code=403,
-                detail=(
-                    "Refunds must be linked to the original invoice. "
-                    "If the invoice cannot be located, ask a Super Admin "
-                    "to process this refund and approve the override."
-                ),
-            )
-        # Super admin path — still requires explicit acknowledgement
-        # + a written reason so we have something in the audit trail.
-        if not input.no_invoice_override:
-            raise HTTPException(
-                status_code=400,
-                detail=(
-                    "This refund has no linked invoice. As Super Admin, "
-                    "set no_invoice_override=true and provide "
-                    "no_invoice_reason to proceed."
-                ),
-            )
         if not (input.no_invoice_reason or "").strip() or len((input.no_invoice_reason or "").strip()) < 6:
             raise HTTPException(
                 status_code=400,
-                detail="no_invoice_reason is required and must be at least 6 characters.",
+                detail=(
+                    "Refunds without an original invoice require a written "
+                    "reason of at least 6 characters. This reason will be "
+                    "sent to Super Admins for approval."
+                ),
             )
+        if not input.line_items:
+            raise HTTPException(status_code=400, detail="Refund must have at least one line item")
+
+        # Park the request — don't touch stock or refunds yet.
+        request_doc = await _create_refund_approval_request(input, current_user)
+
+        # Fire the approval email. Fire-and-forget so a slow email
+        # provider can't lock up the checkout flow.
+        import asyncio as _asyncio
+        try:
+            _asyncio.create_task(_email_approval_request(request_doc))
+        except RuntimeError:
+            pass  # no event loop (test contexts)
+
+        # 202 Accepted — refund is queued, not done.
+        return {
+            "message": "Approval request emailed to Super Admins. The refund will be processed as soon as a Super Admin clicks the approve link.",
+            "status": "pending_approval",
+            "request_id": request_doc["id"],
+            "approval_required": True,
+        }
+
+    # Has an invoice link → drop the no-invoice override flags (they're
+    # nonsensical here) and proceed with the normal refund processing.
+    input.no_invoice_override = False
+    input.no_invoice_reason = None
 
     # Validate line items
     if not input.line_items or len(input.line_items) == 0:
@@ -322,13 +800,14 @@ async def create_refund(input: RefundCreate, current_user: dict = Depends(get_cu
         "status": "completed",
         "created_by": current_user["email"],
         "created_at": datetime.now(timezone.utc).isoformat(),
-        # No-invoice-override audit fields (only set when Super Admin
-        # approves a refund with no linked original invoice). Always
-        # stored so the columns are queryable for reports later.
-        "no_invoice_override": bool(input.no_invoice_override and not has_invoice_link),
-        "no_invoice_reason": (input.no_invoice_reason or "").strip() if (input.no_invoice_override and not has_invoice_link) else None,
-        "no_invoice_approved_by": current_user.get("email") if (input.no_invoice_override and not has_invoice_link) else None,
-        "no_invoice_approved_at": datetime.now(timezone.utc).isoformat() if (input.no_invoice_override and not has_invoice_link) else None,
+        # No-invoice-override audit fields are written by the magic-link
+        # approval handler (see `_process_approved_refund`), NOT by this
+        # path. Reaching here always means an invoice WAS linked, so
+        # these fields stay null.
+        "no_invoice_override": False,
+        "no_invoice_reason": None,
+        "no_invoice_approved_by": None,
+        "no_invoice_approved_at": None,
     }
     
     await db.refunds.insert_one(refund_dict)
@@ -367,50 +846,11 @@ async def create_refund(input: RefundCreate, current_user: dict = Depends(get_cu
         details=f"Refund {refund_dict['refund_no']} created for £{refund_dict['net_refund']:.2f}"
     )
 
-    # Notify Super Admins via email for any no-invoice override.
-    # Super Admin isn't physically present in the showrooms — this is the
-    # only way they hear about an override approval. Email contains a
-    # direct deep link to refund history so they can review and take
-    # action in one click. Fired fire-and-forget so a slow email provider
-    # doesn't block the refund response.
-    if refund_dict["no_invoice_override"]:
-        import asyncio as _asyncio
-        async def _email_super_admins():
-            try:
-                from services.email import send_super_admin_alert
-                await send_super_admin_alert(
-                    title="No-invoice refund approved",
-                    summary=(
-                        "A Super Admin override has just been used to issue a refund "
-                        "without a linked original invoice. The refund has already been "
-                        "processed and stock restored. Please review and confirm this "
-                        "is legitimate."
-                    ),
-                    fields=[
-                        ("Refund ref", f"<strong>{refund_dict['refund_no']}</strong>"),
-                        ("Amount", f"<strong>£{refund_dict['net_refund']:.2f}</strong> via {refund_dict.get('refund_method') or '—'}"),
-                        ("Customer", f"{refund_dict.get('customer_name') or '—'}<br><span style='color:#737373;font-size:12px;'>{refund_dict.get('customer_phone') or '—'}</span>"),
-                        ("Showroom", refund_dict.get("showroom_name") or "—"),
-                        ("Approved by", f"<strong>{refund_dict['no_invoice_approved_by']}</strong>"),
-                        ("Reason", refund_dict.get("no_invoice_reason") or "—"),
-                        ("Issued at", refund_dict["no_invoice_approved_at"]),
-                    ],
-                    cta_label="Review Refund in Admin",
-                    cta_path="/admin/epos?tab=refund-history",
-                    accent_colour="#b91c1c",
-                    icon="🚨",
-                    footer_note=(
-                        "This action is recorded permanently in the audit log. "
-                        "If you did not authorise this override, contact the approver "
-                        "(named above) immediately."
-                    ),
-                )
-            except Exception as e:  # pragma: no cover — never block refund on notify failure
-                logger.warning("send_super_admin_alert (no-invoice refund) failed: %s", e)
-        try:
-            _asyncio.create_task(_email_super_admins())
-        except RuntimeError:
-            pass  # no running event loop (test contexts)
+    # NOTE — the no-invoice-override "completed" email is now sent from
+    # `_process_approved_refund` (the magic-link approval handler), not
+    # from here. By the time execution reaches this point, the refund
+    # is guaranteed to be against a linked invoice and no email is
+    # needed.
 
     return {
         "message": "Refund processed and stock restored",

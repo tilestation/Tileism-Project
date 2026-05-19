@@ -9,6 +9,44 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Feb 24, 2026 — Forked session] ✅ Approve-First Refund Workflow with Magic-Link Email
+
+**User intent (verbatim follow-up screenshot 19:08)**: *"This test email you sent shows the Refund approved without my approval. But it doesn't include the link for my approval first and then this email it should be followed after the refund is completed with Super Admin authorization"*
+
+**Workflow rewritten — refund is NOT processed until a Super Admin clicks Approve in their email:**
+
+1. **Anyone (staff or super_admin) requests a no-invoice refund via the normal Refund UI** — writes a reason ≥6 chars in the dialog
+2. **Backend parks the refund as `pending`** in new `refund_approval_requests` collection. No stock change, no money out. Returns 202 with `{ status: 'pending_approval', request_id }`
+3. **Approval email** sent to ALL super admins (subject: `[Tile Station] Action required — Refund needs your approval`) with side-by-side **✓ Approve & Process** and **✗ Deny** buttons. HMAC-signed magic links — one per action.
+4. **Click Approve in email** → backend validates HMAC → replays the stored payload through the refund pipeline → restores stock → reverses trade credits → marks request `approved` → sends **completion email** to all super admins (`[Tile Station] No-invoice refund processed`). Replay-safe: 2nd click shows "already approved" page.
+5. **Click Deny in email** → request marked `denied` → no refund created → notification email to requester. Replay-safe.
+6. **Tampered token** → friendly HTML error page (no information leak).
+7. **7-day TTL** on every request; expired link returns clear "expired" page.
+
+**Frontend changes**:
+- Dialog title: *"Request Super Admin Approval"* (not "Override")
+- Button: *"Send Approval Request"* (not "Approve & Issue Refund")
+- Toast after submit: *"Approval request emailed to Super Admin. The refund will be processed once approved via the email link."*
+- Warning copy updated for both roles (staff & super admin use identical flow now)
+
+**Endpoints**:
+- `POST /api/refunds` — now returns 202+`pending_approval` when no invoice link
+- `GET /api/refunds/approval/{request_id}/{action}?token=...` — public, gated by HMAC. Renders a self-contained HTML result page (no frontend route needed)
+- `GET /api/refunds/pending-approvals` — super-admin-only; lists open requests (tokens never exposed)
+
+**Tests (9/9 pass)**:
+- pending-not-processed (no refund_id, status=pending_approval)
+- reason required, ≥6 chars
+- magic-link Approve → refund created with `no_invoice_override=true` + audit
+- magic-link Deny → no refund created
+- tampered token → friendly error
+- re-click → idempotent (already-approved page)
+- pending-approvals listing → tokens never leak
+- with-invoice path → still processes immediately
+
+**Files**: `backend/routes/refunds.py` (workflow rewrite, magic-link endpoints, helpers, HTML result pages), `frontend/src/components/documents/DocumentForm.js` (dialog copy + post-submit toast + warning text).
+
+
 ### [Feb 24, 2026 — Forked session] ✅ Email Notifications for Refund Overrides & Device Approvals (deep-link CTA)
 
 **User intent**: *"I need the notification through email which includes the direct link for me to go to the page and approve there. Do the same for Device Approval. As Device Approval notifications only appear on toast and I don't receive any email notification with the direct link to the page for approval of any device. Do the same for Refunds which you just done (no need for telegram - only email) and then for Device Approval request."*
