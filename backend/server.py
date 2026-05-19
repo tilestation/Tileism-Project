@@ -1,6 +1,6 @@
 from fastapi import FastAPI, APIRouter, HTTPException, Depends, status, UploadFile, File, Body, Request, BackgroundTasks, Query
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from fastapi.responses import StreamingResponse, FileResponse
+from fastapi.responses import StreamingResponse, FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
@@ -1069,23 +1069,42 @@ async def login(input: UserLogin, request: Request):
                     details=f"New device login request from {input.device_name or 'Unknown Device'}"
                 )
 
-                # Email super admins with a deep link to the approval page.
-                # 24 Feb 2026 — replaces toast-only notification (which only
-                # the user attempting login could ever see). Super Admin
-                # isn't in the showroom; this email is how they hear about
-                # a new device request in real time. Fire-and-forget so a
-                # slow email provider can't make the login itself slower.
+                # Email super admins with one-click Approve / Deny magic-
+                # link buttons embedded right in the email body.
+                # 24 Feb 2026 — extended (per user request) from the
+                # deep-link-only version to match the refund-approval
+                # pattern in routes/refunds.py. Same HMAC token scheme
+                # (separate namespace so a refund token cannot approve
+                # a device), same one-shot replay protection.
+                #
+                # Super Admin isn't in the showroom; from the inbox they
+                # can approve a known device without opening the admin
+                # panel at all. Sent fire-and-forget so a slow email
+                # provider can't make the login itself slower.
                 import asyncio as _asyncio_da
                 async def _email_device_approval_request():
                     try:
-                        from services.email import send_super_admin_alert
+                        from services.email import send_super_admin_alert, COMPANY_WEBSITE
+                        # Build BOTH magic links — embedded directly in
+                        # the email body so the admin acts in one click.
+                        approve_token = _sign_device_approval_token(approval_request["id"], "approve")
+                        deny_token = _sign_device_approval_token(approval_request["id"], "deny")
+                        approve_url = (
+                            f"{COMPANY_WEBSITE.rstrip('/')}"
+                            f"/api/device-approvals/{approval_request['id']}/approve?token={approve_token}"
+                        )
+                        deny_url = (
+                            f"{COMPANY_WEBSITE.rstrip('/')}"
+                            f"/api/device-approvals/{approval_request['id']}/deny?token={deny_token}"
+                        )
                         await send_super_admin_alert(
                             title="New device requesting login",
                             summary=(
                                 f"A new device is trying to sign in as "
                                 f"<strong>{user.get('name') or input.email}</strong>. "
-                                f"Approve it only if you recognise both the user and the device "
-                                f"and IP address below."
+                                f"Click <strong>Approve</strong> only if you recognise "
+                                f"both the user AND the device + IP below. Otherwise click "
+                                f"<strong>Deny</strong> and ask them to reset their password."
                             ),
                             fields=[
                                 ("User", f"<strong>{user.get('name') or '—'}</strong><br><span style='color:#737373;font-size:12px;'>{input.email} · {user.get('role') or '—'}</span>"),
@@ -1094,16 +1113,27 @@ async def login(input: UserLogin, request: Request):
                                 ("IP address", approval_request.get("ip_address") or "—"),
                                 ("Requested at", approval_request["requested_at"]),
                                 ("Request ref", f"<code>{approval_request['id']}</code>"),
+                                # ── One-click action buttons ──
+                                ("Action", (
+                                    f'<a href="{approve_url}" '
+                                    f'style="display:inline-block;padding:11px 22px;background:#15803d;'
+                                    f'color:#fff;text-decoration:none;border-radius:8px;font-weight:600;'
+                                    f'font-size:14px;margin-right:8px;">✓ Approve device</a>'
+                                    f'<a href="{deny_url}" '
+                                    f'style="display:inline-block;padding:11px 22px;background:#b91c1c;'
+                                    f'color:#fff;text-decoration:none;border-radius:8px;font-weight:600;'
+                                    f'font-size:14px;">✗ Deny</a>'
+                                )),
                             ],
-                            cta_label="Review device requests",
+                            cta_label="Or review all device requests",
                             cta_path="/admin/settings#device-approvals",
                             accent_colour="#b45309",
                             icon="🔐",
-                            subject_prefix="[Tile Station Admin]",
+                            subject_prefix="[Tile Station] Action required —",
                             footer_note=(
                                 "If you do NOT recognise this device or IP, deny the request "
-                                "immediately and ask the user to reset their password — their "
-                                "credentials may have been compromised."
+                                "and ask the user to reset their password — their credentials "
+                                "may have been compromised."
                             ),
                         )
                     except Exception as e:
@@ -1598,6 +1628,183 @@ async def reject_device(approval_id: str, current_user: dict = Depends(get_curre
     )
     
     return {"message": f"Device rejected for {approval['user_email']}"}
+
+
+# ─── Magic-link device approval endpoints ────────────────────────────
+# Same HMAC pattern as refunds (see backend/routes/refunds.py). These
+# endpoints are PUBLIC — token gates access. Anyone with a valid token
+# in the URL can act (the whole point of email magic links). Replay
+# protection comes from the approval doc's `status` field flipping
+# from `pending` to `approved`/`rejected` on first use.
+
+def _sign_device_approval_token(approval_id: str, action: str) -> str:
+    """HMAC-SHA256 over `device_approval:{id}:{action}` — distinct from
+    the refund token namespace so a leaked refund token can't approve
+    a device (and vice-versa)."""
+    import hmac as _hmac
+    import hashlib as _hashlib
+    secret = os.environ.get("JWT_SECRET", "your-secret-key-change-in-production")
+    msg = f"device_approval:{approval_id}:{action}".encode()
+    return _hmac.new(secret.encode(), msg, _hashlib.sha256).hexdigest()[:32]
+
+
+def _verify_device_approval_token(approval_id: str, action: str, token: str) -> bool:
+    import hmac as _hmac
+    expected = _sign_device_approval_token(approval_id, action)
+    return _hmac.compare_digest(expected, token or "")
+
+
+def _device_result_page(*, success: bool, title: str, message: str, secondary: str = "") -> HTMLResponse:
+    """Self-contained HTML response page for device-approval magic links.
+
+    Mirrors the refund-approval result page (`backend/routes/refunds.py`
+    `_approval_result_page`) so both flows feel consistent in the inbox.
+    """
+    colour = "#15803d" if success else "#b91c1c"
+    icon = "✓" if success else "✗"
+    return HTMLResponse(content=f"""\
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>{title}</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>body{{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:#f5f5f4;color:#111;margin:0;padding:48px 16px;}}.card{{max-width:480px;margin:0 auto;background:#fff;border:1px solid #e5e7eb;border-radius:14px;padding:32px;text-align:center;box-shadow:0 1px 3px rgba(0,0,0,.04)}}.icon{{width:64px;height:64px;border-radius:50%;background:{colour};color:#fff;font-size:36px;line-height:64px;margin:0 auto 18px;}}h1{{font-size:22px;margin:0 0 8px;color:{colour}}}p{{font-size:15px;line-height:1.5;color:#374151;margin:0 0 14px}}a.btn{{display:inline-block;margin-top:18px;padding:11px 22px;background:#111;color:#fff;text-decoration:none;border-radius:8px;font-weight:600;font-size:14px}}small{{color:#737373;font-size:12px;display:block;margin-top:14px}}</style>
+</head><body><div class="card">
+<div class="icon">{icon}</div>
+<h1>{title}</h1>
+<p>{message}</p>
+{f'<p style="color:#737373;font-size:13px;">{secondary}</p>' if secondary else ''}
+<a class="btn" href="/admin/settings#device-approvals">Open Device Approvals</a>
+<small>Tile Station Admin — this is an automated response page.</small>
+</div></body></html>""")
+
+
+@api_router.get("/device-approvals/{approval_id}/{action}", response_class=HTMLResponse)
+async def device_approval_magic_link(approval_id: str, action: str, request: Request):
+    """One-click Approve / Deny for a device login request, via email.
+
+    No auth header required — the HMAC token in the URL IS the auth.
+    Idempotent: re-clicking the same link shows an "already done" page
+    instead of failing or duplicating side effects.
+    """
+    if action not in ("approve", "deny"):
+        return _device_result_page(
+            success=False,
+            title="Invalid action",
+            message="The link in your email is malformed. Please open the admin panel to act manually.",
+        )
+
+    token = (request.query_params.get("token") or "").strip()
+    if not _verify_device_approval_token(approval_id, action, token):
+        return _device_result_page(
+            success=False,
+            title="Invalid or tampered link",
+            message="This approval link is not valid. It may have been copied incorrectly, expired, or been altered.",
+        )
+
+    approval = await db.device_approvals.find_one({"id": approval_id})
+    if not approval:
+        return _device_result_page(
+            success=False,
+            title="Request not found",
+            message="This device-approval request no longer exists. The user may have already retried and a fresh one is in your inbox.",
+        )
+
+    # Re-click protection
+    if approval.get("status") != "pending":
+        already = approval.get("status")
+        is_ok = already == "approved"
+        return _device_result_page(
+            success=is_ok,
+            title=f"Already {already}",
+            message=(
+                f"This device request has already been {already} (on "
+                f"{approval.get('processed_at') or '—'})."
+            ),
+            secondary=f"Decided by: {approval.get('processed_by') or '—'}",
+        )
+
+    # Token doesn't carry an identity (only super admins receive the
+    # email, so we record "<via magic link>" as the approver). If you
+    # later want a real email here, sign a longer token that includes
+    # the recipient's address.
+    approver_email = "super_admin@magic-link"
+    decided_at = datetime.now(timezone.utc).isoformat()
+
+    if action == "deny":
+        await db.device_approvals.update_one(
+            {"id": approval_id},
+            {"$set": {
+                "status": "rejected",
+                "processed_by": approver_email,
+                "processed_at": decided_at,
+            }},
+        )
+        await log_audit(
+            action="DEVICE_REJECTED",
+            entity_type="auth",
+            user={"email": approver_email, "name": "Super Admin (magic link)"},
+            entity_id=approval_id,
+            entity_name=approval["user_email"],
+            details=(
+                f"Device '{approval.get('device_name') or '—'}' DENIED for "
+                f"{approval['user_email']} via email magic link"
+            ),
+        )
+        return _device_result_page(
+            success=False,
+            title="Device denied",
+            message=(
+                f"The login request from {approval.get('device_name') or 'this device'} "
+                f"for <strong>{approval['user_email']}</strong> has been denied. "
+                f"They will see a 'denied' message on their device."
+            ),
+            secondary="If you suspect their credentials are compromised, ask them to reset their password.",
+        )
+
+    # action == "approve"
+    approved_device = {
+        "id": str(uuid.uuid4()),
+        "user_email": approval["user_email"],
+        "device_id": approval["device_id"],
+        "device_name": approval.get("device_name"),
+        "device_type": approval.get("device_type"),
+        "approved_by": approver_email,
+        "approved_at": decided_at,
+    }
+    await db.approved_devices.insert_one(approved_device)
+
+    await db.device_approvals.update_one(
+        {"id": approval_id},
+        {"$set": {
+            "status": "approved",
+            "processed_by": approver_email,
+            "processed_at": decided_at,
+        }},
+    )
+    await log_audit(
+        action="DEVICE_APPROVED",
+        entity_type="auth",
+        user={"email": approver_email, "name": "Super Admin (magic link)"},
+        entity_id=approval_id,
+        entity_name=approval["user_email"],
+        details=(
+            f"Device '{approval.get('device_name') or '—'}' approved for "
+            f"{approval['user_email']} via email magic link"
+        ),
+    )
+
+    return _device_result_page(
+        success=True,
+        title="Device approved",
+        message=(
+            f"<strong>{approval['user_email']}</strong> can now sign in from "
+            f"{approval.get('device_name') or 'this device'}. They may need to "
+            f"refresh their login page."
+        ),
+        secondary=f"Approved at {decided_at}",
+    )
+
+
+
 
 
 @api_router.get("/approved-devices")

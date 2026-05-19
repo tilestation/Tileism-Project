@@ -9,6 +9,35 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Feb 24, 2026 — Forked session] ✅ One-Click Device Approval via Email Magic Link
+
+**User intent**: *"Same magic-link pattern as refunds — approve/deny devices straight from the email body, no admin login needed."*
+
+**Implementation** (mirrors `backend/routes/refunds.py` approval flow exactly):
+
+1. **Login from new device** → `device_approvals.insert_one(status=pending)` fires existing email path, but the email body NOW includes:
+   - ✓ **Approve device** (green) — `GET /api/device-approvals/{id}/approve?token=...`
+   - ✗ **Deny** (red) — `GET /api/device-approvals/{id}/deny?token=...`
+   - Plus the "Review all device requests" deep link as a fallback
+
+2. **Magic link token security**:
+   - Separate HMAC namespace from refunds (`device_approval:{id}:{action}`) — a leaked refund token cannot approve a device, and vice versa
+   - One-shot: status flip on first use makes re-clicks safe ("Already approved" page)
+   - Tampered tokens render an HTML error page (no info leak, no 4xx)
+
+3. **No frontend route needed** — endpoint returns a self-contained HTML response page identical in style to the refund result page, with a "Open Device Approvals" button for follow-up
+
+**Tests (6/6 pass)**:
+- magic-link Approve → `approved_devices` row created, audit logged
+- magic-link Deny → no device row, status=rejected
+- tampered token → friendly error, request stays `pending`
+- re-click → idempotent (exactly ONE approved_devices row after multiple clicks)
+- cross-namespace forge → refund-style token cannot approve device
+- unknown action → request unchanged
+
+**Files**: `backend/server.py` (new `_sign_device_approval_token` / `_verify_device_approval_token` / `_device_result_page` / `GET /device-approvals/{id}/{action}` route + updated `_email_device_approval_request` to embed buttons).
+
+
 ### [Feb 24, 2026 — Forked session] ✅ Approve-First Refund Workflow with Magic-Link Email
 
 **User intent (verbatim follow-up screenshot 19:08)**: *"This test email you sent shows the Refund approved without my approval. But it doesn't include the link for my approval first and then this email it should be followed after the refund is completed with Super Admin authorization"*
