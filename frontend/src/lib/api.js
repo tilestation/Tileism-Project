@@ -378,6 +378,14 @@ export const api = {
     axios.post(`${API}/invoices/audit/sync-deposit-dates`,
       invoice_ids ? { invoice_ids } : {},
       { headers: getAuthHeader() }),
+
+  // One-click "Add Final Payment" — POST /api/invoices/{id}/payments
+  // Server stamps date as today. We deliberately don't accept a date
+  // arg so the caller can never set the wrong day.
+  addInvoicePayment: (id, { amount, method, note = '' }) =>
+    axios.post(`${API}/invoices/${id}/payments`,
+      { amount, method, note },
+      { headers: getAuthHeader() }),
   
   downloadInvoicePdf: (id) =>
     axios.get(`${API}/invoices/${id}/pdf`, { 

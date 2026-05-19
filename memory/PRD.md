@@ -9,6 +9,21 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Feb 24, 2026 — Forked session] ✅ One-Click "Take Balance Payment" + Smart Deposit Audit
+
+**Quick-pay**: Added `POST /api/invoices/{id}/payments` endpoint and a £-icon button on every Invoice History row with an outstanding balance > £0.01. One-tap dialog pre-fills the amount with the current outstanding, defaults method to Cash, and the **server always stamps the payment date as today** — eliminating the entire class of "I forgot to set the date" bugs that the deposit audit used to flag. Auto-transitions deposit_order → open_order when balance reaches zero.
+
+**Smart audit (rewrite)**: `/api/invoices/audit/mis-dated-deposits` no longer flags legitimate part-payments. New rule: an invoice is only flagged when NONE of its non-zero deposits sit on (or within ±1 day of) the invoice date. If at least one deposit anchors the invoice to its real date, any later deposits are presumed legitimate part-payments and silently skipped.
+
+**Safety nets**: "Sync Now" / "Sync All" now require a confirmation dialog explaining they will move revenue from the payment date back to the invoice date (was a near-miss — could re-attribute legitimate part-payments to the wrong day).
+
+**Tests (11/11 pass)**:
+- `test_deposit_audit.py` (5): catches single-drifted-deposit bug, ignores deposit+part-payment, 1-day tolerance, all-drifted still flagged, zero-amount ignored
+- `test_invoice_quickpay.py` (6): server stamps today's date, partial leaves deposit_order, method required, amount > 0, 404 on bad ID, overpayment caps at 0
+
+**Files**: `backend/routes/invoices.py` (rewrite + new endpoint), `frontend/src/pages/admin/InvoiceHistory.js` (£ button + dialog + confirmation), `frontend/src/lib/api.js` (addInvoicePayment).
+
+
 ### [Feb 24, 2026 — Forked session] ✅ FINISH SEO TODAY — Ahrefs warnings batch-fix
 
 User demanded: *"FINISH SEO TODAY I DON'T WANT TO SEE THE SAME EMAILS POPPING UP AGAIN AND AGAIN"*. Completed in a single batch, safely (no repeat of the May 17 strip-script disaster).

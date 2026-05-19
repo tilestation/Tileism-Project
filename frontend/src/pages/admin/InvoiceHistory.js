@@ -119,6 +119,16 @@ export const InvoiceHistory = () => {
   const [smsAvailable, setSmsAvailable] = useState(false);
   const [shareMessage, setShareMessage] = useState('');
   const [expandedRow, setExpandedRow] = useState(null);
+
+  // Quick-pay (one-click "Take balance payment, dated today") state.
+  // 24 Feb 2026 — added so admins don't have to open the full invoice
+  // editor every time a customer comes back to pay a balance. Server
+  // always stamps the payment with today's date.
+  const [quickPayInvoice, setQuickPayInvoice] = useState(null);
+  const [quickPayAmount, setQuickPayAmount] = useState('');
+  const [quickPayMethod, setQuickPayMethod] = useState('Cash');
+  const [quickPayNote, setQuickPayNote] = useState('');
+  const [quickPaySaving, setQuickPaySaving] = useState(false);
   
   // Refund state
   const [refundItems, setRefundItems] = useState([]);
@@ -194,6 +204,68 @@ export const InvoiceHistory = () => {
       toast.error(msg);
     } finally {
       setSyncingDeposit(false);
+    }
+  };
+
+  // ─── Quick-pay handlers ──────────────────────────────────────────
+  // openQuickPayDialog: pre-fills the amount with the current outstanding
+  //                    balance so the most common case (pay in full) is
+  //                    one click. User can still edit to take a partial.
+  // submitQuickPay:    posts to POST /api/invoices/{id}/payments. Server
+  //                    sets the date to today — that's the whole feature.
+  const openQuickPayDialog = (invoice) => {
+    const info = getDepositInfo(invoice);
+    setQuickPayInvoice(invoice);
+    setQuickPayAmount(info.outstanding.toFixed(2));
+    setQuickPayMethod('Cash');
+    setQuickPayNote('');
+  };
+
+  const closeQuickPayDialog = () => {
+    if (quickPaySaving) return;
+    setQuickPayInvoice(null);
+    setQuickPayAmount('');
+    setQuickPayMethod('Cash');
+    setQuickPayNote('');
+  };
+
+  const submitQuickPay = async () => {
+    if (!quickPayInvoice) return;
+    const amount = parseFloat(quickPayAmount);
+    if (!amount || amount <= 0) {
+      toast.error('Enter a payment amount greater than zero');
+      return;
+    }
+    if (!quickPayMethod) {
+      toast.error('Choose a payment method');
+      return;
+    }
+    try {
+      setQuickPaySaving(true);
+      const res = await api.addInvoicePayment(quickPayInvoice.id, {
+        amount,
+        method: quickPayMethod,
+        note: quickPayNote || '',
+      });
+      const { amount_outstanding = 0, deposit } = res.data || {};
+      toast.success(
+        amount_outstanding <= 0.01
+          ? `Payment £${amount.toFixed(2)} taken — invoice fully paid ✓`
+          : `Payment £${amount.toFixed(2)} taken — £${amount_outstanding.toFixed(2)} still outstanding`
+      );
+      // Refresh the list so the row updates immediately
+      await Promise.all([fetchData(), fetchDepositAudit()]);
+      setQuickPayInvoice(null);
+      setQuickPayAmount('');
+      setQuickPayMethod('Cash');
+      setQuickPayNote('');
+      // Discard deposit so eslint doesn't flag the destructure
+      void deposit;
+    } catch (error) {
+      const msg = error.response?.data?.detail || 'Failed to record payment';
+      toast.error(msg);
+    } finally {
+      setQuickPaySaving(false);
     }
   };
 
@@ -2581,6 +2653,18 @@ export const InvoiceHistory = () => {
                           >
                             <Edit2 className="h-4 w-4" />
                           </Button>
+                          {depositInfo.outstanding > 0.01 && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="text-emerald-700 hover:text-emerald-800 hover:bg-emerald-50"
+                              onClick={() => openQuickPayDialog(invoice)}
+                              title={`Take £${depositInfo.outstanding.toFixed(2)} balance payment (dated today)`}
+                              data-testid={`quick-pay-invoice-${invoice.id}`}
+                            >
+                              <PoundSterling className="h-4 w-4" />
+                            </Button>
+                          )}
                           <Button
                             variant="ghost"
                             size="sm"
@@ -3064,6 +3148,103 @@ export const InvoiceHistory = () => {
               data-testid="confirm-delete-btn"
             >
               {deleting ? 'Deleting...' : 'Delete Invoice'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Quick "Take Balance Payment" Dialog ──────────────────────
+          Always stamps the payment date as today (server-side).
+          That's the whole point — eliminates the date-mistake bug
+          that the deposit audit used to flag false positives for. */}
+      <Dialog open={!!quickPayInvoice} onOpenChange={(open) => !open && closeQuickPayDialog()}>
+        <DialogContent className="sm:max-w-md" data-testid="quick-pay-dialog">
+          <DialogHeader>
+            <DialogTitle className="text-emerald-700 flex items-center gap-2">
+              <PoundSterling className="h-5 w-5" />
+              Take Balance Payment
+            </DialogTitle>
+            <DialogDescription>
+              Record a payment against invoice <strong>{quickPayInvoice?.invoice_no}</strong>{quickPayInvoice?.customer_name ? <> for <strong>{quickPayInvoice.customer_name}</strong></> : null}.
+              <br />
+              Outstanding balance: <strong className="text-amber-700">{formatCurrency(quickPayInvoice ? (getDepositInfo(quickPayInvoice).outstanding) : 0)}</strong>
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3 py-2">
+            <div>
+              <label className="text-sm font-medium block mb-1">Amount (£)</label>
+              <Input
+                type="number"
+                step="0.01"
+                min="0.01"
+                value={quickPayAmount}
+                onChange={(e) => setQuickPayAmount(e.target.value)}
+                data-testid="quick-pay-amount-input"
+                disabled={quickPaySaving}
+                autoFocus
+              />
+              {quickPayInvoice && (() => {
+                const outstanding = getDepositInfo(quickPayInvoice).outstanding;
+                const entered = parseFloat(quickPayAmount) || 0;
+                if (entered > outstanding + 0.01) {
+                  return <p className="text-xs text-amber-700 mt-1">⚠ £{(entered - outstanding).toFixed(2)} overpayment — extra will sit as a credit on the invoice.</p>;
+                }
+                if (entered > 0 && entered < outstanding - 0.01) {
+                  return <p className="text-xs text-blue-700 mt-1">Partial — £{(outstanding - entered).toFixed(2)} will remain outstanding.</p>;
+                }
+                if (entered > 0 && Math.abs(entered - outstanding) < 0.01) {
+                  return <p className="text-xs text-emerald-700 mt-1">✓ Pays balance in full.</p>;
+                }
+                return null;
+              })()}
+            </div>
+            <div>
+              <label className="text-sm font-medium block mb-1">Payment method</label>
+              <select
+                value={quickPayMethod}
+                onChange={(e) => setQuickPayMethod(e.target.value)}
+                className="w-full px-3 py-2 rounded border border-input bg-background text-sm"
+                data-testid="quick-pay-method-select"
+                disabled={quickPaySaving}
+              >
+                <option value="Cash">Cash</option>
+                <option value="Card">Card</option>
+                <option value="Bank Transfer">Bank Transfer</option>
+                <option value="Klarna">Klarna</option>
+                <option value="Cheque">Cheque</option>
+                <option value="Other">Other</option>
+              </select>
+            </div>
+            <div>
+              <label className="text-sm font-medium block mb-1">Note (optional)</label>
+              <Input
+                type="text"
+                value={quickPayNote}
+                onChange={(e) => setQuickPayNote(e.target.value)}
+                placeholder="e.g. Collected by Bob, ref #1234"
+                maxLength={120}
+                data-testid="quick-pay-note-input"
+                disabled={quickPaySaving}
+              />
+            </div>
+            <div className="rounded bg-emerald-50 border border-emerald-200 px-3 py-2 text-xs text-emerald-900">
+              <Calendar className="h-3 w-3 inline mr-1" />
+              This payment will be recorded as taken on <strong>{new Date().toLocaleDateString('en-GB')}</strong> — revenue will land on today's sales report.
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={closeQuickPayDialog} disabled={quickPaySaving} data-testid="quick-pay-cancel-btn">
+              Cancel
+            </Button>
+            <Button
+              onClick={submitQuickPay}
+              disabled={quickPaySaving || !parseFloat(quickPayAmount) || !quickPayMethod}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white"
+              data-testid="quick-pay-submit-btn"
+            >
+              {quickPaySaving ? 'Recording…' : `Take £${(parseFloat(quickPayAmount) || 0).toFixed(2)}`}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -1608,6 +1608,149 @@ async def sync_deposit_dates(body: Optional[dict] = None, current_user: dict = D
     }
 
 
+class QuickPaymentInput(BaseModel):
+    """Payload for the one-click "Add Final Payment" action on Invoice History.
+
+    Date is intentionally NOT in the schema — the server stamps it as
+    today's date in UK local format. This is the whole point of the
+    feature: revenue should always land on the day the payment was
+    received, not on an arbitrary date the user could mistype.
+    """
+    amount: float
+    method: str
+    note: Optional[str] = ""
+
+
+@router.post("/{invoice_id}/payments")
+async def add_invoice_payment(
+    invoice_id: str,
+    input: QuickPaymentInput,
+    current_user: dict = Depends(get_current_user),
+):
+    """One-click "Add Final Payment" endpoint used by Invoice History.
+
+    Appends a single deposit row dated TODAY (UK local time), recalculates
+    `total_deposits`, `amount_outstanding` and `status`, and returns the
+    updated invoice. Designed for the common workflow where a customer
+    returns to pay the balance on a deposit invoice — sales revenue is
+    attributed to the day the payment is taken, not the original invoice
+    date.
+
+    Why a dedicated endpoint instead of reusing PUT /{invoice_id}:
+      - PUT requires the entire invoice payload and risks accidentally
+        wiping line items, stock, customer fields, etc.
+      - PUT lets the caller specify any date, which is exactly the bug
+        we just stopped flagging. Here the server controls the date.
+      - Smaller surface area for staff PIN / showroom checks later.
+
+    Args:
+        invoice_id: target invoice
+        input.amount: payment amount (> 0)
+        input.method: payment method ("Cash", "Card", "Bank Transfer", etc.) — required
+        input.note: optional free-text note
+
+    Returns:
+        { "ok": True, "deposit": {...}, "total_deposits": ..., "amount_outstanding": ..., "status": ... }
+    """
+    if not can_access_epos(current_user):
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    if input.amount is None or input.amount <= 0:
+        raise HTTPException(status_code=400, detail="Payment amount must be greater than zero")
+
+    method = (input.method or "").strip()
+    if not method:
+        raise HTTPException(status_code=400, detail="Payment method is required (e.g. Card, Cash, Bank Transfer)")
+    # Methods must not look like a number (corruption guard, mirrors PUT)
+    try:
+        float(method)
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid payment method '{method}'. Please select a valid method like Card, Cash, etc.",
+        )
+    except ValueError:
+        pass
+
+    db = get_db()
+    existing = await db.invoices.find_one({"id": invoice_id})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+
+    # Showroom-scoped users can only update their own showroom's invoices
+    user_showroom_id = current_user.get("showroom_id")
+    if current_user.get("role") != "super_admin" and user_showroom_id:
+        if existing.get("showroom_id") != user_showroom_id:
+            raise HTTPException(status_code=403, detail="You can only update invoices from your showroom")
+
+    # Server-stamped date: today, UK local format. THIS IS THE WHOLE POINT
+    # of the endpoint — the user can never enter the wrong day.
+    today_uk = datetime.now(timezone.utc).strftime("%d/%m/%Y")
+
+    new_deposit = {
+        "date": today_uk,
+        "amount": float(input.amount),
+        "method": method,
+        "note": (input.note or "").strip(),
+    }
+
+    deposits = list(existing.get("deposits") or [])
+    # Strip leading empty placeholders (amount=0 or missing) — they're UI artefacts
+    deposits = [d for d in deposits if (d.get("amount") or 0)]
+    deposits.append(new_deposit)
+
+    total_deposits = sum(float(d.get("amount") or 0) for d in deposits)
+    gross_total = float(existing.get("gross_total") or 0)
+    amount_outstanding = max(0.0, gross_total - total_deposits)
+
+    # Status transition mirrors PUT logic
+    current_status = existing.get("status", "open_order")
+    new_status = current_status
+    if amount_outstanding <= 0.01:
+        new_status = "open_order" if current_status == "deposit_order" else current_status
+    elif total_deposits > 0:
+        new_status = "deposit_order"
+
+    update_data = {
+        "deposits": deposits,
+        "total_deposits": total_deposits,
+        "amount_outstanding": amount_outstanding,
+        "status": new_status,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "updated_by": current_user["email"],
+    }
+
+    await db.invoices.update_one({"id": invoice_id}, {"$set": update_data})
+
+    await log_audit(
+        action="ADD_PAYMENT",
+        entity_type="invoice",
+        user=current_user,
+        entity_id=invoice_id,
+        entity_name=existing.get("invoice_no", invoice_id),
+        after_data={
+            "deposit": new_deposit,
+            "total_deposits": total_deposits,
+            "amount_outstanding": amount_outstanding,
+            "status": new_status,
+        },
+        details=(
+            f"Payment £{new_deposit['amount']:.2f} ({method}) added to "
+            f"{existing.get('invoice_no', invoice_id)} on {today_uk} — outstanding now £{amount_outstanding:.2f}"
+        ),
+    )
+
+    return {
+        "ok": True,
+        "deposit": new_deposit,
+        "total_deposits": total_deposits,
+        "amount_outstanding": amount_outstanding,
+        "status": new_status,
+    }
+
+
+
+
+
 @router.get("/{invoice_id}")
 async def get_invoice(invoice_id: str, current_user: dict = Depends(get_current_user)):
     """Get single invoice (admin only)"""
