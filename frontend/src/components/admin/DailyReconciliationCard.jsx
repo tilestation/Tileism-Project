@@ -124,6 +124,9 @@ export default function DailyReconciliationCard() {
               {data.credit_redeemed > 0 && (
                 <Row label="Trade credit redeemed" value={`−${fmt(data.credit_redeemed)}`} sub={`${data.redemption_count} invoice${data.redemption_count === 1 ? '' : 's'} used credit`} valueClass="text-emerald-700" testId="recon-redeemed" />
               )}
+              {data.refunds_today > 0 && (
+                <Row label="Refunds today" value={`−${fmt(data.refunds_today)}`} sub={`${data.refund_count} refund${data.refund_count === 1 ? '' : 's'}`} valueClass="text-red-600" testId="recon-refunds" />
+              )}
               <div className="border-t border-gray-200 pt-1.5 mt-1.5">
                 <Row label="Net takings" value={fmt(data.net_takings)} bold valueClass="text-gray-900 text-lg" testId="recon-net" />
               </div>

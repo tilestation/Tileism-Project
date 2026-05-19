@@ -97,14 +97,21 @@ export const CashQuotationHistory = () => {
     try {
       // DO NOT mark as converted here - will be marked AFTER invoice is saved
       // This prevents orphaned "converted" quotations when user doesn't complete the invoice
-      
+
+      // Invoice date = TODAY (see QuotationHistory.handleConvertToInvoice for full rationale).
+      // The cash quotation is just an offer; the sale happens on the day the
+      // customer pays cash and walks out with the goods.
+      const today = new Date().toLocaleDateString('en-GB');
+      const now = new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+
       // Prepare invoice data from cash quotation - Cash quotations are typically fully paid
       const invoiceData = {
         quotationId: quotation.id,  // Pass ID so Invoice.js can mark as converted after save
         quotationNo: quotation.quotation_no,
-        // Carry over quote's date/time so backdated cash quotes preserve the date.
-        date: quotation.date,
-        time: quotation.time,
+        // Today's date — cash takings should land on the day they're physically received.
+        date: today,
+        time: now,
+        originalQuotationDate: quotation.date,
         customerName: quotation.customer_name,
         customerPhone: quotation.customer_phone,
         customerEmail: quotation.customer_email,
@@ -123,7 +130,7 @@ export const CashQuotationHistory = () => {
           duePrice: item.due_price?.toString() || item.price?.toString() || '',
           discount: item.discount || 0
         })) || [],
-        notes: `Converted from Cash Quotation: ${quotation.quotation_no}`,
+        notes: `Converted from Cash Quotation: ${quotation.quotation_no} (originally dated ${quotation.date})`,
         companyInfo: quotation.company_info,
         isCashQuotation: true, // Flag to indicate this is from a cash quotation - NO VAT
         noVat: true // Explicit no VAT flag

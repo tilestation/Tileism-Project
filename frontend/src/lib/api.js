@@ -386,6 +386,11 @@ export const api = {
     axios.post(`${API}/invoices/${id}/payments`,
       { amount, method, note },
       { headers: getAuthHeader() }),
+
+  // Oldest N outstanding-balance invoices for the EPOS widget
+  getOutstandingBalances: (limit = 5) =>
+    axios.get(`${API}/invoices/outstanding-balances?limit=${limit}`,
+      { headers: getAuthHeader() }),
   
   downloadInvoicePdf: (id) =>
     axios.get(`${API}/invoices/${id}/pdf`, { 

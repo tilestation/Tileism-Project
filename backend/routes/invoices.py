@@ -586,18 +586,49 @@ async def _compute_daily_reconciliation(db, date: Optional[str]) -> dict:
     txn_rows = await db.credit_transactions.aggregate(txn_pipeline).to_list(1)
     credit_earned = round(float((txn_rows[0] if txn_rows else {}).get("earned") or 0), 2)
 
-    net_takings = round(gross_invoiced - credit_redeemed, 2)
+    # 3) Sum refunds dated today.
+    # 24 Feb 2026 — added after the user spotted a £273 discrepancy between
+    # Sales & EPOS "Today's Numbers" (£12,047.91) and Invoice History
+    # "Daily Revenue" (£11,774.91) — same 31 invoices but different totals.
+    # Root cause: Invoice History subtracts today's refunds; this endpoint
+    # didn't. Both should reflect what's actually in the till, so refunds
+    # are now deducted from net_takings here too.
+    #
+    # Refunds use the DD/MM/YYYY `date` string (user-stamped), matching
+    # how Invoice History filters them. We DON'T use created_at because a
+    # refund processed today for yesterday's sale belongs in yesterday's
+    # reconciliation, not today's.
+    today_ddmmyyyy = target.strftime("%d/%m/%Y")
+    refund_pipeline = [
+        {"$match": {"date": today_ddmmyyyy, "deleted_at": {"$in": [None, ""]}}},
+        {"$group": {
+            "_id": None,
+            "count": {"$sum": 1},
+            "refunds": {"$sum": {"$ifNull": ["$net_refund", {"$ifNull": ["$gross_total", 0]}]}},
+        }},
+    ]
+    refund_rows = await db.refunds.aggregate(refund_pipeline).to_list(1)
+    refund_row = refund_rows[0] if refund_rows else {}
+    refunds_today = round(float(refund_row.get("refunds") or 0), 2)
+    refund_count = int(refund_row.get("count") or 0)
+
+    # Net takings = gross invoices written today
+    #             − customer trade-credit redeemed (already deducted on the invoice)
+    #             − refunds dated today (money out of the till)
+    net_takings = round(gross_invoiced - credit_redeemed - refunds_today, 2)
     credit_movement = round(credit_earned - credit_redeemed, 2)
 
     return {
         "date": target.strftime("%Y-%m-%d"),
         "gross_invoiced": gross_invoiced,
         "credit_redeemed": credit_redeemed,
+        "refunds_today": refunds_today,
         "net_takings": net_takings,
         "credit_earned": credit_earned,
         "credit_movement": credit_movement,
         "invoice_count": invoice_count,
         "redemption_count": redemption_count,
+        "refund_count": refund_count,
     }
 
 
@@ -640,6 +671,7 @@ async def _send_reconciliation_email(db, date: Optional[str], recipients: List[s
     w.writerow(["CASH & CARD TAKINGS"])
     w.writerow(["Gross invoiced", f"£{data['gross_invoiced']:.2f}", f"{data['invoice_count']} invoice(s)"])
     w.writerow(["Trade credit redeemed", f"-£{data['credit_redeemed']:.2f}", f"{data['redemption_count']} invoice(s) used credit"])
+    w.writerow(["Refunds today", f"-£{data['refunds_today']:.2f}", f"{data['refund_count']} refund(s)"])
     w.writerow(["Net takings (Z-read)", f"£{data['net_takings']:.2f}"])
     w.writerow([])
     w.writerow(["CREDIT LEDGER MOVEMENT"])
@@ -657,6 +689,8 @@ async def _send_reconciliation_email(db, date: Optional[str], recipients: List[s
           <td style="padding:4px 0;text-align:right;font-weight:600;">£{data['gross_invoiced']:.2f}</td></tr>
       <tr><td style="padding:4px 14px 4px 0;color:#525252;">Trade credit redeemed</td>
           <td style="padding:4px 0;text-align:right;color:#047857;">−£{data['credit_redeemed']:.2f}</td></tr>
+      <tr><td style="padding:4px 14px 4px 0;color:#525252;">Refunds today ({data['refund_count']})</td>
+          <td style="padding:4px 0;text-align:right;color:#b91c1c;">−£{data['refunds_today']:.2f}</td></tr>
       <tr><td style="padding:6px 14px 4px 0;border-top:1px solid #e5e7eb;font-weight:700;">Net takings</td>
           <td style="padding:6px 0 4px 0;border-top:1px solid #e5e7eb;text-align:right;font-weight:700;">£{data['net_takings']:.2f}</td></tr>
     </table>
@@ -1413,6 +1447,113 @@ async def get_invoices(
                 item.pop("cost_price", None)
     
     return invoices
+
+
+@router.get("/outstanding-balances")
+async def get_outstanding_balances(
+    limit: int = 5,
+    current_user: dict = Depends(get_current_user),
+):
+    """Top-N oldest deposit-order invoices still awaiting balance payment.
+
+    Powers the "Outstanding Balances" widget on the EPOS tab. Returns
+    invoices where ``amount_outstanding > 0.01``, sorted oldest-first
+    (by the user-stamped DD/MM/YYYY ``date`` field, then created_at
+    as a tiebreaker).
+
+    For showroom-scoped users, results are filtered to their showroom
+    so a Tonbridge clerk doesn't see Sydenham's outstanding balances.
+
+    Response:
+        {
+          "count": N,                # total matching (not limited)
+          "total_outstanding": £,    # sum across all matching invoices
+          "invoices": [ {id, invoice_no, date, customer_name, customer_phone,
+                         gross_total, total_deposits, amount_outstanding,
+                         showroom_name, days_old} ... up to `limit` rows ]
+        }
+    """
+    if not can_access_epos(current_user):
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    db = get_db()
+
+    # Showroom scoping — staff/manager only see their own showroom's invoices
+    match: dict = {
+        "deleted_at": {"$in": [None, ""]},
+        "status": {"$ne": "cancelled"},
+        "amount_outstanding": {"$gt": 0.01},
+    }
+    user_showroom_id = current_user.get("showroom_id")
+    if current_user.get("role") != "super_admin" and user_showroom_id:
+        match["showroom_id"] = user_showroom_id
+
+    # Pull the (possibly long) candidate list — we need an accurate
+    # "count" / "total_outstanding" across ALL matching rows, then take
+    # the oldest N for the widget itself. Cap at 1000 for safety.
+    rows = await db.invoices.find(
+        match,
+        {"_id": 0, "id": 1, "invoice_no": 1, "date": 1, "customer_name": 1,
+         "customer_phone": 1, "gross_total": 1, "total_deposits": 1,
+         "amount_outstanding": 1, "showroom_name": 1, "created_at": 1,
+         "sales_person": 1, "deposits": 1},
+    ).limit(1000).to_list(1000)
+
+    def _parse_date(s):
+        if not s or not isinstance(s, str):
+            return None
+        for fmt in ("%d/%m/%Y", "%d/%m/%y"):
+            try:
+                return datetime.strptime(s.strip(), fmt).replace(tzinfo=timezone.utc)
+            except ValueError:
+                continue
+        return None
+
+    now = datetime.now(timezone.utc)
+    enriched = []
+    total_outstanding = 0.0
+    for inv in rows:
+        outstanding = float(inv.get("amount_outstanding") or 0)
+        if outstanding <= 0.01:
+            continue
+        # If total_deposits wasn't stored on legacy docs, compute it now
+        deposits = inv.get("deposits") or []
+        td = inv.get("total_deposits")
+        if td is None:
+            try:
+                td = sum(float(d.get("amount") or 0) for d in deposits)
+            except (TypeError, ValueError):
+                td = 0
+        inv_date = _parse_date(inv.get("date"))
+        days_old = (now - inv_date).days if inv_date else 0
+        total_outstanding += outstanding
+        enriched.append({
+            "id": inv.get("id"),
+            "invoice_no": inv.get("invoice_no"),
+            "date": inv.get("date"),
+            "customer_name": inv.get("customer_name"),
+            "customer_phone": inv.get("customer_phone"),
+            "gross_total": round(float(inv.get("gross_total") or 0), 2),
+            "total_deposits": round(float(td or 0), 2),
+            "amount_outstanding": round(outstanding, 2),
+            "showroom_name": inv.get("showroom_name"),
+            "sales_person": inv.get("sales_person"),
+            "days_old": max(0, days_old),
+            "_date_sort": inv_date or now,
+        })
+
+    # Oldest first (largest days_old)
+    enriched.sort(key=lambda r: r["_date_sort"])
+    top = enriched[: max(1, min(limit, 50))]
+    # Strip the sort helper before returning
+    for r in top:
+        r.pop("_date_sort", None)
+
+    return {
+        "count": len(enriched),
+        "total_outstanding": round(total_outstanding, 2),
+        "invoices": top,
+    }
 
 
 @router.get("/audit/mis-dated-deposits")

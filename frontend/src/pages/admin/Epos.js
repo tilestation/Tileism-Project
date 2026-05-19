@@ -20,6 +20,7 @@ import { CreditNote } from './CreditNote';
 import { CreditNoteHistory } from './CreditNoteHistory';
 import { ClearanceProducts } from './ClearanceProducts';
 import { NewCollectionProducts } from './NewCollectionProducts';
+import { OutstandingBalancesWidget } from '../../components/admin/OutstandingBalancesWidget';
 
 // Valid tab IDs for validation
 const VALID_TABS = ['invoice', 'history', 'quotation', 'quotation-history', 'cash-quotation', 'cash-quotation-history', 'proforma-invoice', 'proforma-invoice-history', 'refund', 'refund-history', 'credit-note', 'credit-note-history', 'clearance', 'new-collection'];
@@ -263,6 +264,12 @@ export const Epos = () => {
           Open in New Tab
         </Button>
       </div>
+
+      {/* Outstanding Balances — surfaces the 5 oldest unpaid balances so
+          staff see them without leaving EPOS. Auto-hides when nothing
+          is outstanding. Click "Take Payment" to settle in one tap
+          (server stamps today's date). */}
+      <OutstandingBalancesWidget />
 
       {/* Tab Content */}
       <div className="flex-1 overflow-auto">

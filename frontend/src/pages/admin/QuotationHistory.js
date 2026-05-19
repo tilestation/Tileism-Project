@@ -116,15 +116,24 @@ export const QuotationHistory = () => {
       // This prevents orphaned "converted" quotations when the user doesn't complete
       // (or closes) the invoice form, which would otherwise hide the quote from the
       // active list and never record a matching invoice/sale.
-      
+
+      // Invoice date = TODAY, not the quotation date.
+      // 24 Feb 2026 — quotations are valid for ~30 days but the SALE only
+      // happens when the customer accepts. Carrying the quote's date forward
+      // attributed revenue to the wrong day (sometimes weeks in the past)
+      // and broke daily/weekly sales totals. Customer can manually backdate
+      // on the invoice form if a different date is genuinely needed.
+      const today = new Date().toLocaleDateString('en-GB');
+      const now = new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+
       // Prepare invoice data from quotation
       const invoiceData = {
         quotationId: quotation.id,      // Invoice.js will call convert-to-invoice after save
         quotationNo: quotation.quotation_no,
-        // Carry over the quotation's date so backdated quotes keep their date when converted.
-        // Invoice.js also syncs deposit dates when this date is edited (see Date input handler).
-        date: quotation.date,
-        time: quotation.time,
+        // Today's date — sales revenue lands on the day the order is placed.
+        date: today,
+        time: now,
+        originalQuotationDate: quotation.date,  // surfaced in the invoice for reference
         customerName: quotation.customer_name,
         customerPhone: quotation.customer_phone,
         customerEmail: quotation.customer_email,
@@ -142,7 +151,7 @@ export const QuotationHistory = () => {
           duePrice: item.due_price?.toString() || item.price?.toString() || '',
           discount: item.discount || 0
         })) || [],
-        notes: `Converted from Quotation: ${quotation.quotation_no}`,
+        notes: `Converted from Quotation: ${quotation.quotation_no} (originally dated ${quotation.date})`,
         companyInfo: quotation.company_info
       };
       

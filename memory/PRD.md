@@ -9,6 +9,29 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Feb 24, 2026 — Forked session] ✅ Outstanding Balances Widget + Quote→Invoice Date Fix + £273 Discrepancy Fix
+
+**1. Outstanding Balances widget on EPOS (per user request — not in sidebar)**
+- New `GET /api/invoices/outstanding-balances?limit=5` endpoint — returns oldest deposit-order invoices sorted by date with showroom scoping for staff/manager roles
+- Compact green strip on the EPOS page (above tab content, visible on EVERY tab) showing total outstanding count + total £. Collapsible to show 5 oldest with one-click **Take Payment** button per row. Auto-hides when zero balances. Auto-refreshes after each payment. Amber `{days}d` badge on anything > 30 days old.
+
+**2. Quotation → Invoice date bug fix (user reported)**
+- Before: "Convert to Invoice" copied the quotation's date (often weeks/months old) onto the new invoice → revenue was attributed to the wrong day
+- After: invoice always starts with TODAY's date and time. Original quotation date is preserved in the notes field for reference. Both Quotation AND Cash Quotation conversion handlers fixed. Customer can still manually backdate on the invoice form if genuinely needed (rare).
+- Files: `QuotationHistory.js`, `CashQuotationHistory.js`, `Invoice.js` (the receiver-side fallback).
+
+**3. £273 EPOS-vs-Invoice-History discrepancy fix (user reported)**
+- Root cause: `Sales & EPOS "Today's Numbers"` summed gross invoices but didn't subtract refunds; `Invoice History "Daily Revenue"` did. Same 31 invoices, different totals.
+- Fix: `/api/invoices/reconciliation/daily` now subtracts today's refunds (new `refunds_today` + `refund_count` fields). `net_takings = gross_invoiced − credit_redeemed − refunds_today`. CSV / email reports also updated. `DailyReconciliationCard` shows a "Refunds today" line when > 0.
+
+**Tests (16/16 pass)**:
+- 4 outstanding-balances tests (sort, limit, hide-when-paid, refund-fields-present)
+- 6 quick-pay tests (server-stamps-date, partial, validation)
+- 5 deposit-audit tests
+
+**Files**: `backend/routes/invoices.py`, `frontend/src/components/admin/OutstandingBalancesWidget.jsx` (NEW), `frontend/src/pages/admin/Epos.js`, `frontend/src/pages/admin/QuotationHistory.js`, `frontend/src/pages/admin/CashQuotationHistory.js`, `frontend/src/pages/admin/Invoice.js`, `frontend/src/components/admin/DailyReconciliationCard.jsx`, `frontend/src/lib/api.js`.
+
+
 ### [Feb 24, 2026 — Forked session] ✅ One-Click "Take Balance Payment" + Smart Deposit Audit
 
 **Quick-pay**: Added `POST /api/invoices/{id}/payments` endpoint and a £-icon button on every Invoice History row with an outstanding balance > £0.01. One-tap dialog pre-fills the amount with the current outstanding, defaults method to Cash, and the **server always stamps the payment date as today** — eliminating the entire class of "I forgot to set the date" bugs that the deposit audit used to flag. Auto-transitions deposit_order → open_order when balance reaches zero.

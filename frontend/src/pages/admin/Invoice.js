@@ -324,12 +324,15 @@ export const Invoice = () => {
       })) || [{ ...emptyLineItem }];
       
       setInvoiceData(prev => {
-        // Carry over the quote's date when provided; deposit dates must match so the
-        // payment is attributed to the correct day on Invoice History (fixes
-        // backdated-quote revenue appearing under "today").
+        // Use the date passed by the conversion handler (today's date, from
+        // 24 Feb 2026 onward). Fallback to existing form date if absent —
+        // never reuse the quotation's original date, that broke daily
+        // revenue totals when customers came back weeks later.
         const newDate = quotation.date || prev.date;
         const newTime = quotation.time || prev.time;
-        const syncedDeposits = (prev.deposits || []).map(dep => 
+        // Sync any auto-defaulted deposit rows to the new (today's) date so
+        // payment date matches the invoice date for revenue attribution.
+        const syncedDeposits = (prev.deposits || []).map(dep =>
           (!dep.date || dep.date === prev.date) ? { ...dep, date: newDate } : dep
         );
         return {
