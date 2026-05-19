@@ -2833,3 +2833,116 @@ async def get_trade_credit_history(
         "lifetime_earned": round(lifetime_earned, 2),
         "lifetime_redeemed": round(lifetime_redeemed, 2),
     }
+
+
+
+@router.get("/credit-liability/by-showroom")
+async def get_credit_liability_by_showroom(
+    current_user: dict = Depends(get_current_user),
+):
+    """Per-showroom trade-credit liability snapshot.
+
+    For each showroom we report:
+      - lifetime_earned: total credit issued from sales at this showroom
+      - lifetime_redeemed: total credit redeemed at this showroom
+      - liability: max(0, earned - redeemed) — money customers can still
+        come back and spend that was generated here
+      - earn_redeem_ratio: redeemed / earned (1.0 = fully recycled,
+        <0.5 = poor turnover, dead inventory of someone else's money)
+      - active_traders: distinct trade accounts with a transaction here
+
+    Reads from the same `credit_transactions` collection used by the
+    per-trader history view. Showroom info is back-filled from the
+    linked invoice for legacy rows (pre-24 Feb 2026) so the totals
+    are accurate even before today's stamping change ships.
+    """
+    if not can_access_epos(current_user):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    db = get_db()
+
+    # Pull ALL transactions in one pass (these are small docs). We can
+    # iterate locally because we need to back-fill missing showroom_name
+    # from the linked invoice — that's awkward in a single aggregate.
+    txns = await db.credit_transactions.find(
+        {},
+        {"_id": 0, "amount": 1, "type": 1, "trade_account_number": 1,
+         "showroom_name": 1, "showroom_id": 1, "invoice_id": 1},
+    ).to_list(100000)
+
+    # Build invoice→showroom map for back-fill of legacy txns
+    missing_inv_ids = list({t.get("invoice_id") for t in txns if not t.get("showroom_name") and t.get("invoice_id")})
+    inv_map = {}
+    if missing_inv_ids:
+        async for inv in db.invoices.find(
+            {"id": {"$in": missing_inv_ids}},
+            {"_id": 0, "id": 1, "showroom_id": 1, "showroom_name": 1},
+        ):
+            inv_map[inv["id"]] = inv
+
+    EARN_TYPES = {"earned_in_store", "earned_online", "reapplied_earned_in_store"}
+    REDEEM_TYPES = {"redeemed_in_store", "redeemed_online", "reapplied_redeemed_in_store"}
+    REVERSE_TYPES = {
+        "reversed_earned_in_store", "reversed_earned_via_refund",
+        "reversed_redeemed_in_store", "reversed_redeemed_via_refund",
+    }
+
+    per_showroom: dict = {}
+    for t in txns:
+        # Back-fill from linked invoice when needed
+        name = t.get("showroom_name")
+        if not name:
+            inv = inv_map.get(t.get("invoice_id"))
+            if inv:
+                name = inv.get("showroom_name")
+        key = name or "Unknown / Legacy"
+
+        bucket = per_showroom.setdefault(key, {
+            "showroom_name": key,
+            "lifetime_earned": 0.0,
+            "lifetime_redeemed": 0.0,
+            "reversed_total": 0.0,
+            "traders": set(),
+            "transaction_count": 0,
+        })
+        amt = float(t.get("amount") or 0)
+        ttype = (t.get("type") or "").lower()
+        bucket["transaction_count"] += 1
+        if t.get("trade_account_number"):
+            bucket["traders"].add(t["trade_account_number"])
+        if ttype in EARN_TYPES:
+            bucket["lifetime_earned"] += amt
+        elif ttype in REDEEM_TYPES:
+            # `amount` is stored negative on redemptions, so absolute it
+            bucket["lifetime_redeemed"] += abs(amt)
+        elif ttype in REVERSE_TYPES:
+            bucket["reversed_total"] += amt
+
+    rows = []
+    total_liability = 0.0
+    for r in per_showroom.values():
+        earned = round(r["lifetime_earned"], 2)
+        redeemed = round(r["lifetime_redeemed"], 2)
+        # Reversed credit-earns are negative (they subtract from earn);
+        # reversed-redeems are positive (they add back to balance) — net
+        # them into the appropriate side for honest accounting.
+        net_earned = round(earned + r["reversed_total"], 2)  # reversed_total already negative for earns
+        liability = round(max(0.0, net_earned - redeemed), 2)
+        ratio = round(redeemed / earned, 3) if earned > 0 else None
+        rows.append({
+            "showroom_name": r["showroom_name"],
+            "lifetime_earned": earned,
+            "lifetime_redeemed": redeemed,
+            "net_earned": net_earned,
+            "liability": liability,
+            "earn_redeem_ratio": ratio,
+            "active_traders": len(r["traders"]),
+            "transaction_count": r["transaction_count"],
+        })
+        total_liability += liability
+
+    rows.sort(key=lambda r: r["liability"], reverse=True)
+    return {
+        "rows": rows,
+        "total_liability": round(total_liability, 2),
+        "showroom_count": len(rows),
+    }

@@ -9,6 +9,27 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Feb 24, 2026 — Forked session] ✅ Credit Liability by Showroom widget (Reports → Sales)
+
+**User intent**: build the "potential improvement" from the previous turn — surface per-showroom trade-credit liability + earn/redeem ratio so the owner can spot a store accumulating credit faster than customers come back to redeem it.
+
+**Backend** `GET /api/invoices/credit-liability/by-showroom`:
+- Aggregates `credit_transactions` per showroom with lifetime earned / redeemed / outstanding liability / earn-redeem ratio / active trader count
+- Back-fills `showroom_name` from the linked invoice for any legacy txns missing the field — accurate totals even before today's stamping change reaches production
+- Earn types: `earned_in_store`, `earned_online`, `reapplied_*`
+- Redeem types: `redeemed_*`
+- Reversal types adjust both sides correctly
+- Showroom-scoped admin (super_admin only could later be relaxed if you want managers to see their own)
+
+**Frontend** `CreditLiabilityByShowroomCard.jsx` on `/admin/reports`:
+- Top strip: total liability + showroom count
+- One row per showroom with: name, ratio pill (3-tier: red < 0.5 / amber < 1.0 / green ≥ 1.0), trader count, £liability
+- Two-tone bar showing Earned (light emerald) with Redeemed (dark emerald) overlay — instant visual of how much of the issued credit has come back
+- Legend explaining ratio thresholds
+
+**Files**: `backend/routes/invoices.py` (new endpoint), `frontend/src/components/admin/CreditLiabilityByShowroomCard.jsx` (NEW), `frontend/src/pages/admin/Reports.js` (mount above stat tiles).
+
+
 ### [Feb 24, 2026 — Forked session] ✅ Trade Credit Emails Card: Collapsible + Source Stamp + Trader Breakdown
 
 **User intent**: *"1. Make this collapsible — list is growing, requires lots of scrolling to get to EPOS tabs. 2. Stamp where credit is earned/used (showroom name, online vs in-store). 3. Show breakdown of earned/used credit history when clicking the trader's name."*

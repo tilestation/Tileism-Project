@@ -4,6 +4,7 @@ import { toast } from 'sonner';
 import { Card } from '../../components/ui/card';
 import { Button } from '../../components/ui/button';
 import { BarChart3, TrendingUp, Package, ShoppingCart, Download, FileSpreadsheet, FileText } from 'lucide-react';
+import { CreditLiabilityByShowroomCard } from '../../components/admin/CreditLiabilityByShowroomCard';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -200,6 +201,14 @@ export const AdminReports = () => {
           </div>
           <p className="text-3xl font-heading font-bold tracking-tightest tabular-nums">£{stats?.total_revenue?.toFixed(2) || '0.00'}</p>
         </Card>
+      </div>
+
+      {/* Credit Liability by Showroom — 24 Feb 2026.
+          Surfaces per-showroom credit liability + earn/redeem ratio
+          so the owner can spot a store accumulating credit faster
+          than customers come back to redeem it. */}
+      <div className="mb-6">
+        <CreditLiabilityByShowroomCard />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
