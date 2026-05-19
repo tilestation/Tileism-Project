@@ -9,6 +9,36 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Feb 24, 2026 — Forked session] ✅ Email Notifications for Refund Overrides & Device Approvals (deep-link CTA)
+
+**User intent**: *"I need the notification through email which includes the direct link for me to go to the page and approve there. Do the same for Device Approval. As Device Approval notifications only appear on toast and I don't receive any email notification with the direct link to the page for approval of any device. Do the same for Refunds which you just done (no need for telegram - only email) and then for Device Approval request."*
+
+**Implementation**:
+
+1. **New reusable email helper** `send_super_admin_alert()` in `backend/services/email.py`:
+   - Resolves recipients live from `users` where `role=super_admin` (falls back to `ADMIN_EMAIL` env var so we never silently drop a critical alert)
+   - Renders a consistent admin-alert template with title, summary, definition-list of fields, prominent CTA button, and a coloured accent
+   - CTA path is site-relative — helper prepends `SHOP_WEBSITE_URL` so the email always contains a real production link, regardless of which environment fired the alert
+   - Footer reminds the recipient how the alert is logged + what to do if they didn't authorise it
+
+2. **Refund no-invoice override** — replaced Telegram with email (per user request "no need for telegram - only email")
+   - Subject: `[Tile Station Admin] No-invoice refund approved`
+   - Body lists: ref, amount + method, customer + phone, showroom, approver, reason, timestamp
+   - CTA: **"Review Refund in Admin"** → links straight to `/admin/epos?tab=refund-history`
+
+3. **Device approval request** — added on top of the existing toast (which was the only notification before; super admin in office could never see it from home/outside the showroom)
+   - Subject: `[Tile Station Admin] New device requesting login`
+   - Body lists: user (with role), device name, device type, IP address, timestamp, request ID
+   - CTA: **"Review device requests"** → links straight to `/admin/settings#device-approvals`
+   - Added `id="device-approvals"` anchor + amber-highlight scroll-on-load handler so the page lands directly on the request card
+
+4. **Removed Telegram event**: `no_invoice_refund` toggle removed from `services/telegram_notify.py` defaults
+
+**Files**: `backend/services/email.py` (NEW `send_super_admin_alert` + `_admin_alert_html` + `_get_super_admin_emails`), `backend/routes/refunds.py` (Telegram → email), `backend/server.py` (device approval email), `backend/services/telegram_notify.py` (removed unused toggle), `frontend/src/pages/admin/SettingsPage.js` (anchor + scroll-on-hash).
+
+**Tests (26/26 pass)**: 4 new admin-alert-email tests + 6 refund-policy + 5 outstanding + 6 quick-pay + 5 deposit-audit.
+
+
 ### [Feb 24, 2026 — Forked session] ✅ Refunds Require Original Invoice (Super-Admin Override Only)
 
 **User intent (verbatim screenshot 19/05/2026)**: *"Do not let anyone issue the refund without Original Invoice linked. If just in case it's a must to process refund without the original Invoice linked, then only Super Admin should approve. Don't forget Super Admin needs to receive notification as Super Admin is not physically present in showrooms."*

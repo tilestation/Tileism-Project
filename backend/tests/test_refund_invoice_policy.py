@@ -125,7 +125,7 @@ def test_super_admin_no_invoice_short_reason_rejected(http):
 
 def test_super_admin_no_invoice_with_valid_reason_succeeds_and_fires_alert(http):
     """Super Admin path: override + reason → 200, fields stamped (proof the
-    Telegram alert branch executed — see refunds.py:create_refund)."""
+    email alert branch executed — see refunds.py:create_refund)."""
     rno = f"TEST-VALID-{uuid.uuid4().hex[:8]}"
     r = http.post("/api/refunds", json=_refund_payload(
         rno,
@@ -138,7 +138,7 @@ def test_super_admin_no_invoice_with_valid_reason_succeeds_and_fires_alert(http)
     assert body["no_invoice_override"] is True
 
     # Re-fetch and confirm the stamped fields. These fields are ONLY set on
-    # the path that also fires the Telegram alert, so their presence proves
+    # the path that also fires the email alert, so their presence proves
     # the alert branch ran.
     full = http.get(f"/api/refunds/{body['refund_id']}").json()
     assert full["no_invoice_override"] is True

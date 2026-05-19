@@ -225,8 +225,9 @@ async def create_refund(input: RefundCreate, current_user: dict = Depends(get_cu
     #   2. When a no-invoice refund IS approved (super_admin path),
     #      we stamp `no_invoice_override=true` + `no_invoice_reason`
     #      + `no_invoice_approved_by` on the refund doc for the audit
-    #      trail, and fire a Telegram notification to super admins
-    #      who aren't physically in the showroom.
+    #      trail, and email super admins with a deep link straight
+    #      to the refund history page so they can review immediately
+    #      from their inbox (Super Admin isn't physically in showrooms).
     has_invoice_link = bool(
         (input.original_invoice_id or "").strip()
         or (input.original_invoice_no or "").strip()
@@ -366,29 +367,50 @@ async def create_refund(input: RefundCreate, current_user: dict = Depends(get_cu
         details=f"Refund {refund_dict['refund_no']} created for £{refund_dict['net_refund']:.2f}"
     )
 
-    # Notify Super Admins on Telegram for any no-invoice override.
+    # Notify Super Admins via email for any no-invoice override.
     # Super Admin isn't physically present in the showrooms — this is the
-    # only way they hear about an override approval. Sent fire-and-forget
-    # so a slow / failing Telegram doesn't block the refund response.
+    # only way they hear about an override approval. Email contains a
+    # direct deep link to refund history so they can review and take
+    # action in one click. Fired fire-and-forget so a slow email provider
+    # doesn't block the refund response.
     if refund_dict["no_invoice_override"]:
+        import asyncio as _asyncio
+        async def _email_super_admins():
+            try:
+                from services.email import send_super_admin_alert
+                await send_super_admin_alert(
+                    title="No-invoice refund approved",
+                    summary=(
+                        "A Super Admin override has just been used to issue a refund "
+                        "without a linked original invoice. The refund has already been "
+                        "processed and stock restored. Please review and confirm this "
+                        "is legitimate."
+                    ),
+                    fields=[
+                        ("Refund ref", f"<strong>{refund_dict['refund_no']}</strong>"),
+                        ("Amount", f"<strong>£{refund_dict['net_refund']:.2f}</strong> via {refund_dict.get('refund_method') or '—'}"),
+                        ("Customer", f"{refund_dict.get('customer_name') or '—'}<br><span style='color:#737373;font-size:12px;'>{refund_dict.get('customer_phone') or '—'}</span>"),
+                        ("Showroom", refund_dict.get("showroom_name") or "—"),
+                        ("Approved by", f"<strong>{refund_dict['no_invoice_approved_by']}</strong>"),
+                        ("Reason", refund_dict.get("no_invoice_reason") or "—"),
+                        ("Issued at", refund_dict["no_invoice_approved_at"]),
+                    ],
+                    cta_label="Review Refund in Admin",
+                    cta_path="/admin/epos?tab=refund-history",
+                    accent_colour="#b91c1c",
+                    icon="🚨",
+                    footer_note=(
+                        "This action is recorded permanently in the audit log. "
+                        "If you did not authorise this override, contact the approver "
+                        "(named above) immediately."
+                    ),
+                )
+            except Exception as e:  # pragma: no cover — never block refund on notify failure
+                logger.warning("send_super_admin_alert (no-invoice refund) failed: %s", e)
         try:
-            from services.telegram_notify import fire_and_forget as _telegram_fire
-            text = (
-                "🚨 <b>No-invoice refund issued</b>\n"
-                f"<b>Ref:</b> {refund_dict['refund_no']}\n"
-                f"<b>Amount:</b> £{refund_dict['net_refund']:.2f} ({refund_dict.get('refund_method') or '—'})\n"
-                f"<b>Customer:</b> {refund_dict.get('customer_name') or '—'}\n"
-                f"<b>Showroom:</b> {refund_dict.get('showroom_name') or '—'}\n"
-                f"<b>Approved by:</b> {refund_dict['no_invoice_approved_by']}\n"
-                f"<b>Reason:</b> {refund_dict.get('no_invoice_reason') or '—'}"
-            )
-            _telegram_fire(
-                "no_invoice_refund",
-                text,
-                dedupe_key=refund_dict["refund_no"],
-            )
-        except Exception as e:  # pragma: no cover — never block refund on notify failure
-            logger.warning("Telegram no_invoice_refund notify failed: %s", e)
+            _asyncio.create_task(_email_super_admins())
+        except RuntimeError:
+            pass  # no running event loop (test contexts)
 
     return {
         "message": "Refund processed and stock restored",

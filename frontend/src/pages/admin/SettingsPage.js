@@ -169,6 +169,30 @@ export const SettingsPage = () => {
     fetchStores();
   }, []);
 
+  // Honour `#device-approvals` (and similar) anchors from email deep
+  // links. React Router doesn't auto-scroll on hash, so we do it
+  // manually after the page paints. Retries for a few hundred ms to
+  // catch the case where the target card mounts after a lazy import.
+  useEffect(() => {
+    const hash = window.location.hash;
+    if (!hash) return;
+    let attempts = 0;
+    const id = hash.slice(1);
+    const tryScroll = () => {
+      const el = document.getElementById(id);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        // Brief highlight so the admin's eye lands on the right card
+        el.style.transition = 'box-shadow 0.4s ease-out';
+        el.style.boxShadow = '0 0 0 3px rgba(217,119,6,0.45)';
+        setTimeout(() => { el.style.boxShadow = ''; }, 2200);
+        return;
+      }
+      if (attempts++ < 20) setTimeout(tryScroll, 100);
+    };
+    tryScroll();
+  }, []);
+
   const fetchStores = async () => {
     try {
       const res = await api.getStores();
@@ -560,9 +584,13 @@ export const SettingsPage = () => {
             </div>
           </Card>
 
-          {/* Device Approvals - Super Admin Only */}
+          {/* Device Approvals - Super Admin Only.
+              `id` anchor is referenced from the device-approval email
+              link (#device-approvals) so the admin lands directly on
+              this card and scrolls to it. See backend/server.py
+              `_email_device_approval_request`. */}
           {user?.role === 'super_admin' && (
-            <Card className="p-6 lg:col-span-2">
+            <Card id="device-approvals" className="p-6 lg:col-span-2 scroll-mt-24">
               <h3 className="font-semibold text-lg mb-4 flex items-center gap-2">
                 <Shield className="h-5 w-5 text-amber-600" />
                 Device Approval Requests

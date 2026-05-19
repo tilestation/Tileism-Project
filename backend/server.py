@@ -1068,6 +1068,50 @@ async def login(input: UserLogin, request: Request):
                     entity_name=input.email,
                     details=f"New device login request from {input.device_name or 'Unknown Device'}"
                 )
+
+                # Email super admins with a deep link to the approval page.
+                # 24 Feb 2026 — replaces toast-only notification (which only
+                # the user attempting login could ever see). Super Admin
+                # isn't in the showroom; this email is how they hear about
+                # a new device request in real time. Fire-and-forget so a
+                # slow email provider can't make the login itself slower.
+                import asyncio as _asyncio_da
+                async def _email_device_approval_request():
+                    try:
+                        from services.email import send_super_admin_alert
+                        await send_super_admin_alert(
+                            title="New device requesting login",
+                            summary=(
+                                f"A new device is trying to sign in as "
+                                f"<strong>{user.get('name') or input.email}</strong>. "
+                                f"Approve it only if you recognise both the user and the device "
+                                f"and IP address below."
+                            ),
+                            fields=[
+                                ("User", f"<strong>{user.get('name') or '—'}</strong><br><span style='color:#737373;font-size:12px;'>{input.email} · {user.get('role') or '—'}</span>"),
+                                ("Device", input.device_name or "Unknown Device"),
+                                ("Device type", input.device_type or "unknown"),
+                                ("IP address", approval_request.get("ip_address") or "—"),
+                                ("Requested at", approval_request["requested_at"]),
+                                ("Request ref", f"<code>{approval_request['id']}</code>"),
+                            ],
+                            cta_label="Review device requests",
+                            cta_path="/admin/settings#device-approvals",
+                            accent_colour="#b45309",
+                            icon="🔐",
+                            subject_prefix="[Tile Station Admin]",
+                            footer_note=(
+                                "If you do NOT recognise this device or IP, deny the request "
+                                "immediately and ask the user to reset their password — their "
+                                "credentials may have been compromised."
+                            ),
+                        )
+                    except Exception as e:
+                        logging.warning(f"Device-approval email failed: {e}")
+                try:
+                    _asyncio_da.create_task(_email_device_approval_request())
+                except RuntimeError:
+                    pass
             
             raise HTTPException(
                 status_code=403, 

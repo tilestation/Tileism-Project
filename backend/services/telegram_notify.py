@@ -80,11 +80,6 @@ def _default_config() -> dict:
             # any required env var (admin password, supplier portal
             # passwords) is missing or empty. Critical for prod safety.
             "missing_credentials": True,
-            # 🚨 No-invoice refund — fires whenever a Super Admin
-            # approves a refund without a linked original invoice.
-            # Critical fraud-prevention signal: Super Admin isn't in
-            # the showroom, this is the only way they're notified.
-            "no_invoice_refund": True,
         },
         "abandoned_basket_threshold_gbp": 100,
     }

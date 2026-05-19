@@ -14,6 +14,13 @@ except ImportError:
 
 RESEND_API_KEY = os.environ.get("RESEND_API_KEY")
 
+# Shared constants — defined here (top of module) so any helper below
+# can reference them without an order-dependent import cycle.
+COMPANY_NAME = "Tile Station"
+COMPANY_WEBSITE = os.environ.get("SHOP_WEBSITE_URL", "https://tilestation.co.uk")
+SENDER_EMAIL = os.environ.get("SENDER_EMAIL", "gravesend@tilestation.co.uk")
+ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "qasim@tilestation.co.uk")
+
 # Store email mapping
 SHOWROOM_EMAILS = {
     "gravesend": "gravesend@tilestation.co.uk",
@@ -1019,11 +1026,145 @@ async def send_email_notification(
 
 
 
+# ============ SUPER ADMIN ALERTS (refund overrides, device approvals) ============
+#
+# Reusable email helper for high-trust admin events that need:
+#   - a clear subject line in every super admin's inbox
+#   - a deep link straight to the approval / audit page
+#   - a written reason / context so the email itself is self-contained
+#
+# Used by: refund no-invoice overrides, device approval requests, and
+# any future super-admin escalation. Recipients are pulled live from
+# Mongo (`users` where role=super_admin) so adding/removing a super
+# admin doesn't require a backend env change.
+
+async def _get_super_admin_emails() -> list:
+    """Return the list of super admin email addresses (live from DB).
+
+    Falls back to ADMIN_EMAIL env var if no super_admin users exist
+    yet (clean install / restored backup) so we never silently drop
+    a critical alert email.
+    """
+    try:
+        from config import get_db
+        db = get_db()
+        cursor = db.users.find(
+            {"role": "super_admin", "deleted_at": {"$exists": False}},
+            {"_id": 0, "email": 1, "name": 1},
+        )
+        emails = []
+        async for u in cursor:
+            e = (u.get("email") or "").strip().lower()
+            if e and e not in emails:
+                emails.append(e)
+        if not emails and ADMIN_EMAIL:
+            emails = [ADMIN_EMAIL]
+        return emails
+    except Exception as e:
+        logging.warning(f"_get_super_admin_emails fallback: {e}")
+        return [ADMIN_EMAIL] if ADMIN_EMAIL else []
+
+
+def _admin_alert_html(
+    *,
+    title: str,
+    accent_colour: str,
+    icon: str,
+    summary: str,
+    fields: list,
+    cta_label: str,
+    cta_url: str,
+    footer_note: str = "",
+) -> str:
+    """Render a consistent admin-alert email template.
+
+    fields: list of (label, value) tuples to render as a definition list.
+    """
+    rows = "".join(
+        f'<tr><td style="padding:6px 14px 6px 0;color:#525252;white-space:nowrap;vertical-align:top;">{label}</td>'
+        f'<td style="padding:6px 0;color:#111;word-break:break-word;">{value}</td></tr>'
+        for label, value in fields
+    )
+    footer = (
+        f'<p style="margin:18px 0 0;font-size:12px;color:#737373;">{footer_note}</p>'
+        if footer_note else ""
+    )
+    return f"""\
+<!DOCTYPE html>
+<html><body style="margin:0;padding:24px;background:#f5f5f4;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:#111;">
+  <div style="max-width:560px;margin:0 auto;background:#fff;border:1px solid #e5e7eb;border-radius:12px;overflow:hidden;">
+    <div style="background:{accent_colour};padding:18px 24px;color:#fff;">
+      <div style="font-size:20px;font-weight:700;">{icon}&nbsp;{title}</div>
+    </div>
+    <div style="padding:22px 24px 8px;">
+      <p style="margin:0 0 16px;font-size:15px;line-height:1.45;">{summary}</p>
+      <table style="width:100%;border-collapse:collapse;font-size:14px;">{rows}</table>
+      <div style="margin:24px 0 8px;">
+        <a href="{cta_url}" style="display:inline-block;padding:11px 22px;background:{accent_colour};color:#fff;text-decoration:none;border-radius:8px;font-weight:600;font-size:14px;">{cta_label} &rarr;</a>
+      </div>
+      {footer}
+    </div>
+    <div style="background:#fafaf9;padding:12px 24px;border-top:1px solid #e5e7eb;color:#737373;font-size:11px;">
+      You're receiving this because you're a Super Admin on Tile Station.
+      Replies to this email are not monitored — use the link above to act.
+    </div>
+  </div>
+</body></html>"""
+
+
+async def send_super_admin_alert(
+    *,
+    title: str,
+    summary: str,
+    fields: list,
+    cta_label: str,
+    cta_path: str,
+    accent_colour: str = "#b45309",
+    icon: str = "⚠️",
+    subject_prefix: str = "[Tile Station Admin]",
+    footer_note: str = "",
+) -> bool:
+    """Send a deep-link admin alert email to every active super admin.
+
+    cta_path: site-relative path (e.g. "/admin/refund-history") — we
+    join it with SHOP_WEBSITE_URL so the email contains a real, clickable
+    production link regardless of which environment fired the alert.
+    """
+    recipients = await _get_super_admin_emails()
+    if not recipients:
+        logging.warning("send_super_admin_alert: no super admin recipients")
+        return False
+
+    cta_url = (
+        cta_path if cta_path.startswith("http")
+        else f"{COMPANY_WEBSITE.rstrip('/')}{cta_path}"
+    )
+
+    html = _admin_alert_html(
+        title=title,
+        accent_colour=accent_colour,
+        icon=icon,
+        summary=summary,
+        fields=fields,
+        cta_label=cta_label,
+        cta_url=cta_url,
+        footer_note=footer_note,
+    )
+
+    subject = f"{subject_prefix} {title}"
+    return await send_email_notification(
+        to_emails=recipients,
+        subject=subject,
+        html_content=html,
+    )
+
+
+
+
 # ============ ORDER STATUS EMAIL NOTIFICATIONS ============
 
-COMPANY_NAME = "Tile Station"
-COMPANY_WEBSITE = os.environ.get("SHOP_WEBSITE_URL", "https://tilestation.co.uk")
-SENDER_EMAIL = os.environ.get("SENDER_EMAIL", "gravesend@tilestation.co.uk")
+# (COMPANY_NAME / COMPANY_WEBSITE / SENDER_EMAIL constants are defined
+#  at the top of this module so admin-alert helpers above can use them.)
 
 
 def get_status_email_config(status: str) -> dict:
@@ -1543,7 +1684,7 @@ async def send_shop_order_confirmation(order: dict) -> dict:
 
 # ============ TRADE ACCOUNT REGISTRATION EMAILS ============
 
-ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "qasim@tilestation.co.uk")
+# ADMIN_EMAIL constant is defined at the top of the module.
 
 
 async def send_trade_welcome_email(customer: dict) -> dict:
