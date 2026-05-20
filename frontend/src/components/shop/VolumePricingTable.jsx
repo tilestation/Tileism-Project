@@ -30,6 +30,7 @@ const VolumePricingTable = ({
           {isTrade ? 'Trade Volume Pricing - Buy More, Save More' : 'Volume Pricing - Buy More, Save More'}
         </span>
       </div>
+      <div className="overflow-x-auto">
       <table className="w-full text-sm">
         <thead className="bg-gray-50">
           <tr>
@@ -105,6 +106,7 @@ const VolumePricingTable = ({
           })}
         </tbody>
       </table>
+      </div>
     </div>
   );
 };

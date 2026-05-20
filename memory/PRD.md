@@ -9,6 +9,36 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Feb 24, 2026 — Forked session] 🚨 P0 Mobile PDP Layout Overflow — Customer Reported Lost Sales
+
+**User-reported (verbatim, 20:48)**: *"Still witnessing the page layout issues on mobile devices, how the hell am I going to get customers order if customers can't even see half the PDP page... I just found after a month of launching the website, and if customer didn't report me I wouldn't have known about this issue."*
+
+**Screenshot showed**: On the Collection Detail (PDP) page at iPhone-sized viewport (~390px wide), the entire right-column content was clipping past the right edge of the viewport — "Trade Login" button, "Save 15%" badge, "Was £58.99" strikethrough, "Total: £64..." price, "You save £2..." text, "(1.44 m² p..." text, and the Pinterest "Save" button were all cut off on the right.
+
+**Root cause**: CSS Grid item `<div className="space-y-5">` (the right-column wrapper at line 2188 of `CollectionDetailPage.js`) had NO `min-w-0`. In CSS Grid, when a grid item contains content with intrinsic min-content larger than its column track, the column grows to accommodate it — defeating responsive containment. The major offenders pushing the column wider than the viewport were:
+1. Action buttons row (`flex gap-3` with 4 buttons: Add to Cart + Order Sample + Heart + Pinterest Save — no wrap)
+2. Sale Price banner (`flex items-center justify-between` with `text-3xl` NOW £xx + WAS £xx + SAVE £xx badge — no wrap, large text)
+3. Volume Pricing Table (intrinsic table min-content from `whitespace: nowrap` row content like "Extra X% Off")
+
+Diagnostic confirmed the bug: on a 390px viewport, the right-column children were rendering at 456px wide (66px past the viewport edge), clipped by an ancestor's `overflow: hidden`.
+
+**Fix shipped**:
+1. **`min-w-0` added to both grid columns** — allows them to shrink below intrinsic min-content size, restoring the responsive contract
+2. **Action buttons row** → `flex gap-3` → `flex flex-wrap gap-3` so the Pinterest "Save" no longer clips
+3. **Both Sale Price banners** (sale-with-was-price + label-only-sale) → outer row → `flex-wrap items-center justify-between gap-3`; inner price row → `flex-wrap items-baseline gap-x-3 gap-y-1`; large text → `text-2xl sm:text-3xl`; padding → `px-4 sm:px-6 py-4 sm:py-5`; SAVE badge → `flex-shrink-0` so it doesn't squish but DOES wrap to a new line
+4. **Volume Pricing Table** → wrapped `<table>` in `<div className="overflow-x-auto">` so wide tier content can scroll horizontally instead of stretching the parent column
+
+**Verification (Playwright at 360px / 390px / 414px viewports)**:
+- `document.scrollWidth === window.innerWidth` on all three widths (no document overflow)
+- H1, product-full-name, trade-customer-box, volume-pricing-table all measure exactly 358px (= 390 viewport − 32px page padding) ✅
+- Add to Cart 192px, fits ✅
+- Visual: every element from user's original screenshot now fully visible inside the viewport (Trade Login button intact, prices/totals intact, "(1.44 m² per box)" full text, Pinterest Save button on a new wrapped row)
+
+**Files**:
+- `/app/frontend/src/pages/shop/CollectionDetailPage.js` (4 changes — min-w-0 on both grid columns, flex-wrap on action row, two sale banners hardened)
+- `/app/frontend/src/components/shop/VolumePricingTable.jsx` (wrapped table in overflow-x-auto)
+
+
 ### [Feb 24, 2026 — Forked session] ✅ Partially-Refunded Invoice Credit Math + Returned-Item Visual Marking
 
 **Two user-reported bugs on partially-refunded invoices** (verbatim): *"1) Credit earned is being calculated on the pre-refund total instead of the final amount paid. 2) The invoice (UI and PDF) does not clearly show what has been returned/refunded (no stamp/wording)."*

@@ -1866,7 +1866,7 @@ const CollectionDetailPage = () => {
         <div className="grid lg:grid-cols-2 gap-8 lg:gap-12">
           
           {/* Left: Image Gallery - ENHANCED */}
-          <div className="space-y-4">
+          <div className="space-y-4 min-w-0">
             {/* Main Image with Zoom and Click to Lightbox */}
             <div 
               className="relative aspect-square bg-gray-100 rounded-xl overflow-hidden group"
@@ -2185,7 +2185,11 @@ const CollectionDetailPage = () => {
           </div>
 
           {/* Right: Product Details */}
-          <div className="space-y-5">
+          {/* min-w-0 is critical — without it, intrinsic min-content of children
+              (large price text, sale banners, volume pricing table) forces this
+              grid track wider than the viewport on mobile, causing content to
+              clip past the right edge. */}
+          <div className="space-y-5 min-w-0">
             {/* Title & SKU */}
             <div>
               <h1 className="text-2xl md:text-3xl font-bold text-gray-900 uppercase tracking-wide">
@@ -2303,17 +2307,17 @@ const CollectionDetailPage = () => {
                 return (
                   <div data-testid="sale-price-ribbon">
                     <div className="rounded-2xl overflow-hidden" style={{ background: 'linear-gradient(135deg, #ef4444 0%, #dc2626 50%, #b91c1c 100%)' }}>
-                      <div className="px-6 py-5 flex items-center justify-between">
-                        <div>
+                      <div className="px-4 sm:px-6 py-4 sm:py-5 flex flex-wrap items-center justify-between gap-3">
+                        <div className="min-w-0">
                           <div className="text-red-200 text-xs font-bold uppercase tracking-widest mb-1">Sale Price</div>
-                          <div className="flex items-baseline gap-3">
+                          <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
                             <span className="text-white/60 text-base line-through">WAS £{safeToFixed(wasPrice, 2)}</span>
-                            <span className="text-white text-3xl font-black tracking-tight">NOW £{safeToFixed(nowPrice, 2)}</span>
+                            <span className="text-white text-2xl sm:text-3xl font-black tracking-tight">NOW £{safeToFixed(nowPrice, 2)}</span>
                             <span className="text-white/70 text-sm font-medium">{isSurfaceProduct ? '/m²' : '/each'}</span>
                             {isTrade && <span className="text-white/50 text-xs">ex. VAT</span>}
                           </div>
                         </div>
-                        <div className="bg-white rounded-xl px-4 py-3 text-center shadow-lg min-w-[90px]">
+                        <div className="bg-white rounded-xl px-4 py-3 text-center shadow-lg min-w-[90px] flex-shrink-0">
                           <div className="text-red-600 text-lg font-black leading-tight">SAVE £{totalSavings.toFixed(2)}</div>
                           <div className="text-gray-500 text-xs font-bold mt-0.5">{displayTotalOff}% OFF</div>
                         </div>
@@ -2397,17 +2401,17 @@ const CollectionDetailPage = () => {
                 return (
                   <div data-testid="sale-price-ribbon">
                     <div className="rounded-2xl overflow-hidden" style={{ background: 'linear-gradient(135deg, #ef4444 0%, #dc2626 50%, #b91c1c 100%)' }}>
-                      <div className="px-6 py-5 flex items-center justify-between">
-                        <div>
+                      <div className="px-4 sm:px-6 py-4 sm:py-5 flex flex-wrap items-center justify-between gap-3">
+                        <div className="min-w-0">
                           <div className="text-red-200 text-xs font-bold uppercase tracking-widest mb-1">Sale Price</div>
-                          <div className="flex items-baseline gap-3">
-                            <span className="text-white text-3xl font-black tracking-tight">£{safeToFixed(nowPrice, 2)}</span>
+                          <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                            <span className="text-white text-2xl sm:text-3xl font-black tracking-tight">£{safeToFixed(nowPrice, 2)}</span>
                             <span className="text-white/70 text-sm font-medium">{isSurfaceProduct ? '/m²' : '/each'}</span>
                             {isTrade && <span className="text-white/50 text-xs">ex. VAT</span>}
                           </div>
                         </div>
                         {maxTierDiscount > 0 && (
-                          <div className="bg-white rounded-xl px-4 py-3 text-center shadow-lg min-w-[90px]">
+                          <div className="bg-white rounded-xl px-4 py-3 text-center shadow-lg min-w-[90px] flex-shrink-0">
                             <div className="text-red-600 text-sm font-black leading-tight">UP TO</div>
                             <div className="text-red-600 text-lg font-black leading-tight">{maxTierDiscount}% OFF</div>
                           </div>
@@ -3262,7 +3266,7 @@ const CollectionDetailPage = () => {
                   </div>
                 )}
                 
-                <div className="flex gap-3">
+                <div className="flex flex-wrap gap-3">
                   {/* ENHANCED Add to Cart Button with micro-interactions */}
                   <Button
                     onClick={handleAddToCart}
