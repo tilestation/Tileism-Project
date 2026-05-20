@@ -62,8 +62,9 @@ def _seed_invoice(**overrides):
     """Write a minimal invoice doc to Mongo directly so we can exercise
     PDF rendering with arbitrary trade-credit fields set."""
     db = _db()
+    inv_id = str(uuid.uuid4())
     doc = {
-        "id": str(uuid.uuid4()),
+        "id": inv_id,
         "invoice_no": f"PDF-CRED-{uuid.uuid4().hex[:8]}",
         "date": TODAY_UK,
         "customer_name": "PDF Credit Test Customer",
@@ -80,13 +81,29 @@ def _seed_invoice(**overrides):
         "status": "open_order",
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
+    # Pop our optional balance-seeding sidecar so it doesn't end up
+    # on the invoice doc itself.
+    balance_after = overrides.pop("__seed_balance_after__", None)
     doc.update(overrides)
     db.invoices.insert_one(doc)
-    return doc["id"]
+    # Optionally seed a credit_transactions row so PDF generation can
+    # look up the post-invoice balance.
+    if balance_after is not None:
+        db.credit_transactions.insert_one({
+            "id": str(uuid.uuid4()),
+            "invoice_id": inv_id,
+            "type": "earned_in_store",
+            "amount": float(doc.get("trade_credit_earned") or 0),
+            "balance_after": float(balance_after),
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        })
+    return inv_id
 
 
 def _cleanup(inv_id):
-    _db().invoices.delete_one({"id": inv_id})
+    db = _db()
+    db.invoices.delete_one({"id": inv_id})
+    db.credit_transactions.delete_many({"invoice_id": inv_id})
 
 
 def test_pdf_includes_trade_credit_earned_row(http):
@@ -156,5 +173,40 @@ def test_pdf_shows_both_rows_when_invoice_earns_and_uses_credit(http):
         assert "15.00" in text
         assert "2.25" in text
         assert "T-TEST-BOTH" in text
+    finally:
+        _cleanup(inv_id)
+
+
+def test_pdf_shows_balance_after_invoice_when_credit_txn_logged(http):
+    """When a credit_transactions row exists for the invoice, the PDF
+    should render a 'Balance After Invoice' line using its `balance_after`
+    field. This is the post-settlement snapshot from the trader's POV."""
+    inv_id = _seed_invoice(
+        trade_account_number="T-TEST-BAL",
+        trade_credit_earned=4.50,
+        __seed_balance_after__=127.50,  # what's left on the trader's account
+    )
+    try:
+        r = http.get(f"/api/invoices/{inv_id}/pdf")
+        assert r.status_code == 200, r.text
+        text = _extract_pdf_text(r.content)
+        assert "Balance After Invoice" in text, \
+            "PDF must show 'Balance After Invoice' when credit_transactions has balance_after"
+        assert "127.50" in text
+
+
+    finally:
+        _cleanup(inv_id)
+
+
+def test_pdf_omits_balance_row_when_no_credit_txn(http):
+    """If the invoice had no credit activity, the balance row must NOT
+    render (we don't surface stale balances for retail invoices)."""
+    inv_id = _seed_invoice()  # no credit fields, no seeded txn
+    try:
+        r = http.get(f"/api/invoices/{inv_id}/pdf")
+        assert r.status_code == 200, r.text
+        text = _extract_pdf_text(r.content)
+        assert "Balance After Invoice" not in text
     finally:
         _cleanup(inv_id)

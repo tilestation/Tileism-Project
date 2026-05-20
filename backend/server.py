@@ -7633,7 +7633,32 @@ async def generate_invoice_pdf(invoice_id: str, current_user: dict = Depends(get
     showroom = None
     if showroom_id:
         showroom = await db.showrooms.find_one({"id": showroom_id}, {"_id": 0})
-    
+
+    # ── Trade-credit balance lookup (24 Feb 2026 follow-up) ──────────
+    # Resolve the trader's credit balance AT THE TIME this invoice was
+    # processed (not the customer's current balance, which would be
+    # misleading for old invoices). We read `balance_after` from the
+    # credit_transactions row(s) linked to this invoice and take the
+    # LATEST by created_at — that's the post-settlement snapshot for
+    # this invoice's earn / redeem activity.
+    #
+    # If neither earn nor redeem happened on this invoice we leave the
+    # value None and the PDF skips the row, so retail invoices stay clean.
+    trade_balance_after_pdf = None
+    try:
+        credit_redeemed_val = float(invoice.get("credit_redeemed") or 0)
+        credit_earned_val = float(invoice.get("trade_credit_earned") or 0)
+        if credit_redeemed_val > 0 or credit_earned_val > 0:
+            latest_txn = await db.credit_transactions.find_one(
+                {"invoice_id": invoice_id, "balance_after": {"$exists": True}},
+                {"_id": 0, "balance_after": 1, "created_at": 1},
+                sort=[("created_at", -1)],
+            )
+            if latest_txn and latest_txn.get("balance_after") is not None:
+                trade_balance_after_pdf = round(float(latest_txn["balance_after"]), 2)
+    except Exception:  # never fail PDF generation on a balance lookup
+        trade_balance_after_pdf = None
+
     # Default showroom info (Gravesend as fallback)
     showroom_name = "Tile Station - Gravesend"
     showroom_address = "Unit 3 Trade City Coldharbour Road"
@@ -7839,6 +7864,8 @@ Co. 11982550 / VAT 324 251 828"""
         summary_data.append(["Trade Credit Earned", f"+£{credit_earned_pdf:.2f}"])
     if trade_ref_pdf and (credit_redeemed_pdf > 0 or credit_earned_pdf > 0):
         summary_data.append(["Trade Account", trade_ref_pdf])
+    if trade_balance_after_pdf is not None:
+        summary_data.append(["Balance After Invoice", f"£{trade_balance_after_pdf:.2f}"])
 
     summary_data.append(["TOTAL", f"£{gross_total:.2f}"])
     
@@ -7939,6 +7966,27 @@ async def generate_invoice_pdf_bytes(invoice: dict, showroom: dict = None) -> by
     """Generate PDF bytes for an invoice - matches frontend print preview"""
     if not REPORTLAB_AVAILABLE:
         raise HTTPException(status_code=500, detail="PDF generation not available")
+
+    # ── Trade-credit balance lookup (24 Feb 2026 follow-up) ──────────
+    # Mirrors `generate_invoice_pdf`. We read `balance_after` from the
+    # credit_transactions row(s) linked to this invoice and take the
+    # LATEST by created_at — that's the post-settlement snapshot. The
+    # PDF skips the row if neither earn nor redeem happened, so retail
+    # invoices stay clean.
+    trade_balance_after_pdf = None
+    try:
+        credit_redeemed_val = float(invoice.get("credit_redeemed") or 0)
+        credit_earned_val = float(invoice.get("trade_credit_earned") or 0)
+        if (credit_redeemed_val > 0 or credit_earned_val > 0) and invoice.get("id"):
+            latest_txn = await db.credit_transactions.find_one(
+                {"invoice_id": invoice["id"], "balance_after": {"$exists": True}},
+                {"_id": 0, "balance_after": 1, "created_at": 1},
+                sort=[("created_at", -1)],
+            )
+            if latest_txn and latest_txn.get("balance_after") is not None:
+                trade_balance_after_pdf = round(float(latest_txn["balance_after"]), 2)
+    except Exception:  # never fail PDF generation on a balance lookup
+        trade_balance_after_pdf = None
     
     # Default showroom info
     showroom_name = "Tile Station - Gravesend"
@@ -8118,6 +8166,8 @@ Co. 11982550 / VAT 324 251 828"""
         summary_data.append(["Trade Credit Earned", f"+£{credit_earned_pdf:.2f}"])
     if trade_ref_pdf and (credit_redeemed_pdf > 0 or credit_earned_pdf > 0):
         summary_data.append(["Trade Account", trade_ref_pdf])
+    if trade_balance_after_pdf is not None:
+        summary_data.append(["Balance After Invoice", f"£{trade_balance_after_pdf:.2f}"])
 
     summary_data.append(["TOTAL", f"£{gross_total:.2f}"])
     

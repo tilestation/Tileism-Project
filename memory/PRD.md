@@ -9,6 +9,28 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Feb 24, 2026 — Forked session] ✅ Invoice PDF: Balance After Invoice row
+
+**User-approved follow-up**: now that the PDF shows credit Used / Earned, also show the trader's **balance immediately after this invoice settled** so they have a printed "you have £X left for next time" snapshot.
+
+**Implementation** (`backend/server.py`):
+- Both PDF code paths (`generate_invoice_pdf` route + `generate_invoice_pdf_bytes` helper) now do an async lookup on `credit_transactions` for the latest row linked to the invoice with a `balance_after` field
+- That row's `balance_after` is the post-settlement snapshot at the moment the invoice was processed — accurate even for historical invoices viewed today (not the customer's CURRENT balance, which would be misleading)
+- New PDF row **"Balance After Invoice: £X.XX"** is appended after "Trade Account", before TOTAL
+- Auto-hides on retail invoices (no credit activity → no lookup → no row)
+- Lookup wrapped in try/except so a Mongo hiccup never breaks PDF generation
+
+**Tests (6/6 pass)**:
+- Earned-only invoice → "Trade Credit Earned" row + amount + trade ref
+- Used-only invoice → "Trade Credit Used" row + amount + trade ref
+- Retail invoice → no credit rows at all
+- Both earned AND used → both rows + shared trade ref
+- Balance row appears when credit_transactions has `balance_after` (returns "£127.50")
+- Balance row absent on retail invoice (no stale balance leakage)
+
+**Files**: `backend/server.py` (`generate_invoice_pdf` + `generate_invoice_pdf_bytes` — balance lookup + new row, both summary blocks).
+
+
 ### [Feb 24, 2026 — Forked session] ✅ Invoice PDF now shows Trade Credit Used / Earned + Trade Account
 
 **User-spotted gap**: the printed invoice PDF previously contained NO trace of trade-credit activity even though the data was in the doc — customers walked out with paper that didn't reflect credit they'd just used or earned.
