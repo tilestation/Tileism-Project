@@ -9,6 +9,27 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Feb 24, 2026 — Forked session] ✅ Invoice PDF now shows Trade Credit Used / Earned + Trade Account
+
+**User-spotted gap**: the printed invoice PDF previously contained NO trace of trade-credit activity even though the data was in the doc — customers walked out with paper that didn't reflect credit they'd just used or earned.
+
+**Fix** in `backend/server.py` `generate_invoice_pdf`:
+- Three optional rows added between VAT and TOTAL (so TOTAL stays the bold/lined last row):
+  - **"Trade Credit Used"** — shown as `−£X.XX` when `credit_redeemed > 0`
+  - **"Trade Credit Earned"** — shown as `+£X.XX` when `trade_credit_earned > 0`
+  - **"Trade Account"** — the customer's trade ref (e.g. `T-00001`), shown only when either of the above is present
+- Rows auto-hide on retail invoices (no clutter)
+- Patched in **both** summary blocks (page-1 and continuation layouts) so multi-page invoices stay consistent
+
+**Tests (4/4 pass)**:
+- PDF contains `Trade Credit Earned` row + £ amount + trade ref when invoice earned credit
+- PDF contains `Trade Credit Used` row + £ amount + trade ref when invoice used credit
+- Retail invoice (no credit fields) → neither row rendered
+- Edge case: invoice both earned AND used credit → both rows + single trade ref appear
+
+**Files**: `backend/server.py` (`generate_invoice_pdf`, two patches).
+
+
 ### [Feb 24, 2026 — Forked session] ✅ Credit Liability by Showroom widget (Reports → Sales)
 
 **User intent**: build the "potential improvement" from the previous turn — surface per-showroom trade-credit liability + earn/redeem ratio so the owner can spot a store accumulating credit faster than customers come back to redeem it.

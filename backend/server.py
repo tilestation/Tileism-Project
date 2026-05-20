@@ -7818,6 +7818,28 @@ Co. 11982550 / VAT 324 251 828"""
     
     summary_data.append(["Subtotal", f"£{subtotal:.2f}"])
     summary_data.append(["VAT (20%)", f"£{vat:.2f}"])
+
+    # ── Trade credit rows (24 Feb 2026) ──
+    # Show "Trade Credit Used" (negative — was used to pay the invoice)
+    # and "Trade Credit Earned on this purchase" (positive — given back to
+    # the trader's account). Both lines only appear when applicable so we
+    # don't clutter the PDF for retail customers. Inserted BEFORE the
+    # TOTAL row so TOTAL stays last (the table style targets `-1` for
+    # the bold/line-above formatting).
+    credit_redeemed_pdf = float(invoice.get("credit_redeemed") or 0)
+    credit_earned_pdf = float(invoice.get("trade_credit_earned") or 0)
+    trade_ref_pdf = (
+        invoice.get("trade_account_number")
+        or invoice.get("credit_redeemed_account")
+        or ""
+    ).strip()
+    if credit_redeemed_pdf > 0:
+        summary_data.append(["Trade Credit Used", f"−£{credit_redeemed_pdf:.2f}"])
+    if credit_earned_pdf > 0:
+        summary_data.append(["Trade Credit Earned", f"+£{credit_earned_pdf:.2f}"])
+    if trade_ref_pdf and (credit_redeemed_pdf > 0 or credit_earned_pdf > 0):
+        summary_data.append(["Trade Account", trade_ref_pdf])
+
     summary_data.append(["TOTAL", f"£{gross_total:.2f}"])
     
     summary_table = Table(summary_data, colWidths=[35*mm, 25*mm])
@@ -8079,6 +8101,24 @@ Co. 11982550 / VAT 324 251 828"""
         summary_data.append([pm, ""])
     summary_data.append(["Subtotal", f"£{subtotal:.2f}"])
     summary_data.append(["VAT (20%)", f"£{vat:.2f}"])
+
+    # Trade credit rows (24 Feb 2026) — duplicated from page-1 block
+    # because the PDF assembles two independent summary tables. Inserted
+    # BEFORE TOTAL so TOTAL stays last (table style uses `-1` for bold).
+    credit_redeemed_pdf = float(invoice.get("credit_redeemed") or 0)
+    credit_earned_pdf = float(invoice.get("trade_credit_earned") or 0)
+    trade_ref_pdf = (
+        invoice.get("trade_account_number")
+        or invoice.get("credit_redeemed_account")
+        or ""
+    ).strip()
+    if credit_redeemed_pdf > 0:
+        summary_data.append(["Trade Credit Used", f"−£{credit_redeemed_pdf:.2f}"])
+    if credit_earned_pdf > 0:
+        summary_data.append(["Trade Credit Earned", f"+£{credit_earned_pdf:.2f}"])
+    if trade_ref_pdf and (credit_redeemed_pdf > 0 or credit_earned_pdf > 0):
+        summary_data.append(["Trade Account", trade_ref_pdf])
+
     summary_data.append(["TOTAL", f"£{gross_total:.2f}"])
     
     summary_table = Table(summary_data, colWidths=[35*mm, 25*mm])
