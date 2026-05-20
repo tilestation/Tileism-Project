@@ -9,6 +9,43 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Feb 24, 2026 — Forked session] ✅ Partially-Refunded Invoice Credit Math + Returned-Item Visual Marking
+
+**Two user-reported bugs on partially-refunded invoices** (verbatim): *"1) Credit earned is being calculated on the pre-refund total instead of the final amount paid. 2) The invoice (UI and PDF) does not clearly show what has been returned/refunded (no stamp/wording)."*
+
+**User-approved choices**: NET trade-credit display (£50 not £100 after a 50% refund) · red strikethrough + "(RETURNED)" prefix on returned line items · no header watermark — rely on row-level RETURNED tags · refund-note reversal retroactively updates the invoice's `trade_credit_earned` field (idempotent).
+
+**Fix 1 — Refund Note retroactively updates invoice's net credit** (`backend/routes/refunds.py::reverse_credits_for_refund`):
+- Reads `trade_credit_earned_original` (preserved) for ratio math instead of the live (already-decremented) field
+- Atomic `$inc` decrements `trade_credit_earned` AND `credit_redeemed` so the live fields always show the NET the trader actually keeps
+- `$set` writes `trade_credit_earned_original` / `credit_redeemed_original` on the first reversal — preserving the audit + keeping subsequent ratio math correct
+- Cumulative cap via existing `credit_earned_already_reversed` field is unchanged — multiple partial refunds still cumulatively reverse without overshoot
+
+**Fix 2 — Inline `isReturn` edit reconciles credit** (`backend/routes/invoices.py`):
+- New `_reconcile_credit_after_edit()` helper recomputes credit via `_compute_per_line_credit` whenever `PUT /api/invoices/{id}` includes new `line_items`
+- Delta is debited from the trader's `credit_balance`, logged as `reversed_earned_via_invoice_edit` in `credit_transactions`, and `trade_credit_earned` (NET) + `trade_credit_earned_original` (preserved) are stamped on the invoice
+- Notes-only edits are a no-op (line_items field absent in payload)
+- If an edit ADDS credit (e.g. new line), logs a warning instead of auto-accruing — too risky for an edit endpoint
+
+**Fix 3 — Visual RETURNED marker (PDF + UI + Print Preview)**:
+- Both PDF generators in `server.py` (`generate_invoice_pdf` + `generate_invoice_pdf_bytes`) wrap returned product names in `<strike>(RETURNED) name</strike>` Paragraphs with red font + flip the Total cell to red negative
+- `InvoiceLineItemsTable.js`: red "RETURNED" badge above product input, `line-through text-red-700` on the input itself, `border-l-4 border-l-red-500 bg-red-50` on the row, red bold negative total
+- `InvoicePrintPreview.js`: row-level `text-decoration: line-through; color: #dc2626`, red bold "(RETURNED)" prefix, negative total
+- Summary row "Returns/Credits" upgraded amber → red bold
+
+**Tests (7 NEW pass — 33/33 invoice-related)**:
+- `tests/test_invoice_returns_credit_math.py`: partial refund reduces by exact ratio, full refund zeroes it, 2× partial refunds don't over-reverse, refund with redeemed credit reverses BOTH lanes, isReturn edit reduces credit + logs reversed_earned_via_invoice_edit txn, notes-only edit is a noop, PDF includes "(RETURNED)" marker on isReturn lines
+- Testing agent confirmed all 7 frontend visual assertions pass in Playwright (RETURNED badge in 2 places, line-through input, red-bg row, red negative total, Returns/Credits summary row, negative Gross Total, Print Preview prefix)
+
+**Files**:
+- `/app/backend/routes/refunds.py` (reverse_credits_for_refund: preserve originals + retroactive net-mutation)
+- `/app/backend/routes/invoices.py` (new `_reconcile_credit_after_edit` helper + invocation from `update_invoice`)
+- `/app/backend/server.py` (RETURNED prefix + strikethrough in both PDF code paths)
+- `/app/frontend/src/components/invoice/InvoiceLineItemsTable.js` (RETURNED badge, red border + bg, strikethrough input)
+- `/app/frontend/src/components/invoice/InvoicePrintPreview.js` (RETURNED prefix + line-through + negative total)
+- `/app/backend/tests/test_invoice_returns_credit_math.py` (NEW — 7 tests)
+
+
 ### [Feb 24, 2026 — Forked session] ✅ Invoice PDF: Balance After Invoice row
 
 **User-approved follow-up**: now that the PDF shows credit Used / Earned, also show the trader's **balance immediately after this invoice settled** so they have a printed "you have £X left for next time" snapshot.
