@@ -4924,14 +4924,15 @@ async def get_trade_credit_history_detailed(request: Request):
         {"_id": 0},
     ).sort("created_at", -1).to_list(200)
 
-    # Pull breakdown from invoices for the EPOS earn rows. A single batch
-    # find() avoids N+1 lookups.
+    # Pull breakdown + showroom from invoices for the EPOS rows (both earn
+    # and redeem benefit from showroom back-fill for legacy txns missing it).
     invoice_ids = [r["invoice_id"] for r in epos_rows if r.get("invoice_id")]
     breakdown_by_invoice = {}
     if invoice_ids:
         async for inv in db.invoices.find(
             {"id": {"$in": invoice_ids}},
-            {"_id": 0, "id": 1, "trade_credit_breakdown": 1, "subtotal": 1},
+            {"_id": 0, "id": 1, "trade_credit_breakdown": 1, "subtotal": 1,
+             "showroom_id": 1, "showroom_name": 1},
         ):
             breakdown_by_invoice[inv["id"]] = inv
 
@@ -4957,7 +4958,12 @@ async def get_trade_credit_history_detailed(request: Request):
         })
     for r in epos_rows:
         is_earn = r.get("type") == "earned_in_store"
-        inv_doc = breakdown_by_invoice.get(r.get("invoice_id")) if is_earn else None
+        inv_doc = breakdown_by_invoice.get(r.get("invoice_id"))
+        # Showroom: prefer the stamp on the txn, else fall back to the
+        # linked invoice (legacy rows pre-24-Feb-2026 didn't carry the
+        # showroom on the credit_transactions doc itself).
+        showroom_name = r.get("showroom_name") or (inv_doc or {}).get("showroom_name")
+        showroom_id = r.get("showroom_id") or (inv_doc or {}).get("showroom_id")
         events.append({
             "id": r.get("id"),
             "type": "earn" if is_earn else "redeem",
@@ -4969,8 +4975,10 @@ async def get_trade_credit_history_detailed(request: Request):
             "source_ref": r.get("invoice_id"),
             "source_link": None,  # in-store invoices don't have a public URL
             "description": r.get("description"),
-            "breakdown": (inv_doc or {}).get("trade_credit_breakdown") or None,
-            "subtotal": (inv_doc or {}).get("subtotal"),
+            "showroom_name": showroom_name,
+            "showroom_id": showroom_id,
+            "breakdown": (inv_doc or {}).get("trade_credit_breakdown") if is_earn else None,
+            "subtotal": (inv_doc or {}).get("subtotal") if is_earn else None,
         })
 
     # Newest first across both channels
@@ -4987,6 +4995,194 @@ async def get_trade_credit_history_detailed(request: Request):
         "total_earned": total_earned,
         "total_redeemed": total_redeemed,
     }
+
+
+@router.get("/trade/credit-statement.pdf")
+async def get_trade_credit_statement_pdf(request: Request, year: int = None):
+    """Generate a PDF statement of all credit activity for a trader.
+
+    Combines earn + redeem events from both the online (`trade_credits`)
+    and in-store (`credit_transactions`) pipelines into a single
+    chronological statement, scoped to one year (defaults to current).
+
+    The trader downloads this from their dashboard's Discount tab —
+    same pattern as a bank statement. Eliminates the "how much credit
+    do I have?" inbound phone call, and gives them something concrete
+    to reconcile against their own bookkeeping.
+    """
+    from fastapi.responses import StreamingResponse
+    from datetime import datetime as _dt, timezone as _tz
+    import io as _io
+    try:
+        from reportlab.lib.pagesizes import A4
+        from reportlab.lib.units import mm
+        from reportlab.lib import colors as _colors
+        from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+        from reportlab.lib.enums import TA_RIGHT
+    except ImportError:
+        raise HTTPException(status_code=500, detail="PDF generation unavailable")
+
+    customer = await get_shop_customer(request)
+    if not customer.get("is_trade"):
+        raise HTTPException(status_code=403, detail="Trade account required")
+
+    db = get_db()
+    cust_id = customer["id"]
+    target_year = int(year or _dt.now(_tz.utc).year)
+    year_start = _dt(target_year, 1, 1, tzinfo=_tz.utc).isoformat()
+    year_end = _dt(target_year + 1, 1, 1, tzinfo=_tz.utc).isoformat()
+
+    # Collect both pipelines, scoped to the year
+    online_rows = await db.trade_credits.find(
+        {"customer_id": cust_id, "created_at": {"$gte": year_start, "$lt": year_end}},
+        {"_id": 0},
+    ).sort("created_at", 1).to_list(2000)
+    epos_rows = await db.credit_transactions.find(
+        {"customer_id": cust_id, "created_at": {"$gte": year_start, "$lt": year_end}},
+        {"_id": 0},
+    ).sort("created_at", 1).to_list(2000)
+
+    # Back-fill showroom from invoices for legacy txns missing it
+    invoice_ids = [r["invoice_id"] for r in epos_rows if r.get("invoice_id") and not r.get("showroom_name")]
+    inv_map = {}
+    if invoice_ids:
+        async for inv in db.invoices.find(
+            {"id": {"$in": invoice_ids}},
+            {"_id": 0, "id": 1, "showroom_name": 1},
+        ):
+            inv_map[inv["id"]] = inv
+
+    rows = []
+    for r in online_rows:
+        amt = float(r.get("amount") or 0)
+        ttype = r.get("type") or ""
+        rows.append({
+            "at": r.get("created_at") or "",
+            "label": r.get("order_number") or r.get("description") or "Online order",
+            "channel": "Online",
+            "earned": amt if ttype == "earn" else 0,
+            "redeemed": abs(amt) if ttype == "redeem" else 0,
+            "balance_after": float(r.get("balance_after") or 0),
+            "description": r.get("description") or "",
+        })
+    for r in epos_rows:
+        amt = float(r.get("amount") or 0)
+        ttype = (r.get("type") or "").lower()
+        showroom = r.get("showroom_name") or (inv_map.get(r.get("invoice_id"), {}) or {}).get("showroom_name") or "—"
+        is_earn = ttype in ("earned_in_store", "reapplied_earned_in_store")
+        is_redeem = ttype in ("redeemed_in_store", "reapplied_redeemed_in_store")
+        rows.append({
+            "at": r.get("created_at") or "",
+            "label": r.get("invoice_no") or "In-store invoice",
+            "channel": f"In-store · {showroom}",
+            "earned": amt if is_earn else (-amt if ttype == "reversed_earned_via_refund" else 0),
+            "redeemed": abs(amt) if is_redeem else (-abs(amt) if ttype == "reversed_redeemed_via_refund" else 0),
+            "balance_after": float(r.get("balance_after") or 0),
+            "description": r.get("description") or r.get("type") or "",
+        })
+
+    rows.sort(key=lambda x: x["at"])
+    total_earned = round(sum(r["earned"] for r in rows if r["earned"] > 0), 2)
+    total_redeemed = round(sum(r["redeemed"] for r in rows if r["redeemed"] > 0), 2)
+
+    buf = _io.BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=A4,
+                            leftMargin=18 * mm, rightMargin=18 * mm,
+                            topMargin=14 * mm, bottomMargin=14 * mm)
+    styles = getSampleStyleSheet()
+    elements = []
+
+    # Header
+    elements.append(Paragraph(
+        "<b>Tile Station — Trade Credit Statement</b>",
+        ParagraphStyle('h1', parent=styles['Heading1'], fontSize=16, textColor=_colors.HexColor('#111'))
+    ))
+    elements.append(Paragraph(
+        f"<b>Account:</b> {customer.get('business_name') or customer.get('name') or ''} "
+        f"&nbsp; <b>Ref:</b> {customer.get('trade_account_number') or '—'}",
+        styles['Normal']
+    ))
+    elements.append(Paragraph(
+        f"<b>Period:</b> 01 Jan {target_year} – 31 Dec {target_year} &nbsp;"
+        f"<b>Generated:</b> {_dt.now(_tz.utc).strftime('%d %b %Y %H:%M')} UTC",
+        styles['Normal']
+    ))
+    elements.append(Spacer(1, 6))
+
+    # Summary tiles
+    summary_data = [[
+        Paragraph(f"<b>Total Earned</b><br/><font size=14 color='#15803d'>£{total_earned:.2f}</font>", styles['Normal']),
+        Paragraph(f"<b>Total Redeemed</b><br/><font size=14 color='#b45309'>£{total_redeemed:.2f}</font>", styles['Normal']),
+        Paragraph(f"<b>Current Balance</b><br/><font size=14 color='#0369a1'>£{float(customer.get('credit_balance') or 0):.2f}</font>", styles['Normal']),
+    ]]
+    t = Table(summary_data, colWidths=[60 * mm, 60 * mm, 54 * mm])
+    t.setStyle(TableStyle([
+        ('BOX', (0, 0), (-1, -1), 0.4, _colors.HexColor('#d4d4d8')),
+        ('INNERGRID', (0, 0), (-1, -1), 0.4, _colors.HexColor('#d4d4d8')),
+        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+        ('TOPPADDING', (0, 0), (-1, -1), 6),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+        ('LEFTPADDING', (0, 0), (-1, -1), 8),
+    ]))
+    elements.append(t)
+    elements.append(Spacer(1, 10))
+
+    # Transaction table
+    if not rows:
+        elements.append(Paragraph(
+            f"<i>No credit activity in {target_year}.</i>",
+            styles['Normal']
+        ))
+    else:
+        header = ["Date", "Source", "Earned", "Redeemed", "Balance"]
+        data = [header]
+        for r in rows:
+            dt_str = ""
+            try:
+                dt_str = _dt.fromisoformat(r["at"].replace("Z", "+00:00")).strftime("%d %b %Y")
+            except Exception:
+                dt_str = r["at"][:10]
+            data.append([
+                dt_str,
+                f"{r['label']}\n{r['channel']}",
+                f"£{r['earned']:.2f}" if r['earned'] else "—",
+                f"£{r['redeemed']:.2f}" if r['redeemed'] else "—",
+                f"£{r['balance_after']:.2f}",
+            ])
+        tbl = Table(data, colWidths=[22 * mm, 78 * mm, 22 * mm, 24 * mm, 24 * mm], repeatRows=1)
+        tbl.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), _colors.HexColor('#f4f4f5')),
+            ('TEXTCOLOR', (0, 0), (-1, 0), _colors.HexColor('#52525b')),
+            ('FONTSIZE', (0, 0), (-1, 0), 8),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 1), (-1, -1), 8),
+            ('ALIGN', (2, 0), (-1, -1), 'RIGHT'),
+            ('LINEBELOW', (0, 0), (-1, 0), 0.5, _colors.HexColor('#d4d4d8')),
+            ('LINEBELOW', (0, 1), (-1, -1), 0.25, _colors.HexColor('#e4e4e7')),
+            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+            ('TOPPADDING', (0, 0), (-1, -1), 4),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+        ]))
+        elements.append(tbl)
+
+    elements.append(Spacer(1, 10))
+    elements.append(Paragraph(
+        "<font size=8 color='#737373'>This statement is for your records. "
+        "Contact your Tile Station showroom if you spot a discrepancy. "
+        "Credit balances do not expire but cannot be exchanged for cash.</font>",
+        styles['Normal']
+    ))
+
+    doc.build(elements)
+    buf.seek(0)
+    filename = f"tile-station-credit-statement-{target_year}.pdf"
+    return StreamingResponse(
+        buf,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
 
 
 @router.post("/trade/credits/earn")

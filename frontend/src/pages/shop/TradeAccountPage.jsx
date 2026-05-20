@@ -1406,6 +1406,24 @@ const TradeAccountPage = () => {
                               })}
                             </select>
                           )}
+                          {/* Download Full Statement — emits a single
+                              PDF covering all credit activity for the
+                              current year. Same endpoint regardless of
+                              the in-app filter; the goal is reconciling
+                              against the trader's own books. */}
+                          {creditEvents.events.length > 0 && (
+                            <a
+                              href={`${API_URL}/api/shop/trade/credit-statement.pdf?year=${new Date().getFullYear()}`}
+                              target="_blank"
+                              rel="noopener"
+                              className="text-xs inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-emerald-600 text-white hover:bg-emerald-700 transition-colors"
+                              data-testid="download-credit-statement"
+                              title="Download a PDF statement of all credit activity for this year"
+                            >
+                              <Download className="w-3.5 h-3.5" />
+                              Download Statement
+                            </a>
+                          )}
                         </div>
 
                         {creditMonthFilter && filteredEvents.length > 0 && (
@@ -1484,6 +1502,19 @@ const TradeAccountPage = () => {
                                   <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">
                                     {isInStore ? 'In-store' : 'Online'}
                                   </span>
+                                  {/* Showroom badge — surfaces WHERE the
+                                      credit was earned/redeemed (e.g.
+                                      Tonbridge vs Sydenham). Helps the
+                                      trader spot which store they
+                                      shopped at. */}
+                                  {isInStore && ev.showroom_name && (
+                                    <span
+                                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-emerald-50 text-emerald-700 border border-emerald-200 font-semibold"
+                                      title={`Recorded at ${ev.showroom_name}`}
+                                    >
+                                      🏪 {ev.showroom_name}
+                                    </span>
+                                  )}
                                   <span className="font-mono text-xs text-gray-700">
                                     {ev.source_label}
                                   </span>
