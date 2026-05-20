@@ -353,6 +353,37 @@ async def _check_schema_drift(db) -> Optional[Dict[str, Any]]:
         return None
 
     if baseline.get("fingerprint") != current:
+        # Drift detected. But: did the git commit actually change?
+        #
+        # If git_sha is IDENTICAL to the baseline but the fingerprint
+        # flipped, that's a noisy-hash false positive (the fingerprint
+        # is hashing something non-deterministic in the response —
+        # e.g. dict ordering, timestamps, response IDs). NOT a real
+        # contract change. Update the baseline silently and move on
+        # without paging Telegram.
+        # (20 May 2026 — fix for ping-ponging alerts where the same
+        # commit produced two different fingerprints over a 5-min window.)
+        baseline_sha = (baseline.get("git_sha") or "").strip()
+        current_sha = (payload.get("git_sha") or "").strip()
+        same_commit_noise = bool(baseline_sha) and baseline_sha == current_sha
+
+        if same_commit_noise:
+            logger.info(
+                "schema_drift: fingerprint flipped without git change "
+                "(%s → %s, sha=%s) — treating as unstable-hash noise, "
+                "not alerting.", baseline.get("fingerprint"), current, current_sha,
+            )
+            await db.schema_baselines.update_one(
+                {"_id": "prod"},
+                {"$set": {
+                    "fingerprint": current,
+                    "per_endpoint": per_endpoint,
+                    "captured_at": now_iso,
+                    "last_noise_at": now_iso,
+                }, "$inc": {"noise_flip_count": 1}},
+            )
+            return {"drifted": False, "same_commit_noise": True}
+
         # Drift! Identify which endpoints flipped.
         prev_eps = baseline.get("per_endpoint") or {}
         flipped = []

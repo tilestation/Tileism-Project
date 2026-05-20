@@ -9,6 +9,27 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Feb 24, 2026 — Forked session] 🔕 Schema-Drift Detector — Suppress Noisy Same-Commit Alerts
+
+**User-reported (Telegram screenshot, 23:22 & 23:27)**: schema-drift detector fired TWO alerts 5 minutes apart on production. First alert legitimately flagged a new deploy (`e3449ac7d8c1 → b8787e9c0148`, fingerprint changed). Second alert flagged the SAME commit (`b8787e9c0148 → b8787e9c0148`) with the fingerprint flipped *back* to the pre-deploy value. Both alerts said "endpoints flipped: (unclear which)".
+
+**Root cause**: `_check_schema_drift()` in `services/uptime_monitor.py` (line 355) only checked `baseline.fingerprint != current.fingerprint` — it did NOT verify the git_sha had also changed. So when the fingerprint hash was unstable (likely hashing something non-deterministic in the API response — dict iteration order, timestamps, or response IDs), every flip paged Telegram even though no code actually changed.
+
+**Fix shipped**:
+- Added `same_commit_noise` short-circuit: if `baseline.git_sha == current.git_sha` AND the fingerprint changed, treat it as unstable-hash noise. Silently update the baseline to the new fingerprint, increment a `noise_flip_count` counter on the doc for observability, log an INFO line, and skip the Telegram send entirely.
+- Real drift (git_sha actually moved) still pages Telegram exactly as before.
+
+**Tests (2 NEW, 13/13 pass with existing fingerprint suite)**:
+- `tests/test_schema_drift_same_commit_noise.py::test_same_git_sha_with_flipped_fingerprint_does_not_alert` — replays the exact 23:27 scenario, asserts zero Telegram calls
+- `tests/test_schema_drift_same_commit_noise.py::test_real_git_sha_change_with_flipped_fingerprint_still_alerts` — asserts the 23:22 scenario (real deploy) DOES still page
+
+**Follow-up (P2, optional)**: Make the fingerprint itself stable (deterministic dict-key sorting; strip volatile fields like `timestamp`, `request_id`, `served_by`). Once the hash is truly stable, the noise-suppression path becomes a no-op safety net. For now, suppression alone fully stops the false alerts.
+
+**Files**:
+- `/app/backend/services/uptime_monitor.py` (lines 355-394 — new same_commit_noise branch)
+- `/app/backend/tests/test_schema_drift_same_commit_noise.py` (NEW)
+
+
 ### [Feb 24, 2026 — Forked session] 🚨 P0 Mobile PDP Layout Overflow — Customer Reported Lost Sales
 
 **User-reported (verbatim, 20:48)**: *"Still witnessing the page layout issues on mobile devices, how the hell am I going to get customers order if customers can't even see half the PDP page... I just found after a month of launching the website, and if customer didn't report me I wouldn't have known about this issue."*
