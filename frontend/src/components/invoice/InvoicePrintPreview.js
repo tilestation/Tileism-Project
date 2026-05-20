@@ -66,16 +66,23 @@ export const InvoicePrintPreview = ({
           {invoiceData.lineItems.map((item, index) => {
             const calc = calculateLineTotal(item);
             if (!item.product && !item.qty && !item.price) return null;
+            const isReturn = item.isReturn === true;
+            const rowStyle = isReturn ? { textDecoration: 'line-through', color: '#dc2626' } : undefined;
             return (
-              <tr key={index}>
+              <tr key={index} style={rowStyle} data-testid={isReturn ? `returned-line-row-${index}` : `line-row-${index}`}>
                 <td className="border border-gray-300 px-2 py-1 text-center">{item.qty || ''}</td>
                 <td className="border border-gray-300 px-2 py-1 text-center">{item.m2 || '0'}</td>
-                <td className="border border-gray-300 px-2 py-1">{toTitleCase(item.product) || ''}</td>
+                <td className="border border-gray-300 px-2 py-1">
+                  {isReturn && <span className="font-bold text-red-600 mr-1">(RETURNED)</span>}
+                  {toTitleCase(item.product) || ''}
+                </td>
                 <td className="border border-gray-300 px-2 py-1 text-right">£{parseFloat(item.price || 0).toFixed(2)}</td>
                 <td className="border border-gray-300 px-2 py-1 text-right">£{calc.duePrice.toFixed(2)}</td>
                 <td className="border border-gray-300 px-2 py-1 text-center">{calc.discountPercent > 0 ? `${calc.discountPercent.toFixed(1)}%` : '-'}</td>
                 <td className="border border-gray-300 px-2 py-1 text-right">{calc.savings > 0 ? `£${calc.savings.toFixed(2)}` : '-'}</td>
-                <td className="border border-gray-300 px-2 py-1 text-right">£{calc.due.toFixed(2)}</td>
+                <td className="border border-gray-300 px-2 py-1 text-right">
+                  {isReturn ? `−£${calc.due.toFixed(2)}` : `£${calc.due.toFixed(2)}`}
+                </td>
               </tr>
             );
           })}

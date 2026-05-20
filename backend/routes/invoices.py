@@ -406,6 +406,104 @@ async def _compute_per_line_credit(
     }
 
 
+async def _reconcile_credit_after_edit(
+    db, existing_invoice: dict, new_line_items: List[dict], current_user: dict
+) -> None:
+    """Reverse over-earned trade credit when an invoice is edited post-save.
+
+    Common trigger: staff edits an existing invoice and marks one or more
+    line items as `isReturn: true` (or removes a line entirely). The
+    original `trade_credit_earned` figure was calculated at save time on
+    the pre-return totals; without this reconciliation the trader keeps
+    credit they never actually earned.
+
+    The function recomputes the per-line credit from the NEW items, compares
+    against the live `trade_credit_earned` field, and if the new amount is
+    LOWER it:
+      • subtracts the delta from the customer's `credit_balance`
+      • inserts a `reversed_earned_via_invoice_edit` audit row in
+        `credit_transactions`
+      • $sets the new `trade_credit_earned` (NET) on the invoice
+      • preserves `trade_credit_earned_original` on the first reconciliation
+        so any subsequent refund-note reversal still has the true gross
+        for its ratio math
+
+    If the new amount is HIGHER than the live field (e.g. a line was added
+    on edit), we DO NOT auto-accrue more — that path is too risky for an
+    edit endpoint and should be handled via a fresh invoice. We log a
+    warning so the admin can manually award if needed.
+    """
+    current_earned = float(existing_invoice.get("trade_credit_earned") or 0)
+    trade_ref = (existing_invoice.get("trade_account_number") or "").strip()
+    if current_earned <= 0 or not trade_ref:
+        return  # nothing to reconcile
+
+    # Re-run the same per-line credit math used on save.
+    # We don't have the original apply_vat flag on the invoice doc, but the
+    # function ignores it for now (line prices are already ex-VAT) so the
+    # default is safe.
+    calc = await _compute_per_line_credit(db, new_line_items, apply_vat=True)
+    desired_earned = round(float(calc.get("total_credit") or 0), 2)
+
+    # `trade_credit_earned` may already reflect prior refund-note reversals
+    # (the live field stores NET, not original). The new computed value is
+    # ALSO a gross-of-isReturn-exclusions number — but we want to keep the
+    # refund-note reversals separate. So the truthful "desired live value"
+    # is: max(0, desired_earned - already_reversed_by_refunds).
+    already_reversed = float(existing_invoice.get("credit_earned_already_reversed") or 0)
+    target_net = round(max(0.0, desired_earned - already_reversed), 2)
+
+    delta = round(current_earned - target_net, 2)
+    if delta <= 0.005:
+        # No reduction needed. (delta < 0 = "edit added new lines" — see docstring.)
+        if delta < -0.005:
+            logging.warning(
+                "Invoice %s edit increased earned credit by £%.2f — not auto-accrued. "
+                "Issue a manual adjustment if appropriate.",
+                existing_invoice.get("invoice_no"), -delta,
+            )
+        return
+
+    # Reverse `delta` from the trader's balance.
+    cust = await db.shop_customers.find_one_and_update(
+        {"trade_account_number": trade_ref},
+        {"$inc": {"credit_balance": -delta}},
+        return_document=False,
+    )
+    prior_balance = float((cust or {}).get("credit_balance") or 0)
+    now = datetime.now(timezone.utc).isoformat()
+    invoice_no = existing_invoice.get("invoice_no", "")
+    inv_id = existing_invoice.get("id")
+    await db.credit_transactions.insert_one({
+        "id": str(uuid.uuid4()),
+        "customer_id": (cust or {}).get("id"),
+        "trade_account_number": trade_ref,
+        "type": "reversed_earned_via_invoice_edit",
+        "amount": -delta,
+        "balance_after": round(prior_balance - delta, 2),
+        "source": "invoice_edit",
+        "invoice_id": inv_id,
+        "invoice_no": invoice_no,
+        "channel": "in_store",
+        "showroom_id": existing_invoice.get("showroom_id"),
+        "showroom_name": existing_invoice.get("showroom_name"),
+        "description": (
+            f"Invoice {invoice_no} edited — credit earned reduced "
+            f"from £{current_earned:.2f} to £{target_net:.2f} "
+            f"(returns/edits) by {current_user.get('email', 'admin')}"
+        ),
+        "created_at": now,
+    })
+
+    # Decrement the invoice's `trade_credit_earned`; preserve the original on
+    # the FIRST reconciliation so any future refund-note reversal still has
+    # accurate ratio math.
+    set_ops = {"trade_credit_earned": target_net}
+    if existing_invoice.get("trade_credit_earned_original") is None:
+        set_ops["trade_credit_earned_original"] = current_earned + already_reversed
+    await db.invoices.update_one({"id": inv_id}, {"$set": set_ops})
+
+
 # Check for reportlab availability
 try:
     from reportlab.lib.pagesizes import A4
@@ -2082,6 +2180,25 @@ async def update_invoice(invoice_id: str, input: InvoiceUpdate, current_user: di
                 update_data["status"] = "deposit_order"
     
     await db.invoices.update_one({"id": invoice_id}, {"$set": update_data})
+    
+    # Recompute trade credit if line items changed and the original invoice
+    # had accrued in-store credit. Marking a line as `isReturn` (or removing
+    # a line entirely) post-save MUST reduce the trader's earned credit, or
+    # we'd be giving away free money on returned goods. Delta is applied via
+    # an atomic adjustment to the customer's `credit_balance` + an audit
+    # row on `credit_transactions`. Idempotent — if no delta, no-op.
+    # (24 Feb 2026 — user-reported bug: "Credit earned is being calculated
+    # on the pre-refund total instead of the final amount paid.")
+    if input.line_items is not None:
+        try:
+            await _reconcile_credit_after_edit(
+                db, existing, update_data["line_items"], current_user
+            )
+        except Exception as _credit_err:  # noqa: BLE001
+            logging.exception(
+                "Failed to reconcile trade credit on invoice %s edit: %s",
+                invoice_id, _credit_err,
+            )
     
     # Log audit trail
     before_summary = {

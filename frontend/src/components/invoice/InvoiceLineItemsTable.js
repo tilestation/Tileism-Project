@@ -286,7 +286,7 @@ export const InvoiceLineItemsTable = ({
               const isReturn = item.isReturn === true;
               
               return (
-                <tr key={index} className={`${qtyExceedsStock ? 'bg-red-50' : ''} ${isReturn ? 'bg-amber-50' : ''}`}>
+                <tr key={index} className={`${qtyExceedsStock ? 'bg-red-50' : ''} ${isReturn ? 'bg-red-50 border-l-4 border-l-red-500' : ''}`}>
                   {/* SKU Column */}
                   <td className="border px-1 py-1 relative">
                     <Input
@@ -353,8 +353,18 @@ export const InvoiceLineItemsTable = ({
                   
                   {/* Product Column */}
                   <td className="border px-1 py-1">
+                    {isReturn && (
+                      <div className="flex items-center gap-1 mb-1">
+                        <span
+                          className="inline-block px-1.5 py-0.5 rounded text-[10px] font-bold uppercase bg-red-600 text-white tracking-wide"
+                          data-testid={`returned-badge-${index}`}
+                        >
+                          RETURNED
+                        </span>
+                      </div>
+                    )}
                     <Input
-                      className="h-8 text-sm"
+                      className={`h-8 text-sm ${isReturn ? 'line-through text-red-700' : ''}`}
                       value={item.product}
                       onChange={(e) => {
                         onUpdateLineItem(index, 'product', e.target.value);
@@ -519,13 +529,13 @@ export const InvoiceLineItemsTable = ({
                         onCheckedChange={(checked) => {
                           onUpdateLineItem(index, 'isReturn', checked);
                         }}
-                        className={isReturn ? 'border-amber-500 data-[state=checked]:bg-amber-500' : ''}
+                        className={isReturn ? 'border-red-500 data-[state=checked]:bg-red-600' : ''}
                         data-testid={`return-checkbox-${index}`}
                       />
                       {isReturn && (
-                        <span className="text-xs text-amber-600 font-medium flex items-center gap-1">
+                        <span className="text-xs text-red-600 font-bold flex items-center gap-1">
                           <RotateCcw className="h-3 w-3" />
-                          Credit
+                          RETURNED
                         </span>
                       )}
                     </div>
@@ -534,7 +544,7 @@ export const InvoiceLineItemsTable = ({
                   {/* Total Due Column */}
                   <td className="border px-3 py-2 text-right text-sm font-medium">
                     {isReturn ? (
-                      <span className="text-amber-600">-£{calc.due.toFixed(2)}</span>
+                      <span className="text-red-600 font-bold">−£{calc.due.toFixed(2)}</span>
                     ) : (
                       <span>£{calc.due.toFixed(2)}</span>
                     )}
@@ -573,9 +583,9 @@ export const InvoiceLineItemsTable = ({
               <td className="border"></td>
             </tr>
             {totals.totalReturns > 0 && (
-              <tr className="font-semibold text-amber-600">
+              <tr className="font-semibold text-red-600" data-testid="returns-summary-row">
                 <td colSpan={8} className="border px-3 py-2 text-right">Returns/Credits:</td>
-                <td className="border px-3 py-2 text-right">-£{totals.totalReturns.toFixed(2)}</td>
+                <td className="border px-3 py-2 text-right">−£{totals.totalReturns.toFixed(2)}</td>
                 <td className="border"></td>
                 <td className="border"></td>
               </tr>

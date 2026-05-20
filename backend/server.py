@@ -7741,6 +7741,9 @@ Co. 11982550 / VAT 324 251 828"""
     # Header row
     table_data = [["Qty", "m²", "Product", "List £", "Due £", "Disc%", "Save", "Total"]]
     
+    # Style for returned-item paragraphs (red + strikethrough)
+    return_cell_style = ParagraphStyle('ReturnCell', fontSize=7, leading=9, textColor=colors.red)
+    
     for item in line_items:
         qty = item.get("quantity", 0)
         if not qty and not item.get("product_name"):
@@ -7768,15 +7771,33 @@ Co. 11982550 / VAT 324 251 828"""
         if list_price and due_price and list_price != due_price and not discount:
             discount = ((list_price - due_price) / list_price) * 100
         
+        # Mark returned items with a red strikethrough + "(RETURNED)" prefix.
+        # The display total flips to negative since this line is a credit.
+        is_return = bool(item.get("isReturn") or item.get("is_return"))
+        raw_name = (item.get("product_name", "") or "")[:40]
+        if is_return:
+            display_total = -abs(float(item_total or 0))
+            product_cell = Paragraph(
+                f"<strike>(RETURNED) {raw_name}</strike>",
+                return_cell_style,
+            )
+            total_cell = Paragraph(
+                f"<font color='red'>−£{abs(display_total):.2f}</font>",
+                ParagraphStyle('ReturnTotal', fontSize=7, leading=9, alignment=2),  # 2=right
+            )
+        else:
+            product_cell = raw_name
+            total_cell = f"£{item_total:.2f}" if item_total else ""
+        
         table_data.append([
             str(int(qty)) if qty and qty == int(qty) else (f"{qty:.1f}" if qty else ""),
             f"{m2:.2f}" if m2 else "",
-            (item.get("product_name", "") or "")[:40],
+            product_cell,
             f"£{list_price:.2f}" if list_price else "",
             f"£{due_price:.2f}" if due_price else "",
             f"{discount:.0f}%" if discount else "",
             f"£{savings:.2f}" if savings > 0 else "",
-            f"£{item_total:.2f}" if item_total else ""
+            total_cell,
         ])
     
     # Add empty rows (fewer rows to fit better)
@@ -8055,6 +8076,8 @@ Co. 11982550 / VAT 324 251 828"""
     
     # Style for product names to allow wrapping
     product_cell_style = ParagraphStyle('ProductCell', fontSize=7, leading=9)
+    # Style for returned items (red + strikethrough)
+    return_cell_style = ParagraphStyle('ReturnCell', fontSize=7, leading=9, textColor=colors.red)
     
     for item in line_items:
         qty = item.get("quantity", 0)
@@ -8081,9 +8104,21 @@ Co. 11982550 / VAT 324 251 828"""
         if list_price and due_price and list_price != due_price and not discount:
             discount = ((list_price - due_price) / list_price) * 100
         
-        # Wrap product name in Paragraph for proper text wrapping
+        # Mark returned items with red + strikethrough + "(RETURNED)" prefix.
+        is_return = bool(item.get("isReturn") or item.get("is_return"))
         product_name = item.get("product_name", "") or ""
-        product_para = Paragraph(product_name, product_cell_style)
+        if is_return:
+            product_para = Paragraph(
+                f"<strike>(RETURNED) {product_name}</strike>",
+                return_cell_style,
+            )
+            total_cell = Paragraph(
+                f"<font color='red'>−£{abs(float(item_total or 0)):.2f}</font>",
+                ParagraphStyle('ReturnTotal', fontSize=7, leading=9, alignment=2),  # 2=right
+            )
+        else:
+            product_para = Paragraph(product_name, product_cell_style)
+            total_cell = f"£{item_total:.2f}" if item_total else ""
         
         table_data.append([
             str(int(qty)) if qty and qty == int(qty) else (f"{qty:.1f}" if qty else ""),
@@ -8093,7 +8128,7 @@ Co. 11982550 / VAT 324 251 828"""
             f"£{due_price:.2f}" if due_price else "",
             f"{discount:.0f}%" if discount else "",
             f"£{savings:.2f}" if savings > 0 else "",
-            f"£{item_total:.2f}" if item_total else ""
+            total_cell,
         ])
     
     filled_rows = len(table_data) - 1

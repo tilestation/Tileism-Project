@@ -1,0 +1,32 @@
+{
+  "summary": "Verified Tile Station Invoice Returns/Refund credit-math bug fix. Backend pytest: 33/33 invoice-related tests pass (test_invoice_returns_credit_math 7/7 + test_invoice_pdf_credit_rows 6/6 + test_refund_approval_workflow 9/9 + test_invoice_quickpay 6/6 + test_deposit_audit 5/5). Frontend Playwright: logged in as admin@test.com, opened an existing invoice (TEST-AUDIT-372ee64c) in edit mode, toggled the Return checkbox on the only line item, and confirmed all 7 visual assertions pass: RETURNED red badge appears in two places (above product input + in toggle column), product input gains line-through + text-red-700 classes, row gains border-l-4 border-l-red-500 + bg-red-50, total flips to red negative -£100.00, Returns/Credits row appears with -£100.00, Gross Total goes negative (£-120.00), and Print Preview section renders the '(RETURNED)' prefix in red bold.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "AdminDashboard (incidental, not in scope)", "issues": ["React 'unique key prop' warning rendering AdminDashboard child list — pre-existing, unrelated to this bug fix"]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_invoice_returns_credit_math.py",
+    "/app/backend/tests/test_invoice_pdf_credit_rows.py",
+    "/app/backend/tests/test_refund_approval_workflow.py",
+    "/app/backend/tests/test_invoice_quickpay.py",
+    "/app/backend/tests/test_deposit_audit.py",
+    "/app/test_reports/pytest/iteration_182_invoice_returns.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "InvoiceLineItemsTable.js uses shadcn Checkbox (button role=checkbox) for Return toggle — selectors must target button[role='checkbox'], not input[type='checkbox']. Already covered by data-testids on other elements but the return toggle itself does not yet have a data-testid; adding one (e.g. data-testid='line-item-return-toggle-{idx}') would harden future tests.",
+    "server.py is very large (>8000 lines). The two PDF generators (generate_invoice_pdf and generate_invoice_pdf_bytes) both contain duplicated RETURNED-prefix logic — could be extracted into a helper to avoid drift between the two code paths."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100% (33/33 invoice-related tests)", "frontend": "100% (all 7 in-scope assertions pass)"},
+  "test_credentials": "admin@test.com / admin123 (super_admin)",
+  "seed_data_creation": "None created in this run — used existing TEST-AUDIT-* invoices in DB.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Bug fix for partially-refunded invoices: trade_credit_earned is now recomputed net of returned line items, Refund Note retroactively reduces invoice's trade_credit_earned (idempotent, capped at original gross), and invoice UI + PDF mark returned items with (RETURNED) prefix + red strikethrough. The Return toggle in InvoiceLineItemsTable.js is a shadcn Checkbox (button role=checkbox, not native input) — use page.locator('tr', has=page.locator('input[value=\"<product>\"]')).locator('button[role=\"checkbox\"]') to interact with it. Print Preview is rendered inline in the edit-invoice page (not in a popup), located below the form under the 'Print Preview' heading.",
+  "rca of the issue": "Original bug: (1) Trade credit earned was frozen at pre-refund total because refunds.py did not write-back to the invoice document. Fix: reverse_credits_for_refund() in routes/refunds.py now mutates invoice.trade_credit_earned proportionally and preserves trade_credit_earned_original on first reversal, with a cumulative credit_earned_already_reversed tracker preventing over-reversal. (2) Inline-edit of an invoice's line_items setting isReturn=true did not reconcile credit. Fix: _reconcile_credit_after_edit() helper in routes/invoices.py recomputes credit via _compute_per_line_credit and logs a 'reversed_earned_via_invoice_edit' transaction; only triggered when line_items field is in the PUT payload. (3) PDF + UI did not visually mark returned rows. Fix: both PDF generators in server.py wrap returned product names in '<strike>(RETURNED) ...</strike>' Paragraph and flip the total cell to red negative; InvoiceLineItemsTable.js and InvoicePrintPreview.js apply RETURNED badge, line-through, text-red, border-l-red, bg-red-50."
+}

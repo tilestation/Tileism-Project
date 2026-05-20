@@ -504,8 +504,23 @@ async def reverse_credits_for_refund(
     raw_ratio = refund_amount / invoice_gross
     ratio = min(1.0, raw_ratio)
 
-    earned_total = float(invoice.get("trade_credit_earned") or 0)
-    redeemed_total = float(invoice.get("credit_redeemed") or 0)
+    # Use the ORIGINAL (pre-reversal) amount for ratio math so each refund
+    # reverses a true `refund_amount / invoice_gross` slice, regardless of
+    # how many prior refunds already chipped away at the live field.
+    # `*_original` is set on the first reversal (see update at the bottom of
+    # this function); on legacy invoices that pre-date this change we fall
+    # back to the current `trade_credit_earned` field, which is still equal
+    # to the original because no prior reversal touched it.
+    earned_total = float(
+        invoice.get("trade_credit_earned_original")
+        if invoice.get("trade_credit_earned_original") is not None
+        else (invoice.get("trade_credit_earned") or 0)
+    )
+    redeemed_total = float(
+        invoice.get("credit_redeemed_original")
+        if invoice.get("credit_redeemed_original") is not None
+        else (invoice.get("credit_redeemed") or 0)
+    )
 
     # Cumulative cap — earlier partial refunds may have already reversed some
     already_earned_reversed = float(invoice.get("credit_earned_already_reversed") or 0)
@@ -513,6 +528,9 @@ async def reverse_credits_for_refund(
 
     earned_to_reverse = round(min(earned_total * ratio, earned_total - already_earned_reversed), 2)
     redeemed_to_refund = round(min(redeemed_total * ratio, redeemed_total - already_redeemed_reversed), 2)
+    # Clamp to non-negative — guards against float jitter / over-reversed legacy rows.
+    earned_to_reverse = max(0.0, earned_to_reverse)
+    redeemed_to_refund = max(0.0, redeemed_to_refund)
 
     if earned_to_reverse <= 0 and redeemed_to_refund <= 0:
         return summary
@@ -586,12 +604,32 @@ async def reverse_credits_for_refund(
     # what's already been reversed. We DON'T set `credits_reversed=true`
     # (which is the all-or-nothing flag used by delete-flow) — partial
     # refunds use this incremental counter instead.
+    #
+    # ALSO retroactively decrement `trade_credit_earned` / `credit_redeemed`
+    # so the field that drives the printed invoice PDF / UI always shows
+    # the NET amount the trader actually keeps (24 Feb 2026 — user request:
+    # "Credit earned should reflect the final amount paid after refund").
+    # `*_original` is preserved on the first reversal for accurate ratio
+    # math on any future partial refunds.
+    inc_ops = {
+        "credit_earned_already_reversed": earned_to_reverse,
+        "credit_redeemed_already_reversed": redeemed_to_refund,
+        "trade_credit_earned": -earned_to_reverse,
+        "credit_redeemed": -redeemed_to_refund,
+    }
+    set_ops = {}
+    if invoice.get("trade_credit_earned_original") is None:
+        set_ops["trade_credit_earned_original"] = earned_total
+    if invoice.get("credit_redeemed_original") is None:
+        set_ops["credit_redeemed_original"] = redeemed_total
+
+    update_doc = {"$inc": inc_ops}
+    if set_ops:
+        update_doc["$set"] = set_ops
+
     await db.invoices.update_one(
         {"id": inv_id},
-        {"$inc": {
-            "credit_earned_already_reversed": earned_to_reverse,
-            "credit_redeemed_already_reversed": redeemed_to_refund,
-        }},
+        update_doc,
     )
     summary["ratio"] = round(ratio, 4)
     return summary
