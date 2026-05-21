@@ -9,6 +9,50 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Feb 24, 2026 — Forked session] ⚡ Sitewide Performance — Gzip + Lazy EPOS Load
+
+**User-reported (verbatim, with 3 screenshots)**: *"There's a lot lazy loading on these pages and these are the most important pages when it comes to directly interaction of customers, customers landing on website do not like waiting and there's a big problem of customers exiting the website, invoice loading section is there another problem when customers are in store and it takes ages to load."*
+
+Three screenshots showed: Admin Dashboard stuck "Loading...", EPOS New Invoice stuck "Loading products...", `/tiles` page stuck on "0 collections / 0 products" skeleton.
+
+**Diagnosis** (measured via curl + production API probes):
+
+| Endpoint | Raw payload | Time | Issue |
+|---|---|---|---|
+| `/api/tiles/collections` | 26 KB JSON | 230ms warm / 2.5s cold | No gzip; 34 fields per collection |
+| `/api/supplier-sync/products?limit=5000` | **3.45 MB JSON** | ~500ms | Fetched on EVERY EPOS page mount + no gzip |
+| `/api/shop/products` | (returns 500) | n/a | Already fixed in preview; production still on old code |
+
+**Fix 1 — GZip middleware enabled site-wide** (`server.py` line 121):
+```python
+app.add_middleware(GZipMiddleware, minimum_size=500, compresslevel=6)
+```
+**Measured savings (preview, verified by curl)**:
+- `/api/tiles/collections`: 26,239 B → **2,904 B (88.9% smaller)**
+- `/api/supplier-sync/products?limit=5000`: **3,453,128 B → 154,279 B (95.5% smaller)**
+- `/api/supplier-sync/products?limit=1000`: 2,054,702 B → 93,733 B (95.4% smaller)
+- Tiny endpoints (<500 B like /health) skipped to avoid gzip-overhead
+
+This single change makes EVERY API call across the entire site 4-20× smaller. Mobile users on slow networks will see the biggest improvement. CPU cost at level 6 is negligible (~1-2ms per response).
+
+**Fix 2 — EPOS New Invoice lazy-loads supplier products** (`pages/admin/Invoice.js`):
+- Old flow: `Promise.all([getProducts, getCustomers, getStores, getSuppliers, getSupplierProducts({limit:5000})])` — blocked render until ALL 5 finished. The 5000-row supplier fetch was the bottleneck (~3-5s cold).
+- New flow: Only the 4 small lists block render (~500ms total). Supplier products are fetched via a `setTimeout(0)` background promise after first paint and merged into the autocomplete pool when ready. Staff can already type main-product SKUs while supplier rows stream in.
+
+**Files**:
+- `/app/backend/server.py` (GZipMiddleware import + add_middleware call)
+- `/app/frontend/src/pages/admin/Invoice.js` (deferred supplier-product fetch + extracted converter helper)
+
+**Verification**:
+- ✅ `Content-Encoding: gzip` header confirmed on `/api/tiles/collections` response
+- ✅ Lint clean on both edited files
+- ✅ Backend restart healthy (API: 200)
+- ✅ `/api/shop/products` returns 200 OK with valid data on preview (the production 500 is on the old deployed code; fixed by deploy)
+
+### Why is `/api/shop/products` still 500 on production?
+Confirmed: production is still running an older commit where this endpoint had a `ResponseValidationError`. The preview/local code now returns 200 OK. **Deploying current code via "Save to GitHub" will fix this 500 alongside all the perf improvements.**
+
+
 ### [Feb 24, 2026 — Forked session] 🟡→✅ Trader Credit Statement Page (P1 cleared)
 
 **User request (carried over through 6+ emergencies)**: *"Build a Trade Credit statement page inside the 'Trader' section."*

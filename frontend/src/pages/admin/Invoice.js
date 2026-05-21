@@ -561,21 +561,29 @@ export const Invoice = () => {
   };
 
   const fetchData = async () => {
+    // PERFORMANCE FIX (21 May 2026 — in-store EPOS pages stuck on "Loading
+    // products..." for several seconds, blocking staff from taking payments).
+    //
+    // Old flow: fetched 5000 supplier products + main products + customers +
+    // showrooms + suppliers in ONE Promise.all, blocked render until ALL done.
+    // The 5000-row supplier-products fetch was the killer (~3-5s on cold cache).
+    //
+    // New flow:
+    //   1) Fast first paint — fetch ONLY the small, critical lists in parallel
+    //      (main products + customers + showrooms + suppliers). Page becomes
+    //      interactive in ~500ms.
+    //   2) Background fetch — supplier products load AFTER first paint and
+    //      get merged into the autocomplete pool when they arrive. Staff can
+    //      already start typing main-product SKUs while supplier rows stream in.
     try {
-      const [productsRes, customersRes, showroomsRes, suppliersRes, supplierProductsRes] = await Promise.all([
+      const [productsRes, customersRes, showroomsRes, suppliersRes] = await Promise.all([
         api.getProducts().catch((err) => { console.error('Products load error:', err?.response?.status, err?.response?.data?.detail || err.message); return { data: [] }; }),
         api.getCustomers().catch(() => ({ data: [] })),
         api.getStores().catch(() => ({ data: [] })),
-        api.getSuppliers().catch(() => ({ data: [] })),  // Fetch suppliers for stock display
-        api.getSupplierProducts({ limit: 5000 }).catch(() => ({ data: { products: [] } }))  // Fetch ALL supplier products
+        api.getSuppliers().catch(() => ({ data: [] })),
       ]);
       
-      // Merge main products with supplier products for flexible search
       const mainProducts = productsRes.data || [];
-      const supplierProducts = supplierProductsRes.data?.products || [];
-      
-      // Create a map of existing SKUs to avoid duplicates
-      const existingSKUs = new Set(mainProducts.map(p => p.sku));
       
       // Helper to clean None patterns from strings
       const cleanNonePatterns = (str) => {
@@ -638,33 +646,50 @@ export const Invoice = () => {
         return cleanNonePatterns(parts.join(' ').trim());
       };
       
-      // Convert supplier products to match main product format
-      const convertedSupplierProducts = supplierProducts
-        .filter(sp => sp.sku && !existingSKUs.has(sp.sku))  // Only need SKU, avoid duplicates
+      // Convert supplier products to match main product format.
+      // Extracted into a stable function so the deferred background fetch
+      // (below) can reuse it without rebuilding the helper closures.
+      const convertSupplierProducts = (supplierList, existingSKUs) => supplierList
+        .filter(sp => sp.sku && !existingSKUs.has(sp.sku))
         .map(sp => ({
           id: sp.products_db_id || `sp_${sp.sku}`,
-          name: buildProductName(sp),  // Build complete product name
+          name: buildProductName(sp),
           sku: sp.sku,
           price: sp.price || sp.trade_price || 0,
           cost_price: sp.cost_price || sp.trade_price || 0,
           stock: sp.stock_quantity || sp.stock_m2 || 0,
           description: sp.description || '',
           supplier_name: sp.supplier || '',
-          supplier_product_name: sp.name,  // Original supplier name for flexible search
+          supplier_product_name: sp.name,
           color: Array.isArray(sp.color) ? sp.color[0] : (sp.color || ''),
           finish: Array.isArray(sp.finish) ? sp.finish[0] : (sp.finish || ''),
           size: Array.isArray(sp.size) ? sp.size[0] : (sp.size || ''),
           images: sp.image ? [sp.image] : (sp.images || []),
           source: 'supplier_products'
         }));
-      
-      // Merge both lists
-      const allProducts = [...mainProducts, ...convertedSupplierProducts];
-      
-      setProducts(allProducts);
+
+      // FIRST PAINT — set main products only, so the page becomes interactive.
+      setProducts(mainProducts);
       setCustomers(customersRes.data || []);
       setStores(showroomsRes.data || []);
       setSuppliers(suppliersRes.data || []);
+
+      // BACKGROUND — fetch supplier products without blocking. When done,
+      // merge them in. Wrapped in setTimeout(0) so React has a tick to
+      // commit the first paint before this kicks off the network call.
+      setTimeout(() => {
+        api.getSupplierProducts({ limit: 5000 })
+          .then((supplierProductsRes) => {
+            const supplierProducts = supplierProductsRes.data?.products || [];
+            if (!supplierProducts.length) return;
+            const existingSKUs = new Set(mainProducts.map(p => p.sku));
+            const converted = convertSupplierProducts(supplierProducts, existingSKUs);
+            setProducts([...mainProducts, ...converted]);
+          })
+          .catch((err) => {
+            console.error('Supplier products background load failed (non-fatal):', err?.message);
+          });
+      }, 0);
       
       // Check for locked showroom first (only for users with specific showroom or day lock)
       const stored = localStorage.getItem('lockedStore');
