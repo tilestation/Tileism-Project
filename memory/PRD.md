@@ -9,6 +9,30 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Feb 24, 2026 — Forked session] 🔕 Trade Account "Email Statement" Robustness
+
+**User screenshot (21 May 2026)**: Toast on `tilestation.co.uk/shop/trade/account` reading *"Could not email statement — please use Download instead"* — the silent FALLBACK toast that fires when the backend returns a non-OK response with no `detail` field.
+
+**Investigation**:
+- Endpoint `POST /api/shop/savings/email-statement` (`routes/shop.py`) — used by the "Email me this" button on the Orders tab to email a CSV of all paid orders + total savings.
+- Found three issues:
+  1. The fallback `from` was `onboarding@resend.dev` (Resend's test address) instead of the verified `online@tilestation.co.uk` — would fail on production if `SENDER_EMAIL` env var were missing.
+  2. No branded HTML signature (didn't use our new `render_email_signature` infra).
+  3. Frontend toast hid the actual HTTP status when no `detail` field present → user couldn't tell us what went wrong.
+
+**Fixes shipped**:
+- `routes/shop.py` `email_savings_statement`: now uses `customer_facing_from = "Tile Station <online@tilestation.co.uk>"` per email policy, appends `render_email_signature(None)` block, exception detail always includes the exception type (`We couldn't send the email right now — please use the Download button. (ConnectError)`) so the failure mode is actionable
+- `pages/shop/TradeAccountPage.jsx`: toast now surfaces HTTP-status-specific messages — 503 → "Email service temporarily unavailable", 502 → "Email provider is currently down", 401 → "Please sign in again", anything else → `Email failed (HTTP {status})`. Catch-block now includes the JS error message.
+
+**Verification** (preview):
+- Empty-order trader → `400 {"detail":"No orders to email yet"}` ✅ (was the silent path before)
+- Seeded one £230 order on trade@test.com (15% discount) → endpoint returns `200 {"ok":true,"email":"trade@test.com","order_count":1,"total_saved":42.35}` — Resend send succeeded, branded signature attached ✅
+
+**Files**:
+- `/app/backend/routes/shop.py` (email_savings_statement send-payload + error handling)
+- `/app/frontend/src/pages/shop/TradeAccountPage.jsx` (emailSavingsStatement toast logic)
+
+
 ### [Feb 24, 2026 — Forked session] ⚡ Sitewide Performance — Gzip + Lazy EPOS Load
 
 **User-reported (verbatim, with 3 screenshots)**: *"There's a lot lazy loading on these pages and these are the most important pages when it comes to directly interaction of customers, customers landing on website do not like waiting and there's a big problem of customers exiting the website, invoice loading section is there another problem when customers are in store and it takes ages to load."*

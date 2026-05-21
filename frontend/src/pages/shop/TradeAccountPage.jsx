@@ -380,12 +380,23 @@ const TradeAccountPage = () => {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        toast.error(data.detail || 'Could not email statement — please use Download instead');
+        // ALWAYS surface a useful message — never the silent fallback.
+        // (21 May 2026 — user got generic "Could not email statement"
+        // toast with no actionable info. Now we always show either the
+        // backend's detail field or the HTTP status code.)
+        const message = (
+          data.detail
+          || (res.status === 503 && 'Email service is temporarily unavailable — please use Download.')
+          || (res.status === 502 && 'Our email provider is currently down — please use Download.')
+          || (res.status === 401 && 'Please sign in again to email your statement.')
+          || `Email failed (HTTP ${res.status}) — please use Download instead.`
+        );
+        toast.error(message);
         return;
       }
       toast.success(`Statement emailed to ${data.email}`);
-    } catch {
-      toast.error('Could not reach email service — please use Download instead');
+    } catch (err) {
+      toast.error(`Could not reach email service (${err?.message || 'network error'}) — please use Download instead`);
     } finally {
       setEmailingStatement(false);
     }

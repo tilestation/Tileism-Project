@@ -1897,7 +1897,6 @@ async def email_savings_statement(request: Request):
 
     import base64
     import resend  # noqa: WPS433 — resend is loaded lazily
-    sender_email = os.environ.get("SENDER_EMAIL", "onboarding@resend.dev")
     company_name = os.environ.get("COMPANY_NAME", "Tile Station")
     customer_email = customer.get("email")
     if not customer_email:
@@ -1949,14 +1948,32 @@ async def email_savings_statement(request: Request):
         raise HTTPException(status_code=503, detail="Email service not configured — please use the Download button instead")
     resend.api_key = api_key
 
+    # Per company email policy (20 May 2026):
+    #   • online@ is the canonical sender for emails TO online customers
+    #   • Branded HTML signature appended to every customer-facing email
+    # (21 May 2026 — user reported "Could not email statement" on a trader
+    # who had real orders. Robustifying error responses so the failure mode
+    # is always actionable on the frontend.)
+    try:
+        from services.email import render_email_signature
+        signature_html = render_email_signature(None)  # head-office Gravesend
+    except Exception:  # noqa: BLE001 — signature is decorative, never fatal
+        signature_html = ""
+    customer_facing_from = (
+        f"Tile Station <{os.environ.get('SENDER_EMAIL', 'online@tilestation.co.uk')}>"
+    )
+
+    full_html = html + signature_html
+
     try:
         await asyncio.to_thread(
             resend.Emails.send,
             {
-                "from": f"{company_name} <{sender_email}>",
+                "from": customer_facing_from,
                 "to": [customer_email],
+                "reply_to": ["online@tilestation.co.uk"],
                 "subject": f"Your {company_name} savings statement — £{total_saved:.2f} saved",
-                "html": html,
+                "html": full_html,
                 "attachments": [{
                     "filename": fname,
                     "content": base64.b64encode(csv_bytes).decode("ascii"),
@@ -1964,8 +1981,14 @@ async def email_savings_statement(request: Request):
             },
         )
     except Exception as exc:  # noqa: BLE001
-        logger.exception("Failed to email savings statement")
-        raise HTTPException(status_code=502, detail="We couldn't send the email right now — please use the Download button.") from exc
+        # Resend can throw httpx.ConnectError / ResendError / ValueError
+        # depending on what's wrong. Always surface a friendly detail to the
+        # frontend so the user knows to fall back to the Download button.
+        logger.exception("Failed to email savings statement: %s", exc)
+        raise HTTPException(
+            status_code=502,
+            detail=f"We couldn't send the email right now — please use the Download button. ({type(exc).__name__})",
+        ) from exc
 
     return {
         "ok": True,
