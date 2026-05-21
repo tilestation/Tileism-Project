@@ -398,8 +398,8 @@ export const api = {
       responseType: 'blob' 
     }),
   
-  emailInvoicePdf: (id, email, message = '') =>
-    axios.post(`${API}/invoices/${id}/email`, { email, message }, { headers: getAuthHeader() }),
+  emailInvoicePdf: (id, email, message = '', senderName = '') =>
+    axios.post(`${API}/invoices/${id}/email`, { email, message, sender_name: senderName }, { headers: getAuthHeader() }),
 
   // Quotations
   getQuotations: (params = {}) =>

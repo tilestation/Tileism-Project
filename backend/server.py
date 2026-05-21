@@ -809,6 +809,11 @@ class AnalyticsResponse(BaseModel):
 class InvoiceEmailRequest(BaseModel):
     email: EmailStr
     message: Optional[str] = None
+    # Optional staff-name override for the email signature. If omitted,
+    # we auto-fill from current_user.get("name"). Frontend can let the
+    # admin type a custom name (e.g. "Sarah from Tile Station Tonbridge")
+    # if they want different branding for that one email.
+    sender_name: Optional[str] = None
 
 class AuditLogEntry(BaseModel):
     id: str
@@ -8418,7 +8423,19 @@ async def email_invoice_pdf(invoice_id: str, request: InvoiceEmailRequest, curre
     # of invoice to customer, it goes to customer via gravesend@.")
     from services.email import get_showroom_contact, render_email_signature
     contact = get_showroom_contact(showroom or invoice.get("showroom_name"))
-    signature_html = render_email_signature(showroom or invoice.get("showroom_name"))
+    # Sender name: explicit override (frontend can pass `sender_name` on
+    # the request) → otherwise the logged-in staff member's name → otherwise
+    # nothing (just the showroom name in the signature). 21 May 2026 user
+    # request: "Is the name in Email Signature editable? Confirm".
+    effective_sender = (
+        (getattr(request, "sender_name", None) or "").strip()
+        or (current_user.get("name") or "").strip()
+        or None
+    )
+    signature_html = render_email_signature(
+        showroom or invoice.get("showroom_name"),
+        sender_name=effective_sender,
+    )
     
     # Generate PDF
     try:

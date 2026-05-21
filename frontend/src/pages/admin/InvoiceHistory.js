@@ -118,6 +118,11 @@ export const InvoiceHistory = () => {
   const [sendingSms, setSendingSms] = useState(false);
   const [smsAvailable, setSmsAvailable] = useState(false);
   const [shareMessage, setShareMessage] = useState('');
+  // Staff name shown on the email signature. Pre-fills with the logged-in
+  // admin's name so customers see "Sarah / Tile Station Tonbridge" rather
+  // than just the showroom name. Editable per-email — admins can override
+  // (e.g. when sending on behalf of a colleague).
+  const [shareSenderName, setShareSenderName] = useState('');
   const [expandedRow, setExpandedRow] = useState(null);
 
   // Quick-pay (one-click "Take balance payment, dated today") state.
@@ -1474,6 +1479,8 @@ export const InvoiceHistory = () => {
     setSelectedInvoice(invoice);
     setShareEmail(invoice.customer_email || '');
     setShareMessage('');
+    // Pre-fill with logged-in staff's name; admin can edit before sending.
+    setShareSenderName(currentUser?.name || '');
     setShowShareDialog(true);
   };
 
@@ -1485,11 +1492,12 @@ export const InvoiceHistory = () => {
     
     setSending(true);
     try {
-      await api.emailInvoicePdf(selectedInvoice.id, shareEmail, shareMessage);
+      await api.emailInvoicePdf(selectedInvoice.id, shareEmail, shareMessage, shareSenderName);
       toast.success(`Invoice sent to ${shareEmail}`);
       setShowShareDialog(false);
       setShareEmail('');
       setShareMessage('');
+      setShareSenderName('');
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to send email');
     } finally {
@@ -3089,6 +3097,21 @@ export const InvoiceHistory = () => {
                 onChange={(e) => setShareEmail(e.target.value)}
                 placeholder="customer@example.com"
                 data-testid="share-email-input"
+              />
+            </div>
+            <div>
+              <label className="text-sm font-medium mb-1 block">
+                Your Name on Signature
+                <span className="text-xs text-gray-500 font-normal ml-2">
+                  (editable — shows above the showroom name)
+                </span>
+              </label>
+              <Input
+                type="text"
+                value={shareSenderName}
+                onChange={(e) => setShareSenderName(e.target.value)}
+                placeholder="e.g. Sarah, or leave blank"
+                data-testid="share-sender-name-input"
               />
             </div>
             <div>
