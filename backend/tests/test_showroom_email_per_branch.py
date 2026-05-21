@@ -83,3 +83,83 @@ def test_contact_card_has_all_required_keys():
         )
         for key in required:
             assert contact[key], f"Showroom '{slug}' has empty {key}"
+
+
+def test_every_showroom_email_is_on_verified_domain():
+    """Every showroom send-from address must be on @tilestation.co.uk
+    so it's covered by the domain-level Resend verification. If a future
+    contact card adds an off-domain email (e.g. @gmail.com), Resend will
+    refuse to send and customers won't get the invoice."""
+    for slug, contact in SHOWROOM_CONTACTS.items():
+        assert contact["email"].endswith("@tilestation.co.uk"), (
+            f"Showroom '{slug}' email '{contact['email']}' is NOT on the "
+            f"verified @tilestation.co.uk domain — Resend will reject sends "
+            f"from this address."
+        )
+
+
+# ─── send_simple_email_if_possible from_override behaviour ────────────────
+
+
+def test_send_simple_accepts_from_override(monkeypatch):
+    """from_override must take priority over the default SENDER_EMAIL.
+    Critical for the 20 May 2026 email policy:
+      • online@ for online-customer emails only
+      • qasim@ for personal notifications only (never sending)
+      • notifications@ for internal admin alerts
+    """
+    import asyncio
+    from services import email as email_svc
+
+    captured = {}
+
+    class _StubEmails:
+        @staticmethod
+        def send(payload):
+            captured.update(payload)
+            return {"id": "stub-id"}
+
+    monkeypatch.setattr(email_svc, "RESEND_AVAILABLE", True)
+    monkeypatch.setattr(email_svc, "RESEND_API_KEY", "test_key")
+    monkeypatch.setattr(email_svc.resend, "Emails", _StubEmails)
+
+    asyncio.run(email_svc.send_simple_email_if_possible(
+        "test@example.com",
+        "Subject",
+        "<p>Body</p>",
+        from_override="Tile Station Alerts <notifications@tilestation.co.uk>",
+    ))
+
+    assert captured.get("from") == (
+        "Tile Station Alerts <notifications@tilestation.co.uk>"
+    ), f"from_override must win over default; got {captured.get('from')}"
+
+
+def test_send_simple_default_from_is_company_alerts(monkeypatch):
+    """When no override is passed, the legacy default is used."""
+    import asyncio
+    from services import email as email_svc
+
+    captured = {}
+
+    class _StubEmails:
+        @staticmethod
+        def send(payload):
+            captured.update(payload)
+            return {"id": "stub-id"}
+
+    monkeypatch.setattr(email_svc, "RESEND_AVAILABLE", True)
+    monkeypatch.setattr(email_svc, "RESEND_API_KEY", "test_key")
+    monkeypatch.setattr(email_svc.resend, "Emails", _StubEmails)
+
+    asyncio.run(email_svc.send_simple_email_if_possible(
+        "test@example.com", "Subject", "<p>Body</p>",
+    ))
+
+    # Default From should include SENDER_EMAIL — typically online@ in prod,
+    # but the EXACT value isn't asserted (depends on env). What we DO
+    # assert: it's on the verified domain.
+    from_header = captured.get("from", "")
+    assert "@tilestation.co.uk>" in from_header or "tilestation.co.uk" in from_header, (
+        f"Default from must be on the verified domain; got {from_header}"
+    )

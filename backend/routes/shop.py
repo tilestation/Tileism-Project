@@ -6827,17 +6827,26 @@ async def _send_sample_confirmation_fanout(order: dict) -> None:
         )
         send_fn = getattr(email_svc, "send_simple_email_if_possible", None)
         if send_fn and customer_email:
-            await send_fn(customer_email, cust_subject, cust_html)
+            # Online-customer-facing → from online@ per company email policy.
+            await send_fn(
+                customer_email, cust_subject, cust_html,
+                from_override="Tile Station <online@tilestation.co.uk>",
+            )
     except Exception:
         logger.exception("Sample confirmation email to customer failed (non-fatal)")
 
     # ── Admin / showroom alert ──
-    # Goes to the central samples@tilestation.co.uk inbox so whichever
-    # showroom is on dispatch duty that day sees it. Could be expanded
-    # to Telegram later via the existing notification service.
+    # Fan out to the owner's monitored inboxes (same default as shop
+    # orders — online@ + qasim@). FROM notifications@ so neither online@
+    # (online-customer-only) nor qasim@ (personal alerts inbox) appears
+    # as a sending address — per the 20 May 2026 email-policy update.
     try:
         from services import email as email_svc
-        admin_to = os.environ.get("SAMPLES_ADMIN_EMAIL", "samples@tilestation.co.uk")
+        raw = os.environ.get(
+            "SAMPLES_ADMIN_EMAIL",
+            "online@tilestation.co.uk,qasim@tilestation.co.uk",
+        )
+        admin_recipients = [e.strip() for e in raw.split(",") if e.strip() and "@" in e]
         admin_subject = f"🟢 New sample order — #{order_number} · £{total:.2f}"
         admin_html = (
             f"<p><strong>New paid sample order ready to dispatch.</strong></p>"
@@ -6851,8 +6860,11 @@ async def _send_sample_confirmation_fanout(order: dict) -> None:
             f"<p>Stripe payment: <code>{order.get('stripe_session_id','—')}</code></p>"
         )
         send_fn = getattr(email_svc, "send_simple_email_if_possible", None)
-        if send_fn:
-            await send_fn(admin_to, admin_subject, admin_html)
+        if send_fn and admin_recipients:
+            await send_fn(
+                admin_recipients, admin_subject, admin_html,
+                from_override="Tile Station Alerts <notifications@tilestation.co.uk>",
+            )
     except Exception:
         logger.exception("Sample admin alert email failed (non-fatal)")
 
@@ -6992,6 +7004,7 @@ async def _send_shop_order_alert_fanout(order: dict) -> None:
                     admin_recipients,
                     f"💰 New order #{order_number} · £{total:.2f}",
                     admin_html,
+                    from_override="Tile Station Alerts <notifications@tilestation.co.uk>",
                 )
                 admin_email_results["recipients"] = admin_recipients
                 if send_result and send_result.get("success"):
@@ -7057,10 +7070,14 @@ async def _send_shop_order_alert_fanout(order: dict) -> None:
             )
             send_fn = getattr(email_svc, "send_simple_email_if_possible", None)
             if send_fn and customer_email:
+                # Online-shop customer confirmation. Per company email
+                # policy (20 May 2026): online@ is the ONLY sender allowed
+                # for online-customer-facing emails.
                 await send_fn(
                     customer_email,
                     f"Order #{order_number} confirmed · Tile Station",
                     cust_html,
+                    from_override="Tile Station <online@tilestation.co.uk>",
                 )
         except Exception:
             logger.exception("Shop order customer confirmation email failed (non-fatal)")

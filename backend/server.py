@@ -8383,9 +8383,10 @@ async def send_order_confirmation_email(invoice: dict):
     """
     
     resend.api_key = RESEND_API_KEY
-    sender_email = os.environ.get("SENDER_EMAIL", "online@tilestation.co.uk")
+    # Per-showroom direct send — tilestation.co.uk is domain-verified
+    # in Resend, so every showroom address is a valid sender.
     await asyncio.to_thread(resend.Emails.send, {
-        "from": f"{contact['name']} <{sender_email}>",
+        "from": f"{contact['name']} <{contact['email']}>",
         "to": [customer_email],
         "reply_to": [contact['email']],
         "subject": f"Order Confirmation #{invoice_no} - {contact['name']}",
@@ -8498,11 +8499,11 @@ async def email_invoice_pdf(invoice_id: str, request: InvoiceEmailRequest, curre
     
     try:
         resend.api_key = os.environ.get("RESEND_API_KEY")
-        # Use the verified SENDER_EMAIL as the actual sending address
-        # (Resend rejects unverified senders), but stamp the from-display
-        # name with the showroom and route replies to the correct inbox.
-        sender_email = os.environ.get("SENDER_EMAIL", "online@tilestation.co.uk")
-        from_header = f"{contact['name']} <{sender_email}>"
+        # Per-showroom send-from. The tilestation.co.uk domain is verified
+        # in Resend at the DOMAIN level, so every <showroom>@tilestation.co.uk
+        # is a valid sender out of the box. Tonbridge invoices come from
+        # tonbridge@, Chingford from chingford@, etc. — no exceptions.
+        from_header = f"{contact['name']} <{contact['email']}>"
         
         response = resend.Emails.send({
             "from": from_header,
@@ -8518,7 +8519,7 @@ async def email_invoice_pdf(invoice_id: str, request: InvoiceEmailRequest, curre
             ]
         })
         
-        return {"message": "Invoice sent successfully", "email": request.email, "from_showroom": contact['name']}
+        return {"message": "Invoice sent successfully", "email": request.email, "from": from_header}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to send email: {str(e)}")
 

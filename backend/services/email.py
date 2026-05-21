@@ -1541,6 +1541,7 @@ async def send_simple_email_if_possible(
     subject: str,
     html: str,
     attachments: list = None,
+    from_override: str = None,
 ) -> dict:
     """Lightweight Resend send. Used for admin alerts (UI health, etc) —
     no template wrapper, just dispatches if Resend is configured. Always
@@ -1548,6 +1549,12 @@ async def send_simple_email_if_possible(
 
     `attachments`: optional list of {filename, content (bytes), content_type}.
     Resend accepts base64-encoded content; we encode here so callers pass raw bytes.
+
+    `from_override`: optional full From-header (e.g. "Tile Station Alerts
+    <notifications@tilestation.co.uk>"). When set, takes priority over the
+    default `SENDER_EMAIL`-based header. Used for INTERNAL admin alerts so
+    they never appear to come from `online@` (which is reserved for
+    online-customer emails) or from a personal inbox like `qasim@`.
     """
     if not RESEND_AVAILABLE or not RESEND_API_KEY:
         return {"success": False, "error": "Email service not available"}
@@ -1557,8 +1564,9 @@ async def send_simple_email_if_possible(
         to = [to]
     try:
         resend.api_key = RESEND_API_KEY
+        from_header = from_override or f"{COMPANY_NAME} Alerts <{SENDER_EMAIL}>"
         payload = {
-            "from": f"{COMPANY_NAME} Alerts <{SENDER_EMAIL}>",
+            "from": from_header,
             "to": to,
             "subject": subject,
             "html": html,

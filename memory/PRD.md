@@ -9,41 +9,52 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
-### [Feb 24, 2026 — Forked session] 🚨 P0 Order Email Black Hole + Per-Showroom Email Identity
+### [Feb 24, 2026 — Forked session] 🚨 P0 Order Email Black Hole + STRICT Per-Showroom Email Identity
 
-**Two user-reported production bugs (verbatim, 23:something — same panicked session)**:
+**Two user-reported production bugs (verbatim, same session)**:
 
 > 1) "Why the fuck am I not receiving email notifications about the orders. Is it going to cause another problem like the samples orders disappearance issue I had."
-> 2) "When other showrooms send EPOS documents (Invoices etc) via email it gets sent from gravesend@tilestation.co.uk. For example, Tonbridge staff sends a copy of invoice to customer, it goes to customer via gravesend@tilestation.co.uk."
+> 2) "When other showrooms send EPOS documents (Invoices etc) via email it gets sent from gravesend@tilestation.co.uk."
 
-**Root cause #1 — Order alerts going to a black-hole inbox**:
-`routes/shop.py::_send_shop_order_alert_fanout` line 6948 had `os.environ.get("ORDERS_ADMIN_EMAIL", "orders@tilestation.co.uk")`. The env var was never set on Railway production, so every order email since launch went to `orders@tilestation.co.uk` — an inbox the owner doesn't monitor. Resend returned `success: True`, no error was logged, no Telegram failure fired. Worst kind of bug: looks healthy from every monitoring lens but the customer-facing impact is total. Real order `TS-260520-0A7D8C` from Manoj Ambasna (£518.28) is in MongoDB and confirmed visible in Telegram, but the owner never saw the email.
+**Final company-wide email policy (locked in 20 May 2026 per owner)**:
 
-**Root cause #2 — Hardcoded Gravesend identity on EPOS docs**:
-- `server.py::email_invoice_pdf` (the "Send Invoice via Email" button on EPOS) line 8480: `"from": "Tile Station <gravesend@tilestation.co.uk>"` — literally hardcoded, even though 80 lines above it already loaded the invoice's `showroom` doc
-- Same file lines 8361, 8465-8472: footer phone/email/postal-address hardcoded to Gravesend
-- `server.py::send_order_confirmation_email` line 8374: same hardcoded gravesend
-- Net effect: a Tonbridge customer received an invoice signed by Tonbridge staff but apparently sent from Gravesend, with Gravesend's phone number, Gravesend's address, and replies going to Gravesend's inbox
+| Email type | FROM | TO |
+|---|---|---|
+| EPOS Invoice / proforma / quote sent by Tonbridge | `tonbridge@` | customer |
+| EPOS Invoice sent by Gravesend | `gravesend@` | customer |
+| EPOS Invoice sent by Chingford | `chingford@` | customer |
+| EPOS Invoice sent by Sydenham | `sydenham@` | customer |
+| Online shop customer confirmation | `online@` only | online customer |
+| Sample order customer confirmation | `online@` only | online customer |
+| New-order admin alert | `notifications@` | online@ + qasim@ |
+| Sample-order admin alert | `notifications@` | online@ + qasim@ |
+| All other system/UI alerts | `notifications@` | online@ + qasim@ |
+| `qasim@` is RECEIVE-ONLY | (never appears as sender) | n/a |
 
-**Fix #1 — Fanout + Telegram confirmation**:
-- New default for ORDERS_ADMIN_EMAIL: `online@tilestation.co.uk,qasim@tilestation.co.uk` (comma-separated; env var still wins if set)
-- `send_simple_email_if_possible` accepts the list directly (already supported via the existing `to=[…]` payload)
-- NEW post-send Telegram alert: "📧 Order #X email sent to: a@b.com, c@d.com" — or RED "⚠️ Order #X email FAILED — Recipients attempted: …, Error: …" if send fails. So next time this can never disappear silently.
+**Resend verification confirmed via API**: domain `tilestation.co.uk` is verified at the DOMAIN level with `sending: enabled`. This means every `@tilestation.co.uk` address can send without per-sender verification. Live API smoke test confirmed all 6 addresses (gravesend, tonbridge, chingford, sydenham, online, notifications) return 200 OK from Resend.
 
-**Fix #2 — Per-showroom email identity**:
-- New helper `services/email.py::get_showroom_contact(showroom_dict | slug | None)` returns full contact card (`name`, `email`, `phone`, `address`, `postcode`). Resolution order: dict id/slug match → partial string match → Gravesend fallback. DB-stored values on the showroom doc override the static defaults.
-- `email_invoice_pdf` (server.py): from-display = `"{Showroom name} <SENDER_EMAIL>"`, reply_to = `[showroom_email]`, body footer uses `contact['phone']`/`['email']`/`['address']`/`['postcode']`. Subject becomes `"Invoice #X from Tile Station Tonbridge"` not generic "Tile Station". Response payload returns `from_showroom` for frontend confirmation.
-- `send_order_confirmation_email` (server.py): same pattern. Looks up `invoice.showroom_id` → `db.showrooms.find_one` → `get_showroom_contact` → all body + send fields use the resolved showroom identity.
-- **Critically**: actual send-from address stays as the verified `SENDER_EMAIL` (online@tilestation.co.uk) to avoid Resend unverified-sender bounces, but display name + reply-to + body footer all reflect the actual showroom. Customers see "Tile Station Tonbridge" in their inbox; replies route to tonbridge@tilestation.co.uk.
+**Implementation**:
+- `services/email.py`: `send_simple_email_if_possible()` now accepts `from_override` parameter. Default behaviour unchanged for backward compat. New `SHOWROOM_CONTACTS` map + `get_showroom_contact()` resolver as the single source of truth for per-showroom phone/email/address/postcode.
+- `server.py::email_invoice_pdf` (the EPOS Send Invoice button): `from` = `f"{contact['name']} <{contact['email']}>"` directly — Tonbridge invoices come from tonbridge@ as the actual sender, not just display name. Body footer phone/email/address all per-showroom. Subject reads "Invoice #X from Tile Station Tonbridge".
+- `server.py::send_order_confirmation_email`: same — per-showroom direct send.
+- `routes/shop.py` shop-order fanout: admin alert FROM `notifications@`, TO `online@,qasim@` (default; env override `ORDERS_ADMIN_EMAIL` still supported). Customer confirmation FROM `online@` explicitly.
+- `routes/shop.py` sample-order fanout: same pattern — admin alert FROM notifications@ TO online@+qasim@ (default override `SAMPLES_ADMIN_EMAIL`); customer confirmation FROM online@.
+- **Post-send Telegram confirmation**: every new-order admin email triggers a "📧 Order #X email sent to: ..." Telegram message, or RED "⚠️ Order #X email FAILED — Error: ..." on failure. So this can never disappear silently again — the owner sees confirmation in Telegram within seconds of every order.
 
-**Tests (8 NEW, 53/53 pass)**:
-- `tests/test_showroom_email_per_branch.py`: resolver by slug, by partial name (`"Tile Station Tonbridge"` → tonbridge), by dict with id, DB override of static defaults, None fallback to Gravesend, unknown slug fallback to Gravesend, all 4 showrooms have unique email/phone/postcode, every contact card has all required keys
+**Tests (11 NEW, 56/56 pass)**:
+- `tests/test_showroom_email_per_branch.py`:
+  - resolver: by slug, by partial name, by dict-id, DB override of static defaults, None/unknown fallback to Gravesend
+  - integrity: all 4 showrooms unique email/phone/postcode, all required keys present
+  - **`test_every_showroom_email_is_on_verified_domain`** — locks in that no future contact card can introduce an off-domain address that Resend would reject
+  - `test_send_simple_accepts_from_override` — covers the new from_override parameter
+  - `test_send_simple_default_from_is_company_alerts` — covers the legacy default
+- **Live Resend API smoke test** (manual): all 6 send-from addresses confirmed working — gravesend, tonbridge, chingford, sydenham, online, notifications all return 200 OK with Resend email IDs.
 
 **Files**:
-- `/app/backend/services/email.py` (new SHOWROOM_CONTACTS map + `get_showroom_contact()` resolver)
-- `/app/backend/server.py` (email_invoice_pdf at line 8381 + send_order_confirmation_email at line 8282 — both now per-showroom)
-- `/app/backend/routes/shop.py` (line 6948 _send_shop_order_alert_fanout — fanout + Telegram confirmation)
-- `/app/backend/tests/test_showroom_email_per_branch.py` (NEW)
+- `/app/backend/services/email.py` (SHOWROOM_CONTACTS map + get_showroom_contact resolver + from_override parameter)
+- `/app/backend/server.py` (email_invoice_pdf + send_order_confirmation_email — both per-showroom direct send)
+- `/app/backend/routes/shop.py` (_send_shop_order_alert_fanout + _send_sample_confirmation_fanout — strict policy enforcement)
+- `/app/backend/tests/test_showroom_email_per_branch.py` (NEW — 11 tests)
 
 
 ### [Feb 24, 2026 — Forked session] 🔕 Schema-Drift Detector — Suppress Noisy Same-Commit Alerts
