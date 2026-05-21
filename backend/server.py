@@ -8294,7 +8294,7 @@ async def send_order_confirmation_email(invoice: dict):
     # Resolve per-showroom contact (phone/email/address) so confirmation
     # emails come from the showroom that actually took the order — not
     # always Gravesend. (20 May 2026 — user-reported.)
-    from services.email import get_showroom_contact
+    from services.email import get_showroom_contact, render_email_signature
     showroom_doc = None
     sid = invoice.get("showroom_id")
     if sid:
@@ -8303,6 +8303,7 @@ async def send_order_confirmation_email(invoice: dict):
         except Exception:
             showroom_doc = None
     contact = get_showroom_contact(showroom_doc or showroom_name)
+    signature_html = render_email_signature(showroom_doc or showroom_name)
     
     # Calculate deposits and outstanding
     deposits = invoice.get("deposits", [])
@@ -8367,17 +8368,13 @@ async def send_order_confirmation_email(invoice: dict):
             
             <p>If you have any questions about your order, please don't hesitate to contact us.</p>
             
-            <p style="margin-top: 30px;">
-                Best regards,<br>
-                <strong>{contact['name']} Team</strong><br>
-                Tel: {contact['phone']}<br>
-                Email: {contact['email']}
-            </p>
+            <p style="margin-top: 20px;color:#374151;">Best regards,<br><strong>The {contact['name']} Team</strong></p>
+            
+            {signature_html}
         </div>
         
-        <div style="background: #1a1a2e; color: #888; padding: 15px; text-align: center; font-size: 12px;">
-            <p style="margin: 0;">{contact['address']} {contact['postcode']}</p>
-            <p style="margin: 5px 0 0 0;">Company No: 11982550 | VAT No: 324 251 828</p>
+        <div style="background: #1a1a2e; color: #888; padding: 15px; text-align: center; font-size: 11px;">
+            <p style="margin: 0;">Tile Station Group · Company No: 11982550 · VAT No: 324 251 828</p>
         </div>
     </div>
     """
@@ -8419,8 +8416,9 @@ async def email_invoice_pdf(invoice_id: str, request: InvoiceEmailRequest, curre
     # Gravesend defaults that were previously hardcoded.
     # (20 May 2026 — user-reported bug: "When Tonbridge staff sends a copy
     # of invoice to customer, it goes to customer via gravesend@.")
-    from services.email import get_showroom_contact
+    from services.email import get_showroom_contact, render_email_signature
     contact = get_showroom_contact(showroom or invoice.get("showroom_name"))
+    signature_html = render_email_signature(showroom or invoice.get("showroom_name"))
     
     # Generate PDF
     try:
@@ -8482,17 +8480,13 @@ async def email_invoice_pdf(invoice_id: str, request: InvoiceEmailRequest, curre
             
             <p>Thank you for choosing Tile Station!</p>
             
-            <p style="margin-top: 30px;">
-                Best regards,<br>
-                <strong>{contact['name']} Team</strong><br>
-                Tel: {contact['phone']}<br>
-                Email: {contact['email']}
-            </p>
+            <p style="margin-top: 20px;color:#374151;">Best regards,<br><strong>The {contact['name']} Team</strong></p>
+            
+            {signature_html}
         </div>
         
-        <div style="background: #1a1a2e; color: #888; padding: 15px; text-align: center; font-size: 12px;">
-            <p style="margin: 0;">{contact['address']} {contact['postcode']}</p>
-            <p style="margin: 5px 0 0 0;">Company No: 11982550 | VAT No: 324 251 828</p>
+        <div style="background: #1a1a2e; color: #888; padding: 15px; text-align: center; font-size: 11px;">
+            <p style="margin: 0;">Tile Station Group · Company No: 11982550 · VAT No: 324 251 828</p>
         </div>
     </div>
     """

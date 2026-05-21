@@ -51,7 +51,7 @@ from typing import Optional, Any
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, BackgroundTasks
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, EmailStr, Field
 
 from config import get_db
 from services import get_current_user, is_admin_user
@@ -1017,3 +1017,105 @@ async def run_email_hub_schedule_tick():
         fired += 1
     if fired:
         logger.info("[email-hub] fired %s scheduled campaigns", fired)
+
+
+
+# ─── Email signature preview & test endpoints ────────────────────────────
+# Built 21 May 2026 per owner request: "Can you design a nice email
+# signature for all stores with our logo." This lets admins preview the
+# rendered signature for each showroom (and optionally send a test email
+# to any address) without having to invoice a real customer.
+
+@router.get("/admin/email-signatures/preview")
+async def preview_email_signature(
+    showroom: str = "gravesend",
+    sender_name: str = "",
+    current_user: dict = Depends(get_current_user),
+):
+    """Render the per-showroom HTML signature so admins can preview it.
+
+    Query params:
+        showroom: slug — gravesend / tonbridge / chingford / sydenham
+        sender_name: optional staff name to render above the showroom name
+    """
+    if not is_admin_user(current_user):
+        raise HTTPException(status_code=403, detail="Admin only")
+    from services.email import (
+        render_email_signature, SHOWROOM_CONTACTS, get_showroom_contact,
+    )
+    sig_html = render_email_signature(
+        showroom=showroom,
+        sender_name=sender_name or None,
+    )
+    contact = get_showroom_contact(showroom)
+    return {
+        "showroom": showroom,
+        "contact": contact,
+        "html": sig_html,
+        "available_showrooms": list(SHOWROOM_CONTACTS.keys()),
+    }
+
+
+class _SignatureTestRequest(BaseModel):
+    to: EmailStr
+    showroom: str = "gravesend"
+    sender_name: str = ""
+
+
+@router.post("/admin/email-signatures/send-test")
+async def send_signature_test_email(
+    payload: _SignatureTestRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """Send a one-off preview email containing the per-showroom signature.
+
+    Used by the admin so they can see how it actually renders in Gmail /
+    Outlook / Apple Mail without invoicing a real customer.
+    """
+    if not is_admin_user(current_user):
+        raise HTTPException(status_code=403, detail="Admin only")
+    if not RESEND_AVAILABLE or not RESEND_API_KEY:
+        raise HTTPException(status_code=503, detail="Resend not configured")
+
+    from services.email import render_email_signature, get_showroom_contact
+    contact = get_showroom_contact(payload.showroom)
+    sig_html = render_email_signature(
+        showroom=payload.showroom,
+        sender_name=payload.sender_name or None,
+    )
+    body = f"""
+    <div style="font-family:Arial,Helvetica,sans-serif;max-width:620px;color:#1f2937;">
+      <p style="font-size:15px;line-height:1.55;">Hi,</p>
+      <p style="font-size:15px;line-height:1.55;">
+        This is a preview of the new <strong>{contact['name']}</strong>
+        email signature. The block below will appear at the bottom of
+        every invoice / order confirmation we send to customers from this
+        showroom.
+      </p>
+      <p style="font-size:15px;line-height:1.55;">
+        If anything looks off (logo not loading, wrong phone number, etc.)
+        reply directly to this email and we'll fix it.
+      </p>
+      <p style="font-size:15px;line-height:1.55;">Thanks,<br/>The Tile Station Team</p>
+      {sig_html}
+    </div>
+    """
+    resend.api_key = RESEND_API_KEY
+    try:
+        send_result = await asyncio.to_thread(resend.Emails.send, {
+            "from": f"{contact['name']} <{contact['email']}>",
+            "to": [payload.to],
+            "reply_to": [contact['email']],
+            "subject": f"[Preview] {contact['name']} email signature",
+            "html": body,
+        })
+        return {
+            "success": True,
+            "id": (send_result or {}).get("id"),
+            "to": payload.to,
+            "from": contact['email'],
+            "showroom": payload.showroom,
+        }
+    except Exception as exc:
+        logger.exception("Email signature test send failed")
+        raise HTTPException(status_code=502, detail=f"Send failed: {exc}")

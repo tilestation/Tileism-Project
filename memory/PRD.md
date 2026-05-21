@@ -9,6 +9,37 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Feb 24, 2026 — Forked session] ✨ Branded HTML Email Signatures (per-showroom)
+
+**User request**: *"Can you design nice email Signatures for all stores with our logo."*
+
+**Logo source**: Lifted directly from production header — `https://www.tilestation.co.uk/images/tilestation-logo.png` (yellow "Tile Station" wordmark + roof icon, 4067×2300px, hosted by us so it never breaks).
+
+**What was built**:
+- `services/email.py::render_email_signature(showroom, sender_name)` — returns table-based HTML with inline CSS for max email-client compat (Outlook 2019/365, Gmail, Apple Mail, Yahoo all render identically). Layout: logo column with vertical yellow divider, then per-showroom name + address + postcode + ☎ phone (tap-to-call via `tel:`) + ✉ email (mailto:) + 🌐 website + tagline "Amazing Tiles · Beautiful Bathrooms · Excellent Service".
+- Optional `sender_name` parameter — renders the staff member's name in bold above the showroom name so customers know who personally emailed them.
+- Wired into `email_invoice_pdf` (the EPOS Send Invoice button) and `send_order_confirmation_email` — both now end with the branded signature instead of a plain-text block.
+- New admin endpoints in `routes/email_hub.py`:
+  - `GET /api/admin/email-signatures/preview?showroom=tonbridge` — returns rendered HTML + contact card for any showroom
+  - `POST /api/admin/email-signatures/send-test` — sends a one-off preview email to any address so admins can see how it renders in their actual inbox client (Gmail/Outlook/etc.) without having to invoice a real customer
+
+**Tests (5 NEW, 16/16 pass)**:
+- `tests/test_showroom_email_per_branch.py`:
+  - `test_render_signature_includes_logo_and_showroom_contact` — Tonbridge sig has Tonbridge phone/email/postcode + logo URL, NO Gravesend leakage
+  - `test_render_signature_with_sender_name` — staff name appears above showroom name
+  - `test_render_signature_no_sender_name` — no empty div leak when name omitted
+  - `test_render_signature_table_based_no_flex` — uses `<table>`, no `display:flex`, has `tel:` + `mailto:` links (Outlook compat lock-in)
+  - `test_render_signature_unknown_showroom_falls_back_to_gravesend` — same contract as get_showroom_contact
+
+**Visual verification**: Rendered an HTML preview file at `/tmp/sig_{showroom}.html` per showroom and screenshotted Tonbridge — confirmed clean rendering, logo loads, yellow divider, all contact info correctly per-showroom.
+
+**Files**:
+- `/app/backend/services/email.py` (new `EMAIL_SIGNATURE_LOGO_URL` + `render_email_signature()` ~70 LOC)
+- `/app/backend/server.py` (email_invoice_pdf + send_order_confirmation_email — replaced plain footer with signature_html)
+- `/app/backend/routes/email_hub.py` (added preview + send-test endpoints)
+- `/app/backend/tests/test_showroom_email_per_branch.py` (5 new signature tests)
+
+
 ### [Feb 24, 2026 — Forked session] 🚨 P0 Order Email Black Hole + STRICT Per-Showroom Email Identity
 
 **Two user-reported production bugs (verbatim, same session)**:

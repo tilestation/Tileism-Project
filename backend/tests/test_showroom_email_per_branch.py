@@ -163,3 +163,78 @@ def test_send_simple_default_from_is_company_alerts(monkeypatch):
     assert "@tilestation.co.uk>" in from_header or "tilestation.co.uk" in from_header, (
         f"Default from must be on the verified domain; got {from_header}"
     )
+
+
+# ─── Branded email signature ──────────────────────────────────────────────
+
+
+def test_render_signature_includes_logo_and_showroom_contact():
+    """Tonbridge signature must show Tonbridge name, phone, email, postcode
+    and the website logo URL. No Gravesend leakage."""
+    from services.email import render_email_signature
+
+    html = render_email_signature("tonbridge")
+    # Logo URL
+    assert "tilestation-logo.png" in html, "Logo URL must be in signature"
+    # Per-showroom contact info — Tonbridge
+    assert "Tile Station Tonbridge" in html
+    assert "01732 914 374" in html
+    assert "tonbridge@tilestation.co.uk" in html
+    assert "TN9 1SP" in html
+    # No Gravesend leakage
+    assert "Gravesend" not in html
+    assert "01474 878 989" not in html
+    assert "DA11 8AB" not in html
+
+
+def test_render_signature_with_sender_name():
+    """When a staff name is provided, it appears in bold above the
+    showroom name (so customers know who personally emailed them)."""
+    from services.email import render_email_signature
+
+    html = render_email_signature("chingford", sender_name="Sarah")
+    assert "Sarah" in html
+    assert "Tile Station Chingford" in html
+    assert "chingford@tilestation.co.uk" in html
+
+
+def test_render_signature_no_sender_name():
+    """Without a sender_name, the bold-name block must not render an
+    empty <div> with stray styling."""
+    from services.email import render_email_signature
+
+    html = render_email_signature("sydenham")
+    # Sydenham contact present
+    assert "Tile Station Sydenham" in html
+    # Only ONE bold name block (the showroom name), no empty sender block
+    bold_name_count = html.count('font-size:15px;font-weight:700;color:#1a1a2e')
+    assert bold_name_count == 1, (
+        f"Without sender_name there must be ONE bold block (showroom name), "
+        f"not two — got {bold_name_count}"
+    )
+
+
+def test_render_signature_table_based_no_flex():
+    """Signature must use table layout (not flexbox/grid) for Outlook compat."""
+    from services.email import render_email_signature
+
+    html = render_email_signature("gravesend")
+    assert "<table" in html
+    assert "cellpadding" in html
+    # No CSS that breaks in Outlook
+    assert "display:flex" not in html
+    assert "display: flex" not in html
+    assert "display:grid" not in html
+    # Phone link uses tel: protocol (one-tap call on mobile)
+    assert 'href="tel:' in html
+    # Email link uses mailto: protocol
+    assert 'href="mailto:' in html
+
+
+def test_render_signature_unknown_showroom_falls_back_to_gravesend():
+    """Same fallback contract as get_showroom_contact."""
+    from services.email import render_email_signature
+
+    html = render_email_signature("nonexistent")
+    assert "Tile Station Gravesend" in html
+    assert "01474 878 989" in html

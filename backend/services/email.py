@@ -206,6 +206,103 @@ def get_showroom_email(showroom_name: str = None) -> str:
     return DEFAULT_EMAIL
 
 
+# ─── Branded HTML email signature ──────────────────────────────────────────
+# Logo URL (lifted from the production website header). Hosted by us so it
+# never breaks if a third-party CDN goes down. The `tilestation-logo.png`
+# is the yellow "Tile Station" wordmark + roof icon.
+EMAIL_SIGNATURE_LOGO_URL = (
+    "https://www.tilestation.co.uk/images/tilestation-logo.png"
+)
+
+
+def render_email_signature(showroom: dict | str | None = None, sender_name: str | None = None) -> str:
+    """Return a fully-styled HTML email signature for the given showroom.
+
+    Uses a TABLE-based layout with inline CSS so it renders correctly in
+    Outlook 2019/365 / Gmail / Apple Mail / Yahoo / Thunderbird — flexbox
+    and CSS Grid are not supported in most email clients.
+
+    Layout:
+        ┌───────────────────────────────────────────────┐
+        │  [Logo]   <name (optional)>                   │
+        │           Tile Station Tonbridge              │
+        │           Address line 1, line 2              │
+        │           Postcode                            │
+        │           ──────────                          │
+        │           ☎ 01732 914 374                     │
+        │           ✉ tonbridge@tilestation.co.uk       │
+        │           🌐 tilestation.co.uk                │
+        │           ──────────                          │
+        │           Amazing Tiles. Beautiful Bathrooms. │
+        │           Excellent Service.                  │
+        └───────────────────────────────────────────────┘
+
+    Args:
+        showroom: dict (showroom doc), slug string, or None (Gravesend fallback)
+        sender_name: optional staff name (e.g. "Sarah" — shown above the showroom
+                     name in bold, so customers know who emailed them).
+
+    Returns: HTML <table>...</table> string ready to drop into any email body.
+    """
+    contact = get_showroom_contact(showroom)
+    site_url = COMPANY_WEBSITE.rstrip("/")
+    site_label = site_url.replace("https://", "").replace("http://", "").replace("www.", "")
+
+    # Sender name block — only rendered when provided
+    sender_block = (
+        f"<div style=\"font-size:15px;font-weight:700;color:#1a1a2e;margin:0 0 2px 0;line-height:1.3;\">"
+        f"{sender_name}"
+        f"</div>"
+    ) if sender_name else ""
+
+    return f"""
+<table cellpadding="0" cellspacing="0" border="0" style="font-family:Arial,Helvetica,sans-serif;border-collapse:collapse;margin-top:24px;max-width:520px;">
+  <tr>
+    <!-- Logo column -->
+    <td valign="top" style="padding-right:18px;border-right:3px solid #f0c14b;">
+      <a href="{site_url}" style="text-decoration:none;">
+        <img src="{EMAIL_SIGNATURE_LOGO_URL}" alt="Tile Station" width="120" style="display:block;border:0;outline:none;text-decoration:none;width:120px;height:auto;" />
+      </a>
+    </td>
+    <!-- Details column -->
+    <td valign="top" style="padding-left:18px;color:#374151;font-size:13px;line-height:1.55;">
+      {sender_block}
+      <div style="font-size:15px;font-weight:700;color:#1a1a2e;letter-spacing:0.2px;margin:0 0 6px 0;line-height:1.3;">
+        {contact['name']}
+      </div>
+      <div style="color:#6b7280;font-size:12px;line-height:1.45;margin:0 0 10px 0;">
+        {contact['address']}<br/>
+        <strong style="color:#374151;letter-spacing:0.5px;">{contact['postcode']}</strong>
+      </div>
+      <table cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;">
+        <tr>
+          <td style="padding:2px 0;font-size:13px;color:#374151;">
+            <span style="color:#f0c14b;font-weight:700;margin-right:8px;">☎</span>
+            <a href="tel:{contact['phone'].replace(' ', '')}" style="color:#374151;text-decoration:none;font-weight:600;">{contact['phone']}</a>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:2px 0;font-size:13px;color:#374151;">
+            <span style="color:#f0c14b;font-weight:700;margin-right:8px;">✉</span>
+            <a href="mailto:{contact['email']}" style="color:#374151;text-decoration:none;">{contact['email']}</a>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:2px 0;font-size:13px;color:#374151;">
+            <span style="color:#f0c14b;font-weight:700;margin-right:8px;">🌐</span>
+            <a href="{site_url}" style="color:#374151;text-decoration:none;">{site_label}</a>
+          </td>
+        </tr>
+      </table>
+      <div style="margin-top:10px;padding-top:8px;border-top:1px solid #e5e7eb;font-size:11px;color:#9ca3af;font-style:italic;letter-spacing:0.2px;">
+        Amazing Tiles · Beautiful Bathrooms · Excellent Service
+      </div>
+    </td>
+  </tr>
+</table>
+""".strip()
+
+
 async def send_order_confirmation_email(invoice: dict):
     """Send order confirmation email to customer after invoice creation"""
     if not RESEND_AVAILABLE or not RESEND_API_KEY:
