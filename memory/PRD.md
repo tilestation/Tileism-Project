@@ -9,6 +9,54 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Feb 24, 2026 — Forked session] 🟡→✅ Trader Credit Statement Page (P1 cleared)
+
+**User request (carried over through 6+ emergencies)**: *"Build a Trade Credit statement page inside the 'Trader' section."*
+
+**What was built**:
+- **Backend** (`routes/trader_self_service.py`, NEW ~330 LOC):
+  - `GET /api/trader/credit-statement?days=N&limit=N` → balance + summary + ledger rows (newest-first, mapped to display-friendly labels: "Earned in store", "Redeemed online", "Reversed (refund)", etc.)
+  - `GET /api/trader/credit-statement/pdf?days=N` → branded PDF via reportlab — header card with business name + huge green balance, transactions table with alternating row striping, dark Tile Station header bar, footer with legal text + VAT info
+  - `POST /api/trader/credit-statement/email` → emails the PDF to the trader's on-file inbox, FROM `online@tilestation.co.uk` (per-customer policy), with the branded HTML email signature block embedded
+  - Auth uses the existing `get_shop_customer` Request dependency from `routes/shop.py` (shop_customer JWT path) — NOT staff `get_current_user`. New `_get_trader_customer()` wrapper adds the `is_trade=True` guard so non-trade accounts get 403'd.
+- **Frontend** (`pages/shop/TraderCreditStatementPage.jsx`, NEW ~270 LOC):
+  - Route: `/shop/trade/credit-statement`
+  - Three summary cards: emerald-bordered "Current Balance" (£42.50, big black number), "Earned (this period)" with up-arrow, "Redeemed (this period)" with down-arrow
+  - Date-range selector: 30/90/180/365 days + All time (refetches on change)
+  - Two action buttons: Download PDF + Email statement to me
+  - Transactions table: date, type label, ref (invoice/order #), amount (color-coded green/red), running balance — with empty-state for zero-txn windows
+  - Auth-redirects: 401 → `/shop/trade/login`, 403/404 → `/shop/trade/account` with toast
+- **Sidebar link** added to `TradeAccountPage.jsx` credit tab — "View full credit statement →" button right under "Spend my credit at checkout"
+
+**Tests (6 NEW, 22/22 pass with prior email-signature suite)**:
+- `tests/test_trader_credit_statement.py`:
+  - `test_get_credit_statement_returns_balance_and_transactions` — sorts newest-first, tags direction correctly, summary math checks out
+  - `test_get_credit_statement_30day_window_filters_correctly` — window honors `?days=` param
+  - `test_get_credit_statement_rejects_unauthenticated` — no token = 401/403
+  - `test_get_credit_statement_rejects_non_trade_account` — non-trade shop customer = 403
+  - `test_download_pdf_returns_valid_pdf_bytes` — Content-Type `application/pdf`, starts with `%PDF`, >2KB
+  - `test_download_pdf_contains_trader_business_name` — pypdf text-extracts "Test Trader Ltd", "Trade Credit Statement", "42.50", invoice refs
+
+**Files**:
+- `/app/backend/routes/trader_self_service.py` (NEW)
+- `/app/backend/routes/__init__.py` (registered router)
+- `/app/frontend/src/pages/shop/TraderCreditStatementPage.jsx` (NEW)
+- `/app/frontend/src/App.js` (route + lazy import)
+- `/app/frontend/src/pages/shop/TradeAccountPage.jsx` (added "View full credit statement" link)
+- `/app/backend/tests/test_trader_credit_statement.py` (NEW)
+
+
+### [Feb 24, 2026 — Forked session] ✨ Editable Sender Name on Email Signatures
+
+**User clarification**: *"Is the name in Email Signature editable? Confirm."*
+
+**What was added**:
+- `InvoiceEmailRequest` now accepts `sender_name: Optional[str]`
+- `email_invoice_pdf` resolves: explicit override → logged-in staff `current_user["name"]` → none
+- Frontend `InvoiceHistory.js` share dialog: new "Your Name on Signature" input field, pre-fills with current user's name, editable per-email
+- `lib/api.js::emailInvoicePdf` takes `senderName` param
+
+
 ### [Feb 24, 2026 — Forked session] ✨ Branded HTML Email Signatures (per-showroom)
 
 **User request**: *"Can you design nice email Signatures for all stores with our logo."*

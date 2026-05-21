@@ -213,6 +213,7 @@ const TradeRegisterPage = React.lazy(() => import('./pages/shop/TradeRegisterPag
 const TradeLoginPage = React.lazy(() => import('./pages/shop/TradeLoginPage'));
 const ShowroomSignupPage = React.lazy(() => import('./pages/shop/ShowroomSignupPage'));
 const TradeAccountPage = React.lazy(() => import('./pages/shop/TradeAccountPage'));
+const TraderCreditStatementPage = React.lazy(() => import('./pages/shop/TraderCreditStatementPage'));
 const CustomerRegisterPage = React.lazy(() => import('./pages/shop/CustomerRegisterPage'));
 const CustomerAccountPage = React.lazy(() => import('./pages/shop/CustomerAccountPage'));
 const TileCalculatorPage = React.lazy(() => import('./pages/shop/TileCalculatorPage'));
@@ -713,6 +714,10 @@ function App() {
                 </SampleCartProvider>
               </WishlistProvider>
             </TileCartProvider>
+          } />
+          
+          <Route path="/shop/trade/credit-statement" element={
+            <TraderCreditStatementPage />
           } />
           
           <Route path="/shop/order-success" element={

@@ -1304,6 +1304,14 @@ const TradeAccountPage = () => {
                       Spend my credit at checkout →
                     </button>
                   )}
+                  <button
+                    type="button"
+                    onClick={() => navigate('/shop/trade/credit-statement')}
+                    className="mt-3 w-full bg-white/20 text-white border border-white/30 font-semibold py-2.5 rounded-lg hover:bg-white/30 transition-colors flex items-center justify-center gap-2"
+                    data-testid="view-credit-statement-btn"
+                  >
+                    View full credit statement →
+                  </button>
                 </div>
 
                 <div className="bg-white rounded-2xl shadow-sm p-6">

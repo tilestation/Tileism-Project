@@ -79,6 +79,7 @@ from .storefront_features import router as storefront_features_router
 from .marketing_funnel import router as marketing_funnel_router
 from .storefront_messages import router as storefront_messages_router
 from .trade_credit_statements import router as trade_credit_statements_router
+from .trader_self_service import router as trader_self_service_router
 from .email_hub import router as email_hub_router
 from .pinterest_pack import router as pinterest_pack_router
 from .stripe_reconcile import router as stripe_reconcile_router
@@ -238,6 +239,7 @@ api_router.include_router(storefront_features_router)
 api_router.include_router(marketing_funnel_router)
 api_router.include_router(storefront_messages_router)
 api_router.include_router(trade_credit_statements_router)
+api_router.include_router(trader_self_service_router)
 api_router.include_router(email_hub_router)
 api_router.include_router(pinterest_pack_router)
 api_router.include_router(stripe_reconcile_router)
