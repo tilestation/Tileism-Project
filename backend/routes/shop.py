@@ -6942,10 +6942,24 @@ async def _send_shop_order_alert_fanout(order: dict) -> None:
         except Exception:
             logger.exception("Shop order Telegram alert failed (non-fatal)")
 
-        # ── Admin email — same showroom inbox the EPOS team monitors ──
+        # ── Admin email — fan out to the showroom team inboxes ──
+        # (20 May 2026 — user-reported bug: "Why am I not receiving email
+        # notifications about the orders." Root cause was the previous
+        # single hardcoded fallback `orders@tilestation.co.uk` — an inbox
+        # the owner never monitored. Resend reported success, the email
+        # silently disappeared, and orders looked invisible from the
+        # email side. Now we fan out to a configurable list and stamp
+        # which inboxes received it in the Telegram alert below.)
+        admin_email_results = {"recipients": [], "success_count": 0, "error": None}
         try:
             from services import email as email_svc
-            admin_to = os.environ.get("ORDERS_ADMIN_EMAIL", "orders@tilestation.co.uk")
+            # Allow override via env (comma-separated). Default = the
+            # owner's two real, monitored inboxes.
+            raw = os.environ.get(
+                "ORDERS_ADMIN_EMAIL",
+                "online@tilestation.co.uk,qasim@tilestation.co.uk",
+            )
+            admin_recipients = [e.strip() for e in raw.split(",") if e.strip() and "@" in e]
             items_html = "".join(
                 f"<li>{it.get('quantity', 1)}× <strong>{it.get('name', 'Item')}</strong>"
                 + (f" — {it.get('size')}" if it.get('size') else "")
@@ -6973,10 +6987,54 @@ async def _send_shop_order_alert_fanout(order: dict) -> None:
                 f"<p>Stripe session: <code>{order.get('stripe_session_id','—')}</code></p>"
             )
             send_fn = getattr(email_svc, "send_simple_email_if_possible", None)
-            if send_fn:
-                await send_fn(admin_to, f"💰 New order #{order_number} · £{total:.2f}", admin_html)
-        except Exception:
+            if send_fn and admin_recipients:
+                send_result = await send_fn(
+                    admin_recipients,
+                    f"💰 New order #{order_number} · £{total:.2f}",
+                    admin_html,
+                )
+                admin_email_results["recipients"] = admin_recipients
+                if send_result and send_result.get("success"):
+                    admin_email_results["success_count"] = len(admin_recipients)
+                else:
+                    admin_email_results["error"] = (send_result or {}).get("error", "unknown error")
+        except Exception as exc:  # noqa: BLE001
+            admin_email_results["error"] = str(exc)
             logger.exception("Shop order admin alert email failed (non-fatal)")
+
+        # ── Post-send Telegram confirmation ──
+        # Stamps which inboxes got pinged (or didn't) directly into the
+        # admin's Telegram channel so the email-vs-no-email mystery from
+        # 20 May 2026 can never repeat silently. If 0 recipients got the
+        # email, the message is RED and screams "no email sent".
+        try:
+            from services.telegram_notify import notify_event
+            recips = admin_email_results.get("recipients") or []
+            ok_count = admin_email_results.get("success_count") or 0
+            err = admin_email_results.get("error")
+            if ok_count > 0 and recips:
+                conf_text = (
+                    f"📧 <b>Order #{order_number} email sent</b>\n"
+                    f"To: {', '.join(recips)}"
+                )
+            elif err:
+                conf_text = (
+                    f"⚠️ <b>Order #{order_number} email FAILED</b>\n"
+                    f"Recipients attempted: {', '.join(recips) or '(none configured)'}\n"
+                    f"Error: <code>{err}</code>\n"
+                    f"Check RESEND_API_KEY / ORDERS_ADMIN_EMAIL env vars."
+                )
+            else:
+                conf_text = (
+                    f"⚠️ <b>Order #{order_number} — no admin email sent</b>\n"
+                    f"ORDERS_ADMIN_EMAIL env appears empty or send_simple_email_if_possible unavailable."
+                )
+            await notify_event(
+                "new_order_email_status", conf_text,
+                dedupe_key=f"order_email_status:{order_number}",
+            )
+        except Exception:
+            logger.exception("Order email Telegram confirmation failed (non-fatal)")
 
         # ── Customer confirmation ──
         try:

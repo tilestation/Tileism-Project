@@ -8290,6 +8290,19 @@ async def send_order_confirmation_email(invoice: dict):
     gross_total = invoice.get("gross_total", 0)
     showroom_name = invoice.get("showroom_name", "Tile Station")
     line_items = invoice.get("line_items", [])
+
+    # Resolve per-showroom contact (phone/email/address) so confirmation
+    # emails come from the showroom that actually took the order — not
+    # always Gravesend. (20 May 2026 — user-reported.)
+    from services.email import get_showroom_contact
+    showroom_doc = None
+    sid = invoice.get("showroom_id")
+    if sid:
+        try:
+            showroom_doc = await db.showrooms.find_one({"id": sid}, {"_id": 0})
+        except Exception:
+            showroom_doc = None
+    contact = get_showroom_contact(showroom_doc or showroom_name)
     
     # Calculate deposits and outstanding
     deposits = invoice.get("deposits", [])
@@ -8356,24 +8369,26 @@ async def send_order_confirmation_email(invoice: dict):
             
             <p style="margin-top: 30px;">
                 Best regards,<br>
-                <strong>Tile Station Team</strong><br>
-                Tel: 01474 878 989<br>
-                Email: gravesend@tilestation.co.uk
+                <strong>{contact['name']} Team</strong><br>
+                Tel: {contact['phone']}<br>
+                Email: {contact['email']}
             </p>
         </div>
         
         <div style="background: #1a1a2e; color: #888; padding: 15px; text-align: center; font-size: 12px;">
-            <p style="margin: 0;">Unit 3 Trade City, Coldharbour Road, Northfleet, Gravesend DA11 8AB</p>
+            <p style="margin: 0;">{contact['address']} {contact['postcode']}</p>
             <p style="margin: 5px 0 0 0;">Company No: 11982550 | VAT No: 324 251 828</p>
         </div>
     </div>
     """
     
     resend.api_key = RESEND_API_KEY
+    sender_email = os.environ.get("SENDER_EMAIL", "online@tilestation.co.uk")
     await asyncio.to_thread(resend.Emails.send, {
-        "from": "Tile Station <gravesend@tilestation.co.uk>",
+        "from": f"{contact['name']} <{sender_email}>",
         "to": [customer_email],
-        "subject": f"Order Confirmation #{invoice_no} - Tile Station",
+        "reply_to": [contact['email']],
+        "subject": f"Order Confirmation #{invoice_no} - {contact['name']}",
         "html": html_content
     })
 
@@ -8397,6 +8412,14 @@ async def email_invoice_pdf(invoice_id: str, request: InvoiceEmailRequest, curre
     showroom = None
     if showroom_id:
         showroom = await db.showrooms.find_one({"id": showroom_id}, {"_id": 0})
+
+    # Resolve the per-showroom contact card so Tonbridge invoices show
+    # the Tonbridge phone / postal address / reply-to inbox — NOT the
+    # Gravesend defaults that were previously hardcoded.
+    # (20 May 2026 — user-reported bug: "When Tonbridge staff sends a copy
+    # of invoice to customer, it goes to customer via gravesend@.")
+    from services.email import get_showroom_contact
+    contact = get_showroom_contact(showroom or invoice.get("showroom_name"))
     
     # Generate PDF
     try:
@@ -8460,14 +8483,14 @@ async def email_invoice_pdf(invoice_id: str, request: InvoiceEmailRequest, curre
             
             <p style="margin-top: 30px;">
                 Best regards,<br>
-                <strong>Tile Station Team</strong><br>
-                Tel: 01474 878 989<br>
-                Email: gravesend@tilestation.co.uk
+                <strong>{contact['name']} Team</strong><br>
+                Tel: {contact['phone']}<br>
+                Email: {contact['email']}
             </p>
         </div>
         
         <div style="background: #1a1a2e; color: #888; padding: 15px; text-align: center; font-size: 12px;">
-            <p style="margin: 0;">Unit 3 Trade City, Coldharbour Road, Northfleet, Gravesend DA11 8AB</p>
+            <p style="margin: 0;">{contact['address']} {contact['postcode']}</p>
             <p style="margin: 5px 0 0 0;">Company No: 11982550 | VAT No: 324 251 828</p>
         </div>
     </div>
@@ -8475,11 +8498,17 @@ async def email_invoice_pdf(invoice_id: str, request: InvoiceEmailRequest, curre
     
     try:
         resend.api_key = os.environ.get("RESEND_API_KEY")
+        # Use the verified SENDER_EMAIL as the actual sending address
+        # (Resend rejects unverified senders), but stamp the from-display
+        # name with the showroom and route replies to the correct inbox.
+        sender_email = os.environ.get("SENDER_EMAIL", "online@tilestation.co.uk")
+        from_header = f"{contact['name']} <{sender_email}>"
         
         response = resend.Emails.send({
-            "from": "Tile Station <gravesend@tilestation.co.uk>",
+            "from": from_header,
             "to": [request.email],
-            "subject": f"Invoice #{invoice_no} from Tile Station",
+            "reply_to": [contact['email']],
+            "subject": f"Invoice #{invoice_no} from {contact['name']}",
             "html": html_content,
             "attachments": [
                 {
@@ -8489,7 +8518,7 @@ async def email_invoice_pdf(invoice_id: str, request: InvoiceEmailRequest, curre
             ]
         })
         
-        return {"message": "Invoice sent successfully", "email": request.email}
+        return {"message": "Invoice sent successfully", "email": request.email, "from_showroom": contact['name']}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to send email: {str(e)}")
 

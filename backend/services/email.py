@@ -90,6 +90,101 @@ async def _render_trade_credit_balance_banner_html(customer_email: str) -> str:
 # Default email if showroom not found
 DEFAULT_EMAIL = "gravesend@tilestation.co.uk"
 
+# ─── Per-showroom contact card ─────────────────────────────────────────────
+# Single source of truth for which phone, address, and reply-to email
+# appears on EPOS-sent documents (Invoices, Proforma, Quotations, etc.)
+# Keep in sync with /app/backend/business_config/showrooms.py.
+#
+# WHY this exists (20 May 2026 — user-reported bug):
+#   "When Tonbridge staff sends a copy of invoice to customer, it goes to
+#    customer via gravesend@tilestation.co.uk."
+# The invoice email endpoint had `from` and the entire footer hardcoded
+# to Gravesend. Customers got Tonbridge invoices stamped with Gravesend
+# contact details. This helper makes the showroom's identity flow through
+# every document email path.
+SHOWROOM_CONTACTS = {
+    "gravesend": {
+        "name": "Tile Station Gravesend",
+        "email": "gravesend@tilestation.co.uk",
+        "phone": "01474 878 989",
+        "address": "Unit 3 Trade City, Coldharbour Road, Northfleet, Gravesend",
+        "postcode": "DA11 8AB",
+    },
+    "tonbridge": {
+        "name": "Tile Station Tonbridge",
+        "email": "tonbridge@tilestation.co.uk",
+        "phone": "01732 914 374",
+        "address": "Unit 6, 402 Vale Road, Postern Industrial Estate, Tonbridge, Kent",
+        "postcode": "TN9 1SP",
+    },
+    "chingford": {
+        "name": "Tile Station Chingford",
+        "email": "chingford@tilestation.co.uk",
+        "phone": "020 8527 1363",
+        "address": "Unit 10, Deacon Trading Estate, Chingford, London",
+        "postcode": "E4 8QF",
+    },
+    "sydenham": {
+        "name": "Tile Station Sydenham",
+        "email": "sydenham@tilestation.co.uk",
+        "phone": "0204 629 7435",
+        "address": "Unit 2, Sydenham Industrial Estate, Langley Bridge Road, Sydenham, London",
+        "postcode": "SE26 5BA",
+    },
+}
+
+# Gravesend is the head-office fallback when an invoice has no showroom_id
+# or matches an unknown slug.
+_FALLBACK_CONTACT = SHOWROOM_CONTACTS["gravesend"]
+
+
+def get_showroom_contact(showroom: dict | str | None = None) -> dict:
+    """Resolve a full contact card (name, email, phone, address, postcode)
+    for a showroom doc OR a showroom slug/name string.
+
+    Order of resolution:
+      1) If `showroom` is a dict, prefer its own `id`/`name`/`slug` fields
+         when looking up in `SHOWROOM_CONTACTS`. If the dict already has
+         a phone/email/address, those values win over the static defaults
+         (so DB edits propagate through).
+      2) Partial substring match on slug → "Tile Station Tonbridge" still
+         resolves to `tonbridge`.
+      3) Final fallback: head-office Gravesend.
+
+    The returned dict is always SAFE to render — every key is present.
+    """
+    base = dict(_FALLBACK_CONTACT)
+
+    if showroom is None:
+        return base
+
+    # Coerce to slug-style key
+    if isinstance(showroom, str):
+        candidate = showroom.lower().strip()
+        showroom_dict = None
+    else:
+        showroom_dict = showroom
+        candidate = (
+            (showroom.get("id") or "")
+            or (showroom.get("slug") or "")
+            or (showroom.get("name") or "")
+        ).lower().strip()
+
+    # Direct slug match
+    for slug, contact in SHOWROOM_CONTACTS.items():
+        if slug == candidate or slug in candidate:
+            base = dict(contact)
+            break
+
+    # Let DB-stored values override static defaults — covers admin edits.
+    if showroom_dict:
+        for key in ("name", "email", "phone", "address", "postcode"):
+            v = showroom_dict.get(key)
+            if v:
+                base[key] = v
+
+    return base
+
 
 def get_showroom_email(showroom_name: str = None) -> str:
     """Get the email address for a showroom"""
