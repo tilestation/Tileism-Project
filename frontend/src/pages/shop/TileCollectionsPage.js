@@ -1479,7 +1479,14 @@ const TileCollectionsPage = () => {
               "{currentFilters.search}"
             </h1>
             <p className="text-sm text-gray-500 mt-2">
-              {totalCollections} {totalCollections === 1 ? 'collection' : 'collections'} found
+              {loading
+                ? (
+                  <span className="inline-flex items-center gap-2">
+                    <span className="inline-block w-3 h-3 border-2 border-gray-300 border-t-amber-500 rounded-full animate-spin" />
+                    Searching our collections…
+                  </span>
+                )
+                : `${totalCollections} ${totalCollections === 1 ? 'collection' : 'collections'} found`}
             </p>
           </div>
         </section>
@@ -1745,10 +1752,17 @@ const TileCollectionsPage = () => {
                       ? currentFilters.category.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase())
                       : 'All Collections'}
                 </h2>
-                <p className="text-sm text-gray-500">
-                  {inPageQuery.trim()
-                    ? `${displayedCollections.length} of ${totalCollections} collections match "${inPageQuery.trim()}"`
-                    : `${totalCollections} collections • ${totalProducts.toLocaleString()} products`}
+                <p className="text-sm text-gray-500" data-testid="collections-count-label">
+                  {loading
+                    ? (
+                      <span className="inline-flex items-center gap-2 text-gray-500">
+                        <span className="inline-block w-3 h-3 border-2 border-gray-300 border-t-amber-500 rounded-full animate-spin" />
+                        Loading our latest collections…
+                      </span>
+                    )
+                    : inPageQuery.trim()
+                      ? `${displayedCollections.length} of ${totalCollections} collections match "${inPageQuery.trim()}"`
+                      : `${totalCollections} collections • ${totalProducts.toLocaleString()} products`}
                 </p>
               </div>
 
