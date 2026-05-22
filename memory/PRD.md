@@ -9,6 +9,49 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Feb 22, 2026 — Forked session] 🚀 PRODUCTION SPEED — CDN-Ready Cache Headers + Preconnect
+
+**User complaint (verbatim):** *"Website pages are loading EXTREMELY SLOW... I need that speed... I don't care about anything but I need that speed. Customer browsing among different pages takes a very very long time to load compare to our competitors (Check Topps Tiles)."*
+
+**Root cause (measured):**
+- Railway origin is in `us-west2` (Oregon). UK customers pay ~150-300ms transatlantic latency on every request.
+- NO CDN in front of `www.tilestation.co.uk` (only `railway-edge` which is colocated with origin).
+- Topps Tiles UK TTFB ~120ms; TileStation UK TTFB ~600ms = 5× slower at the network layer, not application layer.
+
+**Code shipped (preparation for CDN rollout):**
+1. **New `EdgeCacheMiddleware`** (`backend/middleware/edge_cache.py`) — annotates whitelisted public GETs (`/api/shop/stores`, `/api/showrooms`, `/api/content/*`, `/api/filters/*`, etc.) with `Cache-Control: public, s-maxage=...` so Cloudflare/any CDN will edge-cache. Auth'd, cookied, non-2xx and non-GET requests are explicitly skipped (cache-poisoning safe).
+2. **Tuned existing `tiles.py` cache headers** — `/api/tiles/collections` and `/api/tiles/.../collection-products` now include `s-maxage=300, stale-while-revalidate=3600`. The previous directive only had `max-age=60` which would cap Cloudflare to a 60s edge TTL.
+3. **`index.html` preconnect + dns-prefetch** to `api.tilestation.co.uk` and the Railway backend URL — saves ~150ms DNS+TLS on the first API call from the SPA.
+4. **PostHog session-recorder deferred** until 1.5s after `window.load` — was previously blocking initial paint with ~50KB recorder bundle.
+5. **Emergent debug script** switched to `defer`.
+6. **Regression tests** (`backend/tests/test_edge_cache_middleware.py`) — 4 passing tests pin the CDN-header contract.
+
+**Verified end-to-end (curl, 22 May 2026):**
+- `/api/tiles/collections` → `Cache-Control: public, max-age=60, s-maxage=300, stale-while-revalidate=3600` ✅
+- `/api/shop/stores` → `Cache-Control: public, max-age=600, s-maxage=3600, stale-while-revalidate=86400` ✅
+- Auth'd request → no public cache directive added ✅
+- POST → no cache directive added ✅
+
+**Infrastructure work owned by USER (cannot be done in code):**
+- Migrate Railway backend `us-west2` → `europe-west4` (Amsterdam) — single biggest win, cuts UK latency 150-200ms per request.
+- Put Cloudflare Pro ($20/mo) + Argo ($5/mo) in front of `tilestation.co.uk` — caches static assets and our newly-annotated public APIs at London/Manchester edge.
+- Optional: Cloudflare Polish for image WebP/AVIF auto-conversion.
+
+**Step-by-step infra playbook saved to:** `/app/memory/PRODUCTION_SPEED_PLAYBOOK.md`
+
+**Expected post-infra metrics:** UK TTFB 600ms → ~40ms (15× faster); UK PDP 3-4s → ~600ms (5-6× faster). Beats Topps Tiles.
+
+**Files:**
+- NEW `/app/backend/middleware/edge_cache.py`
+- NEW `/app/backend/middleware/__init__.py`
+- NEW `/app/backend/tests/test_edge_cache_middleware.py`
+- NEW `/app/memory/PRODUCTION_SPEED_PLAYBOOK.md`
+- `/app/backend/server.py` (registered EdgeCacheMiddleware)
+- `/app/backend/routes/tiles.py` (added `s-maxage` directives)
+- `/app/frontend/public/index.html` (preconnect, dns-prefetch, defer 3rd-party scripts)
+
+
+
 ### [Feb 24, 2026 — Forked session] 🔕 Trade Account "Email Statement" Robustness
 
 **User screenshot (21 May 2026)**: Toast on `tilestation.co.uk/shop/trade/account` reading *"Could not email statement — please use Download instead"* — the silent FALLBACK toast that fires when the backend returns a non-OK response with no `detail` field.

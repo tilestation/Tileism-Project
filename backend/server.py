@@ -5,6 +5,7 @@ from fastapi.staticfiles import StaticFiles
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from starlette.middleware.gzip import GZipMiddleware
+from middleware import EdgeCacheMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import logging
@@ -135,6 +136,14 @@ app.add_middleware(
 # the CPU cost. The 500 B threshold skips compressing tiny responses
 # where the gzip overhead is bigger than the saving.)
 app.add_middleware(GZipMiddleware, minimum_size=500, compresslevel=6)
+
+# PERFORMANCE — CDN edge-cache headers (22 May 2026).
+# Adds Cache-Control / Vary headers to PUBLIC GET endpoints so Cloudflare
+# (or any CDN sitting in front of the origin) can serve responses from the
+# London/Manchester edge — sub-50ms TTFB for UK customers vs ~600ms hitting
+# our us-west2 Railway origin. See middleware/edge_cache.py for the
+# whitelist and TTLs. Auth'd / cookied requests are skipped automatically.
+app.add_middleware(EdgeCacheMiddleware)
 
 api_router = APIRouter(prefix="/api")
 
