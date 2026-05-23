@@ -180,7 +180,31 @@ async def list_recent_audits(limit: int = 30) -> list[dict[str, Any]]:
 # ───── Helpers ─────
 
 async def _pick_real_product_slug(db) -> str | None:
+    """Picks a product slug that the SSR-enrichment pipeline can
+    actually resolve via `/api/tiles/products/<slug>`. Updated
+    23 May 2026 — previously this just grabbed any `tiles` doc with
+    a `slug` field, but some legacy docs use short slugs (e.g.
+    `ardesia-slate-white-3`) that 404 on the lookup endpoint. The
+    audit would then probe a 404'd PDP, find no og:image / no
+    Product JSON-LD, and incorrectly flag the SSR pipeline as
+    broken. Now we prefer slugs that look like the canonical
+    "name-size-finish" format the lookup endpoint serves
+    (contains a size like `30x60cm` or two+ dashes).
+    """
     try:
+        # 1st choice: slugs in the canonical "with-size" format.
+        # `slug` matching /\d+x\d+/ is a strong signal that this is
+        # the modern slug schema.
+        row = await db.tiles.find_one(
+            {
+                "is_active": {"$ne": False},
+                "slug": {"$regex": r"\d+x\d+", "$options": "i"},
+            },
+            {"_id": 0, "slug": 1},
+        )
+        if row and row.get("slug"):
+            return row["slug"]
+        # 2nd: any active row with a slug at all (legacy fallback).
         row = await db.tiles.find_one(
             {"is_active": {"$ne": False}, "slug": {"$exists": True, "$ne": ""}},
             {"_id": 0, "slug": 1},
@@ -330,13 +354,24 @@ async def _check_pdp_jsonld(slug: str | None) -> dict[str, Any]:
         return {"status": "warn", "label": "Product PDP JSON-LD",
                 "detail": "no product to probe — DB empty?"}
     url = f"{SITE_URL}/shop/product/{quote(slug)}"
+    # 23 May 2026 — single-shot probes are flaky during Railway
+    # deployments (the EU container can serve a stripped HTML during
+    # the SSR enrichment warm-up). Retry once after 1.5s to filter
+    # out deploy-window false negatives.
     status, body, _ = await _http_get(url)
-    if status != 200:
-        return {"status": "fail", "label": "Product PDP JSON-LD",
-                "detail": f"PDP returned HTTP {status}"}
     has_ld = "application/ld+json" in body
     has_product_type = '"Product"' in body or "'Product'" in body
     has_offers = '"offers"' in body
+    if status == 200 and not (has_ld and has_product_type and has_offers):
+        import asyncio as _asyncio
+        await _asyncio.sleep(1.5)
+        status, body, _ = await _http_get(url + ("?_cb=1" if "?" not in url else "&_cb=1"))
+        has_ld = "application/ld+json" in body
+        has_product_type = '"Product"' in body or "'Product'" in body
+        has_offers = '"offers"' in body
+    if status != 200:
+        return {"status": "fail", "label": "Product PDP JSON-LD",
+                "detail": f"PDP returned HTTP {status}"}
     if has_ld and has_product_type and has_offers:
         return {"status": "pass", "label": "Product PDP JSON-LD",
                 "detail": "Full Product schema with offers — Google rich snippet eligible"}
