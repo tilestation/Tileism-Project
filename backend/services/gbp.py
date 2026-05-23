@@ -39,6 +39,14 @@ from __future__ import annotations
 
 import logging
 import os
+
+# Relax oauthlib's strict scope-equality check — see services/gsc.py
+# for the full rationale. Google's IdP grants `userinfo.profile` even
+# when we only asked for `userinfo.email` (OIDC compliance), and the
+# library refuses to complete the token exchange otherwise. Must be
+# set before importing google_auth_oauthlib.flow.
+os.environ.setdefault("OAUTHLIB_RELAX_TOKEN_SCOPE", "1")
+
 from datetime import datetime, timedelta, timezone
 from typing import Any
 

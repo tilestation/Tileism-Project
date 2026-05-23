@@ -40,6 +40,23 @@ from __future__ import annotations
 
 import logging
 import os
+
+# ─────────────────────────────────────────────────────────────────────
+# Relax oauthlib's strict scope equality check (23 May 2026 fix).
+#
+# When we request `openid` + `userinfo.email`, Google's IdP ALWAYS also
+# grants `userinfo.profile` for OIDC compliance — even though we never
+# asked for it. google-auth-oauthlib then raises:
+#   Warning: Scope has changed from "[...]" to "[...]"
+# refusing to complete the token exchange. This is a superset (more
+# permissions, not fewer) so it's safe to accept. Setting this env var
+# at module-import time is the canonical Google fix:
+# https://stackoverflow.com/q/65072568
+#
+# MUST be set before importing google_auth_oauthlib.flow.
+# ─────────────────────────────────────────────────────────────────────
+os.environ.setdefault("OAUTHLIB_RELAX_TOKEN_SCOPE", "1")
+
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
