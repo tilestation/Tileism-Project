@@ -159,6 +159,36 @@ if (!BACKEND_URL) {
     logLevel: 'warn',
   });
   app.use('/api/admin/gbp', gbpProxy);
+
+  // ──────────────────────────────────────────────────────────────────
+  // Device-approval magic links (23 May 2026 fix).
+  //
+  // Bug: emails embed buttons like
+  //   https://tilestation.co.uk/api/device-approvals/{id}/approve?token=...
+  // because `COMPANY_WEBSITE` (the public storefront host) is the
+  // brand the recipient trusts. Without a proxy, those requests hit
+  // THIS Express server, fall through to the SPA catch-all, the
+  // React Router then bounces unknown routes to "/" — so every click
+  // landed the admin on the homepage instead of the approve/deny
+  // handler. Same fix pattern as the GSC/GBP OAuth callbacks above.
+  //
+  // We proxy the *whole* /api/device-approvals path (not just the
+  // magic-link GET) so a future admin-side device-approvals UI that
+  // calls these endpoints from the storefront origin keeps working.
+  // ──────────────────────────────────────────────────────────────────
+  const deviceApprovalProxy = createProxyMiddleware({
+    target: BACKEND_URL,
+    changeOrigin: true,
+    xfwd: true,
+    onError: (err, req, res) => {
+      console.error('[server] Device-approval proxy error for', req.url, '—', err.message);
+      res.statusCode = 503;
+      res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+      res.end('Device approval service temporarily unavailable.');
+    },
+    logLevel: 'warn',
+  });
+  app.use('/api/device-approvals', deviceApprovalProxy);
 }
 
 // Static assets — build/ contains hashed JS/CSS/images. `index: false`
