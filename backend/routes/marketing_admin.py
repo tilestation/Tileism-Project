@@ -354,9 +354,25 @@ async def admin_seo_audit(current_user: dict = Depends(get_current_user)):
     results = {"origin": origin, "checks": {}}
 
     async with httpx.AsyncClient(timeout=8.0, follow_redirects=True) as http:
+        # Cloudflare bot-protection bypass (23 May 2026): real browser
+        # UA + shared-secret header. See services/seo_self_audit.py for
+        # the full rationale and the matching Cloudflare WAF rule.
+        _audit_headers = {
+            "User-Agent": (
+                "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+                "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 "
+                "TileStationSelfAudit"
+            ),
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "en-GB,en;q=0.9",
+        }
+        _audit_secret = os.environ.get("SEO_AUDIT_SHARED_SECRET", "")
+        if _audit_secret:
+            _audit_headers["X-SEO-Audit-Secret"] = _audit_secret
+
         # 1. sitemap.xml
         try:
-            r = await http.get(f"{origin}/sitemap.xml")
+            r = await http.get(f"{origin}/sitemap.xml", headers=_audit_headers)
             results["checks"]["sitemap"] = {
                 "ok": r.status_code == 200 and ("<urlset" in r.text or "<sitemapindex" in r.text),
                 "status": r.status_code,
@@ -367,7 +383,7 @@ async def admin_seo_audit(current_user: dict = Depends(get_current_user)):
 
         # 2. robots.txt
         try:
-            r = await http.get(f"{origin}/robots.txt")
+            r = await http.get(f"{origin}/robots.txt", headers=_audit_headers)
             ok = r.status_code == 200 and "User-agent" in r.text
             results["checks"]["robots"] = {
                 "ok": ok,
@@ -379,7 +395,7 @@ async def admin_seo_audit(current_user: dict = Depends(get_current_user)):
 
         # 3. Homepage canonical + OG tag presence
         try:
-            r = await http.get(origin)
+            r = await http.get(origin, headers=_audit_headers)
             html = r.text or ""
             has_canonical = 'rel="canonical"' in html or "rel='canonical'" in html
             has_og_title = 'property="og:title"' in html or "property='og:title'" in html

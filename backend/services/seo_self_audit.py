@@ -216,10 +216,40 @@ def _grade_for(pct: float) -> str:
 
 async def _http_get(url: str, timeout: float = CHECKS_TIMEOUT_SECONDS) -> tuple[int, str, dict]:
     """Returns (status_code, body, headers). Always succeeds — never
-    raises (returns -1 on error so checks can degrade gracefully)."""
+    raises (returns -1 on error so checks can degrade gracefully).
+
+    Headers strategy (23 May 2026, post-Cloudflare rollout):
+      * Use a real browser User-Agent — Cloudflare's bot management
+        flags anything that screams "automated tool" and serves a JS
+        challenge that Python httpx cannot solve, which previously
+        returned `HTTP -1 after 12s` on every audit step.
+      * Send a shared-secret header `X-SEO-Audit-Secret` so the
+        Cloudflare WAF can match a custom rule that skips bot
+        protection for our OWN audit traffic. The secret comes from
+        the env var `SEO_AUDIT_SHARED_SECRET` (set in Railway AND
+        in the Cloudflare WAF "Skip" rule — same value both sides).
+      * Send `Cache-Control: no-cache` + cache-buster so we measure
+        the live site, not a stale CDN cache.
+    """
+    secret = os.environ.get("SEO_AUDIT_SHARED_SECRET", "")
+    # Real Chrome UA so Cloudflare's "managed challenge" doesn't trip
+    # on the literal string "bot" or unknown UA. The audit IS a bot but
+    # it's OUR bot and we've authorised it via the shared-secret header.
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 "
+            "TileStationSelfAudit"
+        ),
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-GB,en;q=0.9",
+        "Cache-Control": "no-cache",
+    }
+    if secret:
+        headers["X-SEO-Audit-Secret"] = secret
     try:
         async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as cli:
-            r = await cli.get(url, headers={"User-Agent": "TileStation-SeoAudit/1.0"})
+            r = await cli.get(url, headers=headers)
             return r.status_code, r.text, dict(r.headers)
     except Exception as exc:  # noqa: BLE001
         return -1, f"error: {exc}", {}
