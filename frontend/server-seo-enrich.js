@@ -26,7 +26,16 @@ const BACKEND_URL = process.env.REACT_APP_BACKEND_URL
   || 'http://localhost:8001';
 const SITE_URL = process.env.PUBLIC_SITE_URL || 'https://tilestation.co.uk';
 const BRAND = 'Tile Station';
-const FETCH_TIMEOUT_MS = 250;
+// 23 May 2026 — bumped from 250ms → 1500ms after Cloudflare was put in
+// front of `tile-station-production.up.railway.app`. The CDN edge adds
+// ~50-150ms of overhead to each backend call; with the old 250ms
+// budget, /shop/product/<slug> requests timed out before the backend
+// responded, lookupProduct() returned null, and JSON-LD was silently
+// dropped from every PDP — the exact root cause of the SEO Self-Audit
+// "Missing schema.org/Product" failure on ardesia-slate-white-30x60cm-
+// matt. Googlebot waits 30s per page, so 1500ms is conservative and
+// still far short of any real crawler timeout.
+const FETCH_TIMEOUT_MS = parseInt(process.env.SEO_BACKEND_FETCH_TIMEOUT_MS || '1500', 10);
 const CACHE_TTL_MS = 5 * 60 * 1000;
 const CACHE_MAX = 1000;
 
@@ -98,7 +107,13 @@ async function lookupProduct(slug) {
     const list = Array.isArray(data) ? data : (data && (data.products || data.items) || []);
     row = list.length > 0 ? list[0] : null;
   }
-  cacheSet(key, row);
+  // 23 May 2026 — only cache POSITIVE lookups. Caching `null` for 5
+  // minutes meant a transient backend hiccup (or the old 250ms
+  // timeout) would suppress JSON-LD on a hot product page for 5
+  // minutes — exactly long enough for a Googlebot crawl to record
+  // "no Product schema" against the URL. Negative misses just retry
+  // next time.
+  if (row) cacheSet(key, row);
   return row;
 }
 
