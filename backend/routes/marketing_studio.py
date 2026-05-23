@@ -777,14 +777,27 @@ async def publish_asset(
         # nothing visible to customers (May 3 2026 production incident).
         # We tag with `source: "marketing_studio"` so admins can tell
         # which slides came from Marketing Studio vs hand-curated.
+        # Marketing-studio banners have the headline, sale copy, CTA
+        # button, model imagery — everything — baked INTO the image
+        # (it's a one-shot AI-rendered hero, not a CSS-composed slide).
+        # The hero carousel applies a dark gradient overlay AND a
+        # white headline / Shop Now button on TOP of every slide UNLESS
+        # `theme === 'image-only'`. Without that flag we obscure our
+        # own beautifully-composed banner, leaving customers seeing a
+        # near-empty gradient with a generic "Shop Now" button. Bug
+        # spotted 23 May 2026 — banner had "BANK HOLIDAY SALE / UP TO
+        # 70% OFF" baked in, rendered as a blank grey gradient.
         slide_doc = {
             "asset_id": asset_id,
             "source": "marketing_studio",
             "image": asset["image_url"],
+            "theme": "image-only",
+            # The remaining fields are kept for back-compat / admin
+            # overview but are NOT rendered when theme=="image-only".
             "badge": "",
-            "title": (req.cta_text or asset.get("prompt") or "")[:120],
+            "title": "",
             "subtitle": "",
-            "cta": "Shop Now",
+            "cta": "",
             "link": req.link_url or "/tiles?sale=true",
             "display_order": 0,  # marketing-studio slides go first
             "is_active": True,
@@ -795,6 +808,32 @@ async def publish_asset(
             {"$set": slide_doc},
             upsert=True,
         )
+        # Retro-fix any legacy marketing_studio slides published before
+        # the theme=image-only fix (23 May 2026). Those slides ship with
+        # `theme=null` so the carousel applies a dark gradient + generic
+        # "Shop Now" overlay that buries our baked-in banner content.
+        # Idempotent: only touches slides that still have the wrong theme.
+        try:
+            retro = await db.hero_slides.update_many(
+                {
+                    "source": "marketing_studio",
+                    "$or": [
+                        {"theme": {"$exists": False}},
+                        {"theme": None},
+                        {"theme": ""},
+                        {"theme": {"$ne": "image-only"}},
+                    ],
+                },
+                {"$set": {"theme": "image-only", "title": "", "cta": "",
+                          "subtitle": "", "badge": ""}},
+            )
+            if retro.modified_count:
+                logger.info(
+                    "[publish] retro-fixed %d legacy marketing_studio slide(s) "
+                    "to theme=image-only", retro.modified_count,
+                )
+        except Exception:
+            logger.exception("retro-fix legacy hero slides failed")
     else:  # promo_banner
         update = {
             "enabled": True,
