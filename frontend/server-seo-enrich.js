@@ -166,15 +166,49 @@ async function lookupCollection(slug) {
   const key = `coll:${slug}`;
   const hit = cacheGet(key);
   if (hit !== null) return hit;
-  const url = `${BACKEND_URL.replace(/\/$/, '')}/api/tiles/collections`;
-  const data = await fetchJson(url);
+  const base = BACKEND_URL.replace(/\/$/, '');
+  const data = await fetchJson(`${base}/api/tiles/collections`);
+  // 23 May 2026 — the endpoint historically returned a bare array, but
+  // now wraps the list as `{ collections: [...], total, ... }`. Without
+  // handling both shapes lookupCollection ALWAYS returned null and
+  // collection PDPs shipped without our custom JSON-LD / og tags. Long-
+  // standing silent SEO regression — uncovered when the audit's
+  // Collection JSON-LD check failed.
+  const list = Array.isArray(data)
+    ? data
+    : (data && Array.isArray(data.collections))
+      ? data.collections
+      : (data && Array.isArray(data.items))
+        ? data.items
+        : [];
   let row = null;
-  if (Array.isArray(data)) {
+  if (list.length > 0) {
     const lower = slug.toLowerCase().replace(/[-_\s]+/g, '');
-    row = data.find((c) => {
+    row = list.find((c) => {
       const candidates = [c.slug, c.id, c.name, c.display_name, c.series_name].filter(Boolean);
       return candidates.some((s) => String(s).toLowerCase().replace(/[-_\s]+/g, '') === lower);
     }) || null;
+  }
+  // Enrich row with the first 10 products so buildCollectionMeta can
+  // emit a populated ItemList JSON-LD (richer Google SERP cards).
+  // Best-effort: failure is silent and we still get a CollectionPage
+  // with metadata.
+  if (row) {
+    const seriesName = row.series_name || row.name || row.display_name;
+    if (seriesName) {
+      const prodResp = await fetchJson(
+        `${base}/api/tiles/collection/${encodeURIComponent(seriesName)}?limit=10`
+      );
+      const productList = (prodResp && Array.isArray(prodResp.products))
+        ? prodResp.products
+        : Array.isArray(prodResp) ? prodResp : [];
+      if (productList.length > 0) {
+        row.products = productList.slice(0, 10).map((p) => ({
+          slug: p.slug || p.url_slug || p.id,
+          display_name: p.display_name || p.name,
+        }));
+      }
+    }
   }
   cacheSet(key, row);
   return row;
