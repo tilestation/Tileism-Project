@@ -787,10 +787,31 @@ async def publish_asset(
         # near-empty gradient with a generic "Shop Now" button. Bug
         # spotted 23 May 2026 — banner had "BANK HOLIDAY SALE / UP TO
         # 70% OFF" baked in, rendered as a blank grey gradient.
+        # Resolve the asset's image URL to an ABSOLUTE URL pointing at
+        # the backend public host. Marketing Studio historically saved
+        # `asset.image_url` as a relative path like
+        #   `/api/website/marketing-media/<asset_id>.png`
+        # which the browser dutifully resolves against the storefront
+        # origin (tilestation.co.uk). The Express SPA server doesn't
+        # serve that path unless we mount a proxy → broken image icon.
+        # Storing an absolute URL here removes the dependency on the
+        # proxy and makes the slide self-contained.
+        # (23 May 2026 — paired with the websiteMediaProxy fix in
+        # frontend/server.js so older slides keep working too.)
+        _img = asset["image_url"] or ""
+        if _img.startswith("/"):
+            _backend_base = (
+                os.environ.get("BACKEND_PUBLIC_URL")
+                or os.environ.get("RAILWAY_PUBLIC_DOMAIN")
+                or "https://tile-station-production.up.railway.app"
+            ).rstrip("/")
+            if not _backend_base.startswith("http"):
+                _backend_base = f"https://{_backend_base}"
+            _img = f"{_backend_base}{_img}"
         slide_doc = {
             "asset_id": asset_id,
             "source": "marketing_studio",
-            "image": asset["image_url"],
+            "image": _img,
             "theme": "image-only",
             # The remaining fields are kept for back-compat / admin
             # overview but are NOT rendered when theme=="image-only".
@@ -834,6 +855,39 @@ async def publish_asset(
                 )
         except Exception:
             logger.exception("retro-fix legacy hero slides failed")
+
+        # Second retro-fix: rewrite any RELATIVE image URLs to absolute.
+        # Legacy slides stored `image: "/api/website/marketing-media/..."`
+        # which the browser resolves against tilestation.co.uk → broken
+        # image icon. Idempotent by design (regex only matches relative).
+        try:
+            _backend_base_retro = (
+                os.environ.get("BACKEND_PUBLIC_URL")
+                or os.environ.get("RAILWAY_PUBLIC_DOMAIN")
+                or "https://tile-station-production.up.railway.app"
+            ).rstrip("/")
+            if not _backend_base_retro.startswith("http"):
+                _backend_base_retro = f"https://{_backend_base_retro}"
+            legacy_slides = db.hero_slides.find(
+                {"source": "marketing_studio",
+                 "image": {"$regex": "^/", "$options": ""}}
+            )
+            count = 0
+            async for s in legacy_slides:
+                old_img = s.get("image") or ""
+                if old_img.startswith("/"):
+                    await db.hero_slides.update_one(
+                        {"_id": s["_id"]},
+                        {"$set": {"image": f"{_backend_base_retro}{old_img}"}},
+                    )
+                    count += 1
+            if count:
+                logger.info(
+                    "[publish] rewrote %d legacy relative image URL(s) "
+                    "to absolute backend URLs", count,
+                )
+        except Exception:
+            logger.exception("retro rewrite relative-image-URL failed")
     else:  # promo_banner
         update = {
             "enabled": True,

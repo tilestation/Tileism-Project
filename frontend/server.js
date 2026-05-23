@@ -189,6 +189,34 @@ if (!BACKEND_URL) {
     logLevel: 'warn',
   });
   app.use('/api/device-approvals', deviceApprovalProxy);
+
+  // ──────────────────────────────────────────────────────────────────
+  // Marketing Studio media (23 May 2026 fix).
+  //
+  // Bug: published hero banners stored their image as a relative path
+  //   `/api/website/marketing-media/<asset_id>.png`
+  // which the browser resolves against the storefront origin
+  // (tilestation.co.uk). Without a proxy here, those image requests
+  // fell through to the SPA catch-all and returned text/html — so
+  // every Marketing-Studio-published banner rendered as a broken
+  // image icon on the homepage. We also proxy /website/uploads and
+  // /api/website/uploads which historically host CMS-uploaded media
+  // referenced by absolute-but-same-origin URLs (defensive).
+  // ──────────────────────────────────────────────────────────────────
+  const websiteMediaProxy = createProxyMiddleware({
+    target: BACKEND_URL,
+    changeOrigin: true,
+    xfwd: true,
+    onError: (err, req, res) => {
+      console.error('[server] website-media proxy error for', req.url, '—', err.message);
+      res.statusCode = 503;
+      res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+      res.end('Media backend temporarily unavailable.');
+    },
+    logLevel: 'warn',
+  });
+  app.use('/api/website/marketing-media', websiteMediaProxy);
+  app.use('/api/website/uploads', websiteMediaProxy);
 }
 
 // Static assets — build/ contains hashed JS/CSS/images. `index: false`
