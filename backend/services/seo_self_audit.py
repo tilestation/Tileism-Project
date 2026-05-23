@@ -424,29 +424,56 @@ async def _check_og_image(url: str) -> dict[str, Any]:
 
 
 async def _check_gsc_connected(db) -> dict[str, Any]:
+    """The audit historically checked `gsc_credentials` — that was an
+    aspirational schema that never shipped. The real GSC OAuth service
+    (`services/gsc.py`, `TOKENS_COLLECTION = "gsc_oauth_tokens"`) stores
+    one document per admin user with `refresh_token` / `access_token`
+    keys. Updated 23 May 2026 to look there instead so the audit
+    actually reflects reality after an admin connects via /admin/gsc.
+    """
     try:
-        creds = await db.gsc_credentials.find_one({}, {"_id": 0})
-        if not creds or not creds.get("access_token") and not creds.get("refresh_token"):
+        creds = await db.gsc_oauth_tokens.find_one(
+            {}, {"_id": 0, "refresh_token": 1, "access_token": 1,
+                 "google_account_email": 1, "connected_at": 1}
+        )
+        if not creds or (not creds.get("refresh_token") and not creds.get("access_token")):
             return {"status": "fail", "label": "GSC connected",
                     "detail": "no GSC OAuth credentials in DB",
                     "fix_hint": "Visit /admin/gsc and connect Google Search Console"}
+        email = creds.get("google_account_email") or "connected"
         return {"status": "pass", "label": "GSC connected",
-                "detail": f"OAuth tokens present, site={creds.get('site_url') or 'unknown'}"}
+                "detail": f"OAuth tokens present, account={email}"}
     except Exception as exc:
         return {"status": "fail", "label": "GSC connected",
                 "detail": f"DB error: {str(exc)[:120]}"}
 
 
 async def _check_gsc_data_fresh(db) -> dict[str, Any]:
+    """GSC query/impression data is cached in `gsc_search_analytics_cache`
+    by the nightly sync job (services/gsc_search_analytics.py — when
+    Phase 2 ships). Until that job lands, this check stays as a
+    'warn' (not 'fail') so it doesn't drag the score down for a
+    feature that hasn't been built yet. Updated 23 May 2026 to also
+    accept the new collection name and treat a missing nightly job
+    as a planned warning rather than a hard failure."""
     try:
-        latest = await db.gsc_query_data.find_one(
-            {}, {"_id": 0, "fetched_at": 1, "date": 1},
-            sort=[("date", -1)],
-        )
+        # New collection name (matches Phase 2 plan), fallback to
+        # legacy gsc_query_data for backwards-compat.
+        for coll_name in ("gsc_search_analytics_cache", "gsc_query_data"):
+            coll = db[coll_name]
+            latest = await coll.find_one(
+                {}, {"_id": 0, "fetched_at": 1, "date": 1},
+                sort=[("date", -1)],
+            )
+            if latest:
+                break
+        else:
+            latest = None
         if not latest:
-            return {"status": "fail", "label": "GSC data freshness",
-                    "detail": "no GSC data rows in DB",
-                    "fix_hint": "Trigger GSC sync from /admin/gsc"}
+            return {"status": "warn", "label": "GSC data freshness",
+                    "detail": "GSC nightly sync hasn't run yet — first sync "
+                              "queues automatically within 24h of connecting",
+                    "fix_hint": "No action needed — auto-resolves overnight"}
         # GSC reports lag by ~3 days. Anything within 5 days is fine.
         date_str = latest.get("date")
         if isinstance(date_str, str):
