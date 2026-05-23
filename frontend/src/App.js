@@ -28,6 +28,7 @@ const CustomerInvites = React.lazy(() => import('./pages/admin/CustomerInvites')
 const Marketing = React.lazy(() => import('./pages/admin/Marketing').then(m => ({ default: m.Marketing })));
 const SeoCommandCentre = React.lazy(() => import('./pages/admin/SeoCommandCentre'));
 const GoogleBusinessProfile = React.lazy(() => import('./pages/admin/GoogleBusinessProfile'));
+const GoogleSearchConsole = React.lazy(() => import('./pages/admin/GoogleSearchConsole'));
 const VisualizerAdmin = React.lazy(() => import('./pages/admin/VisualizerAdmin'));
 const MarketingStudio = React.lazy(() => import('./pages/admin/MarketingStudio'));
 const TradeCreditEmails = React.lazy(() => import('./pages/admin/TradeCreditEmails'));
@@ -489,6 +490,7 @@ function App() {
             <Route path="marketing" element={<Marketing />} />
             <Route path="seo" element={<SeoCommandCentre />} />
             <Route path="gbp" element={<GoogleBusinessProfile />} />
+            <Route path="gsc" element={<GoogleSearchConsole />} />
             <Route path="visualizer" element={<VisualizerAdmin />} />
             <Route path="marketing-studio" element={<MarketingStudio />} />
             <Route path="trade-credit-emails" element={<TradeCreditEmails />} />
