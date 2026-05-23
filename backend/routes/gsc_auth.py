@@ -170,11 +170,21 @@ async def callback(
             admin_user_id=admin_id, code=code, state=state, code_verifier=code_verifier
         )
     except HTTPException as exc:
+        # 23 May 2026 — surface the actual exchange failure message in the
+        # toast so admins (and us) can diagnose Google OAuth misconfigs
+        # without trawling Railway logs. Previously every failure showed
+        # "server_error" with zero context. Truncated to 200 chars to fit
+        # comfortably in the redirect URL.
         logger.warning("GSC token exchange failed: %s", exc.detail)
-        return _redirect(DEFAULT_RETURN_PATH, gsc="error", reason="exchange_failed")
-    except Exception:
+        reason = str(exc.detail or "exchange_failed")[:200]
+        return _redirect(DEFAULT_RETURN_PATH, gsc="error", reason=reason)
+    except Exception as exc:
         logger.exception("GSC token exchange unexpected failure")
-        return _redirect(DEFAULT_RETURN_PATH, gsc="error", reason="server_error")
+        # Same idea — pass the EXCEPTION CLASS name + first line of the
+        # message so we can tell apart e.g. `InvalidGrantError`,
+        # `MismatchingStateError`, `requests.ConnectionError`, etc.
+        msg = f"{type(exc).__name__}: {str(exc).splitlines()[0] if str(exc) else 'no message'}"
+        return _redirect(DEFAULT_RETURN_PATH, gsc="error", reason=msg[:200])
 
     return _redirect(
         return_to,
