@@ -519,12 +519,23 @@ const HeroBannerCarousel = () => {
 
   useEffect(() => {
     if (slides.length > 1) {
+      // 24 May 2026 — per-slide rotation speed (admin-configurable in
+      // /admin/marketing-studio publish dialog). We pick the first
+      // active slide that carries an explicit `rotation_seconds`; if
+      // nothing's set, fall back to the historical 5s default so
+      // admins who don't touch the control see unchanged behaviour.
+      // Clamp to 2-30s on the frontend too as a defensive belt-and-
+      // braces against bad data.
+      const fromSlide = slides
+        .map((s) => Number(s.rotation_seconds))
+        .find((n) => Number.isFinite(n) && n >= 2 && n <= 30);
+      const intervalMs = (fromSlide || 5) * 1000;
       const timer = setInterval(() => {
         setCurrentSlide((prev) => (prev + 1) % slides.length);
-      }, 5000);
+      }, intervalMs);
       return () => clearInterval(timer);
     }
-  }, [slides.length]);
+  }, [slides]);
 
   const navigate = useNavigate();
 

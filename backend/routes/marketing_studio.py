@@ -73,6 +73,12 @@ class PublishReq(BaseModel):
     link_url: str | None = None  # for promo_banner placement
     cta_text: str | None = None  # for homepage_hero placement
     auto_unpublish_at: str | None = None  # ISO datetime — when set, banner auto-disables at this time
+    # Carousel rotation speed when ≥2 hero slides are active. Clamped
+    # to 2-30s so a fat-finger doesn't make slides flicker or freeze.
+    # Default 5s matches the historical hardcoded value, so admins
+    # who don't touch this control see no change in behaviour.
+    # (24 May 2026 — user-requested slider speed control.)
+    rotation_seconds: int | None = Field(default=None, ge=2, le=30)
 
 
 class PromoBannerUpdate(BaseModel):
@@ -823,6 +829,12 @@ async def publish_asset(
             "display_order": 0,  # marketing-studio slides go first
             "is_active": True,
             "created_at": datetime.now(timezone.utc),
+            # Per-slide carousel speed. The storefront's HeroBannerCarousel
+            # picks the FIRST active slide's value as the global rotation
+            # interval (multiple slides + multiple speeds → first wins).
+            # Stored even on single-slide publishes so future slides can
+            # inherit the admin's preference.
+            "rotation_seconds": int(req.rotation_seconds) if req.rotation_seconds else 5,
         }
         await db.hero_slides.update_one(
             {"asset_id": asset_id},

@@ -51,6 +51,11 @@ const AssetCard = ({ asset, onPublish, onDelete, onUnpublish, onZoom, onRegenera
   const [linkUrl, setLinkUrl] = useState('');
   const [ctaText, setCtaText] = useState('Shop Now');
   const [autoUnpublishAt, setAutoUnpublishAt] = useState('');  // datetime-local string, e.g. '2026-05-04T09:00'
+  // Carousel rotation speed (seconds). Only matters when ≥2 hero
+  // slides are active. Stored on the slide doc so the storefront's
+  // HeroBannerCarousel picks it up. 5s = historical default.
+  // (24 May 2026 — user-requested control.)
+  const [rotationSeconds, setRotationSeconds] = useState(5);
   const [busy, setBusy] = useState(false);
   const [regenerating, setRegenerating] = useState(false);
 
@@ -93,6 +98,7 @@ const AssetCard = ({ asset, onPublish, onDelete, onUnpublish, onZoom, onRegenera
         link_url: linkUrl,
         cta_text: ctaText,
         auto_unpublish_at: isoEnd,
+        rotation_seconds: rotationSeconds,
       });
       setShowPublish(false);
     } finally {
@@ -204,6 +210,48 @@ const AssetCard = ({ asset, onPublish, onDelete, onUnpublish, onZoom, onRegenera
                     data-testid={`marketing-asset-auto-end-preset-${asset.id}-${p.label.toLowerCase().replace(/\s+/g, '-').replace(/\+/g, 'plus')}`}
                   >
                     {p.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div>
+              {/* 24 May 2026 — carousel rotation speed.
+                  Only meaningful when ≥2 hero slides are active. We
+                  still capture it for single-slide publishes so a future
+                  variant inherits the admin's preference. */}
+              <label className="block text-[10px] uppercase tracking-wider text-slate-500 font-bold mb-1">
+                Carousel rotation speed <span className="normal-case opacity-70">— {rotationSeconds}s between slides</span>
+              </label>
+              <input
+                type="range"
+                min="2"
+                max="30"
+                step="1"
+                value={rotationSeconds}
+                onChange={(e) => setRotationSeconds(Number(e.target.value))}
+                className="w-full accent-yellow-500"
+                aria-label="Carousel rotation seconds"
+                data-testid={`marketing-asset-rotation-${asset.id}`}
+              />
+              <div className="flex justify-between text-[10px] text-slate-400 mt-0.5">
+                <span>Fast (2s)</span>
+                <span>Default (5s)</span>
+                <span>Slow (30s)</span>
+              </div>
+              <div className="flex flex-wrap gap-1 mt-1.5">
+                {[3, 5, 7, 10, 15].map((s) => (
+                  <button
+                    key={s}
+                    type="button"
+                    onClick={() => setRotationSeconds(s)}
+                    className={`text-[10px] px-2 py-0.5 rounded-full border transition ${
+                      rotationSeconds === s
+                        ? 'bg-yellow-400 border-yellow-500 text-slate-900 font-bold'
+                        : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300'
+                    }`}
+                    data-testid={`marketing-asset-rotation-preset-${asset.id}-${s}s`}
+                  >
+                    {s}s
                   </button>
                 ))}
               </div>
