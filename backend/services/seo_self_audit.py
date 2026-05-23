@@ -584,23 +584,39 @@ async def _check_editorial_autopilot(db) -> dict[str, Any]:
 
 
 async def _check_city_pages_published(db) -> dict[str, Any]:
+    """Counts city landing pages that are *publicly live* — i.e. the
+    storefront route `/api/city-landing-pages/{slug}` will return them.
+
+    Historical bug (fixed 23 May 2026):
+      The audit counted `status == "published"`, but the system only
+      ever uses `pending | generated | approved | skipped`. `approved`
+      means the page is live (see public_router.get in
+      routes/city_landing_pages.py line 892). The phantom "published"
+      check meant the audit ALWAYS returned 0/N regardless of how many
+      pages were live → permanent red fail.
+    """
     try:
         total = await db.city_landing_pages.count_documents({})
-        published = await db.city_landing_pages.count_documents({"status": "published"})
+        live = await db.city_landing_pages.count_documents({"status": "approved"})
         if total == 0:
             return {"status": "warn", "label": "City landing pages",
-                    "detail": "0 city pages — feature not seeded"}
-        pct = round((published / total) * 100) if total else 0
+                    "detail": "0 city pages — feature not seeded",
+                    "fix_hint": "Click 'Seed queue' in /admin/seo → City landing pages tab"}
+        pct = round((live / total) * 100) if total else 0
         if pct >= 50:
             return {"status": "pass", "label": "City landing pages",
-                    "detail": f"{published}/{total} published ({pct}%)"}
+                    "detail": f"{live}/{total} approved & live ({pct}%)"}
         if pct >= 10:
             return {"status": "warn", "label": "City landing pages",
-                    "detail": f"only {published}/{total} published — many stubs",
-                    "fix_hint": "Generate + publish stub pages from /admin/seo"}
-        return {"status": "fail", "label": "City landing pages",
-                "detail": f"{published}/{total} published — almost all stubs",
-                "fix_hint": "Run the city-page generator"}
+                    "detail": f"only {live}/{total} approved — many drafts",
+                    "fix_hint": "Open /admin/seo → City landing pages → Approve generated drafts"}
+        # Even when 0 are approved, this is a 'warn' (planned content) not
+        # a 'fail' — these pages are an SEO nice-to-have, not a blocker.
+        # Previously this dragged the audit score by 4 weight points for
+        # a feature the admin hasn't yet finished filling in.
+        return {"status": "warn", "label": "City landing pages",
+                "detail": f"{live}/{total} approved — content backlog pending",
+                "fix_hint": "Open /admin/seo → City landing pages → Generate + Approve"}
     except Exception as exc:
         return {"status": "warn", "label": "City landing pages",
                 "detail": str(exc)[:120]}
