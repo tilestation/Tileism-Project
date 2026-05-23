@@ -203,11 +203,41 @@ function buildProductMeta(product, slug) {
   const material = product.material || product.category || product.collection || '';
   const sizeMatch = name.match(/\d+\s*[xX]\s*\d+/);
   const size = sizeMatch ? sizeMatch[0] : '';
-  const titleParts = [name];
-  if (material && !name.toLowerCase().includes(material.toLowerCase())) titleParts.push(material);
-  if (price) titleParts.push(`From £${Number(price).toFixed(2)}/m²`);
-  titleParts.push(BRAND);
-  const title = titleParts.join(' · ').slice(0, 130);
+  // ── Title length (23 May 2026 fix) ──
+  //
+  // Google truncates SERP titles around 55-60 characters on desktop
+  // and as little as 50 on mobile. The old logic concatenated
+  //   "<name> · <material> · From £X/m² · Tile Station"
+  // which routinely landed at 75-90 chars and showed in search results
+  // as "Ardesia Slate White 30x60cm Matt · Porcelain · ...". The audit
+  // flagged "title too long (76 chars, want 50-60)" weight 5.
+  //
+  // New strategy: name + brand fits ~95% of products under 60. Only
+  // append the price/material if there's room. Final hard cap at 60
+  // (a couple of chars under what Google truncates) so brand suffix
+  // is always preserved.
+  const brandSuffix = ` · ${BRAND}`;
+  const TITLE_TARGET = 60;
+  const availableForName = TITLE_TARGET - brandSuffix.length;
+  let titleBody = name;
+  if (titleBody.length > availableForName) {
+    titleBody = titleBody.slice(0, availableForName - 1).trimEnd() + '…';
+  } else {
+    // Plenty of room — try to enrich with material/price *only* if it
+    // fits without breaking the 60-char target.
+    const extras = [];
+    if (material && !name.toLowerCase().includes(material.toLowerCase())) extras.push(material);
+    if (price) extras.push(`£${Number(price).toFixed(2)}/m²`);
+    for (const ex of extras) {
+      const candidate = `${titleBody} · ${ex}`;
+      if ((candidate + brandSuffix).length <= TITLE_TARGET) {
+        titleBody = candidate;
+      } else {
+        break;
+      }
+    }
+  }
+  const title = `${titleBody}${brandSuffix}`;
   const descParts = [
     `Buy ${name} at ${BRAND}.`,
     material ? `${material} tile${size ? ' ' + size : ''}.` : '',
@@ -290,10 +320,23 @@ function buildCollectionMeta(collection, slug, stealthKeywords = []) {
   if (!collection) return null;
   const name = (collection.display_name || collection.name || collection.series_name || slug).trim();
   const productCount = collection.product_count || collection.count;
-  const titleParts = [`${name} Collection`];
-  if (productCount) titleParts.push(`${productCount} Tiles`);
-  titleParts.push(BRAND);
-  const title = titleParts.join(' · ').slice(0, 130);
+  // ── Title length (23 May 2026) ──
+  // Same 60-char Google SERP target as PDPs. Brand suffix always
+  // preserved; collection-name truncated with ellipsis if needed.
+  const brandSuffix = ` · ${BRAND}`;
+  const TITLE_TARGET = 60;
+  const baseLabel = `${name} Tile Collection`;
+  const availableForBody = TITLE_TARGET - brandSuffix.length;
+  let titleBody = baseLabel;
+  if (titleBody.length > availableForBody) {
+    titleBody = titleBody.slice(0, availableForBody - 1).trimEnd() + '…';
+  } else if (productCount) {
+    const candidate = `${baseLabel} · ${productCount} Tiles`;
+    if ((candidate + brandSuffix).length <= TITLE_TARGET) {
+      titleBody = candidate;
+    }
+  }
+  const title = `${titleBody}${brandSuffix}`;
   const description = [
     `Explore the ${name} tile collection at ${BRAND}.`,
     productCount ? `${productCount} curated tiles.` : '',
@@ -302,7 +345,59 @@ function buildCollectionMeta(collection, slug, stealthKeywords = []) {
   const cleaned = (Array.isArray(stealthKeywords) ? stealthKeywords : [])
     .map((s) => (s == null ? '' : String(s)).trim())
     .filter((s) => s && s.length <= 80 && s.toLowerCase() !== name.toLowerCase());
-  const meta = { title, description };
+  // ── CollectionPage + ItemList JSON-LD (23 May 2026 fix) ──
+  //
+  // The SEO audit "Collection JSON-LD" check (weight 6) was failing
+  // because buildCollectionMeta didn't emit any structured data.
+  // CollectionPage tells Google this URL groups multiple products,
+  // and the embedded ItemList enumerates the products inside (Google
+  // uses the first ~5 to render rich "products in this collection"
+  // cards on SERPs).
+  //
+  // We only include the first 10 product slugs because:
+  //   1. The audit only requires schema PRESENCE, not exhaustive enumeration.
+  //   2. Larger ItemList blocks bloat the HTML and slow first paint.
+  //   3. Google's docs cap useful ItemList depth around 10-15 entries
+  //      for "products in collection" rich results.
+  const products = Array.isArray(collection.products)
+    ? collection.products
+    : Array.isArray(collection.items)
+      ? collection.items
+      : [];
+  const itemListElement = products
+    .slice(0, 10)
+    .map((p, idx) => {
+      const pSlug = p?.slug || p?.url_slug || p?.id;
+      if (!pSlug) return null;
+      const pName = p?.display_name || p?.name || pSlug;
+      return {
+        '@type': 'ListItem',
+        position: idx + 1,
+        name: pName,
+        url: `${SITE_URL.replace(/\/$/, '')}/shop/product/${pSlug}`,
+      };
+    })
+    .filter(Boolean);
+  const jsonld = {
+    '@context': 'https://schema.org/',
+    '@type': 'CollectionPage',
+    name: `${name} Tile Collection`,
+    description,
+    url: `${SITE_URL.replace(/\/$/, '')}/shop/collection/${encodeURIComponent(slug)}`,
+    isPartOf: {
+      '@type': 'WebSite',
+      name: BRAND,
+      url: SITE_URL,
+    },
+  };
+  if (itemListElement.length > 0) {
+    jsonld.mainEntity = {
+      '@type': 'ItemList',
+      numberOfItems: productCount || itemListElement.length,
+      itemListElement,
+    };
+  }
+  const meta = { title, description, jsonld };
   if (cleaned.length > 0) meta.stealthKeywords = cleaned.slice(0, 25);
   return meta;
 }

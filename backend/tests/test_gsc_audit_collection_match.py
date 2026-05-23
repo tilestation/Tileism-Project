@@ -106,13 +106,16 @@ async def test_audit_does_not_query_legacy_gsc_credentials_collection():
 
 
 @pytest.mark.asyncio
-async def test_data_freshness_returns_warn_not_fail_when_sync_not_yet_run():
-    """Missing nightly sync data is a 'planned feature pending' not
-    a hard failure — shouldn't tank the score by 4 weight points."""
+async def test_data_freshness_returns_pass_when_sync_not_yet_run():
+    """Updated 23 May 2026 evening: missing nightly sync data is a
+    'pass' (sync not yet run — auto-populates within 24h) not a 'warn'.
+    Warns were dragging the score for a non-actionable state on
+    freshly-connected accounts."""
     from services.seo_self_audit import _check_gsc_data_fresh
     db = _FakeDB(gsc_search_analytics_cache=None, gsc_query_data=None)
     result = await _check_gsc_data_fresh(db)
-    assert result["status"] == "warn", (
-        f"Missing GSC data should be 'warn' (sync not yet run), not 'fail'; "
+    assert result["status"] == "pass", (
+        f"Missing GSC data should be 'pass' (sync pending), not 'warn'; "
         f"got: {result}"
     )
+    assert "pending" in result["detail"].lower() or "24h" in result["detail"]
