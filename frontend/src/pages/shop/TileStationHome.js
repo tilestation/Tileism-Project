@@ -545,30 +545,28 @@ const HeroBannerCarousel = () => {
     );
   }
 
-  // 24 May 2026 — when ALL active slides are "image-only" (marketing-
-  // studio AI-generated banners with everything baked in), the
-  // section must NOT crop. The historical h-[50vh] crop chopped
-  // 50%+ of the headline off a 1920×600 landscape banner on a
-  // portrait phone. The first fix (aspect-[1920/600] for every
-  // viewport) flipped the bug — the banner became a 122px-tall
-  // strip on a 390px phone, technically intact but visually tiny.
+  // 24 May 2026 (v4 — user feedback "too small on empty sides on
+  // mobile view"). v3's `aspect-[3/2]` mobile shell left ~70px of
+  // dead navy bars top + bottom on a 390px phone because the banner's
+  // natural ratio is ~3.2:1 (1920×600) and `object-contain` letterboxes
+  // it. Two complementary fixes:
   //
-  // Final mobile-first sizing (urgent fix, 24 May 2026):
-  //   • Mobile (<sm)   : aspect-[3/2] container + object-contain
-  //                      → banner shows in full at its natural ratio
-  //                        (≈122px tall) on top of a slate-900
-  //                        letterbox band, giving the hero ~260px
-  //                        of presence above the fold instead of a
-  //                        squashed strip. Tap-target friendly.
-  //   • sm+ (≥640px)   : natural 1920:600 ratio, capped at 70vh so
-  //                      the banner stays prominent on desktops
-  //                      without dominating large monitors.
+  //   1. Tighten the mobile shell to `aspect-[2/1]`. Container drops
+  //      from 260px → 195px on a 390 viewport, shrinking the bars from
+  //      ~70px to ~37px each. Banner content (122px tall) stays whole.
+  //
+  //   2. Render a blurred backdrop of the same banner BEHIND the
+  //      letterboxed image (see the `<div aria-hidden>` further down,
+  //      mobile-only, image-only slides without an admin-uploaded
+  //      mobile variant). The remaining ~37px bars now look like a
+  //      tasteful Netflix-style frame instead of empty navy slabs.
+  //
   // For mixed/legacy themes we keep the dramatic 50-70vh full-bleed
   // height because those slides composit overlay text + CTA buttons
   // and need to fill the viewport.
   const allImageOnly = slides.length > 0 && slides.every((s) => s.theme === 'image-only');
   const sectionHeightClass = allImageOnly
-    ? 'aspect-[3/2] sm:aspect-[1920/600] sm:max-h-[70vh]'
+    ? 'aspect-[2/1] sm:aspect-[1920/600] sm:max-h-[70vh]'
     : 'h-[50vh] sm:h-[60vh] md:h-[70vh]';
 
   return (
@@ -582,6 +580,32 @@ const HeroBannerCarousel = () => {
         >
           {slide.theme !== 'image-only' && (
             <div className="absolute inset-0 z-10" style={{ background: slide.theme === 'sale' ? 'linear-gradient(to right, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.9) 35%, rgba(0,0,0,0.5) 60%, transparent 80%)' : 'linear-gradient(to right, rgba(0,0,0,0.8) 0%, rgba(0,0,0,0.4) 50%, transparent 80%)' }} />
+          )}
+          {/* 24 May 2026 (v4) — blurred letterbox backdrop.
+              Image-only banners are ~3.2:1 landscape, the mobile shell
+              is 2:1, so ~37px of empty space remains top+bottom on
+              mobile. Filling that space with a heavily-blurred,
+              darkened copy of the banner turns the dead navy bars
+              into a Netflix-style frame. Only renders:
+                • on mobile (sm:hidden)
+                • for image-only slides (themed slides already
+                  full-bleed via object-cover)
+                • when the admin hasn't uploaded a portrait mobile
+                  variant (in which case the variant fills the shell
+                  edge-to-edge — no letterbox to camouflage). */}
+          {slide.theme === 'image-only' && !slide.mobile_image && (
+            <div
+              aria-hidden
+              className="absolute inset-0 sm:hidden"
+              style={{
+                backgroundImage: `url(${slide.image})`,
+                backgroundSize: 'cover',
+                backgroundPosition: 'center',
+                filter: 'blur(36px) brightness(0.55) saturate(1.15)',
+                transform: 'scale(1.15)',
+              }}
+              data-testid="hero-mobile-blur-backdrop"
+            />
           )}
           {/* 24 May 2026 — `<picture>` swap for the optional mobile
               variant. When the admin uploads a portrait-cropped
