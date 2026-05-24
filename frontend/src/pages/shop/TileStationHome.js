@@ -617,7 +617,16 @@ const HeroBannerCarousel = () => {
               we switch to `object-cover` on small screens because
               the variant was designed to fill that shell — no
               letterbox bars needed. */}
-          <picture>
+          {/* `<picture>` MUST be positioned (relative + z-[1]) so it
+              paints ON TOP of the absolute-positioned blurred backdrop
+              above. Without explicit positioning the picture is a
+              static inline element and absolute siblings (the backdrop)
+              would paint over the sharp banner — exactly the regression
+              spotted on 24 May 2026 v4 ("what happened to the banner?",
+              entire hero blurred). `block w-full h-full` gives the
+              picture explicit dimensions so the img's `w-full h-full`
+              has something concrete to size against. */}
+          <picture className="relative z-[1] block w-full h-full">
             {slide.mobile_image && (
               <source media="(max-width: 639px)" srcSet={slide.mobile_image} />
             )}

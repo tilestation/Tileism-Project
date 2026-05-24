@@ -26,12 +26,17 @@ const homeSource = fs.readFileSync(
   'utf8',
 );
 
-// 1. There IS a <picture> element wrapping the carousel image.
+// 1. There IS a <picture> element wrapping the carousel image, and
+//    it MUST be positioned (relative + z-[1]) so it paints on top of
+//    the absolute-positioned blurred letterbox backdrop. Without this,
+//    the entire hero would render as a blurry smear (bug spotted
+//    24 May 2026 v4 — "what happened to the banner?").
 assert.match(
   homeSource,
-  /<picture>[\s\S]*<\/picture>/,
-  'Hero carousel must wrap the image in a <picture> element so the ' +
-    'browser can swap in the mobile variant on small viewports',
+  /<picture\s+className="relative\s+z-\[1\]\s+block\s+w-full\s+h-full">[\s\S]*<\/picture>/,
+  'Hero <picture> must use `relative z-[1] block w-full h-full` so ' +
+    'the sharp banner paints ON TOP of the absolute blurred letterbox ' +
+    'backdrop; otherwise the entire hero renders as a blurry smear',
 );
 
 // 2. <source media="(max-width: 639px)"> is gated on slide.mobile_image
