@@ -29,6 +29,13 @@ const PRESETS = [
   { key: 'hero',             label: 'Homepage hero (1920×640) — recommended', w: 1920, h: 640,  kind: 'hero' },
   { key: 'hero-tall',        label: 'Hero tall (1920×720) — Tile-Mountain style', w: 1920, h: 720,  kind: 'hero' },
   { key: 'hero-wide-short',  label: 'Hero short (1920×600) — above-the-fold safe', w: 1920, h: 600,  kind: 'hero' },
+  // Portrait variant for the mobile <picture> swap. 1080×1440 = 3:4,
+  // matching Tile Mountain's tall mobile hero (kitchen scene + bottom
+  // gradient strip with text). The storefront uses an aspect-[3/4]
+  // section on mobile when every slide carries a variant of this
+  // shape — banner fills edge-to-edge with no letterbox.
+  // (24 May 2026 — v5 mobile-banner upgrade.)
+  { key: 'hero-mobile',      label: 'Hero mobile portrait (1080×1440) — for mobile <picture> swap', w: 1080, h: 1440, kind: 'hero' },
   { key: 'hero-square',      label: 'Hero square (1080×1080)',     w: 1080, h: 1080, kind: 'hero' },
   { key: 'ribbon',           label: 'Promo banner strip (1200×300)', w: 1200, h: 300,  kind: 'ribbon' },
   { key: 'social-square',    label: 'Social square (1080×1080)',   w: 1080, h: 1080, kind: 'social' },
@@ -181,7 +188,43 @@ const AssetCard = ({ asset, mobileVariantOptions, onPublish, onDelete, onUnpubli
         )}
         {showPublish ? (
           <div className="mt-3 space-y-2 border-t pt-3">
-            <Input value={linkUrl} onChange={(e) => setLinkUrl(e.target.value)} placeholder="Click-through URL (optional)" className="text-xs" data-testid={`marketing-asset-link-${asset.id}`} />
+            <div>
+              <Input value={linkUrl} onChange={(e) => setLinkUrl(e.target.value)} placeholder="Click-through URL (optional) — e.g. /shop/collection/roca" className="text-xs" data-testid={`marketing-asset-link-${asset.id}`} />
+              {/* 24 May 2026 — collection-targeting helpers. Admins
+                  often ask "how do I make the banner go to a specific
+                  product range?". Quick-click chips paste the most
+                  common targets so they don't have to remember route
+                  syntax. Click any chip to populate the input above. */}
+              <div className="flex flex-wrap gap-1 mt-1.5">
+                <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider mr-1 self-center">Quick targets:</span>
+                {[
+                  { label: 'Sale', path: '/tiles?sale=true' },
+                  { label: 'Bathroom', path: '/shop/bathroom' },
+                  { label: 'Outdoor', path: '/tiles?group=outdoor' },
+                  { label: 'Flooring', path: '/tiles?group=flooring' },
+                  { label: 'All tiles', path: '/tiles' },
+                  { label: 'Clearance', path: '/tiles?clearance=true' },
+                ].map((c) => (
+                  <button
+                    key={c.label}
+                    type="button"
+                    onClick={() => setLinkUrl(c.path)}
+                    className={`text-[10px] px-2 py-0.5 rounded-full border transition ${
+                      linkUrl === c.path
+                        ? 'bg-emerald-100 border-emerald-400 text-emerald-900 font-bold'
+                        : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300'
+                    }`}
+                    data-testid={`marketing-asset-link-preset-${asset.id}-${c.label.toLowerCase().replace(/\s+/g, '-')}`}
+                    title={`Send clicks to ${c.path}`}
+                  >
+                    {c.label}
+                  </button>
+                ))}
+              </div>
+              <p className="text-[10px] text-slate-400 mt-1 leading-snug">
+                Tip: target a specific collection with <code className="bg-slate-100 px-1 rounded">/shop/collection/&lt;slug&gt;</code> or filter All Tiles with <code className="bg-slate-100 px-1 rounded">/tiles?brand=roca</code>.
+              </p>
+            </div>
             <Input value={ctaText} onChange={(e) => setCtaText(e.target.value)} placeholder="Hero CTA text (e.g. Shop Now)" className="text-xs" data-testid={`marketing-asset-cta-${asset.id}`} />
             <div>
               <label className="block text-[10px] uppercase tracking-wider text-slate-500 font-bold mb-1">
@@ -262,17 +305,19 @@ const AssetCard = ({ asset, mobileVariantOptions, onPublish, onDelete, onUnpubli
                 ))}
               </div>
             </div>
-            {/* 24 May 2026 — optional portrait-cropped mobile variant.
-                Phone visitors see a landscape banner letterboxed inside
-                an aspect-[3/2] shell, which is content-safe but visually
-                small. Letting the admin pick an alternate Marketing-Studio
-                asset (typically generated at a portrait ratio like
-                1080×1350) gives mobile users a full-bleed banner tuned
-                to their viewport — better conversion on the largest
-                share of our traffic. */}
+            {/* 24 May 2026 (v5) — optional portrait-cropped mobile
+                variant. Tile Mountain (tilemountain.co.uk) ships a
+                separate portrait banner file per slide so phones get a
+                full-bleed, tall hero matched to their viewport rather
+                than a letterboxed landscape. When EVERY active slide
+                has a variant the storefront auto-switches to a tall
+                aspect-[3/4] mobile shell — variants fill it
+                edge-to-edge with no letterbox bars. Generate variants
+                with the "Hero mobile portrait (1080×1440)" preset for
+                a perfect fit. */}
             <div>
               <label className="block text-[10px] uppercase tracking-wider text-slate-500 font-bold mb-1">
-                Mobile variant <span className="normal-case opacity-70">(optional — used on phones &lt;640px)</span>
+                Mobile variant <span className="normal-case opacity-70">(recommended — Tile-Mountain-style portrait banner for phones &lt;640px)</span>
               </label>
               <select
                 value={mobileVariantId}

@@ -545,28 +545,34 @@ const HeroBannerCarousel = () => {
     );
   }
 
-  // 24 May 2026 (v4 — user feedback "too small on empty sides on
-  // mobile view"). v3's `aspect-[3/2]` mobile shell left ~70px of
-  // dead navy bars top + bottom on a 390px phone because the banner's
-  // natural ratio is ~3.2:1 (1920×600) and `object-contain` letterboxes
-  // it. Two complementary fixes:
+  // 24 May 2026 (v5 — Tile Mountain-style mobile banners). Hard
+  // lesson from v1-v4: trying to mash a 3.2:1 landscape banner into
+  // a portrait phone viewport is fundamentally a losing battle —
+  // either you crop (lose text) or letterbox (waste space). Tile
+  // Mountain (tilemountain.co.uk) sidesteps the whole problem by
+  // shipping a SECOND, portrait-cropped image file per slide.
   //
-  //   1. Tighten the mobile shell to `aspect-[2/1]`. Container drops
-  //      from 260px → 195px on a 390 viewport, shrinking the bars from
-  //      ~70px to ~37px each. Banner content (122px tall) stays whole.
-  //
-  //   2. Render a blurred backdrop of the same banner BEHIND the
-  //      letterboxed image (see the `<div aria-hidden>` further down,
-  //      mobile-only, image-only slides without an admin-uploaded
-  //      mobile variant). The remaining ~37px bars now look like a
-  //      tasteful Netflix-style frame instead of empty navy slabs.
-  //
-  // For mixed/legacy themes we keep the dramatic 50-70vh full-bleed
-  // height because those slides composit overlay text + CTA buttons
-  // and need to fill the viewport.
+  // We now do the same. The admin can upload a `mobile_image` per
+  // slide in Marketing Studio's publish dialog. When EVERY active
+  // slide has one, we go full Tile-Mountain mode on mobile:
+  //   • Section uses `aspect-[3/4]` → ~520px tall on a 390px phone,
+  //     matching Tile Mountain's tall mobile hero.
+  //   • Variant fills the shell edge-to-edge via `object-cover` —
+  //     no letterbox bars, no blur backdrop, no compromise.
+  // When ANY slide is missing a variant we degrade gracefully to
+  // the v4 compact 2:1 shell with a blurred letterbox backdrop —
+  // good enough to ship and prompts admin to upload variants.
+  // Desktop (sm+) always renders the natural 1920:600 landscape
+  // capped at 70vh — variants only kick in on phones.
+  // Legacy themed slides keep the dramatic 50-70vh full-bleed
+  // height because they composit overlay text + CTA on transparent
+  // backgrounds and need to fill the viewport.
   const allImageOnly = slides.length > 0 && slides.every((s) => s.theme === 'image-only');
+  const allHaveMobileVariant = slides.length > 0 && slides.every((s) => !!s.mobile_image);
   const sectionHeightClass = allImageOnly
-    ? 'aspect-[2/1] sm:aspect-[1920/600] sm:max-h-[70vh]'
+    ? (allHaveMobileVariant
+        ? 'aspect-[3/4] sm:aspect-[1920/600] sm:max-h-[70vh]'
+        : 'aspect-[2/1] sm:aspect-[1920/600] sm:max-h-[70vh]')
     : 'h-[50vh] sm:h-[60vh] md:h-[70vh]';
 
   return (
