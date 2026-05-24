@@ -161,7 +161,19 @@ async def run_ui_health_checks(checks: list[dict[str, Any]]) -> dict[str, Any]:
                     el = await page.query_selector(sel)
                     if not el:
                         optional_missing.append(sel)
-                entry["status"] = "pass" if not missing else "fail"
+                # 24 May 2026 — severity-aware grading.
+                # Some checks are SOFT — e.g. volume-pricing-table only
+                # renders when the product has tier pricing configured,
+                # so a "missing" selector there reflects a content
+                # choice, not a regression. Soft checks downgrade their
+                # failure to "warn" instead of "fail" so the daily
+                # health-report email + admin badge stay green when only
+                # soft checks are missing.
+                severity = (c.get("severity") or "fail").lower()
+                if missing:
+                    entry["status"] = "warn" if severity == "warn" else "fail"
+                else:
+                    entry["status"] = "pass"
                 entry["missing"] = missing
                 if optional_missing:
                     entry["optional_missing"] = optional_missing
@@ -185,6 +197,11 @@ async def run_ui_health_checks(checks: list[dict[str, Any]]) -> dict[str, Any]:
         "results": results,
         "passed_count": sum(1 for r in results if r["status"] == "pass"),
         "failed_count": sum(1 for r in results if r["status"] == "fail"),
+        # 24 May 2026 — soft-failure bucket for `severity: warn` checks
+        # that "failed" but reflect a content choice (e.g. a tile with
+        # no tier pricing configured). Separated from `failed_count`
+        # so the email digest doesn't go red for non-regressions.
+        "warn_count": sum(1 for r in results if r["status"] == "warn"),
         "skipped_count": sum(1 for r in results if r["status"] == "skipped"),
         "disabled_count": sum(1 for r in results if r["status"] == "disabled"),
     }

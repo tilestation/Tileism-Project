@@ -2901,13 +2901,17 @@ CRITICAL_UI_CHECKS = [
     {
         "id": "homepage_categories",
         "label": "Homepage — shop categories grid",
-        "url": "/shop",
+        # 24 May 2026 — was "/shop", which 301-redirects to /tiles where
+        # `tile_collections_grid` is the relevant grid (already covered
+        # by its own check below). The "Shop our categories" grid that
+        # this check is really probing lives on the storefront ROOT.
+        "url": "/",
         "expected_selectors": ["[data-testid='homepage-category-grid']"],
     },
     {
         "id": "homepage_header_logo",
         "label": "Homepage — header logo + cart link",
-        "url": "/shop",
+        "url": "/",
         "expected_selectors": [
             "[data-testid='header-logo']",
             "[data-testid='cart-link']",
@@ -2942,6 +2946,15 @@ CRITICAL_UI_CHECKS = [
             "doesn't exist or has no products",
             "Collection not found",
         ],
+        # 24 May 2026 — Volume Pricing Table is INTENTIONALLY hidden on
+        # products that don't have tier pricing configured (see
+        # VolumePricingTable.jsx line 23 — returns null when tierPricing
+        # is empty). Missing testid on those products is a content
+        # choice (admin hasn't set bulk discounts), NOT a regression.
+        # Marking this as a SOFT check so the storefront-health dashboard
+        # doesn't flag it red when the audit happens to land on a
+        # product without bulk pricing.
+        "severity": "warn",
     },
     {
         "id": "tile_detail_add_to_cart",
