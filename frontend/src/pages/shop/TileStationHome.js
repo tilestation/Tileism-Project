@@ -545,31 +545,29 @@ const HeroBannerCarousel = () => {
     );
   }
 
-  // 24 May 2026 (v5 — Tile Mountain-style mobile banners). Hard
-  // lesson from v1-v4: trying to mash a 3.2:1 landscape banner into
-  // a portrait phone viewport is fundamentally a losing battle —
-  // either you crop (lose text) or letterbox (waste space). Tile
-  // Mountain (tilemountain.co.uk) sidesteps the whole problem by
-  // shipping a SECOND, portrait-cropped image file per slide.
+  // 24 May 2026 (v6 — user reported the crop is BACK on production
+  // even with v5 deployed. Root cause: v5's "image-only" detection
+  // was an `every()` gate AND only checked `theme === 'image-only'`.
+  // Production hero_slides had a mix — one Marketing-Studio banner
+  // plus 2 leftover seeded slides with theme=default — so the gate
+  // failed and the whole section fell back to legacy h-[50vh] +
+  // object-cover, re-cropping the banner exactly like v1).
   //
-  // We now do the same. The admin can upload a `mobile_image` per
-  // slide in Marketing Studio's publish dialog. When EVERY active
-  // slide has one, we go full Tile-Mountain mode on mobile:
-  //   • Section uses `aspect-[3/4]` → ~520px tall on a 390px phone,
-  //     matching Tile Mountain's tall mobile hero.
-  //   • Variant fills the shell edge-to-edge via `object-cover` —
-  //     no letterbox bars, no blur backdrop, no compromise.
-  // When ANY slide is missing a variant we degrade gracefully to
-  // the v4 compact 2:1 shell with a blurred letterbox backdrop —
-  // good enough to ship and prompts admin to upload variants.
-  // Desktop (sm+) always renders the natural 1920:600 landscape
-  // capped at 70vh — variants only kick in on phones.
-  // Legacy themed slides keep the dramatic 50-70vh full-bleed
-  // height because they composit overlay text + CTA on transparent
-  // backgrounds and need to fill the viewport.
-  const allImageOnly = slides.length > 0 && slides.every((s) => s.theme === 'image-only');
+  // v6 fixes BOTH problems:
+  //   1. Treat `source === 'marketing_studio'` as a synonym for
+  //      image-only. Marketing-Studio always bakes the headline,
+  //      CTA and lifestyle imagery INTO the asset, so the theme
+  //      flag is now belt-and-braces, not the source of truth.
+  //   2. Switch from `every()` to `some()` for the section-shell
+  //      gate — even one baked-in slide should drive the better
+  //      mobile shell. The per-slide object-fit logic below still
+  //      uses the same predicate so themed slides paint correctly
+  //      inside the new shell.
+  const isBakedBanner = (s) =>
+    s.theme === 'image-only' || s.source === 'marketing_studio';
+  const anyBakedBanner = slides.length > 0 && slides.some(isBakedBanner);
   const allHaveMobileVariant = slides.length > 0 && slides.every((s) => !!s.mobile_image);
-  const sectionHeightClass = allImageOnly
+  const sectionHeightClass = anyBakedBanner
     ? (allHaveMobileVariant
         ? 'aspect-[3/4] sm:aspect-[1920/600] sm:max-h-[70vh]'
         : 'aspect-[2/1] sm:aspect-[1920/600] sm:max-h-[70vh]')
@@ -584,22 +582,17 @@ const HeroBannerCarousel = () => {
           onClick={() => slide.link && navigate(slide.link)}
           style={{ cursor: slide.link ? 'pointer' : 'default' }}
         >
-          {slide.theme !== 'image-only' && (
+          {!isBakedBanner(slide) && (
             <div className="absolute inset-0 z-10" style={{ background: slide.theme === 'sale' ? 'linear-gradient(to right, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.9) 35%, rgba(0,0,0,0.5) 60%, transparent 80%)' : 'linear-gradient(to right, rgba(0,0,0,0.8) 0%, rgba(0,0,0,0.4) 50%, transparent 80%)' }} />
           )}
-          {/* 24 May 2026 (v4) — blurred letterbox backdrop.
-              Image-only banners are ~3.2:1 landscape, the mobile shell
-              is 2:1, so ~37px of empty space remains top+bottom on
-              mobile. Filling that space with a heavily-blurred,
-              darkened copy of the banner turns the dead navy bars
-              into a Netflix-style frame. Only renders:
-                • on mobile (sm:hidden)
-                • for image-only slides (themed slides already
-                  full-bleed via object-cover)
-                • when the admin hasn't uploaded a portrait mobile
-                  variant (in which case the variant fills the shell
-                  edge-to-edge — no letterbox to camouflage). */}
-          {slide.theme === 'image-only' && !slide.mobile_image && (
+          {/* 24 May 2026 (v4/v6) — blurred letterbox backdrop. Renders
+              for baked-in marketing-studio banners on mobile only,
+              when no portrait variant is uploaded. v6 widened the
+              predicate from `theme === 'image-only'` to
+              `isBakedBanner()` so legacy slides still tagged
+              theme=sale/default but published via Marketing Studio
+              get the proper treatment. */}
+          {isBakedBanner(slide) && !slide.mobile_image && (
             <div
               aria-hidden
               className="absolute inset-0 sm:hidden"
@@ -613,25 +606,13 @@ const HeroBannerCarousel = () => {
               data-testid="hero-mobile-blur-backdrop"
             />
           )}
-          {/* 24 May 2026 — `<picture>` swap for the optional mobile
-              variant. When the admin uploads a portrait-cropped
-              mobile banner in Marketing Studio, the storefront uses
-              it on viewports <640px (the `sm` breakpoint). Without a
-              mobile variant the browser falls back to the main
-              landscape banner, which our `aspect-[3/2]` shell
-              letterboxes safely. When a mobile variant IS provided
-              we switch to `object-cover` on small screens because
-              the variant was designed to fill that shell — no
-              letterbox bars needed. */}
           {/* `<picture>` MUST be positioned (relative + z-[1]) so it
               paints ON TOP of the absolute-positioned blurred backdrop
               above. Without explicit positioning the picture is a
               static inline element and absolute siblings (the backdrop)
-              would paint over the sharp banner — exactly the regression
-              spotted on 24 May 2026 v4 ("what happened to the banner?",
-              entire hero blurred). `block w-full h-full` gives the
-              picture explicit dimensions so the img's `w-full h-full`
-              has something concrete to size against. */}
+              would paint over the sharp banner. `block w-full h-full`
+              gives the picture explicit dimensions so the img's
+              `w-full h-full` has something concrete to size against. */}
           <picture className="relative z-[1] block w-full h-full">
             {slide.mobile_image && (
               <source media="(max-width: 639px)" srcSet={slide.mobile_image} />
@@ -640,7 +621,7 @@ const HeroBannerCarousel = () => {
               src={slide.image}
               alt={slide.title}
               className={`w-full h-full ${
-                slide.theme === 'image-only'
+                isBakedBanner(slide)
                   ? (slide.mobile_image
                       ? 'object-cover sm:object-contain'
                       : 'object-contain')
@@ -650,7 +631,7 @@ const HeroBannerCarousel = () => {
             />
           </picture>
           {/* SALE THEME */}
-          {slide.theme === 'sale' && (
+          {slide.theme === 'sale' && !isBakedBanner(slide) && (
             <div className="absolute inset-0 z-20 flex items-center pointer-events-none" style={{ WebkitFontSmoothing: 'antialiased', MozOsxFontSmoothing: 'grayscale', fontFamily: "'Inter', sans-serif", fontStyle: 'normal' }}>
               <div className="container mx-auto px-4">
                 <div className="max-w-3xl" style={{ transform: 'translateZ(0)' }}>
@@ -712,7 +693,7 @@ const HeroBannerCarousel = () => {
           )}
 
           {/* DEFAULT THEME */}
-          {(slide.theme === 'default' || (!slide.theme && slide.theme !== 'image-only' && slide.theme !== 'sale')) && (
+          {(slide.theme === 'default' || (!slide.theme && slide.theme !== 'image-only' && slide.theme !== 'sale')) && !isBakedBanner(slide) && (
             <div className="absolute inset-0 z-20 flex items-center pointer-events-none" style={{ WebkitFontSmoothing: 'antialiased', MozOsxFontSmoothing: 'grayscale' }}>
               <div className="container mx-auto px-4">
                 <div className="max-w-xl">
