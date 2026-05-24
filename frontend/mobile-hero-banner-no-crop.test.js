@@ -5,16 +5,26 @@
  * Background:
  *   Marketing-Studio AI banners are designed at 1920×600 (3.2:1
  *   landscape) with the headline, sale copy, CTA button and lifestyle
- *   imagery ALL baked into the image. The hero carousel used
- *   `object-cover` on a `h-[50vh]` section. On a 390px mobile viewport
- *   that scaled the 1920px-wide banner to fit the height (~415px),
- *   then cropped huge swathes off the sides — customers saw
- *   "AY SALE / 70% OFF" instead of "BANK HOLIDAY SALE / UP TO 70% OFF".
+ *   imagery ALL baked into the image.
+ *
+ *   v1 of this fix used `object-cover` + `h-[50vh]` — that cropped
+ *   huge swathes off the banner sides ("AY SALE / 70% OFF" instead of
+ *   "BANK HOLIDAY SALE / UP TO 70% OFF").
+ *
+ *   v2 tried `aspect-[1920/600]` for every viewport — content was
+ *   intact but the banner collapsed to a 122px-tall strip on a 390px
+ *   mobile, unreadable.
+ *
+ *   v3 (CURRENT contract): mobile uses a taller `aspect-[3/2]` shell
+ *   with `object-contain` — banner displays at its natural ratio
+ *   inside a slate-900 letterbox, giving the hero ~260px of presence
+ *   above the fold. Desktop (sm+) reverts to the banner's natural
+ *   1920:600 ratio capped at 70vh.
  *
  * Contract pinned:
  *   1. When ALL slides are `theme === 'image-only'`, the section
- *      uses `aspect-[1920/600]` so the section height matches the
- *      banner's native aspect ratio on every viewport — zero crop.
+ *      uses `aspect-[3/2]` on mobile and `sm:aspect-[1920/600]` on
+ *      tablet/desktop — banner content is NEVER cropped.
  *   2. Image-only slides MUST use `object-contain` so even an
  *      atypical aspect-ratio banner stays whole.
  *   3. Legacy themed slides (sale/general) keep `object-cover` +
@@ -30,22 +40,34 @@ const homeSource = fs.readFileSync(
   'utf8',
 );
 
-// 1. Image-only branch picks aspect-[1920/600].
+// 1. Image-only branch uses a mobile-friendly aspect ratio FIRST and
+//    upgrades to the natural 1920:600 on sm+ so the banner is
+//    readable on phones AND prominent on desktop.
 assert.match(
   homeSource,
-  /allImageOnly[^?]*\?\s*['"]aspect-\[1920\/600\][^'"]*['"]/,
+  /allImageOnly[^?]*\?\s*['"]aspect-\[3\/2\]\s+sm:aspect-\[1920\/600\][^'"]*['"]/,
   'When all active slides are image-only, the section must use ' +
-    'aspect-[1920/600] so the marketing-studio banner displays uncropped',
+    'aspect-[3/2] on mobile + sm:aspect-[1920/600] on tablet/desktop ' +
+    'so the marketing-studio banner is readable on phones and natural on desktop',
 );
 
-// 2. The legacy fallback keeps the dramatic 50-70vh height.
+// 2. Desktop branch is capped at 70vh so the banner stays prominent
+//    on laptops without dominating large monitors.
+assert.match(
+  homeSource,
+  /allImageOnly[^?]*\?\s*['"][^'"]*sm:max-h-\[70vh\][^'"]*['"]/,
+  'Image-only branch must cap height at 70vh on desktop so the banner ' +
+    'never dominates large monitors',
+);
+
+// 3. The legacy fallback keeps the dramatic 50-70vh height.
 assert.match(
   homeSource,
   /h-\[50vh\]\s+sm:h-\[60vh\]\s+md:h-\[70vh\]/,
   'Legacy slide theme must keep the full-bleed height',
 );
 
-// 3. <img> uses object-contain for image-only, object-cover otherwise.
+// 4. <img> uses object-contain for image-only, object-cover otherwise.
 assert.match(
   homeSource,
   /slide\.theme\s*===\s*['"]image-only['"]\s*\?\s*['"]object-contain['"]\s*:\s*['"]object-cover['"]/,
@@ -53,7 +75,7 @@ assert.match(
     'composition is never cropped',
 );
 
-// 4. Eager-load the first slide for LCP, lazy-load the rest.
+// 5. Eager-load the first slide for LCP, lazy-load the rest.
 assert.match(
   homeSource,
   /loading=\{[^}]*idx\s*===\s*0\s*\?\s*['"]eager['"]\s*:\s*['"]lazy['"]/,

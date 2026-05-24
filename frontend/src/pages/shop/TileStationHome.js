@@ -547,16 +547,28 @@ const HeroBannerCarousel = () => {
 
   // 24 May 2026 — when ALL active slides are "image-only" (marketing-
   // studio AI-generated banners with everything baked in), the
-  // section should match the banner's native aspect ratio so nothing
-  // gets cropped. The historical h-[50vh] crop turned a 1920×600
-  // landscape banner into a centered narrow strip on mobile, with
-  // most of the "BANK HOLIDAY SALE / 70% OFF" copy clipped off the
-  // sides. For mixed or legacy themes we keep the dramatic 50-70vh
-  // height because those slides have transparent backgrounds with
-  // overlay text and look better full-bleed.
+  // section must NOT crop. The historical h-[50vh] crop chopped
+  // 50%+ of the headline off a 1920×600 landscape banner on a
+  // portrait phone. The first fix (aspect-[1920/600] for every
+  // viewport) flipped the bug — the banner became a 122px-tall
+  // strip on a 390px phone, technically intact but visually tiny.
+  //
+  // Final mobile-first sizing (urgent fix, 24 May 2026):
+  //   • Mobile (<sm)   : aspect-[3/2] container + object-contain
+  //                      → banner shows in full at its natural ratio
+  //                        (≈122px tall) on top of a slate-900
+  //                        letterbox band, giving the hero ~260px
+  //                        of presence above the fold instead of a
+  //                        squashed strip. Tap-target friendly.
+  //   • sm+ (≥640px)   : natural 1920:600 ratio, capped at 70vh so
+  //                      the banner stays prominent on desktops
+  //                      without dominating large monitors.
+  // For mixed/legacy themes we keep the dramatic 50-70vh full-bleed
+  // height because those slides composit overlay text + CTA buttons
+  // and need to fill the viewport.
   const allImageOnly = slides.length > 0 && slides.every((s) => s.theme === 'image-only');
   const sectionHeightClass = allImageOnly
-    ? 'aspect-[1920/600] max-h-[70vh]'  // never crop — show the whole banner
+    ? 'aspect-[3/2] sm:aspect-[1920/600] sm:max-h-[70vh]'
     : 'h-[50vh] sm:h-[60vh] md:h-[70vh]';
 
   return (
