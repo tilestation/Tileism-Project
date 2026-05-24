@@ -545,8 +545,22 @@ const HeroBannerCarousel = () => {
     );
   }
 
+  // 24 May 2026 — when ALL active slides are "image-only" (marketing-
+  // studio AI-generated banners with everything baked in), the
+  // section should match the banner's native aspect ratio so nothing
+  // gets cropped. The historical h-[50vh] crop turned a 1920×600
+  // landscape banner into a centered narrow strip on mobile, with
+  // most of the "BANK HOLIDAY SALE / 70% OFF" copy clipped off the
+  // sides. For mixed or legacy themes we keep the dramatic 50-70vh
+  // height because those slides have transparent backgrounds with
+  // overlay text and look better full-bleed.
+  const allImageOnly = slides.length > 0 && slides.every((s) => s.theme === 'image-only');
+  const sectionHeightClass = allImageOnly
+    ? 'aspect-[1920/600] max-h-[70vh]'  // never crop — show the whole banner
+    : 'h-[50vh] sm:h-[60vh] md:h-[70vh]';
+
   return (
-    <section className="relative h-[50vh] sm:h-[60vh] md:h-[70vh] overflow-hidden" data-testid="hero-carousel">
+    <section className={`relative ${sectionHeightClass} overflow-hidden bg-slate-900`} data-testid="hero-carousel">
       {slides.map((slide, idx) => (
         <div
           key={idx}
@@ -557,10 +571,16 @@ const HeroBannerCarousel = () => {
           {slide.theme !== 'image-only' && (
             <div className="absolute inset-0 z-10" style={{ background: slide.theme === 'sale' ? 'linear-gradient(to right, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.9) 35%, rgba(0,0,0,0.5) 60%, transparent 80%)' : 'linear-gradient(to right, rgba(0,0,0,0.8) 0%, rgba(0,0,0,0.4) 50%, transparent 80%)' }} />
           )}
-          <img 
-            src={slide.image} 
+          <img
+            src={slide.image}
             alt={slide.title}
-            className="w-full h-full object-cover"
+            // For image-only banners, `object-contain` preserves the
+            // baked-in composition (headline, CTA, model imagery)
+            // even on narrow mobile viewports. For themed slides the
+            // overlay text needs full-bleed coverage so we keep
+            // `object-cover` there.
+            className={`w-full h-full ${slide.theme === 'image-only' ? 'object-contain' : 'object-cover'}`}
+            loading={idx === 0 ? 'eager' : 'lazy'}
           />
 
           {/* SALE THEME */}

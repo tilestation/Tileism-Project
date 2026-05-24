@@ -1,0 +1,63 @@
+/**
+ * Regression test for the mobile-banner cropping bug
+ * (24 May 2026 — user-reported "fix the mobile view urgently").
+ *
+ * Background:
+ *   Marketing-Studio AI banners are designed at 1920×600 (3.2:1
+ *   landscape) with the headline, sale copy, CTA button and lifestyle
+ *   imagery ALL baked into the image. The hero carousel used
+ *   `object-cover` on a `h-[50vh]` section. On a 390px mobile viewport
+ *   that scaled the 1920px-wide banner to fit the height (~415px),
+ *   then cropped huge swathes off the sides — customers saw
+ *   "AY SALE / 70% OFF" instead of "BANK HOLIDAY SALE / UP TO 70% OFF".
+ *
+ * Contract pinned:
+ *   1. When ALL slides are `theme === 'image-only'`, the section
+ *      uses `aspect-[1920/600]` so the section height matches the
+ *      banner's native aspect ratio on every viewport — zero crop.
+ *   2. Image-only slides MUST use `object-contain` so even an
+ *      atypical aspect-ratio banner stays whole.
+ *   3. Legacy themed slides (sale/general) keep `object-cover` +
+ *      `h-[50vh]` so their overlay text renders against a full-bleed
+ *      backdrop.
+ */
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+
+const homeSource = fs.readFileSync(
+  path.join(__dirname, 'src/pages/shop/TileStationHome.js'),
+  'utf8',
+);
+
+// 1. Image-only branch picks aspect-[1920/600].
+assert.match(
+  homeSource,
+  /allImageOnly[^?]*\?\s*['"]aspect-\[1920\/600\][^'"]*['"]/,
+  'When all active slides are image-only, the section must use ' +
+    'aspect-[1920/600] so the marketing-studio banner displays uncropped',
+);
+
+// 2. The legacy fallback keeps the dramatic 50-70vh height.
+assert.match(
+  homeSource,
+  /h-\[50vh\]\s+sm:h-\[60vh\]\s+md:h-\[70vh\]/,
+  'Legacy slide theme must keep the full-bleed height',
+);
+
+// 3. <img> uses object-contain for image-only, object-cover otherwise.
+assert.match(
+  homeSource,
+  /slide\.theme\s*===\s*['"]image-only['"]\s*\?\s*['"]object-contain['"]\s*:\s*['"]object-cover['"]/,
+  'Image-only slides must use object-contain so the baked-in banner ' +
+    'composition is never cropped',
+);
+
+// 4. Eager-load the first slide for LCP, lazy-load the rest.
+assert.match(
+  homeSource,
+  /loading=\{[^}]*idx\s*===\s*0\s*\?\s*['"]eager['"]\s*:\s*['"]lazy['"]/,
+  'First hero image should be eager-loaded (LCP), rest lazy',
+);
+
+console.log('✓ mobile-hero-banner-no-crop.test.js — all assertions passed');
