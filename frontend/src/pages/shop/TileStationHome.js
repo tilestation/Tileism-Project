@@ -583,18 +583,33 @@ const HeroBannerCarousel = () => {
           {slide.theme !== 'image-only' && (
             <div className="absolute inset-0 z-10" style={{ background: slide.theme === 'sale' ? 'linear-gradient(to right, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.9) 35%, rgba(0,0,0,0.5) 60%, transparent 80%)' : 'linear-gradient(to right, rgba(0,0,0,0.8) 0%, rgba(0,0,0,0.4) 50%, transparent 80%)' }} />
           )}
-          <img
-            src={slide.image}
-            alt={slide.title}
-            // For image-only banners, `object-contain` preserves the
-            // baked-in composition (headline, CTA, model imagery)
-            // even on narrow mobile viewports. For themed slides the
-            // overlay text needs full-bleed coverage so we keep
-            // `object-cover` there.
-            className={`w-full h-full ${slide.theme === 'image-only' ? 'object-contain' : 'object-cover'}`}
-            loading={idx === 0 ? 'eager' : 'lazy'}
-          />
-
+          {/* 24 May 2026 — `<picture>` swap for the optional mobile
+              variant. When the admin uploads a portrait-cropped
+              mobile banner in Marketing Studio, the storefront uses
+              it on viewports <640px (the `sm` breakpoint). Without a
+              mobile variant the browser falls back to the main
+              landscape banner, which our `aspect-[3/2]` shell
+              letterboxes safely. When a mobile variant IS provided
+              we switch to `object-cover` on small screens because
+              the variant was designed to fill that shell — no
+              letterbox bars needed. */}
+          <picture>
+            {slide.mobile_image && (
+              <source media="(max-width: 639px)" srcSet={slide.mobile_image} />
+            )}
+            <img
+              src={slide.image}
+              alt={slide.title}
+              className={`w-full h-full ${
+                slide.theme === 'image-only'
+                  ? (slide.mobile_image
+                      ? 'object-cover sm:object-contain'
+                      : 'object-contain')
+                  : 'object-cover'
+              }`}
+              loading={idx === 0 ? 'eager' : 'lazy'}
+            />
+          </picture>
           {/* SALE THEME */}
           {slide.theme === 'sale' && (
             <div className="absolute inset-0 z-20 flex items-center pointer-events-none" style={{ WebkitFontSmoothing: 'antialiased', MozOsxFontSmoothing: 'grayscale', fontFamily: "'Inter', sans-serif", fontStyle: 'normal' }}>

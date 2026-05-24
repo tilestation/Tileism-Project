@@ -46,7 +46,7 @@ const DEFAULT_PROMPT = `A premium UK tile-shop banner advertising "Bank Holiday 
 
 // --- Asset card -----------------------------------------------------
 
-const AssetCard = ({ asset, onPublish, onDelete, onUnpublish, onZoom, onRegenerate }) => {
+const AssetCard = ({ asset, mobileVariantOptions, onPublish, onDelete, onUnpublish, onZoom, onRegenerate }) => {
   const [showPublish, setShowPublish] = useState(false);
   const [linkUrl, setLinkUrl] = useState('');
   const [ctaText, setCtaText] = useState('Shop Now');
@@ -56,6 +56,11 @@ const AssetCard = ({ asset, onPublish, onDelete, onUnpublish, onZoom, onRegenera
   // HeroBannerCarousel picks it up. 5s = historical default.
   // (24 May 2026 — user-requested control.)
   const [rotationSeconds, setRotationSeconds] = useState(5);
+  // Optional portrait-cropped mobile variant. References another
+  // Marketing-Studio asset's image_url. Empty string = "no variant,
+  // use the main image with letterbox on mobile".
+  // (24 May 2026 — user-requested mobile variant support.)
+  const [mobileVariantId, setMobileVariantId] = useState('');
   const [busy, setBusy] = useState(false);
   const [regenerating, setRegenerating] = useState(false);
 
@@ -99,6 +104,7 @@ const AssetCard = ({ asset, onPublish, onDelete, onUnpublish, onZoom, onRegenera
         cta_text: ctaText,
         auto_unpublish_at: isoEnd,
         rotation_seconds: rotationSeconds,
+        mobile_image_url: (mobileVariantOptions || []).find((o) => o.id === mobileVariantId)?.image_url || '',
       });
       setShowPublish(false);
     } finally {
@@ -255,6 +261,47 @@ const AssetCard = ({ asset, onPublish, onDelete, onUnpublish, onZoom, onRegenera
                   </button>
                 ))}
               </div>
+            </div>
+            {/* 24 May 2026 — optional portrait-cropped mobile variant.
+                Phone visitors see a landscape banner letterboxed inside
+                an aspect-[3/2] shell, which is content-safe but visually
+                small. Letting the admin pick an alternate Marketing-Studio
+                asset (typically generated at a portrait ratio like
+                1080×1350) gives mobile users a full-bleed banner tuned
+                to their viewport — better conversion on the largest
+                share of our traffic. */}
+            <div>
+              <label className="block text-[10px] uppercase tracking-wider text-slate-500 font-bold mb-1">
+                Mobile variant <span className="normal-case opacity-70">(optional — used on phones &lt;640px)</span>
+              </label>
+              <select
+                value={mobileVariantId}
+                onChange={(e) => setMobileVariantId(e.target.value)}
+                className="w-full text-xs border border-slate-300 rounded px-2 py-1.5 bg-white"
+                data-testid={`marketing-asset-mobile-variant-${asset.id}`}
+              >
+                <option value="">— None (use main banner with letterbox) —</option>
+                {(mobileVariantOptions || [])
+                  .filter((o) => o.id !== asset.id)
+                  .map((o) => (
+                    <option key={o.id} value={o.id}>
+                      {o.label}
+                    </option>
+                  ))}
+              </select>
+              {mobileVariantId && (
+                <div className="mt-1.5 flex items-center gap-2">
+                  <img
+                    src={(mobileVariantOptions || []).find((o) => o.id === mobileVariantId)?.preview_url}
+                    alt="Mobile variant preview"
+                    className="w-12 h-16 object-cover rounded border border-slate-300"
+                    data-testid={`marketing-asset-mobile-variant-preview-${asset.id}`}
+                  />
+                  <span className="text-[10px] text-slate-500 leading-snug">
+                    Phones will see this image instead of the landscape banner.
+                  </span>
+                </div>
+              )}
             </div>
             <div className="grid grid-cols-2 gap-1.5">
               <Button size="sm" disabled={busy} onClick={() => publish('homepage_hero')} className="bg-yellow-400 hover:bg-yellow-500 text-slate-900 font-bold text-xs" data-testid={`marketing-asset-publish-hero-${asset.id}`}>
@@ -633,6 +680,8 @@ const MarketingStudio = () => {
         link_url: extra?.link_url || '',
         cta_text: extra?.cta_text || '',
         auto_unpublish_at: extra?.auto_unpublish_at || null,
+        rotation_seconds: extra?.rotation_seconds || null,
+        mobile_image_url: extra?.mobile_image_url || null,
       }, { headers: tokenHdr() });
       const scheduleNote = extra?.auto_unpublish_at
         ? ` · auto-removes ${new Date(extra.auto_unpublish_at).toLocaleString()}`
@@ -1225,7 +1274,28 @@ const MarketingStudio = () => {
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4" data-testid="marketing-gallery">
           {assets.map((a) => (
-            <AssetCard key={a.id} asset={a} onPublish={publish} onDelete={removeAsset} onUnpublish={unpublishAsset} onZoom={setLightboxAsset} onRegenerate={regenerateAsset} />
+            <AssetCard
+              key={a.id}
+              asset={a}
+              mobileVariantOptions={assets
+                .filter((x) => x.id !== a.id)
+                .map((x) => {
+                  const ratio = x.width && x.height ? (x.height / x.width) : 0;
+                  const orientation = ratio >= 1 ? 'portrait' : 'landscape';
+                  const url = x.image_url?.startsWith('http') ? x.image_url : `${API}${x.image_url}`;
+                  return {
+                    id: x.id,
+                    image_url: x.image_url || '',
+                    preview_url: url,
+                    label: `${orientation} · ${x.width}×${x.height} · ${(x.prompt || '').slice(0, 40)}${(x.prompt || '').length > 40 ? '…' : ''}`,
+                  };
+                })}
+              onPublish={publish}
+              onDelete={removeAsset}
+              onUnpublish={unpublishAsset}
+              onZoom={setLightboxAsset}
+              onRegenerate={regenerateAsset}
+            />
           ))}
         </div>
       )}

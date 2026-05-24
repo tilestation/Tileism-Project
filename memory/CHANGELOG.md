@@ -1,3 +1,88 @@
+## 2026-05-24 — 📱 Mobile hero banner: cropping fix + optional portrait mobile variant
+
+### Bug & Enhancement
+**Bug (P0)**: Marketing-Studio AI-generated landscape banners (1920×600) were
+visibly broken on mobile.
+  - v1 sized the carousel at `h-[50vh]` with `object-cover` → "BANK HOLIDAY
+    SALE / UP TO 70% OFF" headline chopped to "AY SALE / 70% OFF".
+  - v2 fix (`aspect-[1920/600]` everywhere) was content-safe but collapsed
+    the banner to a 122px-tall strip on a 390px phone — unreadable.
+
+**Enhancement**: Admins can now upload an optional portrait-cropped mobile
+variant of any hero banner in Marketing Studio — phones see a full-bleed
+mobile-tuned image instead of a letterboxed landscape.
+
+### Fix
+**Frontend — Storefront** (`pages/shop/TileStationHome.js`)
+- Image-only carousel shell is now `aspect-[3/2] sm:aspect-[1920/600]
+  sm:max-h-[70vh]` — mobile gets a ~260px-tall letterbox shell (readable
+  banner + slate-900 bars), desktop reverts to the banner's natural ratio
+  capped at 70vh.
+- `<img>` wrapped in `<picture>`; when `slide.mobile_image` is set, a
+  `<source media="(max-width: 639px)" srcSet={...}>` swaps in the variant
+  on phones. `<img>` always falls back to `slide.image` for legacy slides.
+- Image-only `<img>` picks object-fit based on variant presence:
+  `object-cover sm:object-contain` (variant fills the shell on mobile,
+  main image letterboxes on sm+) or `object-contain` otherwise.
+
+**Backend** (`routes/marketing_studio.py`)
+- `PublishReq.mobile_image_url: str | None` — optional Marketing-Studio
+  asset URL.
+- `publish_asset` resolves relative URLs (`/api/website/marketing-media/…`)
+  to the backend's public origin (same rule as the main image) and
+  persists `mobile_image` on the `hero_slides` doc.
+
+**Frontend — Admin** (`pages/admin/MarketingStudio.jsx`)
+- New "Mobile variant" dropdown inside the publish modal — lists every
+  OTHER Marketing-Studio asset with orientation/dimensions/prompt
+  preview, plus a "None (use main banner with letterbox)" default.
+- Selecting a variant shows a thumbnail preview.
+- Bug-fix: the publish endpoint call now forwards `rotation_seconds`
+  (previously collected by the slider but silently dropped — only the
+  default 5s ever reached the slide doc).
+
+### Tested
+- `tests/test_marketing_studio_mobile_variant.py` (4 tests) — pins
+  `PublishReq.mobile_image_url` field, defaults-to-None contract, slide
+  doc `mobile_image` persistence, relative-URL absolutisation.
+- `tests/test_marketing_studio_rotation_speed.py` (3 tests) — still pass.
+- `tests/test_marketing_studio_image_only_theme.py`,
+  `tests/test_marketing_studio_hero_slides.py`,
+  `tests/test_marketing_studio_schedule.py`,
+  `tests/test_marketing_studio_unpublish.py` — all still pass (20
+  marketing-studio tests green).
+- `frontend/hero-carousel-mobile-variant.test.js` (4 assertions) —
+  pins `<picture>` swap and per-slide object-fit contract.
+- `frontend/mobile-hero-banner-no-crop.test.js` — updated to reflect the
+  nested object-fit ternary for mobile variants; passes.
+
+### Test IDs
+- `marketing-asset-mobile-variant-{assetId}` (dropdown)
+- `marketing-asset-mobile-variant-preview-{assetId}` (thumbnail)
+- `hero-carousel` (storefront section, unchanged)
+
+---
+
+## 2026-05-24 — 🔧 Marketing Studio: carousel rotation seconds now actually reaches the slide doc
+
+### Bug
+Slider on the admin publish modal correctly captured `rotation_seconds`
+inside `AssetCard`, but the parent `MarketingStudio.publish()` function
+omitted the field when forwarding to the backend — every published slide
+defaulted to 5s regardless of the slider value.
+
+### Fix
+`pages/admin/MarketingStudio.jsx::publish()` now forwards
+`rotation_seconds` and `mobile_image_url` from the `extra` object to
+`POST /api/admin/marketing-studio/assets/{id}/publish`.
+
+### Tested
+Pinned by existing `test_marketing_studio_rotation_speed.py` (backend
+contract was already correct; this was a frontend-only wiring bug).
+
+---
+
+
 ## 2026-04-30 — 🗑️ Voided EPOS invoices now visibly faded on trader dashboard
 
 ### Bug

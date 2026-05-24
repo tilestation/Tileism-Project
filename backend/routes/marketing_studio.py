@@ -79,6 +79,14 @@ class PublishReq(BaseModel):
     # who don't touch this control see no change in behaviour.
     # (24 May 2026 — user-requested slider speed control.)
     rotation_seconds: int | None = Field(default=None, ge=2, le=30)
+    # Optional portrait/mobile-cropped variant of the banner. When
+    # provided, the storefront's <picture> element swaps to this image
+    # on viewports <640px so phone users see a full-bleed mobile-tuned
+    # banner instead of a letterboxed landscape. Same URL semantics as
+    # the main image — relative paths get resolved to the backend's
+    # public origin during publish.
+    # (24 May 2026 — user-requested mobile variant support.)
+    mobile_image_url: str | None = None
 
 
 class PromoBannerUpdate(BaseModel):
@@ -814,10 +822,24 @@ async def publish_asset(
             if not _backend_base.startswith("http"):
                 _backend_base = f"https://{_backend_base}"
             _img = f"{_backend_base}{_img}"
+        # Resolve the optional mobile variant URL the same way. Empty
+        # / None values stay None so the storefront falls back to the
+        # main image via the natural <picture> fallback. (24 May 2026)
+        _mobile_img = (req.mobile_image_url or "").strip() or None
+        if _mobile_img and _mobile_img.startswith("/"):
+            _backend_base_m = (
+                os.environ.get("BACKEND_PUBLIC_URL")
+                or os.environ.get("RAILWAY_PUBLIC_DOMAIN")
+                or "https://tile-station-production.up.railway.app"
+            ).rstrip("/")
+            if not _backend_base_m.startswith("http"):
+                _backend_base_m = f"https://{_backend_base_m}"
+            _mobile_img = f"{_backend_base_m}{_mobile_img}"
         slide_doc = {
             "asset_id": asset_id,
             "source": "marketing_studio",
             "image": _img,
+            "mobile_image": _mobile_img,
             "theme": "image-only",
             # The remaining fields are kept for back-compat / admin
             # overview but are NOT rendered when theme=="image-only".

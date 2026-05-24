@@ -67,12 +67,17 @@ assert.match(
   'Legacy slide theme must keep the full-bleed height',
 );
 
-// 4. <img> uses object-contain for image-only, object-cover otherwise.
+// 4. <img> object-fit on image-only slides:
+//    • mobile variant present  → `object-cover sm:object-contain`
+//      (variant fills the shell on mobile, main image letterboxes on sm+).
+//    • mobile variant absent   → `object-contain` (letterbox everywhere).
+//    Legacy themed slides keep `object-cover` for full-bleed overlay text.
 assert.match(
   homeSource,
-  /slide\.theme\s*===\s*['"]image-only['"]\s*\?\s*['"]object-contain['"]\s*:\s*['"]object-cover['"]/,
-  'Image-only slides must use object-contain so the baked-in banner ' +
-    'composition is never cropped',
+  /slide\.theme\s*===\s*['"]image-only['"]\s*\?\s*\(\s*slide\.mobile_image\s*\?\s*['"]object-cover\s+sm:object-contain['"]\s*:\s*['"]object-contain['"]\s*\)\s*:\s*['"]object-cover['"]/,
+  'Image-only <img> must pick object-cover sm:object-contain when a ' +
+    'mobile variant is present, fall back to object-contain otherwise, ' +
+    'and legacy themed slides must still use object-cover',
 );
 
 // 5. Eager-load the first slide for LCP, lazy-load the rest.
