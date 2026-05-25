@@ -80,6 +80,16 @@ def _default_config() -> dict:
             # any required env var (admin password, supplier portal
             # passwords) is missing or empty. Critical for prod safety.
             "missing_credentials": True,
+            # 💬 New chat message — fires every time a visitor sends a
+            # message via the live-chat widget. Previously chat
+            # notifications were email-only with a ≥10-min "unanswered
+            # chat" delay; customers waited, support team only saw the
+            # email after the cron ran. Now Telegram pings instantly so
+            # the team can jump on it. Dedupe keys off the message_id
+            # so multi-message conversations all come through.
+            # (24 May 2026 — user reported "I don't get any messages
+            # on telegram which is annoying as customer waits".)
+            "new_chat_message": True,
         },
         "abandoned_basket_threshold_gbp": 100,
     }

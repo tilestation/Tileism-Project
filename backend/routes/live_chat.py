@@ -5,6 +5,7 @@ import uuid
 import hashlib
 import json
 import logging
+import os
 from datetime import datetime, timezone, timedelta
 from typing import Optional, List
 from fastapi import APIRouter, HTTPException, Depends, Request, WebSocket, WebSocketDisconnect, Query
@@ -588,6 +589,44 @@ async def send_visitor_message(data: ChatMessageCreate, request: Request):
         message=data.message,
         db=db
     ))
+
+    # 24 May 2026 — fire an INSTANT Telegram alert too. Email
+    # notifications get lost in support inboxes and the "unanswered
+    # chat" cron only runs every few minutes — the team kept missing
+    # live customers (Lenard Kuklis, 24 May 2026: "I don't get any
+    # messages on telegram which is annoying as customer waits"). The
+    # dedupe_key is the message_id so every new visitor message
+    # comes through, even within the same session, even within the
+    # 1-hour dedupe window.
+    try:
+        from services.telegram_notify import fire_and_forget
+        import html as _html
+        _visitor_label = data.visitor_name or session.get("visitor_name") or "Visitor"
+        _visitor_email = data.visitor_email or session.get("visitor_email") or ""
+        _location = session.get("visitor_city") or session.get("visitor_country") or ""
+        _location_line = f"\n📍 <i>{_html.escape(_location)}</i>" if _location else ""
+        _email_line = f"\n✉️ <i>{_html.escape(_visitor_email)}</i>" if _visitor_email else ""
+        _msg_preview = data.message if len(data.message) <= 400 else data.message[:400] + "…"
+        _admin_url = (
+            os.environ.get("STOREFRONT_PUBLIC_URL")
+            or "https://tilestation.co.uk"
+        ).rstrip("/") + "/admin/live-chat"
+        _tg_text = (
+            f"💬 <b>New chat message</b>\n"
+            f"<b>{_html.escape(_visitor_label)}</b>"
+            f"{_email_line}"
+            f"{_location_line}\n\n"
+            f"{_html.escape(_msg_preview)}\n\n"
+            f"<a href=\"{_admin_url}\">Reply now →</a>"
+        )
+        fire_and_forget(
+            "new_chat_message",
+            _tg_text,
+            dedupe_key=visitor_msg["id"],
+        )
+    except Exception:
+        # Never let a Telegram hiccup break the customer's message flow
+        logger.exception("Telegram notify for chat message failed (non-fatal)")
     
     # Check if AI response is enabled and no admin is assigned
     settings = await db.chat_settings.find_one({"type": "widget"}, {"_id": 0})
@@ -701,7 +740,33 @@ async def submit_offline_message(data: dict):
         "email": email,
         "message": message
     })
-    
+
+    # 24 May 2026 — also fire Telegram for offline messages. These are
+    # high-signal: visitor cared enough to leave email + a question,
+    # team should jump in faster than the email cron allows.
+    try:
+        from services.telegram_notify import fire_and_forget
+        import html as _html
+        _msg_preview = message if len(message) <= 400 else message[:400] + "…"
+        _admin_url = (
+            os.environ.get("STOREFRONT_PUBLIC_URL")
+            or "https://tilestation.co.uk"
+        ).rstrip("/") + "/admin/live-chat"
+        _tg_text = (
+            f"📝 <b>Visitor left contact details</b>\n"
+            f"<b>{_html.escape(name or 'Anonymous')}</b>"
+            + (f"\n✉️ <i>{_html.escape(email)}</i>" if email else "")
+            + (f"\n\n{_html.escape(_msg_preview)}" if message else "")
+            + f"\n\n<a href=\"{_admin_url}\">Reply now →</a>"
+        )
+        fire_and_forget(
+            "new_chat_message",
+            _tg_text,
+            dedupe_key=offline_msg["id"],
+        )
+    except Exception:
+        logger.exception("Telegram notify for offline message failed (non-fatal)")
+
     return {"success": True}
 
 
