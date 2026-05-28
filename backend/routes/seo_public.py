@@ -87,6 +87,15 @@ STATIC_URLS: list[tuple[str, str, str]] = [
     ("/shop/info/returns",  "0.5", "monthly"),
     ("/shop/info/delivery", "0.5", "monthly"),
     ("/shop/info/reviews",  "0.7", "weekly"),
+    # 24 May 2026 — About + Contact pages were silently missing from
+    # the sitemap. Google indexed the SSR-injected phantom URLs (/about,
+    # /contact) instead because it had no positive signal pointing at
+    # the canonical /shop/info/about + /shop/contact. Result: Business
+    # Profile sitelink "About Tile Station" pointed at the broken
+    # phantom URL. Adding both here so Google can consolidate ranking
+    # signals onto the canonical URLs as it recrawls.
+    ("/shop/info/about",    "0.7", "monthly"),
+    ("/shop/contact",       "0.7", "monthly"),
 ]
 
 
