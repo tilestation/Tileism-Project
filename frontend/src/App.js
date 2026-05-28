@@ -1044,6 +1044,31 @@ function App() {
           <Route path="/shop/delivery" element={<Navigate to="/shop/info/delivery" replace />} />
 
           {/* ─────────────────────────────────────────────────────────
+              Top-level "phantom URL" hotfix — 24 May 2026
+              User reported the Google Business Profile sitelink
+              "About Tile Station" landed on Page Not Found. Root
+              cause: the SSR layer (server-seo-enrich.js) was
+              injecting <title>/meta/<h1> tags for /about, /contact,
+              /faq, /delivery, /returns, /privacy, /terms, /reviews
+              — so Google indexed them — but the React SPA had no
+              client-side routes for any of them. Real users hit the
+              SPA's NotFound fallback. These redirects:
+                • Fix the broken UX immediately (real users land on
+                  the working canonical page).
+                • Let Google consolidate ranking signals onto
+                  /shop/info/:slug as it recrawls.
+                • Keep the SSR-injected SEO content intact so search
+                  rankings aren't disrupted. */}
+          <Route path="/about" element={<Navigate to="/shop/info/about" replace />} />
+          <Route path="/contact" element={<Navigate to="/shop/contact" replace />} />
+          <Route path="/faq" element={<Navigate to="/shop/info/faq" replace />} />
+          <Route path="/delivery" element={<Navigate to="/shop/info/delivery" replace />} />
+          <Route path="/returns" element={<Navigate to="/shop/info/returns" replace />} />
+          <Route path="/privacy" element={<Navigate to="/shop/info/privacy" replace />} />
+          <Route path="/terms" element={<Navigate to="/shop/info/terms" replace />} />
+          <Route path="/reviews" element={<Navigate to="/shop/info/reviews" replace />} />
+
+          {/* ─────────────────────────────────────────────────────────
               GSC "Page with redirect" hotfix — 12 May 2026
               Google Search Console flagged 19 URLs as "Page with
               redirect" because React Router's catch-all sent them to /.

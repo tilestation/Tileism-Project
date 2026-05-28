@@ -44,6 +44,33 @@ const LEGACY_301_MAP = {
   // /bathroom (root) → /shop/bathroom (the real route)
   '/bathroom': '/shop/bathroom',
   '/bathroom/': '/shop/bathroom',
+
+  // ──────────────────────────────────────────────────────────────
+  // 24 May 2026 — Phantom info-page URLs. SSR was injecting full
+  // SEO meta tags for these top-level paths (so Google indexed them
+  // and even used "About Tile Station" as a Business Profile
+  // sitelink), but the React SPA had no client-side routes — real
+  // users hit the SPA's NotFound fallback. Real HTTP 301s here:
+  //   • Removes the "Page with redirect" warning from GSC
+  //   • Tells Google to consolidate ranking onto the canonical
+  //     /shop/info/:slug URL
+  //   • Stops broken sitelinks the instant the redirect is live
+  '/about': '/shop/info/about',
+  '/about/': '/shop/info/about',
+  '/contact': '/shop/contact',
+  '/contact/': '/shop/contact',
+  '/faq': '/shop/info/faq',
+  '/faq/': '/shop/info/faq',
+  '/delivery': '/shop/info/delivery',
+  '/delivery/': '/shop/info/delivery',
+  '/returns': '/shop/info/returns',
+  '/returns/': '/shop/info/returns',
+  '/privacy': '/shop/info/privacy',
+  '/privacy/': '/shop/info/privacy',
+  '/terms': '/shop/info/terms',
+  '/terms/': '/shop/info/terms',
+  '/reviews': '/shop/info/reviews',
+  '/reviews/': '/shop/info/reviews',
 };
 
 const LEGACY_301_PATTERNS = [
