@@ -2321,14 +2321,13 @@ const CollectionDetailPage = () => {
                         <div className="min-w-0">
                           <div className="text-red-200 text-xs font-bold uppercase tracking-widest mb-1">Sale Price</div>
                           <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-                            <span className="text-white/60 text-base line-through">WAS £{safeToFixed(wasPrice, 2)}</span>
-                            <span className="text-white text-2xl sm:text-3xl font-black tracking-tight">NOW £{safeToFixed(nowPrice, 2)}</span>
-                            <span className="text-white/70 text-sm font-medium">{isSurfaceProduct ? '/m²' : '/each'}</span>
+                            <span className="text-white/60 text-base line-through">WAS £{safeToFixed(wasPrice, 2)}{isSurfaceProduct ? 'm²' : ' each'}</span>
+                            <span className="text-white text-2xl sm:text-3xl font-black tracking-tight">NOW £{safeToFixed(nowPrice, 2)}{isSurfaceProduct ? 'm²' : ' each'}</span>
                             {isTrade && <span className="text-white/50 text-xs">ex. VAT</span>}
                           </div>
                         </div>
                         <div className="bg-white rounded-xl px-4 py-3 text-center shadow-lg min-w-[90px] flex-shrink-0">
-                          <div className="text-red-600 text-lg font-black leading-tight">SAVE £{totalSavings.toFixed(2)}</div>
+                          <div className="text-red-600 text-lg font-black leading-tight">SAVE £{totalSavings.toFixed(2)}{isSurfaceProduct ? 'm²' : ' each'}</div>
                           <div className="text-gray-500 text-xs font-bold mt-0.5">{displayTotalOff}% OFF</div>
                         </div>
                       </div>
@@ -2415,8 +2414,7 @@ const CollectionDetailPage = () => {
                         <div className="min-w-0">
                           <div className="text-red-200 text-xs font-bold uppercase tracking-widest mb-1">Sale Price</div>
                           <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-                            <span className="text-white text-2xl sm:text-3xl font-black tracking-tight">£{safeToFixed(nowPrice, 2)}</span>
-                            <span className="text-white/70 text-sm font-medium">{isSurfaceProduct ? '/m²' : '/each'}</span>
+                            <span className="text-white text-2xl sm:text-3xl font-black tracking-tight">£{safeToFixed(nowPrice, 2)}{isSurfaceProduct ? 'm²' : ' each'}</span>
                             {isTrade && <span className="text-white/50 text-xs">ex. VAT</span>}
                           </div>
                         </div>
@@ -2970,7 +2968,7 @@ const CollectionDetailPage = () => {
                     >
                       Per m²
                       <span className="block text-[10px] font-normal opacity-90">
-                        £{(Number(selectedProduct?.room_lot_price) || Number(selectedProduct?.price) || 0).toFixed(2)}/m²
+                        £{(Number(selectedProduct?.room_lot_price) || Number(selectedProduct?.price) || 0).toFixed(2)}m²
                       </span>
                     </button>
                     {palletInfo.halfPalletAvailable && (
@@ -2994,7 +2992,7 @@ const CollectionDetailPage = () => {
                         )}
                         Half Pallet
                         <span className="block text-[10px] font-normal opacity-90">
-                          £{palletInfo.halfRate.toFixed(2)}/m² · min {palletInfo.halfM2} m²
+                          £{palletInfo.halfRate.toFixed(2)}m² · min {palletInfo.halfM2} m²
                         </span>
                       </button>
                     )}
@@ -3019,7 +3017,7 @@ const CollectionDetailPage = () => {
                         )}
                         Full Pallet
                         <span className="block text-[10px] font-normal opacity-90">
-                          £{palletInfo.fullRate.toFixed(2)}/m² · min {palletInfo.fullM2} m²
+                          £{palletInfo.fullRate.toFixed(2)}m² · min {palletInfo.fullM2} m²
                         </span>
                       </button>
                     )}
@@ -3189,7 +3187,7 @@ const CollectionDetailPage = () => {
                     <div className="flex items-center justify-end gap-3 flex-wrap">
                       <span className={`text-3xl font-extrabold tracking-tight ${isOnSale ? 'text-red-600' : 'text-gray-900'}`}>
                         £{safeToFixed(displayPrice, 2)}
-                        <span className="text-lg font-semibold text-gray-500">{isSurfaceProduct ? '/m²' : '/each'}</span>
+                        <span className="text-lg font-semibold text-gray-500">{isSurfaceProduct ? 'm²' : ' each'}</span>
                       </span>
                       {isTrade && <span className="text-[10px] text-gray-400 font-normal">ex. VAT</span>}
                       {/* Sale badge with animation */}
@@ -3202,7 +3200,7 @@ const CollectionDetailPage = () => {
                     {/* WAS price for sale items */}
                     {isOnSale && displayOriginalPrice > displayPrice && (
                       <div className="text-base text-gray-400 line-through mt-1">
-                        Was £{safeToFixed(displayOriginalPrice, 2)}{isSurfaceProduct ? '/m²' : '/each'}
+                        Was £{safeToFixed(displayOriginalPrice, 2)}{isSurfaceProduct ? 'm²' : ' each'}
                       </div>
                     )}
                     {/* Box price - smaller, secondary - only for surface products */}
@@ -3745,7 +3743,7 @@ const CollectionDetailPage = () => {
                   )}
                 </div>
                 <p className="font-medium text-sm text-gray-900 line-clamp-2">{selectedProduct?.display_name || decodedSeriesName}</p>
-                <p className="text-amber-600 font-bold mt-1">£{safeToFixed(displayPrice, 2)}{isSurfaceProduct ? '/m²' : '/each'}{isTrade && <span className="text-[10px] text-gray-400 font-normal ml-1">ex. VAT</span>}</p>
+                <p className="text-amber-600 font-bold mt-1">£{safeToFixed(displayPrice, 2)}{isSurfaceProduct ? 'm²' : ' each'}{isTrade && <span className="text-[10px] text-gray-400 font-normal ml-1">ex. VAT</span>}</p>
                 <span className="inline-block mt-2 text-xs bg-amber-100 text-amber-700 px-2 py-1 rounded-full">Selected</span>
               </div>
 
@@ -3779,7 +3777,7 @@ const CollectionDetailPage = () => {
                       </div>
                       <p className="font-medium text-xs text-gray-900 line-clamp-2">{rec.display_name || rec.name}</p>
                       {rec.size && <p className="text-gray-500 text-[11px]">{rec.size}</p>}
-                      <p className="text-gray-900 font-semibold text-sm mt-1">£{recPrice.toFixed(2)}<span className="text-[10px] text-gray-400 font-normal">/m²</span></p>
+                      <p className="text-gray-900 font-semibold text-sm mt-1">£{recPrice.toFixed(2)}<span className="text-[10px] text-gray-400 font-normal">m²</span></p>
                       {rec.times_bought_together > 0 && (
                         <p className="text-[10px] text-amber-700 mt-0.5">{rec.times_bought_together}× bought together</p>
                       )}
@@ -3938,7 +3936,7 @@ const CollectionDetailPage = () => {
                         )}
                         {item.price > 0 && (
                           <p className="text-amber-600 font-semibold">
-                            £{(isTrade ? getTradePrice(item.price) : item.price).toFixed(2)}{isSurfaceProduct ? '/m²' : '/each'}
+                            £{(isTrade ? getTradePrice(item.price) : item.price).toFixed(2)}{isSurfaceProduct ? 'm²' : ' each'}
                             {isTrade && <span className="text-[10px] text-gray-400 font-normal ml-1">ex. VAT</span>}
                           </p>
                         )}
@@ -4133,13 +4131,12 @@ const CollectionDetailPage = () => {
             <div className="flex-1">
               <div className="flex items-baseline gap-2">
                 <span className={`text-xl font-bold ${isOnSale ? 'text-red-600' : 'text-gray-900'}`}>
-                  £{safeToFixed(displayPrice, 2)}
+                  £{safeToFixed(displayPrice, 2)}<span className="text-sm font-medium text-gray-500">{isSurfaceProduct ? 'm²' : ' each'}</span>
                 </span>
-                <span className="text-sm text-gray-500">{isSurfaceProduct ? '/m²' : '/each'}</span>
                 {isTrade && <span className="text-[10px] text-gray-400">ex. VAT</span>}
                 {isOnSale && displayOriginalPrice > displayPrice && (
                   <span className="text-xs text-gray-400 line-through">
-                    £{safeToFixed(displayOriginalPrice, 2)}
+                    £{safeToFixed(displayOriginalPrice, 2)}{isSurfaceProduct ? 'm²' : ' each'}
                   </span>
                 )}
               </div>

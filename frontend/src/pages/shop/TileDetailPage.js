@@ -628,12 +628,12 @@ const TileDetailPage = () => {
                     <div className="bg-gradient-to-r from-[#8B1A1A] to-[#A62626] px-5 py-3.5 flex items-center justify-between">
                       <div className="flex items-center gap-4">
                         <span className="bg-white text-red-700 text-[10px] font-black uppercase tracking-wider px-2.5 py-1 rounded">Sale</span>
-                        <span className="text-red-200/70 text-sm line-through">£{safeToFixed(wasPrice, 2)}/m²</span>
-                        <span className="text-white text-2xl font-black tracking-tight">£{finalPrice.toFixed(2)}<span className="text-sm font-semibold text-white/80">/m²</span></span>
+                        <span className="text-red-200/70 text-sm line-through">£{safeToFixed(wasPrice, 2)}m²</span>
+                        <span className="text-white text-2xl font-black tracking-tight">£{finalPrice.toFixed(2)}<span className="text-sm font-semibold text-white/80">m²</span></span>
                       </div>
                       <div className="bg-white px-3.5 py-2 rounded-lg text-center shadow-sm">
                         <div className="text-[10px] font-bold uppercase leading-none text-red-700">Save</div>
-                        <div className="text-base font-black leading-tight text-red-700">£{(wasPrice - finalPrice).toFixed(2)}</div>
+                        <div className="text-base font-black leading-tight text-red-700">£{(wasPrice - finalPrice).toFixed(2)}m²</div>
                       </div>
                     </div>
                     {/* Discount breakdown — guaranteed-sum: individual contributions always add to total */}
@@ -759,7 +759,7 @@ const TileDetailPage = () => {
                               : tierPricing.current_price_per_m2)
                         )?.toFixed(2) || '0.00'}
                         <span className="text-base text-gray-500">
-                          {tierPricing.pricing_unit === 'unit' ? '/unit' : '/m²'}
+                          {tierPricing.pricing_unit === 'unit' ? 'unit' : 'm²'}
                         </span>
                       </div>
                       {tradeStatus.is_trade && (tierPricing.trade_current_price_per_m2 || tierPricing.trade_current_price_per_unit) && (
@@ -767,7 +767,7 @@ const TileDetailPage = () => {
                           Retail: £{(tierPricing.pricing_unit === 'unit' 
                             ? tierPricing.current_price_per_unit 
                             : tierPricing.current_price_per_m2)?.toFixed(2) || '0.00'}
-                          {tierPricing.pricing_unit === 'unit' ? '/unit' : '/m²'}
+                          {tierPricing.pricing_unit === 'unit' ? 'unit' : 'm²'}
                         </div>
                       )}
                       {quantity > 1 && (
@@ -821,7 +821,7 @@ const TileDetailPage = () => {
                   <div className="text-3xl font-bold text-amber-500">
                     £{(tile?.pricing_unit === 'unit' ? (tile?.unit_price || currentPrice) : currentPrice)?.toFixed(2)}
                     <span className="text-lg text-gray-500">
-                      {tile?.pricing_unit === 'unit' ? '/unit' : '/m²'}
+                      {tile?.pricing_unit === 'unit' ? ' each' : 'm²'}
                     </span>
                   </div>
                   {tile?.pricing_unit !== 'unit' && tile.price_per_tile && (
@@ -1152,7 +1152,7 @@ const TileDetailPage = () => {
                     {t.display_name || t.name}
                   </h3>
                   <p className="text-amber-600 font-semibold mt-1">
-                    £{(t.room_lot_price || t.price)?.toFixed(2)}/m²
+                    £{(t.room_lot_price || t.price)?.toFixed(2)}m²
                   </p>
                   {t.price_per_tile && (
                     <p className="text-xs text-gray-500">
@@ -1206,7 +1206,7 @@ const TileDetailPage = () => {
                     {t.display_name}
                   </h3>
                   <p className="text-amber-500 font-semibold">
-                    £{t.price?.toFixed(2)}/m²
+                    £{t.price?.toFixed(2)}m²
                   </p>
                   {t.price_per_tile && (
                     <p className="text-sm text-gray-500">
