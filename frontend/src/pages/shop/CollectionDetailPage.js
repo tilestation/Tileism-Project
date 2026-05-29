@@ -104,7 +104,17 @@ const CollectionDetailPage = () => {
   const [selectedMaterialProduct, setSelectedMaterialProduct] = useState(null); // For material/tool collections with distinct products
   const userClickedRef = useRef(null); // tracks 'color' or 'finish' to prevent auto-switch race conditions
   const [quantity, setQuantity] = useState(1);
-  const [quantityUnit, setQuantityUnit] = useState('sqm'); // 'box' or 'sqm' - default to sqm
+  // 24 May 2026 — default to 'box', not 'sqm'. A box is the natural
+  // minimum order unit (customers pay box prices, not partial m²),
+  // and defaulting to 'sqm' caused the m² input to show "1" while
+  // the box input also showed "1" — confusingly identical-looking
+  // values even though 1 box covers 1.26 m² in this example. With
+  // 'box' as the default, the m² input now renders the actual
+  // coverage (e.g. 1.26) on first load, which matches the "1 box =
+  // 1.26 m² actual coverage" hint and stops customers wondering
+  // why both inputs show "1". Cart math is unchanged — getEffective
+  // SqmQuantity already handles either unit.
+  const [quantityUnit, setQuantityUnit] = useState('box');
   // Pallet pricing tier — 'm2' (default per-m²), 'half_pallet', or 'full_pallet'.
   // When half/full pallet selected, qty is forced to the matching minimum m²
   // and the £/m² rate switches to the tile's pallet-rate field.
