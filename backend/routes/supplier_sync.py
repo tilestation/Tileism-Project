@@ -11274,13 +11274,26 @@ def bulk_update_unified(data: dict):
         # Tiles uses 'supplier_name' not 'supplier', so pass without supplier filter
         tiles_updated = update_collection(db.tiles, skip_supplier_filter=True)
         
-        # 5. AUTO-PUBLISH: If category/sub_categories are being set, auto-publish
-        #    products that don't exist in tiles yet (so they appear on the storefront)
+        # 5. AUTO-PUBLISH: Opt-in only. The admin must EXPLICITLY tick
+        #    "Show on website" in the bulk editor (which sends
+        #    `updates.show_on_website = true`) to publish to the
+        #    storefront. Previously this fired implicitly whenever
+        #    sub_categories/main_category was in the updates payload —
+        #    customers (24 May 2026) reported half-finished products
+        #    going live before all attributes were filled in. By
+        #    gating on the existing publish-toggle, admins keep
+        #    one-checkbox control over when products go live.
+        #    Legacy callers can also force-opt-in with `auto_publish: true`
+        #    at the request body root.
         auto_published = 0
         auto_publish_errors = []
+        explicit_publish_opt_in = (
+            bool(data.get("auto_publish", False))
+            or updates.get("show_on_website") is True
+        )
         has_category_update = bool(updates.get("sub_categories") or updates.get("main_category"))
-        
-        if has_category_update and product_ids:
+
+        if explicit_publish_opt_in and has_category_update and product_ids:
             qf = id_field or "sku"
             # Find which product_ids DON'T exist in tiles
             existing_in_tiles = set()

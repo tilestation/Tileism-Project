@@ -55,17 +55,40 @@ SEARCH_FIELDS = (
     "name",
     "series",
     "original_series",
+    "website_name",          # admin-overridden public name (24 May 2026)
     "supplier_code",
     "sku",
     "category",
     "categories",
     "sub_categories",
+    "sub_category",          # singular form lives on legacy rows (24 May 2026)
+    "main_category",         # ditto
+    # 24 May 2026 — `styles` is the array field the Bulk Category
+    # Editor writes "slate-effect" / "stone-effect" / "concrete-effect"
+    # into. Without this entry a search for "slate effect" splits into
+    # tokens ["slate", "effect"], finds neither in name/category/etc.
+    # and returns 0 — exactly the customer-reported bug.
+    "styles",
+    "style",                 # belt-and-braces — some rows used singular
+    "attributes.style",
+    "attributes.styles",
     "attributes.color",
     "attributes.finish",
     "attributes.material",
     "attributes.type",
+    # Top-level mirrors of the same attributes (the supplier-sync writes
+    # both for compatibility; legacy and freshly-imported rows differ).
+    "color",
+    "finish",
+    "material",
+    "suitability",
+    # Long-form text fields — let customers find tiles via descriptive
+    # words admin used in copy ("polished marble look", "rustic terracotta").
+    "description",
+    "short_description",
     "rooms",
     "tags",
+    "labels",
 )
 
 

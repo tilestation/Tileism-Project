@@ -13181,7 +13181,7 @@ export default function SupplierProducts() {
             <Button 
               onClick={() => setShowDryRun(true)}
               disabled={bulkCategoryLoading}
-              className="bg-purple-600 hover:bg-purple-700"
+              className="bg-green-600 hover:bg-green-700"
               data-testid="apply-btn"
             >
               {bulkCategoryLoading && !forceSaveProgress ? (
@@ -13191,8 +13191,8 @@ export default function SupplierProducts() {
                 </>
               ) : (
                 <>
-                  <Eye className="w-4 h-4 mr-2" />
-                  Preview & Apply to {bulkThicknessFilter !== 'all' ? getProductsFilteredByThickness(bulkThicknessFilter).length : (pricingSizeFilter !== 'all' && (bulkCategorySelections.cost_price || bulkCategorySelections.list_price)) ? getProductsFilteredBySize(pricingSizeFilter).length : selectedProducts.size} Products
+                  <Save className="w-4 h-4 mr-2" />
+                  Save Now to {bulkThicknessFilter !== 'all' ? getProductsFilteredByThickness(bulkThicknessFilter).length : (pricingSizeFilter !== 'all' && (bulkCategorySelections.cost_price || bulkCategorySelections.list_price)) ? getProductsFilteredBySize(pricingSizeFilter).length : selectedProducts.size} Products
                 </>
               )}
             </Button>
