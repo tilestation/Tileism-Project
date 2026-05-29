@@ -13889,63 +13889,45 @@ export default function SupplierProducts() {
                                 <tr className={`transition-colors ${isEditing ? 'bg-yellow-50' : item.isOverride ? 'bg-blue-50' : (!item.components?.hasColor ? 'bg-orange-50' : (idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'))}`}>
                                   <td className="px-2 py-2 font-mono text-xs text-gray-600">{item.sku}</td>
                                   <td className="px-2 py-2 group relative">
-                                    {item.isOverride ? (
-                                      <input
-                                        type="text"
-                                        value={templateForm.productOverrides[item.sku] || ''}
-                                        onChange={(e) => setTemplateForm({
-                                          ...templateForm,
-                                          productOverrides: {...templateForm.productOverrides, [item.sku]: e.target.value}
-                                        })}
-                                        className="w-full px-2 py-1 text-xs border border-blue-300 rounded focus:ring-1 focus:ring-blue-500 bg-white"
-                                        placeholder="Enter display name..."
-                                      />
-                                    ) : (
-                                      <div className="relative cursor-help">
-                                        <span className={`font-medium text-xs ${item.components?.hasColor ? 'text-green-700' : 'text-orange-700'}`}>
-                                          {item.newName.substring(0, 30)}{item.newName.length > 30 ? '...' : ''}
-                                        </span>
-                                        {/* Hover tooltip */}
-                                        <div className="absolute bottom-full left-0 mb-2 hidden group-hover:block z-20">
-                                          <div className="bg-gray-900 text-white text-xs rounded-lg px-3 py-2 shadow-lg max-w-xs whitespace-normal">
-                                            <div className="font-semibold text-green-400 mb-1">New Name:</div>
-                                            <div>{item.newName}</div>
-                                            <div className="border-t border-gray-700 mt-2 pt-2">
-                                              <div className="text-gray-400 text-[10px]">Original: {item.original}</div>
-                                            </div>
+                                    {/* 24 May 2026 — read-only on mobile.
+                                        The inline input here was ~80px
+                                        wide; iOS Safari couldn't move
+                                        the cursor inside such a narrow
+                                        text field. Tap the ✎ button to
+                                        open the full-width popup
+                                        editor instead. */}
+                                    <div className="relative cursor-help">
+                                      <span className={`font-medium text-xs ${item.components?.hasColor ? 'text-green-700' : 'text-orange-700'} ${item.isOverride ? 'underline decoration-dashed' : ''}`}>
+                                        {(templateForm.productOverrides[item.sku] || item.newName).substring(0, 30)}
+                                        {(templateForm.productOverrides[item.sku] || item.newName).length > 30 ? '…' : ''}
+                                      </span>
+                                      {/* Hover tooltip */}
+                                      <div className="absolute bottom-full left-0 mb-2 hidden group-hover:block z-20">
+                                        <div className="bg-gray-900 text-white text-xs rounded-lg px-3 py-2 shadow-lg max-w-xs whitespace-normal">
+                                          <div className="font-semibold text-green-400 mb-1">New Name:</div>
+                                          <div>{templateForm.productOverrides[item.sku] || item.newName}</div>
+                                          <div className="border-t border-gray-700 mt-2 pt-2">
+                                            <div className="text-gray-400 text-[10px]">Original: {item.original}</div>
                                           </div>
-                                          <div className="absolute left-4 top-full w-0 h-0 border-l-8 border-r-8 border-t-8 border-l-transparent border-r-transparent border-t-gray-900"></div>
                                         </div>
+                                        <div className="absolute left-4 top-full w-0 h-0 border-l-8 border-r-8 border-t-8 border-l-transparent border-r-transparent border-t-gray-900"></div>
                                       </div>
-                                    )}
+                                    </div>
                                   </td>
                                   <td className="px-2 py-2">
-                                    {isEditing ? (
-                                      <input
-                                        type="text"
-                                        value={templateForm.supplierNameOverrides[item.sku] || supplierName}
-                                        onChange={(e) => setTemplateForm({
-                                          ...templateForm,
-                                          supplierNameOverrides: {...templateForm.supplierNameOverrides, [item.sku]: e.target.value}
-                                        })}
-                                        className="w-full px-2 py-1 text-xs border border-yellow-300 rounded focus:ring-1 focus:ring-yellow-500 bg-white"
-                                        placeholder="Supplier name..."
-                                      />
-                                    ) : (
-                                      <div className="group relative cursor-help">
-                                        <span className="text-xs text-purple-600">
-                                          {supplierName.substring(0, 25)}{supplierName.length > 25 ? '...' : ''}
-                                        </span>
-                                        {/* Hover tooltip for supplier name */}
-                                        <div className="absolute bottom-full left-0 mb-2 hidden group-hover:block z-20">
-                                          <div className="bg-purple-900 text-white text-xs rounded-lg px-3 py-2 shadow-lg max-w-xs whitespace-normal">
-                                            <div className="font-semibold text-purple-300 mb-1">Supplier Name:</div>
-                                            <div>{supplierName}</div>
-                                          </div>
-                                          <div className="absolute left-4 top-full w-0 h-0 border-l-8 border-r-8 border-t-8 border-l-transparent border-r-transparent border-t-purple-900"></div>
+                                    <div className="group relative cursor-help">
+                                      <span className="text-xs text-purple-600">
+                                        {supplierName.substring(0, 25)}{supplierName.length > 25 ? '…' : ''}
+                                      </span>
+                                      {/* Hover tooltip for supplier name */}
+                                      <div className="absolute bottom-full left-0 mb-2 hidden group-hover:block z-20">
+                                        <div className="bg-purple-900 text-white text-xs rounded-lg px-3 py-2 shadow-lg max-w-xs whitespace-normal">
+                                          <div className="font-semibold text-purple-300 mb-1">Supplier Name:</div>
+                                          <div>{supplierName}</div>
                                         </div>
+                                        <div className="absolute left-4 top-full w-0 h-0 border-l-8 border-r-8 border-t-8 border-l-transparent border-r-transparent border-t-purple-900"></div>
                                       </div>
-                                    )}
+                                    </div>
                                   </td>
                                   <td className="px-2 py-2">
                                     <select
@@ -14054,19 +14036,12 @@ export default function SupplierProducts() {
                                     </div>
                                   </td>
                                 </tr>
-                                {/* Expanded editing row */}
-                                {isEditing && (
-                                  <tr className="bg-yellow-50">
-                                    <td colSpan={5} className="px-3 py-2 border-t border-yellow-200">
-                                      <div className="flex items-center gap-4 text-xs">
-                                        <span className="text-gray-500">Original:</span>
-                                        <span className="font-mono bg-gray-100 px-2 py-1 rounded">{item.original}</span>
-                                        <span className="text-gray-400">→</span>
-                                        <span className="text-gray-500">Editing separately from template</span>
-                                      </div>
-                                    </td>
-                                  </tr>
-                                )}
+                                {/* 24 May 2026 — inline "expanded edit
+                                    row" removed; replaced by the full
+                                    popup editor below the table. The
+                                    old row tried to compress 3 wide
+                                    inputs into a mobile viewport and
+                                    failed (cursor couldn't move). */}
                               </React.Fragment>
                             );
                           })}
@@ -14074,6 +14049,149 @@ export default function SupplierProducts() {
                       </table>
                     </div>
                   </div>
+
+                  {/* 24 May 2026 — full-width popup editor.
+                      Opens when ✎ is tapped (state: editingProductSku).
+                      Renders OVER the parent modal so iOS Safari can
+                      give the inputs proper focus + cursor handling.
+                      User reported the inline table inputs were too
+                      narrow on mobile to move the cursor inside. */}
+                  {editingProductSku && (() => {
+                    const editItem = generateTemplatePreview().find((p) => p.sku === editingProductSku);
+                    if (!editItem) return null;
+                    const currentDisplay = templateForm.productOverrides[editingProductSku] ?? editItem.newName;
+                    const currentSupplier = templateForm.supplierNameOverrides[editingProductSku] ?? (editItem.product.supplier_product_name || editItem.original);
+                    return (
+                      <div
+                        className="fixed inset-0 z-[60] bg-black/60 flex items-end sm:items-center justify-center p-3"
+                        onClick={() => setEditingProductSku(null)}
+                        data-testid="rename-detail-popup-backdrop"
+                      >
+                        <div
+                          className="bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-md max-h-[90vh] overflow-y-auto shadow-2xl"
+                          onClick={(e) => e.stopPropagation()}
+                          data-testid="rename-detail-popup"
+                        >
+                          <div className="px-4 py-3 border-b flex items-center justify-between">
+                            <div>
+                              <h4 className="font-semibold text-sm text-gray-900">Edit product</h4>
+                              <p className="text-[11px] font-mono text-gray-500 mt-0.5">{editingProductSku}</p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setEditingProductSku(null)}
+                              className="text-gray-400 hover:text-gray-700 p-1 -m-1"
+                              aria-label="Close"
+                              data-testid="rename-detail-popup-close"
+                            >
+                              <X className="h-5 w-5" />
+                            </button>
+                          </div>
+
+                          <div className="p-4 space-y-4">
+                            <div>
+                              <label className="block text-xs font-semibold text-gray-700 mb-1">
+                                Original supplier name
+                              </label>
+                              <div className="text-sm bg-gray-50 border border-gray-200 rounded px-3 py-2 font-mono text-gray-600 break-all">
+                                {editItem.original}
+                              </div>
+                            </div>
+
+                            <div>
+                              <label className="block text-xs font-semibold text-blue-700 mb-1">
+                                New display name
+                              </label>
+                              <input
+                                type="text"
+                                value={currentDisplay}
+                                onChange={(e) => setTemplateForm({
+                                  ...templateForm,
+                                  productOverrides: {...templateForm.productOverrides, [editingProductSku]: e.target.value},
+                                })}
+                                className="w-full px-3 py-3 text-base border border-blue-300 rounded-lg focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
+                                autoFocus
+                                data-testid="rename-detail-display-input"
+                              />
+                              <p className="text-[11px] text-gray-500 mt-1">
+                                What customers see on the storefront.
+                              </p>
+                            </div>
+
+                            <div>
+                              <label className="block text-xs font-semibold text-purple-700 mb-1">
+                                Supplier / internal name
+                              </label>
+                              <input
+                                type="text"
+                                value={currentSupplier}
+                                onChange={(e) => setTemplateForm({
+                                  ...templateForm,
+                                  supplierNameOverrides: {...templateForm.supplierNameOverrides, [editingProductSku]: e.target.value},
+                                })}
+                                className="w-full px-3 py-3 text-base border border-purple-300 rounded-lg focus:outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-200"
+                                data-testid="rename-detail-supplier-input"
+                              />
+                              <p className="text-[11px] text-gray-500 mt-1">
+                                Only shown internally — never on the storefront.
+                              </p>
+                            </div>
+
+                            <div>
+                              <label className="block text-xs font-semibold text-gray-700 mb-1">Color</label>
+                              <select
+                                value={templateForm.productColors[editingProductSku] || ''}
+                                onChange={(e) => setTemplateForm({
+                                  ...templateForm,
+                                  productColors: {...templateForm.productColors, [editingProductSku]: e.target.value},
+                                })}
+                                className="w-full px-3 py-3 text-base border border-gray-300 rounded-lg focus:outline-none focus:border-blue-500 bg-white"
+                                data-testid="rename-detail-color-select"
+                              >
+                                <option value="">{editItem.components?.color || '— (no color)'}</option>
+                                {(productOptions?.colors || []).map((opt) => {
+                                  const val = typeof opt === 'string' ? opt : (opt.id || opt.value);
+                                  const label = typeof opt === 'string' ? opt : (opt.label || opt.id || opt.value);
+                                  return <option key={val} value={label}>{label}</option>;
+                                })}
+                              </select>
+                            </div>
+                          </div>
+
+                          <div className="px-4 py-3 border-t bg-gray-50 flex gap-2 sticky bottom-0">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                // Discard this product's overrides and close.
+                                const newOverrides = {...templateForm.productOverrides};
+                                const newSupplier = {...templateForm.supplierNameOverrides};
+                                delete newOverrides[editingProductSku];
+                                delete newSupplier[editingProductSku];
+                                setTemplateForm({
+                                  ...templateForm,
+                                  productOverrides: newOverrides,
+                                  supplierNameOverrides: newSupplier,
+                                });
+                                setEditingProductSku(null);
+                              }}
+                              className="flex-1 px-3 py-2.5 text-sm font-medium text-red-700 bg-white border border-red-200 rounded-lg hover:bg-red-50"
+                              data-testid="rename-detail-reset"
+                            >
+                              Reset to template
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setEditingProductSku(null)}
+                              className="flex-1 px-3 py-2.5 text-sm font-bold text-white bg-green-600 rounded-lg hover:bg-green-700"
+                              data-testid="rename-detail-done"
+                            >
+                              Done
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </>
               )}
               
