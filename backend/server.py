@@ -3363,19 +3363,34 @@ async def detect_series_from_products(
         series_groups = {}
         
         for p in products:
-            # Extract series name from product
-            # ALWAYS prefer admin display names over supplier series field
-            # Priority: our_product_name > display_name > name > product_name > series field
-            product_name = p.get('our_product_name') or p.get('display_name') or p.get('name') or ''
+            # 24 May 2026 — priority chain rewrite. Previously
+            # `our_product_name` won — but for legacy products that
+            # value is the supplier's original name (e.g. "Pietra
+            # Ligure Sabbia 60x120cm"), while the admin's renamed
+            # "La Dolce" lives only in `display_name`. User reported
+            # the Quick-Generate-All modal grouped 25 La Dolce tiles
+            # under "Pietra Ligure" because of this. Storefront and
+            # the bulk-editor product list both read `display_name`
+            # first, so we match that source-of-truth here.
+            # Priority: display_name → our_product_name → website_name
+            #         → name → product_name → series field
+            product_name = (
+                p.get('display_name')
+                or p.get('our_product_name')
+                or p.get('website_name')
+                or p.get('name')
+                or p.get('product_name')
+                or ''
+            )
             if product_name:
                 series_name = _extract_series_name(product_name)
             else:
-                # Last resort: series field or product_name (supplier name)
-                series_name = p.get('series') or _extract_series_name(p.get('product_name', ''))
-            
+                # Last resort: stored series field
+                series_name = p.get('series') or 'Unknown'
+
             if not series_name:
                 series_name = 'Unknown'
-            
+
             if series_name not in series_groups:
                 series_groups[series_name] = {
                     'products': [],
@@ -3383,18 +3398,18 @@ async def detect_series_from_products(
                     'sizes': set(),
                     'finishes': set()
                 }
-            
+
             series_groups[series_name]['products'].append(p)
-            
+
             # Collect attributes
             color = p.get('color') or p.get('attributes', {}).get('color', '')
             if color:
                 series_groups[series_name]['colors'].add(color)
-            
+
             size = p.get('size') or p.get('attributes', {}).get('size', '')
             if size:
                 series_groups[series_name]['sizes'].add(size)
-            
+
             finish = p.get('finish') or p.get('attributes', {}).get('finish', '')
             if finish:
                 series_groups[series_name]['finishes'].add(finish)
@@ -3466,17 +3481,25 @@ async def generate_batch_series_descriptions(
         series_groups = {}
         
         for p in products:
-            # ALWAYS prefer admin display names over supplier series field
-            # Priority: our_product_name > display_name > name > product_name > series field
-            product_name = p.get('our_product_name') or p.get('display_name') or p.get('name') or ''
+            # 24 May 2026 — same priority chain as detect_series_from_products.
+            # display_name wins because that's what the storefront PDP
+            # and the bulk-editor product list both render.
+            product_name = (
+                p.get('display_name')
+                or p.get('our_product_name')
+                or p.get('website_name')
+                or p.get('name')
+                or p.get('product_name')
+                or ''
+            )
             if product_name:
                 series_name = _extract_series_name(product_name)
             else:
-                series_name = p.get('series') or _extract_series_name(p.get('product_name', ''))
-            
+                series_name = p.get('series') or 'Unknown'
+
             if not series_name:
                 series_name = 'Unknown'
-            
+
             if series_name not in series_groups:
                 series_groups[series_name] = []
             series_groups[series_name].append(p)
