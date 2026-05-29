@@ -2990,22 +2990,63 @@ export default function SupplierProducts() {
     try {
       const selectedSkusList = Array.from(selectedProducts);
       const selectedProductsList = products.filter(p => selectedSkusList.includes(getProductKey(p)));
-      
-      // Auto-detect series name from selected products
-      // Try multiple sources: series field, first word of product name, etc.
+
+      // 24 May 2026 — series-name detection rewrite. User reported the
+      // generated description was using "Pietra Ligure Avorio 120X120"
+      // (supplier name) instead of "La Dolce" (the admin-overridden
+      // Collection Display Name shown on the storefront). Root cause:
+      // the old logic picked the FIRST product's `original_series` /
+      // `series` field — both of which carry the supplier's series
+      // name, not the admin's renamed collection.
+      //
+      // New approach: compute the LONGEST COMMON PREFIX across the
+      // admin-edited display names of ALL selected products. With
+      // 25 products named "La Dolce Sabbia 60x120cm Matt", "La Dolce
+      // Anthracite 30x60cm Matt", etc. — the common prefix is "La
+      // Dolce", which is exactly the Collection Display Name the
+      // user sees on the PDP. Falls back to the old logic only if
+      // no common prefix can be found (e.g. mixed selections).
+      const adminNames = selectedProductsList
+        .map(p => (p.our_product_name || p.display_name || p.website_name || '').trim())
+        .filter(Boolean);
+
+      // Tokenise each name into words then find the longest prefix
+      // of words shared by every name.
+      const tokenLists = adminNames.map(n => n.split(/\s+/));
+      let commonPrefixTokens = [];
+      if (tokenLists.length > 0) {
+        const first = tokenLists[0];
+        for (let i = 0; i < first.length; i++) {
+          const token = first[i];
+          if (tokenLists.every(tl => tl[i] === token)) {
+            commonPrefixTokens.push(token);
+          } else {
+            break;
+          }
+        }
+        // Strip trailing tokens that look like size/colour/finish so
+        // "La Dolce 60x60cm" → "La Dolce", not "La Dolce 60x60cm".
+        while (commonPrefixTokens.length > 0) {
+          const last = commonPrefixTokens[commonPrefixTokens.length - 1];
+          if (/^\d/.test(last) || /^(matt|gloss|polished|natural|satin|honed|brushed|lappato|semi-?polished)$/i.test(last)) {
+            commonPrefixTokens.pop();
+          } else {
+            break;
+          }
+        }
+      }
+      let seriesName = commonPrefixTokens.join(' ').trim();
+
+      // Fallback chain — preserved for legacy edge cases where
+      // display_name isn't set OR selection is genuinely mixed.
       const firstProduct = selectedProductsList[0] || {};
-      
-      // ALWAYS prefer admin-set series name first, then extract from display name
-      // product_name is the admin-set display name from "Edit Series Names"
-      let seriesName = '';
-      
-      // First: use explicit series name if admin set it
-      if (firstProduct.original_series && firstProduct.original_series.trim()) {
-        seriesName = firstProduct.original_series.trim();
-      } else if (firstProduct.series && firstProduct.series.trim() && 
-                 firstProduct.series.trim() !== (firstProduct.name || '').split(' ')[0]) {
-        // series field but only if it's different from the supplier name's first word
-        seriesName = firstProduct.series.trim();
+      if (!seriesName) {
+        if (firstProduct.original_series && firstProduct.original_series.trim()) {
+          seriesName = firstProduct.original_series.trim();
+        } else if (firstProduct.series && firstProduct.series.trim() &&
+                   firstProduct.series.trim() !== (firstProduct.name || '').split(' ')[0]) {
+          seriesName = firstProduct.series.trim();
+        }
       }
       
       // If no explicit series, extract from admin display name
@@ -12456,54 +12497,29 @@ export default function SupplierProducts() {
                     )}
                   </div>
                   
-                  {/* Description Template with AI Generation Buttons */}
+                  {/* Description Template — manual edit zone for the
+                      collection description. AI generation lives in
+                      the GREEN "Unified Series Description" card
+                      above (single source of truth). The historical
+                      purple "Brief/Standard/Long" buttons that lived
+                      here called the per-product endpoint with the
+                      first sample product's data — which produced the
+                      "Pietra Ligure Avorio 120X120" bug (24 May 2026)
+                      where the AI ignored the collection name and
+                      used the raw supplier product name instead.
+                      Removed to eliminate the confusing duplicate
+                      generation entry-point. The Shorter/Longer/New
+                      controls remain because they operate on the
+                      already-generated text in the editor below. */}
                   <div className="mb-3">
                     <div className="flex items-center justify-between mb-1">
                       <label className="text-xs text-indigo-700 font-medium">
                         Description Template
                       </label>
-                      {/* AI Generation Buttons - Matching ProductForm.js */}
                       <div className="flex items-center gap-1">
-                        <div className="flex items-center gap-0.5 bg-purple-50 rounded-lg p-0.5">
-                          <button
-                            type="button"
-                            onClick={() => handleBulkGenerateDescription('brief')}
-                            disabled={generatingDescription || selectedProducts.size === 0}
-                            className="text-purple-600 hover:bg-purple-100 disabled:opacity-50 px-1.5 py-0.5 rounded text-xs flex items-center gap-0.5"
-                            title="Generate a brief, concise description"
-                            data-testid="bulk-generate-brief-btn"
-                          >
-                            <Sparkles className={`h-3 w-3 ${generatingDescription ? 'animate-pulse' : ''}`} />
-                            Brief
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleBulkGenerateDescription('generate')}
-                            disabled={generatingDescription || selectedProducts.size === 0}
-                            className="text-purple-600 hover:bg-purple-100 disabled:opacity-50 px-1.5 py-0.5 rounded text-xs font-medium flex items-center gap-0.5"
-                            title="Generate a standard description"
-                            data-testid="bulk-generate-standard-btn"
-                          >
-                            <Sparkles className={`h-3 w-3 ${generatingDescription ? 'animate-pulse' : ''}`} />
-                            Standard
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleBulkGenerateDescription('long')}
-                            disabled={generatingDescription || selectedProducts.size === 0}
-                            className="text-purple-600 hover:bg-purple-100 disabled:opacity-50 px-1.5 py-0.5 rounded text-xs flex items-center gap-0.5"
-                            title="Generate a detailed, long description"
-                            data-testid="bulk-generate-long-btn"
-                          >
-                            <Sparkles className={`h-3 w-3 ${generatingDescription ? 'animate-pulse' : ''}`} />
-                            Long
-                          </button>
-                        </div>
-                        
                         {/* Length Controls - Only show when description exists */}
                         {bulkDescriptionSettings.description_template && (
                           <>
-                            <div className="w-px h-4 bg-gray-200" />
                             <button
                               type="button"
                               onClick={() => handleBulkGenerateDescription('shorter')}
