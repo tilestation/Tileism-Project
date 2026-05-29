@@ -449,6 +449,12 @@ export default function SupplierProducts() {
   // Batch Series Description States
   const [showBatchSeriesModal, setShowBatchSeriesModal] = useState(false);
   const [detectedSeries, setDetectedSeries] = useState(null);
+  // 24 May 2026 — map of auto-detected series name → admin-edited name.
+  // When a user types "La Dolce" into the inline input shown next to
+  // "Pietra Ligure" in the Quick-Generate modal, the rename is stored
+  // here and sent to the backend as `series_name_overrides` so the
+  // generator labels the result with the corrected name.
+  const [seriesNameOverrides, setSeriesNameOverrides] = useState({});
   const [detectingSeriesPending, setDetectingSeriesPending] = useState(false);
   const [generatingBatchDescriptions, setGeneratingBatchDescriptions] = useState(false);
   const [batchDescriptionResults, setBatchDescriptionResults] = useState(null);
@@ -3157,13 +3163,17 @@ export default function SupplierProducts() {
       toast.error('Please select products first');
       return;
     }
-    
+
     setShowBatchSeriesModal(true);
     setDetectedSeries(null);
     setBatchDescriptionResults(null);
     setSelectedSeriesForBatch(new Set());
     setExpandedSeriesResults(new Set());
-    
+    // 24 May 2026 — clear any inline rename overrides from a previous
+    // session so each open of the modal starts with the freshly-
+    // detected names. Admin can then re-edit as needed.
+    setSeriesNameOverrides({});
+
     // Auto-detect series
     await detectSeriesFromSelection();
   };
@@ -3232,7 +3242,11 @@ export default function SupplierProducts() {
       const response = await api.post('/products/generate-batch-series-descriptions', {
         product_skus: allSkus,
         seo_keywords: bulkDescriptionSettings.seo_keywords || '',
-        length: batchDescriptionLength
+        length: batchDescriptionLength,
+        // 24 May 2026 — pass admin renames so the backend re-labels
+        // each detected group with the user's chosen name before
+        // generating the description.
+        series_name_overrides: seriesNameOverrides,
       });
       
       if (response.data.success) {
@@ -15606,30 +15620,71 @@ export default function SupplierProducts() {
                     {selectedSeriesForBatch.size === detectedSeries.series.length ? 'Deselect All' : 'Select All'}
                   </button>
                 </div>
-                
+                {/* 24 May 2026 — admin hint about the new inline rename
+                    capability. Auto-detection sometimes picks the
+                    supplier's original series name ("Pietra Ligure")
+                    when the admin has renamed only `display_name` to
+                    something else ("La Dolce"). Letting the admin edit
+                    the detected name inline is the definitive fix —
+                    no more guessing which DB field to pull from. */}
+                <p className="text-[11px] text-emerald-700 mb-2 leading-snug">
+                  ✏️ <strong>Tip:</strong> tap any series name below to rename it before generating
+                  (e.g. supplier name &ldquo;Pietra Ligure&rdquo; → your collection name &ldquo;La Dolce&rdquo;).
+                  Renames apply only to this generation — they don&apos;t change product data.
+                </p>
+
                 <div className="space-y-1.5 max-h-64 overflow-y-auto">
-                  {detectedSeries.series.map((series) => (
-                    <label
-                      key={series.series_name}
-                      className={`flex items-center justify-between p-2 rounded-lg cursor-pointer transition-colors ${
-                        selectedSeriesForBatch.has(series.series_name) 
-                          ? 'bg-emerald-100 border border-emerald-300' 
+                  {detectedSeries.series.map((series) => {
+                    const originalName = series.series_name;
+                    const editedName = (seriesNameOverrides[originalName] ?? originalName);
+                    const isEdited = editedName !== originalName;
+                    return (
+                    <div
+                      key={originalName}
+                      className={`flex items-center justify-between gap-2 p-2 rounded-lg transition-colors ${
+                        selectedSeriesForBatch.has(originalName)
+                          ? 'bg-emerald-100 border border-emerald-300'
                           : 'bg-white border border-gray-200 hover:border-emerald-200'
                       }`}
                     >
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-1 min-w-0">
                         <input
                           type="checkbox"
-                          checked={selectedSeriesForBatch.has(series.series_name)}
-                          onChange={() => toggleBatchSeriesSelection(series.series_name)}
-                          className="rounded border-emerald-400 text-emerald-600 focus:ring-emerald-500"
+                          checked={selectedSeriesForBatch.has(originalName)}
+                          onChange={() => toggleBatchSeriesSelection(originalName)}
+                          className="rounded border-emerald-400 text-emerald-600 focus:ring-emerald-500 flex-shrink-0"
                         />
-                        <div>
-                          <span className="text-sm font-medium text-gray-800">{series.series_name}</span>
-                          <span className="text-xs text-gray-500 ml-2">({series.product_count} products)</span>
+                        <div className="min-w-0 flex-1">
+                          <input
+                            type="text"
+                            value={editedName}
+                            onChange={(e) => {
+                              const newName = e.target.value;
+                              setSeriesNameOverrides(prev => {
+                                const next = { ...prev };
+                                if (newName === originalName || newName === '') {
+                                  delete next[originalName];
+                                } else {
+                                  next[originalName] = newName;
+                                }
+                                return next;
+                              });
+                            }}
+                            onClick={(e) => e.stopPropagation()}
+                            className={`text-sm font-medium bg-transparent border-b border-dashed w-full focus:outline-none focus:border-emerald-500 ${
+                              isEdited ? 'text-emerald-700 border-emerald-400' : 'text-gray-800 border-gray-300'
+                            }`}
+                            placeholder="Series name"
+                            data-testid={`batch-series-name-input-${originalName.replace(/\s+/g, '-').toLowerCase()}`}
+                            title={isEdited ? `Original: ${originalName}` : 'Click to rename for this generation'}
+                          />
+                          <span className="text-xs text-gray-500">
+                            ({series.product_count} products)
+                            {isEdited && <span className="ml-1 text-emerald-600">· was &ldquo;{originalName}&rdquo;</span>}
+                          </span>
                         </div>
                       </div>
-                      <div className="flex gap-1">
+                      <div className="flex gap-1 flex-shrink-0">
                         {series.colors.length > 0 && (
                           <span className="text-[10px] bg-pink-100 text-pink-700 px-1.5 py-0.5 rounded">
                             {series.colors.length} colors
@@ -15646,8 +15701,9 @@ export default function SupplierProducts() {
                           </span>
                         )}
                       </div>
-                    </label>
-                  ))}
+                    </div>
+                    );
+                  })}
                 </div>
               </div>
 

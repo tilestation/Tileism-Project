@@ -3295,6 +3295,11 @@ class BatchSeriesDescriptionRequest(BaseModel):
     product_skus: List[str] = Field(..., description="List of product SKUs to analyze and group by series")
     seo_keywords: Optional[str] = None
     length: Optional[str] = "standard"
+    # 24 May 2026 — manual override for auto-detected series names.
+    # Admin can rename "Pietra Ligure" → "La Dolce" in the modal before
+    # generating. Map is { auto_detected_name: user_edited_name }.
+    # Auto-detection still runs; this just renames the resulting groups.
+    series_name_overrides: Optional[Dict[str, str]] = None
 
 
 class SeriesInfo(BaseModel):
@@ -3503,8 +3508,22 @@ async def generate_batch_series_descriptions(
             if series_name not in series_groups:
                 series_groups[series_name] = []
             series_groups[series_name].append(p)
-        
-        # Determine length requirements
+
+        # 24 May 2026 — apply admin-provided series-name overrides so
+        # the user sees the renamed group label (e.g. "La Dolce")
+        # instead of the supplier auto-detected name (e.g. "Pietra
+        # Ligure"). The override map is { auto: edited }, so we rename
+        # every key found in it.
+        overrides = (request_data.series_name_overrides or {})
+        if overrides:
+            renamed = {}
+            for k, v in series_groups.items():
+                new_key = overrides.get(k, k) or k  # honour rename, ignore empty
+                if new_key in renamed:
+                    renamed[new_key].extend(v)
+                else:
+                    renamed[new_key] = v
+            series_groups = renamed
         if length == 'brief':
             length_instruction = "Write 1-2 paragraphs (80-120 words). Be concise but comprehensive."
         elif length == 'detailed':
