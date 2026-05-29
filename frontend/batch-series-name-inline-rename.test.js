@@ -66,10 +66,13 @@ assert.match(
   'onChange must update seriesNameOverrides',
 );
 
-// 5. The generate call sends `series_name_overrides`.
+// 5. The generate call sends `series_name_overrides`. The value
+//    expression was refactored to `overridesToSend` to support
+//    unified-mode collapsing, so we accept either the literal state
+//    variable OR the computed local.
 assert.match(
   src,
-  /series_name_overrides:\s*seriesNameOverrides/,
+  /series_name_overrides:\s*(seriesNameOverrides|overridesToSend)/,
   'The /products/generate-batch-series-descriptions POST body must ' +
     'include series_name_overrides so the backend can re-label groups',
 );

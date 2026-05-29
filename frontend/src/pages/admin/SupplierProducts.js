@@ -455,6 +455,14 @@ export default function SupplierProducts() {
   // here and sent to the backend as `series_name_overrides` so the
   // generator labels the result with the corrected name.
   const [seriesNameOverrides, setSeriesNameOverrides] = useState({});
+  // 24 May 2026 — "Unified mode" toggle for the Quick-Generate modal.
+  // When ON, ALL selected products are collapsed into a SINGLE
+  // collection regardless of how the auto-detector split them, so the
+  // admin gets one description for the whole range (e.g. all 25 "La
+  // Dolce" tiles → one description) instead of 6 per-variant ones.
+  // When OFF, the per-series behaviour stays exactly as before.
+  const [batchUnifiedMode, setBatchUnifiedMode] = useState(true);
+  const [batchUnifiedCollectionName, setBatchUnifiedCollectionName] = useState('');
   const [detectingSeriesPending, setDetectingSeriesPending] = useState(false);
   const [generatingBatchDescriptions, setGeneratingBatchDescriptions] = useState(false);
   const [batchDescriptionResults, setBatchDescriptionResults] = useState(null);
@@ -3173,6 +3181,43 @@ export default function SupplierProducts() {
     // session so each open of the modal starts with the freshly-
     // detected names. Admin can then re-edit as needed.
     setSeriesNameOverrides({});
+    // Seed the unified collection name from the longest common prefix
+    // of the selected products' admin-edited names. This is usually
+    // exactly what the user wants ("La Dolce" from "La Dolce Sabbia
+    // 60x120cm Matt" + "La Dolce Anthracite 30x60cm Matt" + ...).
+    // Falls through to empty if no common prefix can be found.
+    try {
+      const selectedKeysList = Array.from(selectedProducts);
+      const selectedProductsList = products.filter(p => selectedKeysList.includes(getProductKey(p)));
+      const adminNames = selectedProductsList
+        .map(p => (p.display_name || p.our_product_name || p.website_name || '').trim())
+        .filter(Boolean);
+      const tokenLists = adminNames.map(n => n.split(/\s+/));
+      let commonPrefixTokens = [];
+      if (tokenLists.length > 0) {
+        const first = tokenLists[0];
+        for (let i = 0; i < first.length; i++) {
+          const token = first[i];
+          if (tokenLists.every(tl => tl[i] === token)) {
+            commonPrefixTokens.push(token);
+          } else {
+            break;
+          }
+        }
+        while (commonPrefixTokens.length > 0) {
+          const last = commonPrefixTokens[commonPrefixTokens.length - 1];
+          if (/^\d/.test(last) || /^(matt|gloss|polished|natural|satin|honed|brushed|lappato|semi-?polished)$/i.test(last)) {
+            commonPrefixTokens.pop();
+          } else {
+            break;
+          }
+        }
+      }
+      setBatchUnifiedCollectionName(commonPrefixTokens.join(' ').trim());
+    } catch {
+      setBatchUnifiedCollectionName('');
+    }
+    setBatchUnifiedMode(true);
 
     // Auto-detect series
     await detectSeriesFromSelection();
@@ -3238,15 +3283,33 @@ export default function SupplierProducts() {
       // Get SKUs only for selected series
       const selectedSeriesData = detectedSeries.series.filter(s => selectedSeriesForBatch.has(s.series_name));
       const allSkus = selectedSeriesData.flatMap(s => s.skus);
-      
+
+      // 24 May 2026 — in unified mode, collapse ALL selected detected
+      // series into ONE collection so the backend generates a single
+      // description for the whole range (user reported: "It's giving
+      // me separate descriptions for each colour but I said unified
+      // — One La Dolce collection"). We map every selected
+      // auto-detected name to the same target name, and the backend's
+      // series_name_overrides merger does the rest.
+      let overridesToSend = seriesNameOverrides;
+      if (batchUnifiedMode) {
+        const collectionName = (batchUnifiedCollectionName || 'Collection').trim() || 'Collection';
+        overridesToSend = {};
+        selectedSeriesData.forEach((s) => {
+          overridesToSend[s.series_name] = collectionName;
+        });
+      }
+
       const response = await api.post('/products/generate-batch-series-descriptions', {
         product_skus: allSkus,
         seo_keywords: bulkDescriptionSettings.seo_keywords || '',
         length: batchDescriptionLength,
         // 24 May 2026 — pass admin renames so the backend re-labels
         // each detected group with the user's chosen name before
-        // generating the description.
-        series_name_overrides: seriesNameOverrides,
+        // generating the description. In unified mode every detected
+        // name maps to the same target so the backend merges them
+        // into one description.
+        series_name_overrides: overridesToSend,
       });
       
       if (response.data.success) {
@@ -15602,6 +15665,62 @@ export default function SupplierProducts() {
           {/* Step 2: Show Detected Series */}
           {detectedSeries && !batchDescriptionResults && !detectingSeriesPending && (
             <div className="space-y-4">
+              {/* 24 May 2026 — Unified vs Per-Series toggle. Default is
+                  UNIFIED because that matches the modal subtitle
+                  "generate unified descriptions" and is the most
+                  common admin intent ("one La Dolce collection"). */}
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3" data-testid="batch-unified-mode-toggle">
+                <div className="flex items-start gap-3">
+                  <div className="flex flex-col gap-1.5 pt-0.5">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="batch-unified-mode"
+                        checked={batchUnifiedMode}
+                        onChange={() => setBatchUnifiedMode(true)}
+                        data-testid="batch-mode-unified-radio"
+                        className="text-blue-600 focus:ring-blue-500"
+                      />
+                      <span className="text-sm font-semibold text-blue-900">
+                        One unified description for the whole collection
+                      </span>
+                    </label>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="batch-unified-mode"
+                        checked={!batchUnifiedMode}
+                        onChange={() => setBatchUnifiedMode(false)}
+                        data-testid="batch-mode-per-series-radio"
+                        className="text-blue-600 focus:ring-blue-500"
+                      />
+                      <span className="text-sm text-blue-900">
+                        Separate description per detected series ({detectedSeries.series_count} total)
+                      </span>
+                    </label>
+                  </div>
+                </div>
+                {batchUnifiedMode && (
+                  <div className="mt-3 pt-3 border-t border-blue-200">
+                    <label className="text-[11px] uppercase tracking-wider text-blue-700 font-bold block mb-1">
+                      Collection name (used in the description)
+                    </label>
+                    <input
+                      type="text"
+                      value={batchUnifiedCollectionName}
+                      onChange={(e) => setBatchUnifiedCollectionName(e.target.value)}
+                      placeholder="e.g. La Dolce"
+                      data-testid="batch-unified-collection-name-input"
+                      className="w-full px-3 py-2 text-sm font-medium border border-blue-300 rounded focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                    />
+                    <p className="text-[11px] text-blue-700 mt-1 leading-snug">
+                      All {selectedProducts.size} selected products will be combined into one description
+                      using this name. Pre-filled from the longest common prefix across your selection.
+                    </p>
+                  </div>
+                )}
+              </div>
+
               <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3">
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-sm font-semibold text-emerald-800">
@@ -15627,11 +15746,20 @@ export default function SupplierProducts() {
                     something else ("La Dolce"). Letting the admin edit
                     the detected name inline is the definitive fix —
                     no more guessing which DB field to pull from. */}
-                <p className="text-[11px] text-emerald-700 mb-2 leading-snug">
-                  ✏️ <strong>Tip:</strong> tap any series name below to rename it before generating
-                  (e.g. supplier name &ldquo;Pietra Ligure&rdquo; → your collection name &ldquo;La Dolce&rdquo;).
-                  Renames apply only to this generation — they don&apos;t change product data.
-                </p>
+                {!batchUnifiedMode && (
+                  <p className="text-[11px] text-emerald-700 mb-2 leading-snug">
+                    ✏️ <strong>Tip:</strong> tap any series name below to rename it before generating
+                    (e.g. supplier name &ldquo;Pietra Ligure&rdquo; → your collection name &ldquo;La Dolce&rdquo;).
+                    Renames apply only to this generation — they don&apos;t change product data.
+                  </p>
+                )}
+                {batchUnifiedMode && (
+                  <p className="text-[11px] text-emerald-700 mb-2 leading-snug">
+                    Unified mode is ON — these {detectedSeries.series_count} groups will all be
+                    combined into ONE description named &ldquo;{(batchUnifiedCollectionName || '').trim() || 'Collection'}&rdquo;
+                    (switch to per-series mode above to edit them individually).
+                  </p>
+                )}
 
                 <div className="space-y-1.5 max-h-64 overflow-y-auto">
                   {detectedSeries.series.map((series) => {
@@ -15730,19 +15858,23 @@ export default function SupplierProducts() {
               {/* Generate Button */}
               <button
                 onClick={handleGenerateBatchDescriptions}
-                disabled={selectedSeriesForBatch.size === 0 || generatingBatchDescriptions}
+                disabled={selectedSeriesForBatch.size === 0 || generatingBatchDescriptions || (batchUnifiedMode && !(batchUnifiedCollectionName || '').trim())}
                 className="w-full bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 disabled:from-gray-300 disabled:to-gray-400 text-white px-4 py-3 rounded-lg font-semibold flex items-center justify-center gap-2"
                 data-testid="generate-batch-descriptions-btn"
               >
                 {generatingBatchDescriptions ? (
                   <>
                     <div className="animate-spin h-5 w-5 border-2 border-white border-t-transparent rounded-full"></div>
-                    Generating {selectedSeriesForBatch.size} descriptions...
+                    {batchUnifiedMode
+                      ? `Generating "${(batchUnifiedCollectionName || '').trim() || 'Collection'}" description...`
+                      : `Generating ${selectedSeriesForBatch.size} descriptions...`}
                   </>
                 ) : (
                   <>
                     <Sparkles className="w-5 h-5" />
-                    Generate {selectedSeriesForBatch.size} Descriptions
+                    {batchUnifiedMode
+                      ? `Generate 1 unified "${(batchUnifiedCollectionName || '').trim() || 'Collection'}" description`
+                      : `Generate ${selectedSeriesForBatch.size} Descriptions`}
                   </>
                 )}
               </button>
