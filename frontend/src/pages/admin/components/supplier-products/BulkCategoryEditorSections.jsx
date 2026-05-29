@@ -1423,15 +1423,15 @@ const BulkCategoryEditorSections = ({
                 
                 return (
                   <div key={groupSlug}>
-                    <div className="text-xs font-semibold text-gray-600 mb-2 flex items-center gap-1">
-                      <FolderOpen className="w-3 h-3 text-green-600" />
+                    <div className="text-xs font-semibold text-gray-600 mb-2 flex flex-wrap items-center gap-1">
+                      <FolderOpen className="w-3 h-3 text-green-600 flex-shrink-0" />
                       {group?.name || groupSlug}
                       <span className="text-gray-400">({groupCats.length} categories)</span>
                       {selectedCount > 0 && <Badge className="bg-green-600 text-white text-xs ml-1">{selectedCount} selected</Badge>}
                       {onQuickSave && selectedCount > 0 && (
                         <button
                           type="button"
-                          className="ml-auto text-xs bg-green-600 hover:bg-green-700 text-white px-2 py-0.5 rounded flex items-center gap-1"
+                          className="ml-auto flex-shrink-0 text-xs bg-green-600 hover:bg-green-700 text-white px-2 py-0.5 rounded flex items-center gap-1"
                           disabled={savingAttr === `cat_group_${groupSlug}`}
                           onClick={async () => {
                             const catKeysToSave = groupCats
@@ -1560,15 +1560,15 @@ const BulkCategoryEditorSections = ({
                 
                 return (
                   <div key={filter._id || filter.slug} className="border rounded-lg overflow-hidden">
-                    <div className="flex items-center bg-gray-50">
+                    <div className="flex items-stretch bg-gray-50 gap-1">
                       <button
                         type="button"
                         onClick={() => toggleFilter(filter.slug)}
-                        className="flex-1 flex items-center justify-between p-2 hover:bg-gray-100 transition-colors"
+                        className="flex-1 min-w-0 flex items-center justify-between p-2 hover:bg-gray-100 transition-colors"
                       >
-                        <div className="flex items-center gap-2">
-                          {isCollapsed ? <ChevronRight className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-                          <span className="text-sm font-medium text-gray-700">{filter.name}</span>
+                        <div className="flex flex-wrap items-center gap-2 min-w-0">
+                          {isCollapsed ? <ChevronRight className="w-3 h-3 flex-shrink-0" /> : <ChevronDown className="w-3 h-3 flex-shrink-0" />}
+                          <span className="text-sm font-medium text-gray-700 truncate">{filter.name}</span>
                           <span className="text-xs text-gray-400">({values.length} values)</span>
                           {selectedCount > 0 && <Badge className="bg-blue-600 text-white text-xs">{selectedCount} selected</Badge>}
                           {filterScopeSize > 0 && <Badge className="bg-amber-500 text-white text-xs">{filterScopeSize} scoped</Badge>}
@@ -1583,14 +1583,18 @@ const BulkCategoryEditorSections = ({
                           })()}
                         </div>
                       </button>
-                      {/* Quick Push Save button for filter */}
+                      {/* Quick Push Save button for filter — flex-shrink-0
+                          + self-center pins it inside the row even when
+                          the badge stack wraps to 2+ lines on mobile.
+                          (24 May 2026 bug fix — user reported Save Now
+                          flowed off-screen on phones.) */}
                       {onQuickSave && selectedCount > 0 && (
                         <button
                           type="button"
                           data-testid={`quick-save-filter-${filter.slug}`}
                           disabled={savingAttr === filterKey}
                           onClick={(e) => { e.stopPropagation(); handleQuickSaveClick(filterKey, 'filter'); }}
-                          className="mr-2 flex items-center gap-1 px-2 py-0.5 text-[10px] font-medium rounded bg-green-600 text-white hover:bg-green-700 disabled:opacity-50 disabled:cursor-wait transition-colors"
+                          className="flex-shrink-0 self-center mr-2 flex items-center gap-1 px-2 py-0.5 text-[10px] font-medium rounded bg-green-600 text-white hover:bg-green-700 disabled:opacity-50 disabled:cursor-wait transition-colors"
                           title={`Save ${filter.name} now`}
                         >
                           {savingAttr === filterKey ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
@@ -1902,7 +1906,7 @@ const BulkCategoryEditorSections = ({
                       
                       return (
                         <div key={spec._id || spec.slug}>
-                          <div className="flex items-center gap-2 mb-1">
+                          <div className="flex flex-wrap items-center gap-2 mb-1">
                             <span className="text-xs font-medium text-gray-600">{spec.name}</span>
                             <span className="text-xs text-gray-400">({values.length} values)</span>
                             {selectedCount > 0 && (
@@ -1917,14 +1921,17 @@ const BulkCategoryEditorSections = ({
                               const hasMultiple = breakdown && Object.keys(breakdown).length > 1;
                               return hasMultiple ? <Badge className="bg-amber-100 text-amber-700 text-xs">Mixed</Badge> : null;
                             })()}
-                            {/* Quick Push Save button */}
+                            {/* Quick Push Save button — flex-shrink-0
+                                pins it inline; ml-auto keeps it right-
+                                aligned even when the badges wrap to a
+                                second line on mobile. (24 May 2026 fix.) */}
                             {onQuickSave && selectedCount > 0 && (
                               <button
                                 type="button"
                                 data-testid={`quick-save-spec-${spec.slug}`}
                                 disabled={savingAttr === specKey}
                                 onClick={(e) => { e.stopPropagation(); handleQuickSaveClick(specKey, 'spec'); }}
-                                className="ml-auto flex items-center gap-1 px-2 py-0.5 text-[10px] font-medium rounded bg-green-600 text-white hover:bg-green-700 disabled:opacity-50 disabled:cursor-wait transition-colors"
+                                className="ml-auto flex-shrink-0 flex items-center gap-1 px-2 py-0.5 text-[10px] font-medium rounded bg-green-600 text-white hover:bg-green-700 disabled:opacity-50 disabled:cursor-wait transition-colors"
                                 title={`Save ${spec.name} now`}
                               >
                                 {savingAttr === specKey ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
@@ -2088,12 +2095,12 @@ const BulkCategoryEditorSections = ({
             
             {/* Country of Origin */}
             <div className="pt-3 border-t border-gray-100">
-              <label className="text-xs font-semibold text-gray-600 mb-2 block flex items-center gap-1">
-                <Flag className="w-3 h-3" /> Country of Origin
+              <label className="text-xs font-semibold text-gray-600 mb-2 flex flex-wrap items-center gap-1">
+                <Flag className="w-3 h-3 flex-shrink-0" /> Country of Origin
                 {onQuickSave && bulkCategorySelections.made_in && bulkCategorySelections.made_in !== '' && (
                   <button
                     type="button"
-                    className="ml-auto text-xs bg-green-600 hover:bg-green-700 text-white px-2 py-0.5 rounded flex items-center gap-1"
+                    className="ml-auto flex-shrink-0 text-xs bg-green-600 hover:bg-green-700 text-white px-2 py-0.5 rounded flex items-center gap-1"
                     disabled={savingAttr === 'made_in'}
                     onClick={async () => {
                       const val = bulkCategorySelections.made_in === '__CLEAR__' ? 'CLEAR' : bulkCategorySelections.made_in;
