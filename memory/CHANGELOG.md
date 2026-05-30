@@ -1,3 +1,20 @@
+### [Feb 26, 2026 — Forked session] ✅ Radio Studio MP3 → MongoDB Migration — CERTIFIED
+
+**Last working item closed out.** v1 stored MP3s on `/app/backend/storage/radio_studio/` — Railway redeploys wiped this directory and all ads/music vanished on every deploy. v2 stores audio bytes as BSON Binary in MongoDB Atlas (`audio_blob` field on `radio_studio_ads` and `radio_studio_music`). Per-file cap = 15 MB (1 MB headroom under MongoDB's 16 MB BSON document limit) ≈ 15 min of 128 kbps MP3.
+
+**End-to-end verified**:
+- Inserted a test ad with `audio_blob` directly into Mongo → `curl /api/radio-studio/stream/ad/{id}` returned the exact bytes back with `Content-Type: audio/mpeg`. ✅
+- 13 NEW pytest cases in `tests/test_radio_studio_storage.py` — stream returns stored bytes, 404 paths, projections exclude `audio_blob` on list/update/generate response, upload pops blob before responding, 15 MB cap rejects 16 MB upload with HTTP 413 before reaching the Mongo insert, legacy filesystem helpers (`ADS_DIR`, `MUSIC_DIR`, `STORAGE_ROOT`, `_audio_path`) confirmed absent.
+- Testing agent ran 42/42 backend tests against `REACT_APP_BACKEND_URL` (production-style ingress) — added 18 NEW live integration tests in `tests/test_radio_studio_live.py` covering admin CRUD, music upload + size cap + non-audio rejection, public stream byte-for-byte equality, playlist item round-trip, 403 on customer-role tokens, public stream verified unauthenticated for in-store speakers.
+- Critical invariant holds: `audio_blob` is projected out of every read that returns to a client — list/update/generate responses stay tiny (KB not MB).
+
+**Files**:
+- `/app/backend/routes/radio_studio.py` (migration was implemented in prior turn — re-verified)
+- `/app/backend/tests/test_radio_studio_storage.py` (NEW — 13 tests)
+- `/app/backend/tests/test_radio_studio_live.py` (NEW by testing agent — 18 live integration tests)
+
+
+
 ## 2026-05-24 — 📱 Mobile hero banner: cropping fix + optional portrait mobile variant
 
 ### Bug & Enhancement
