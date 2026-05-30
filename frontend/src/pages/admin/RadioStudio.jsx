@@ -30,10 +30,16 @@ const API = `${API_URL}/api`;
 
 const tokenHdr = () => {
   // Match the rest of the admin app — token lives at localStorage['token'].
-  // (Earlier `'admin_token'` lookup caused every Radio Studio API call
-  // to send no Authorization header → 403 "Not authenticated". Bug
-  // reported 24 May 2026 on music upload.)
-  const t = localStorage.getItem('token');
+  // Belt-and-braces: also check 'access_token' (used by some older
+  // admin pages) and 'admin_token' (used by a couple of legacy
+  // wrappers like PalletPricingSettingsPage). Without this, every
+  // Radio Studio API call sent no Authorization header → 403 "Not
+  // authenticated". Bug surfaced 24 May 2026 on music upload AND
+  // script generation.
+  const t =
+    localStorage.getItem('token') ||
+    localStorage.getItem('access_token') ||
+    localStorage.getItem('admin_token');
   return t ? { Authorization: `Bearer ${t}` } : {};
 };
 
@@ -641,7 +647,13 @@ function AdsTab({ voices, voicesLoading, onResyncVoices, ads, onAdsChange }) {
               {ad.audio_filename && (
                 <audio
                   controls
-                  src={`${API}/radio-studio/stream/ad/${ad.id}`}
+                  // 24 May 2026 — cache-bust by `generated_at`. The
+                  // backend OVERWRITES the same {id}.mp3 file when
+                  // the admin regenerates with a new voice/script,
+                  // but the browser caches the URL. Adding the
+                  // timestamp as a query param forces a fresh fetch
+                  // every time the ad is regenerated.
+                  src={`${API}/radio-studio/stream/ad/${ad.id}${ad.generated_at ? `?v=${encodeURIComponent(ad.generated_at)}` : ''}`}
                   className="w-full h-8 mt-2"
                   data-testid={`radio-ad-preview-${ad.id}`}
                 />
@@ -688,8 +700,15 @@ function MusicTab({ music, onMusicChange }) {
       const fd = new FormData();
       fd.append('name', uploadName.trim());
       fd.append('file', uploadFile);
+      // 24 May 2026 — DO NOT manually set Content-Type on FormData
+      // uploads. Axios auto-generates it as
+      //   "multipart/form-data; boundary=----WebKitFormBoundaryXxx"
+      // The boundary is auto-derived from the FormData instance.
+      // Setting Content-Type manually here OMITS the boundary, so
+      // the backend's multipart parser couldn't find any fields →
+      // silent 422 / "field required" → upload looked stuck.
       await axios.post(`${API}/admin/radio-studio/music/upload`, fd, {
-        headers: { ...tokenHdr(), 'Content-Type': 'multipart/form-data' },
+        headers: tokenHdr(),
       });
       toast.success('Track uploaded');
       setUploadName('');
@@ -866,7 +885,13 @@ function PlaylistTab({ ads, music, playlist, onPlaylistChange }) {
   const resolved = items.map((it, idx) => {
     if (it.type === 'ad') {
       const ad = ads.find((a) => a.id === it.ref_id);
-      return { ...it, idx, label: ad?.name || 'Missing ad', sub: ad?.voice_name, duration: ad?.duration_seconds, streamUrl: ad?.audio_filename ? `${API}/radio-studio/stream/ad/${ad.id}` : null, missing: !ad };
+      // Cache-bust the ad audio URL by its generated_at so regenerated
+      // ads always play the freshly-written MP3, not a stale browser-
+      // cached version of the same {id}.mp3 file.
+      const adStream = ad?.audio_filename
+        ? `${API}/radio-studio/stream/ad/${ad.id}${ad.generated_at ? `?v=${encodeURIComponent(ad.generated_at)}` : ''}`
+        : null;
+      return { ...it, idx, label: ad?.name || 'Missing ad', sub: ad?.voice_name, duration: ad?.duration_seconds, streamUrl: adStream, missing: !ad };
     }
     const tr = music.find((m) => m.id === it.ref_id);
     return { ...it, idx, label: tr?.name || 'Missing track', sub: 'music', duration: tr?.duration_seconds, streamUrl: tr ? `${API}/radio-studio/stream/music/${tr.id}` : null, missing: !tr };
@@ -895,7 +920,16 @@ function PlaylistTab({ ads, music, playlist, onPlaylistChange }) {
       toast.error(`Failed to play ${r.label}`);
       setPlayingIdx(null);
     };
-    a.play();
+    // 24 May 2026 — `audio.play()` returns a Promise that can REJECT
+    // (browser autoplay policies, blocked tab, file not ready). The
+    // old code awaited it implicitly so failures were silent.
+    const playPromise = a.play();
+    if (playPromise?.catch) {
+      playPromise.catch((err) => {
+        toast.error(`Playback blocked: ${err?.message || 'browser refused'}`);
+        setPlayingIdx(null);
+      });
+    }
     setAudioEl(a);
   };
 
