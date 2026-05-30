@@ -516,9 +516,16 @@ function AdsTab({ voices, voicesLoading, onResyncVoices, ads, onAdsChange }) {
               value={form.voice_id}
               onChange={(e) => setForm({ ...form, voice_id: e.target.value })}
               data-testid="radio-ad-voice"
-              className="w-full px-3 py-2 bg-slate-900 border border-slate-600 rounded-lg text-sm text-slate-100 focus:border-amber-500 focus:outline-none"
+              disabled={voices.length === 0}
+              className="w-full px-3 py-2 bg-slate-900 border border-slate-600 rounded-lg text-sm text-slate-100 focus:border-amber-500 focus:outline-none disabled:opacity-60 disabled:cursor-not-allowed"
             >
-              <option value="">— pick a voice —</option>
+              <option value="">
+                {voicesLoading
+                  ? '— loading voices from ElevenLabs… —'
+                  : voices.length === 0
+                    ? '— no voices yet · click "Resync from ElevenLabs" above —'
+                    : '— pick a voice —'}
+              </option>
               {groupedVoices.map(([groupName, groupVoices]) => (
                 <optgroup key={groupName} label={groupName}>
                   {groupVoices.map((v) => (
@@ -532,6 +539,12 @@ function AdsTab({ voices, voicesLoading, onResyncVoices, ads, onAdsChange }) {
                 </optgroup>
               ))}
             </select>
+            {voices.length === 0 && !voicesLoading && (
+              <p className="text-[11px] text-amber-300/80 mt-1 leading-snug">
+                If your ElevenLabs account has voices but none appear here, click
+                <span className="font-bold"> Resync from ElevenLabs</span> above — your account&apos;s voices will populate the list.
+              </p>
+            )}
             {form.voice_id && (() => {
               const v = voices.find((x) => x.voice_id === form.voice_id);
               return v?.preview_url ? (

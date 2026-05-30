@@ -105,18 +105,39 @@ def test_delete_music_strips_from_playlists():
     assert '"type": "music"' in src
 
 
-def test_voice_sync_filters_to_english_voices():
-    """Auto-detected voices include American/British/Australian/Irish
-    + any unlabelled (premade) voice. Non-English voices are stripped
-    so the dropdown isn't cluttered with 30 languages we'll never use
-    in a UK showroom."""
+def test_voice_sync_returns_all_voices():
+    """24 May 2026 — was English-filtered, but the heuristic was too
+    aggressive and rejected accounts whose voice labels had no
+    `language` field or used unusual values. The backend now returns
+    ALL voices from ElevenLabs; the frontend groups by accent so UK
+    English surfaces first naturally."""
     from routes import radio_studio
     src = inspect.getsource(radio_studio.sync_voices)
-    assert '"english"' in src
-    assert '"british"' in src
-    # Non-English voices (e.g. french/spanish/german) must NOT be
-    # explicitly whitelisted — they fall through the is_english gate.
-    assert "is_english" in src
+    # No English filter loop short-circuit anymore.
+    assert "is_english" not in src
+    # But the voice DOES still carry its language label so the
+    # frontend can show that info in the dropdown.
+    assert '"language":' in src
+
+
+def test_voice_sync_avoids_objectid_leak():
+    """24 May 2026 — PyMongo's insert_many MUTATES the input dicts
+    to add `_id: ObjectId(...)`. If we then `return {'voices': cached}`
+    using the same list, that ObjectId trips FastAPI's JSON encoder
+    → 500. We must copy each dict before inserting.
+
+    This bug silently killed the FIRST voice sync on every fresh
+    deployment, leaving the dropdown empty — root cause of the
+    user-reported 'It doesn't give me any option to pick a voice'
+    bug on production (24 May 2026 evening)."""
+    from routes import radio_studio
+    src = inspect.getsource(radio_studio.sync_voices)
+    # The insert_many call must use a shallow copy of each dict
+    # (dict(c) for c in cached) — not the cached list directly.
+    assert "dict(c) for c in cached" in src, (
+        "insert_many must take a shallow copy of each cached dict "
+        "to avoid PyMongo mutating the originals with ObjectId"
+    )
 
 
 def test_public_stream_endpoint_does_not_require_auth():

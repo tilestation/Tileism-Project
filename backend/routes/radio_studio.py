@@ -277,23 +277,14 @@ async def sync_voices(current_user: dict = Depends(get_current_user)):
     voices_raw = getattr(response, "voices", None) or []
     cached = []
     for v in voices_raw:
+        # 24 May 2026 — DON'T filter voices at the backend. Earlier
+        # the filter was English-only but user reported the dropdown
+        # was empty even though their ElevenLabs account had voices
+        # (the labels on their account had no `language` field, or
+        # values that didn't match the heuristic). Showing all voices
+        # is safer — the frontend groups by accent so UK English
+        # surfaces first naturally.
         labels = (getattr(v, "labels", None) or {})
-        # Filter to English-language voices (UK accent preferred but
-        # we keep all English so admins can mix in a few neutral ones).
-        accent = (labels.get("accent") or "").lower()
-        language = (labels.get("language") or "").lower()
-        description = (getattr(v, "description", "") or "").lower()
-
-        is_english = (
-            "english" in language
-            or "british" in accent
-            or "british" in description
-            or accent in {"american", "australian", "irish"}
-            or not language  # premade voices often lack a language label
-        )
-        if not is_english:
-            continue
-
         cached.append({
             "voice_id": v.voice_id,
             "name": v.name,
@@ -303,13 +294,18 @@ async def sync_voices(current_user: dict = Depends(get_current_user)):
             "age": labels.get("age"),
             "gender": labels.get("gender"),
             "use_case": labels.get("use case") or labels.get("use_case"),
+            "language": labels.get("language"),
             "preview_url": getattr(v, "preview_url", None),
         })
 
-    # Cache the result so subsequent GETs are instant.
+    # Cache the result so subsequent GETs are instant. Copy each
+    # dict BEFORE insert_many because PyMongo mutates the input to
+    # add `_id: ObjectId(...)` — that ObjectId then trips the FastAPI
+    # JSON serialiser on return. (24 May 2026 — root cause of the
+    # silent voice-list-empty bug on production.)
     await db.radio_studio_voices.delete_many({})
     if cached:
-        await db.radio_studio_voices.insert_many(cached)
+        await db.radio_studio_voices.insert_many([dict(c) for c in cached])
 
     return {"voices": cached, "count": len(cached)}
 
