@@ -1,0 +1,38 @@
+{
+  "summary": "Backend-only certification of the Radio Studio MP3 -> MongoDB BSON Binary storage migration. Wrote and ran 18 new live integration tests against the public backend URL (REACT_APP_BACKEND_URL) plus re-ran the existing 24 unit/static tests. Total 42/42 passed. Verified: admin ad CRUD without leaking audio_blob, music upload returns metadata only, list endpoints project audio_blob out (responses tiny), 15 MB cap returns 413 BEFORE Mongo insert, non-audio content-type returns 400, public stream endpoints serve stored bytes byte-for-byte with audio/mpeg AND require no auth, 404s for missing doc and missing blob, DELETE strips refs from saved playlists, playlist items round-trip, and admin endpoints reject customer-role tokens with 403. ElevenLabs generate path was deliberately NOT exercised (cost-sensitive, per instructions).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_radio_studio_live.py",
+    "/app/backend/tests/test_radio_studio_storage.py",
+    "/app/backend/tests/test_radio_studio.py",
+    "/app/test_reports/pytest/iter183_radio_storage.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "routes/radio_studio.py is single-file 680 lines and within the size guideline. Projections consistently exclude {'_id': 0, 'audio_blob': 0} on every read that returns to a client, and upload_music explicitly doc.pop('audio_blob') before returning - this is the key invariant and it holds.",
+    "MAX_AUDIO_BYTES = 15 * 1024 * 1024 with 1 MB headroom under the 16 MB BSON cap - correct and enforced BEFORE insert (verified: 16 MB upload returns 413, insert_one is never reached).",
+    "stream_ad / stream_music correctly distinguish 'no doc' (404) from 'doc with no audio_blob' (404 with 'regenerate'/'re-upload' hint) - admin UX gets a clear next action.",
+    "Minor: generate_ad_audio still calls real ElevenLabs and was deliberately not exercised - main agent should keep the 'audio_bytes > MAX' check in that handler too (currently present, OK)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_radio_studio_live.py (NEW)"
+  ],
+  "success_rate": {
+    "backend": "100% (42/42 across 3 test files)",
+    "frontend": "not tested (backend-only request)"
+  },
+  "test_credentials": "admin@test.com / admin123 (super_admin) - used via /api/auth/login; non-admin customer is registered on the fly per-test for the 403 gating check",
+  "seed_data_creation": "All test data is prefixed TEST_ and torn down in the autouse cleanup fixture after each test. No residual ads/music/playlists left behind.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Live integration suite lives at /app/backend/tests/test_radio_studio_live.py. It hits REACT_APP_BACKEND_URL (production-style ingress). DO NOT call /api/admin/radio-studio/ads/{id}/generate - it hits ElevenLabs and burns real credits. To exercise the ad streaming path with actual bytes without ElevenLabs, insert audio_blob via Motor directly (test_radio_studio_storage.py shows the mock pattern). Run with: cd /app/backend && python -m pytest tests/test_radio_studio_live.py tests/test_radio_studio_storage.py tests/test_radio_studio.py -v",
+  "rca of the issue": "N/A - certification run only. Migration from filesystem to MongoDB BSON Binary storage is functional end-to-end: bytes survive a full upload->list->stream round-trip without any leakage of audio_blob in metadata responses, size cap is enforced pre-insert, public stream is correctly unauthenticated, admin paths correctly require admin role."
+}
