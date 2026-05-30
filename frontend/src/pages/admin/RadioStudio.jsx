@@ -188,6 +188,7 @@ function AdsTab({ voices, voicesLoading, onResyncVoices, ads, onAdsChange }) {
     tone: 'friendly',
     audience: 'both',
     call_to_action: '',
+    avoid_words: '',
   });
 
   const resetForm = () => {
@@ -287,6 +288,7 @@ function AdsTab({ voices, voicesLoading, onResyncVoices, ads, onAdsChange }) {
           tone: aiForm.tone,
           audience: aiForm.audience,
           call_to_action: aiForm.call_to_action.trim() || null,
+          avoid_words: aiForm.avoid_words.trim() || null,
         },
         { headers: tokenHdr() }
       );
@@ -298,9 +300,18 @@ function AdsTab({ voices, voicesLoading, onResyncVoices, ads, onAdsChange }) {
         script: r.data.script || '',
         name: f.name.trim() ? f.name : (r.data.suggested_name || ''),
       }));
-      toast.success(
-        `Script ready · ${r.data.approx_words} words · ~${r.data.approx_seconds}s`,
-      );
+      // If any banned phrases slipped through even after the retry,
+      // surface them so the admin can hand-edit the script.
+      const offenders = r.data.banned_phrases_used || [];
+      if (offenders.length > 0) {
+        toast.warning(
+          `Script ready · ${r.data.approx_words} words · ~${r.data.approx_seconds}s — but ${offenders.length} banned phrase${offenders.length > 1 ? 's' : ''} (${offenders.join(', ')}) slipped through. Please review.`
+        );
+      } else {
+        toast.success(
+          `Script ready · ${r.data.approx_words} words · ~${r.data.approx_seconds}s`,
+        );
+      }
       setAiOpen(false);
     } catch (e) {
       toast.error(`Generation failed: ${e?.response?.data?.detail || e.message}`);

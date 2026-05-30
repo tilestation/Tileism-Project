@@ -122,6 +122,12 @@ class GenerateScriptReq(BaseModel):
     call_to_action: Optional[str] = Field(default=None, max_length=200,
                                           description="Optional CTA — e.g. 'visit our showroom in Manchester', 'ask a team member'")
     audience: Literal["retail", "trade", "both"] = "both"
+    # 25 May 2026 — user-requested: ads play IN-STORE so phrases like
+    # "visit our showroom today" are absurd to in-store listeners.
+    # Comma-separated words/phrases the LLM must avoid. Honoured as
+    # a hard rule in the system prompt (strict ban, not a soft hint).
+    avoid_words: Optional[str] = Field(default=None, max_length=400,
+                                       description="Comma- or newline-separated banned words/phrases. e.g. 'visit our showroom, come down today, online only'")
 
 
 # ------------------------------------------------------------------
@@ -156,6 +162,32 @@ async def generate_script(req: GenerateScriptReq, current_user: dict = Depends(g
         "both": "Address both retail customers AND trade professionals. Reference 'whether you're decorating one bathroom or fitting an entire development'.",
     }
 
+    # 25 May 2026 — parse comma/newline-separated banned phrases.
+    # Ads play in-store so generic "visit our showroom" type copy
+    # is meaningless to the audience that's already standing in the
+    # showroom listening. Admin lists the offending phrases here.
+    banned_phrases: List[str] = []
+    if req.avoid_words:
+        # Split on both commas and newlines, strip, drop empties.
+        for chunk in req.avoid_words.replace("\n", ",").split(","):
+            t = chunk.strip()
+            if t:
+                banned_phrases.append(t)
+
+    avoid_rule = ""
+    if banned_phrases:
+        bullet_list = "\n".join(f"   - {p!r}" for p in banned_phrases)
+        avoid_rule = (
+            "\n11. STRICTLY FORBIDDEN — the script MUST NOT contain ANY of "
+            "the following words or phrases (case-insensitive, including "
+            "close variants like plurals / different verb tenses):\n"
+            f"{bullet_list}\n"
+            "    These phrases break the in-store fiction (e.g. telling "
+            "a listener inside a showroom to 'visit our showroom' is absurd). "
+            "If any of these would naturally fit, rephrase the entire "
+            "sentence to avoid them rather than working around them awkwardly.\n"
+        )
+
     system = (
         "You are a senior copywriter producing in-store RADIO ad scripts for Tile Station, "
         "a UK tile, bathroom and flooring retailer with 4 showrooms. These scripts are "
@@ -174,6 +206,7 @@ async def generate_script(req: GenerateScriptReq, current_user: dict = Depends(g
         "8. Avoid clichés: 'visit us today', 'don't miss out', 'limited time only' — be specific.\n"
         f"9. TONE: {tone_directives[req.tone]}\n"
         f"10. AUDIENCE: {audience_directives[req.audience]}\n"
+        f"{avoid_rule}"
     )
 
     user_msg_parts = [
@@ -195,6 +228,31 @@ async def generate_script(req: GenerateScriptReq, current_user: dict = Depends(g
         )
         chat.with_model("anthropic", "claude-haiku-4-5-20251001")
         out = await chat.send_message(UserMessage(text=user_msg))
+
+        # 25 May 2026 — post-generation guardrail. LLMs sometimes
+        # ignore strict-no rules and slip a banned phrase through
+        # anyway. If we spot one, retry ONCE with a louder reminder
+        # that specifically names the offender(s).
+        def _check_banned(text: str) -> List[str]:
+            t = (text or "").lower()
+            return [p for p in banned_phrases if p.lower() in t]
+
+        offenders = _check_banned(out) if banned_phrases else []
+        if offenders:
+            retry_chat = LlmChat(
+                api_key=api_key,
+                session_id=f"radio-ad-retry-{os.urandom(4).hex()}",
+                system_message=system,
+            )
+            retry_chat.with_model("anthropic", "claude-haiku-4-5-20251001")
+            retry_msg = (
+                f"The previous attempt contained banned phrase(s): "
+                f"{', '.join(repr(o) for o in offenders)}. "
+                f"Rewrite the entire script from scratch. "
+                f"You MUST NOT use any of those phrases or close variants.\n\n"
+                f"{user_msg}"
+            )
+            out = await retry_chat.send_message(UserMessage(text=retry_msg))
     except Exception as exc:
         logger.exception("Radio script generation failed")
         raise HTTPException(
@@ -219,11 +277,21 @@ async def generate_script(req: GenerateScriptReq, current_user: dict = Depends(g
     suggested_name_parts = [w for w in (req.keywords or "").replace(",", " ").split() if w][:6]
     suggested_name = " ".join(suggested_name_parts) or "Untitled ad"
 
+    # Final guardrail report. If a banned phrase made it through even
+    # the retry, flag it back to the admin so they can hand-edit. We
+    # don't reject the response (a 4-token false-positive shouldn't
+    # block a good script) but the warning is visible in the toast.
+    final_offenders = (
+        [p for p in banned_phrases if p.lower() in script.lower()]
+        if banned_phrases else []
+    )
+
     return {
         "script": script.strip(),
         "suggested_name": suggested_name,
         "approx_words": len(script.split()),
         "approx_seconds": round(len(script.split()) / 2.3, 1),
+        "banned_phrases_used": final_offenders,
     }
 
 
