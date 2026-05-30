@@ -1,3 +1,30 @@
+### [Feb 26, 2026 — Forked session] 🌐 URL TTS follow-up: comma-pace separators
+
+**User report**: *"Links are still a bit of problem, from www.tilestation.co.uk/bathrooms it doesn't read out . or /"*
+
+**Root cause**: my earlier URL normaliser converted `www.tilestation.co.uk/bathrooms` to `tile station dot co dot uk slash bathrooms` (spaces between separator words). But ElevenLabs's eleven_multilingual_v2 has its own text normaliser that **re-recognised the spaced-out form as a URL pattern and collapsed it back**, eliding the "dot" and "slash" tokens during synthesis.
+
+**Fix**: wrap every separator word in **commas** so ElevenLabs is forced to pause around it (commas are the reliable prosody control on every ElevenLabs model). Also swapped `slash` → `forward slash` (UK radio diction convention + ElevenLabs reads the compound word distinctly, whereas a bare `slash` inside a URL pattern gets swallowed).
+
+| Input | Was | Now (commas force pauses) |
+|---|---|---|
+| `www.tilestation.co.uk/bathrooms` | "tile station dot co dot uk slash bathrooms" | **"tile station, dot, co, dot, uk, forward slash, bathrooms"** |
+| `tilestation.co.uk/sale-this-week` | "tile station dot co dot uk slash sale dash this dash week" | **"tile station, dot, co, dot, uk, forward slash, sale, dash, this, dash, week"** |
+
+3 new regression tests added (`test_normalize_urls`, `test_normalize_url_uses_forward_slash_not_slash`, `test_normalize_url_separators_wrapped_in_commas`). 6 existing URL tests updated to the new comma format. Updated `test_test_voice_uses_normalised_script` to match.
+
+**Real ElevenLabs round-trip verified** (live test-voice synthesis on preview env):
+- Created an ad with script `Visit www.tilestation.co.uk/bathrooms today.`
+- Hit `POST /api/admin/radio-studio/ads/{id}/test-voice` with real `CwhRBWXzGAHq8TQ4Fs17` voice
+- 200 OK with 80 KB MP3 returned in `audio/mpeg`, `x-preview-chars: 69` (= normalised length) ✓
+- ElevenLabs accepted the comma-paced format without complaint
+
+**162/162 radio-studio backend tests pass.**
+
+**File**: `/app/backend/routes/radio_studio.py` (`_url_to_spoken` helper only — 12 LOC diff). Tests updated: `test_radio_studio_tts_normalize.py`, `test_radio_studio_test_voice.py`.
+
+
+
 ### [Feb 26, 2026 — Forked session] 🗣️ Pronunciation Hints — per-ad custom pronunciation
 
 **User request**: *"YES"* to the suggestion of a Pronunciation Hints field for fixing words ElevenLabs gets wrong (porcelain, catalogue, La Dolce, Carrara, etc).

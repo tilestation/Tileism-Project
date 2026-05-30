@@ -105,7 +105,9 @@ def test_test_voice_uses_normalised_script(client, admin_override):
     assert "£" not in sent
     assert "www.tilestation" not in sent
     assert "42 pounds 99" in sent
-    assert "tile station dot co dot uk slash sale" in sent
+    # 30 May 2026 follow-up: commas around separators force ElevenLabs
+    # to pronounce them distinctly.
+    assert "tile station, dot, co, dot, uk, forward slash, sale" in sent
 
 
 def test_test_voice_truncates_long_script_to_budget(client, admin_override):

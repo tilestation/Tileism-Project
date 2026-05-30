@@ -133,17 +133,21 @@ def test_normalize_does_not_mutate_stored_script():
 
 @pytest.mark.parametrize("script,expected", [
     # The exact case the user complained about.
+    # 30 May 2026 — commas around each separator are deliberate:
+    # they force ElevenLabs voices to pause and pronounce each
+    # part distinctly. Without the commas, the model collapsed the
+    # URL back together and the dots/slashes were inaudible.
     ("Download at www.tilestation.co.uk/bathrooms today!",
-     "Download at tile station dot co dot uk slash bathrooms today!"),
+     "Download at tile station, dot, co, dot, uk, forward slash, bathrooms today!"),
     # Explicit https://
     ("Visit https://tilestation.co.uk",
-     "Visit tile station dot co dot uk"),
+     "Visit tile station, dot, co, dot, uk"),
     # Bare domain with path
     ("Browse tilestation.co.uk/sale for deals.",
-     "Browse tile station dot co dot uk slash sale for deals."),
+     "Browse tile station, dot, co, dot, uk, forward slash, sale for deals."),
     # Dashes in path
     ("tilestation.co.uk/sale-this-week is live.",
-     "tile station dot co dot uk slash sale dash this dash week is live."),
+     "tile station, dot, co, dot, uk, forward slash, sale, dash, this, dash, week is live."),
     # No URL — no change
     ("Visit us today.",
      "Visit us today."),
@@ -169,4 +173,33 @@ def test_normalize_combines_url_and_gbp_in_one_script():
     out = _normalize_for_tts(script)
     assert "19 pounds 99" in out
     assert "square metres" in out
-    assert "tile station dot co dot uk slash sale" in out
+    # Comma-paced URL pronunciation (30 May 2026 follow-up fix).
+    assert ", dot, co, dot, uk, forward slash, sale" in out
+
+
+def test_normalize_url_uses_forward_slash_not_slash():
+    """UK radio diction convention — and ElevenLabs reads "forward
+    slash" with proper pacing whereas it tries to skip a bare "slash"
+    inside what it sees as a URL pattern."""
+    from routes.radio_studio import _normalize_for_tts
+    out = _normalize_for_tts("Go to example.com/path")
+    assert "forward slash" in out
+    # No bare "slash" word — must be the explicit "forward slash".
+    assert " slash " not in out
+
+
+def test_normalize_url_separators_wrapped_in_commas():
+    """Regression: without commas, ElevenLabs elided the dots/slashes
+    (user-reported 30 May 2026). Every separator word MUST be
+    flanked by commas."""
+    from routes.radio_studio import _normalize_for_tts
+    out = _normalize_for_tts("Visit tilestation.co.uk/bathrooms")
+    # Every separator word lives between two commas (or a comma and
+    # end-of-URL).
+    for sep in ("dot", "forward slash"):
+        # The sep must NOT appear as a bare word — must be preceded
+        # by a comma.
+        assert f", {sep}," in out or f", {sep}" in out, (
+            f"separator '{sep}' must be comma-fenced for ElevenLabs "
+            f"to pronounce it distinctly. Got: {out!r}"
+        )

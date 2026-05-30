@@ -283,19 +283,32 @@ _URL_PATTERN = re.compile(
 
 
 def _url_to_spoken(match: re.Match) -> str:
-    """Convert a single matched URL into its spoken form."""
+    """Convert a single matched URL into its spoken form.
+
+    Each separator word (`dot`, `forward slash`, `dash`, `underscore`)
+    is wrapped in commas so ElevenLabs models — which otherwise
+    re-collapse "tile station dot co dot uk" back into a URL and
+    elide the dots — are forced to pause around them. (30 May 2026
+    follow-up: user reported the dots/slashes were still being
+    skipped on playback even though they appeared as words in the
+    normalised text.)"""
     raw = match.group(0).strip()
-    # Strip the prefix our regex's leading-boundary chunk pulled in.
     spoken = raw
     spoken = re.sub(r"^https?://", "", spoken, flags=re.IGNORECASE)
     spoken = re.sub(r"^www\.", "", spoken, flags=re.IGNORECASE)
-    spoken = spoken.replace(".", " dot ")
-    spoken = spoken.replace("/", " slash ")
-    spoken = spoken.replace("-", " dash ")
-    spoken = spoken.replace("_", " underscore ")
-    # Collapse the double spaces that " dot "/" slash " can produce
-    # at adjacent boundaries.
+    # Commas around each separator force ElevenLabs to pause —
+    # cleanest way to make every part of the URL distinctly audible.
+    # "forward slash" beats "slash" for UK radio diction.
+    spoken = spoken.replace(".", ", dot, ")
+    spoken = spoken.replace("/", ", forward slash, ")
+    spoken = spoken.replace("-", ", dash, ")
+    spoken = spoken.replace("_", ", underscore, ")
+    # Tidy: collapse adjacent commas, normalise whitespace, strip
+    # leading/trailing punctuation noise so the sentence around the
+    # URL still flows naturally.
+    spoken = re.sub(r",\s*,", ",", spoken)
     spoken = re.sub(r"\s+", " ", spoken).strip()
+    spoken = spoken.strip(",").strip()
     return spoken
 
 
