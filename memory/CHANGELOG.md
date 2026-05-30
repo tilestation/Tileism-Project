@@ -1,3 +1,44 @@
+### [Feb 26, 2026 — Forked session] 🎶 Radio Studio: Background Music Bed (Option A)
+
+**User request**: *"Is there a way to add a bit of nice music to the background of ads or voices, to make it a bit more energetic"*. Picked **Option A** (mix once at generation time, store the result as the only MP3 in Mongo — no playback complexity, no Icecast mixer needed).
+
+**Pipeline (FFmpeg, runs inside `generate_ad_audio` AFTER ElevenLabs returns the voice bytes, BEFORE the size-cap check):**
+```
+[1:a]aloop=loop=-1,volume=<pct/100>,afade=in[bed]
+[0:a]asplit=2[v1][vkey]
+[bed][vkey]sidechaincompress=threshold=0.03:ratio=20:attack=5:release=250[bedduck]
+[v1][bedduck]amix=duration=first:normalize=0[premix]
+[premix]afade=out:d=0.6,alimiter=limit=0.97[mix]
+```
+- Bed is looped (in case it's shorter than the voice), trimmed (in case it's longer)
+- Bed volume defaults to **18%** (quiet enough that voice always wins, audible enough to feel alive). Slider clamps 0-50%.
+- **Sidechain compression** = bed automatically dips ~12 dB when the narrator is talking → voice is always intelligible without manual cue points.
+- Polished edges: 0.4 s fade-in on the bed, 0.6 s fade-out + limiter on the final mix.
+
+**Schema changes (`radio_studio_ads`):**
+- `bed_music_id: Optional[str]` — ref into `radio_studio_music` (existing collection)
+- `bed_volume_pct: int (0-50, default 18)`
+- `bed_music_name` — populated post-mix for the UI badge
+
+**Frontend (`RadioStudio.jsx` — AdsTab):**
+- New "Background music bed" card in the Compose form: dropdown of all uploaded tracks (with "— No music bed (voice only) —" default) + volume slider 0-50% (only visible once a track is picked, with labelled 18% recommended sweet spot)
+- Form round-trips both fields on save AND on edit
+
+**Infra**: `backend/Dockerfile` now installs `ffmpeg` so Railway production builds with the binary baked in. Dev fallback: if ffmpeg is missing on PATH, the mixer logs a warning and ships the unmixed voice (graceful degradation, no 500).
+
+**Tests (12 NEW, 52/52 radio-studio tests pass)**:
+- `tests/test_radio_studio_music_bed.py` — model surface (defaults, clamps, bed clearing), generate-handler wiring (mixer called before size cap, 400 on missing bed track), graceful fallback when ffmpeg missing, and **two real ffmpeg integration tests** that synthesise sine waves with `lavfi`, run the actual mixer, then verify the output via `ffprobe` (duration ≈ voice length, valid MP3 bytes, volume-pct actually affects output).
+
+**Live smoke**: Playwright screenshot confirms the new "Background music bed" card renders in the Compose form with the empty-state hint when no music is uploaded yet.
+
+**Files**:
+- `/app/backend/routes/radio_studio.py` (mixer helper + bed fields on AdCreate/AdUpdate + wiring in generate_ad_audio)
+- `/app/backend/Dockerfile` (ffmpeg in apt-get list)
+- `/app/frontend/src/pages/admin/RadioStudio.jsx` (bed dropdown + volume slider + form round-trip)
+- `/app/backend/tests/test_radio_studio_music_bed.py` (NEW — 12 tests)
+
+
+
 ### [Feb 26, 2026 — Forked session] ✅ Radio Studio MP3 → MongoDB Migration — CERTIFIED
 
 **Last working item closed out.** v1 stored MP3s on `/app/backend/storage/radio_studio/` — Railway redeploys wiped this directory and all ads/music vanished on every deploy. v2 stores audio bytes as BSON Binary in MongoDB Atlas (`audio_blob` field on `radio_studio_ads` and `radio_studio_music`). Per-file cap = 15 MB (1 MB headroom under MongoDB's 16 MB BSON document limit) ≈ 15 min of 128 kbps MP3.

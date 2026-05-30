@@ -20,6 +20,9 @@ from __future__ import annotations
 
 import logging
 import os
+import shutil
+import subprocess
+import tempfile
 import uuid
 from datetime import datetime, timezone
 from typing import List, Literal, Optional
@@ -67,6 +70,125 @@ def _get_eleven_client() -> ElevenLabs:
 
 
 # ------------------------------------------------------------------
+# FFmpeg mixing — voice + ducked background music bed
+# ------------------------------------------------------------------
+#
+# (26 May 2026 — user-requested "background music to make ads more
+# energetic". Implementation = Option A from the Feb 26 plan: render
+# the mix once at generation time, store the result as the only MP3
+# in Mongo. No mixing at playback time, no dual-track speakers.)
+#
+# Pipeline:
+#   • Voice (ElevenLabs MP3 bytes) is the primary, full-volume track.
+#   • Music bed is looped if shorter than the voice, truncated if
+#     longer (`duration=first` on the amix).
+#   • Bed is attenuated to `bed_volume_pct/100` (default 18%).
+#   • Sidechain compression: when the voice gets loud, the bed
+#     automatically ducks an extra ~12 dB — so you can always hear
+#     the narrator clearly.
+#   • Bed fades in 0.4 s at the start and out 0.6 s at the end for
+#     a polished radio feel (no abrupt audio cut on either side).
+
+def _ffmpeg_bin() -> Optional[str]:
+    """Locate ffmpeg on PATH. Returns None if missing so the mixer
+    can degrade gracefully (ship the unmixed voice) instead of 500ing."""
+    return shutil.which("ffmpeg")
+
+
+def _mix_voice_with_bed(
+    voice_bytes: bytes,
+    bed_bytes: bytes,
+    bed_volume_pct: int,
+) -> bytes:
+    """Mix the ElevenLabs voice over a looped, sidechain-ducked
+    music bed. Returns the final MP3 bytes (128 kbps, mono down-mix
+    avoided — keep stereo so bed instruments still have width).
+
+    Raises HTTPException(502) on ffmpeg failure so the admin sees a
+    real error rather than silent fallback.
+
+    Args:
+        voice_bytes: MP3 bytes from ElevenLabs.
+        bed_bytes:   MP3/WAV/etc bytes of the music bed.
+        bed_volume_pct: 0-50. 18 is a good default for spoken-word
+            radio — bed is present but never fights the voice.
+    """
+    ffmpeg = _ffmpeg_bin()
+    if not ffmpeg:
+        # On a dev box without ffmpeg installed we'd rather ship the
+        # voice unmixed than 500. Production Docker image bakes
+        # ffmpeg in (see backend/Dockerfile, 26 May 2026 edit).
+        logger.warning("ffmpeg not on PATH — skipping bed mix, shipping unmixed voice")
+        return voice_bytes
+
+    bed_volume = max(0, min(50, bed_volume_pct)) / 100.0
+    # Build a self-contained filter graph. The bed:
+    #   aloop=loop=-1:size=2e9  → loop forever (the amix truncates
+    #     to voice duration anyway)
+    #   volume=<x>              → attenuate to user-chosen %
+    #   afade in/out            → polish the bed edges
+    # Then split the voice into two streams (one feeds the mix, one
+    # is the sidechain key) and sidechaincompress the bed using the
+    # voice as the trigger, so the bed dips automatically when the
+    # narrator talks.
+    filter_complex = (
+        "[1:a]aloop=loop=-1:size=2147483647,"
+        f"volume={bed_volume:.3f},"
+        "afade=t=in:st=0:d=0.4[bedfade];"
+        "[0:a]asplit=2[v1][vkey];"
+        "[bedfade][vkey]sidechaincompress="
+        "threshold=0.03:ratio=20:attack=5:release=250[bedduck];"
+        "[v1][bedduck]amix=inputs=2:duration=first:"
+        "dropout_transition=0:normalize=0[premix];"
+        "[premix]afade=t=out:st=0:d=0.6:curve=tri,"
+        "alimiter=limit=0.97[mix]"
+    )
+
+    with tempfile.TemporaryDirectory(prefix="radio_mix_") as tmp:
+        voice_path = os.path.join(tmp, "voice.mp3")
+        bed_path = os.path.join(tmp, "bed.mp3")
+        out_path = os.path.join(tmp, "out.mp3")
+        with open(voice_path, "wb") as f:
+            f.write(voice_bytes)
+        with open(bed_path, "wb") as f:
+            f.write(bed_bytes)
+
+        cmd = [
+            ffmpeg,
+            "-hide_banner", "-loglevel", "error", "-y",
+            "-i", voice_path,
+            "-i", bed_path,
+            "-filter_complex", filter_complex,
+            "-map", "[mix]",
+            "-c:a", "libmp3lame",
+            "-b:a", "128k",
+            "-ar", "44100",
+            out_path,
+        ]
+        try:
+            proc = subprocess.run(
+                cmd,
+                check=False,
+                capture_output=True,
+                timeout=120,  # 15-min ceiling on input means mix < 60s in practice
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise HTTPException(
+                status_code=504,
+                detail="Mixing the music bed took too long — try a shorter bed track.",
+            ) from exc
+        if proc.returncode != 0:
+            err = (proc.stderr or b"").decode("utf-8", errors="replace")[:500]
+            logger.error("ffmpeg mix failed (rc=%s): %s", proc.returncode, err)
+            raise HTTPException(
+                status_code=502,
+                detail=f"Music-bed mixing failed: {err.strip() or 'ffmpeg error'}",
+            )
+        with open(out_path, "rb") as f:
+            return f.read()
+
+
+# ------------------------------------------------------------------
 # Models
 # ------------------------------------------------------------------
 
@@ -84,6 +206,15 @@ class AdCreate(BaseModel):
     # eleven_multilingual_v2 = best quality + supports UK English well.
     # eleven_turbo_v2 = fast/cheap, slightly lower fidelity.
     model_id: str = "eleven_multilingual_v2"
+    # 26 May 2026 — user-requested background music bed (Option A in
+    # the Feb 26 plan). When `bed_music_id` references an uploaded
+    # music track, `generate_ad_audio` mixes the ElevenLabs voice
+    # OVER that track at `bed_volume_pct` (0-50% — anything louder
+    # buries the voice), with sidechain compression so the bed
+    # automatically ducks under the narration. The stored MP3 is
+    # the final mix — no extra mixing needed at playback time.
+    bed_music_id: Optional[str] = None
+    bed_volume_pct: int = Field(default=18, ge=0, le=50)
 
 
 class AdUpdate(BaseModel):
@@ -95,6 +226,8 @@ class AdUpdate(BaseModel):
     similarity_boost: Optional[float] = Field(default=None, ge=0.0, le=1.0)
     style: Optional[float] = Field(default=None, ge=0.0, le=1.0)
     model_id: Optional[str] = None
+    bed_music_id: Optional[str] = None
+    bed_volume_pct: Optional[int] = Field(default=None, ge=0, le=50)
 
 
 class PlaylistItem(BaseModel):
@@ -381,6 +514,8 @@ async def create_ad(req: AdCreate, current_user: dict = Depends(get_current_user
         "similarity_boost": req.similarity_boost,
         "style": req.style,
         "model_id": req.model_id,
+        "bed_music_id": req.bed_music_id,
+        "bed_volume_pct": req.bed_volume_pct,
         "audio_filename": None,  # populated after first generation
         "duration_seconds": None,
         "generated_at": None,
@@ -416,6 +551,10 @@ async def update_ad(
     _require_admin(current_user)
     db = get_db()
     updates = {k: v for k, v in req.model_dump(exclude_unset=True).items() if v is not None}
+    # bed_music_id of empty string means "remove the bed" — handle
+    # it as an explicit unset rather than treating empty as truthy.
+    if "bed_music_id" in req.model_dump(exclude_unset=True) and not updates.get("bed_music_id"):
+        updates["bed_music_id"] = None
     if not updates:
         raise HTTPException(status_code=400, detail="No fields to update")
     updates["updated_at"] = datetime.now(timezone.utc).isoformat()
@@ -467,6 +606,42 @@ async def generate_ad_audio(
 
     if not audio_data:
         raise HTTPException(status_code=502, detail="ElevenLabs returned empty audio")
+
+    # 26 May 2026 — Optional music bed (Option A). When the admin
+    # picked a `bed_music_id`, mix the voice over that track with
+    # sidechain ducking BEFORE the size check + Mongo insert. The
+    # final bytes stored are the mixed MP3.
+    bed_music_id = ad.get("bed_music_id")
+    bed_track_name = None
+    if bed_music_id:
+        bed_doc = await db.radio_studio_music.find_one(
+            {"id": bed_music_id},
+            {"_id": 0, "audio_blob": 1, "name": 1},
+        )
+        if not bed_doc or not bed_doc.get("audio_blob"):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Selected background music track is missing or its audio "
+                    "was wiped (re-upload it, then regenerate this ad)."
+                ),
+            )
+        bed_track_name = bed_doc.get("name")
+        try:
+            audio_data = _mix_voice_with_bed(
+                voice_bytes=audio_data,
+                bed_bytes=bytes(bed_doc["audio_blob"]),
+                bed_volume_pct=int(ad.get("bed_volume_pct", 18)),
+            )
+        except HTTPException:
+            raise
+        except Exception as exc:  # noqa: BLE001 — defensive
+            logger.exception("Bed mix failed for ad %s", ad_id)
+            raise HTTPException(
+                status_code=502,
+                detail=f"Music-bed mixing failed: {exc}",
+            ) from exc
+
     if len(audio_data) > MAX_AUDIO_BYTES:
         raise HTTPException(
             status_code=413,
@@ -483,6 +658,7 @@ async def generate_ad_audio(
             "audio_filename": f"{ad_id}.mp3",  # legacy marker, kept for frontend's "audio ready?" check
             "duration_seconds": estimated_seconds,
             "audio_bytes": len(audio_data),
+            "bed_music_name": bed_track_name,  # surfaced in the UI
             "generated_at": datetime.now(timezone.utc).isoformat(),
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }},

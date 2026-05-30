@@ -144,6 +144,7 @@ export default function RadioStudio() {
           voicesLoading={voicesLoading}
           onResyncVoices={() => loadVoices(true)}
           ads={ads}
+          music={music}
           onAdsChange={loadAds}
         />
       )}
@@ -163,7 +164,7 @@ export default function RadioStudio() {
 /* ----------------------------------------------------------------
    Ads tab — script editor + voice picker + generate
 ---------------------------------------------------------------- */
-function AdsTab({ voices, voicesLoading, onResyncVoices, ads, onAdsChange }) {
+function AdsTab({ voices, voicesLoading, onResyncVoices, ads, music, onAdsChange }) {
   const [editingAd, setEditingAd] = useState(null);  // null = compose new
   const [form, setForm] = useState({
     name: '',
@@ -174,6 +175,11 @@ function AdsTab({ voices, voicesLoading, onResyncVoices, ads, onAdsChange }) {
     similarity_boost: 0.75,
     style: 0,
     model_id: 'eleven_multilingual_v2',
+    // 26 May 2026 — Option A music bed. Empty string = no bed (voice
+    // only). When set, the backend mixes the voice over this track
+    // with sidechain ducking at `bed_volume_pct`% on generation.
+    bed_music_id: '',
+    bed_volume_pct: 18,
   });
   const [saving, setSaving] = useState(false);
   const [generatingId, setGeneratingId] = useState(null);
@@ -202,6 +208,8 @@ function AdsTab({ voices, voicesLoading, onResyncVoices, ads, onAdsChange }) {
       similarity_boost: 0.75,
       style: 0,
       model_id: 'eleven_multilingual_v2',
+      bed_music_id: '',
+      bed_volume_pct: 18,
     });
   };
 
@@ -216,6 +224,8 @@ function AdsTab({ voices, voicesLoading, onResyncVoices, ads, onAdsChange }) {
       similarity_boost: ad.similarity_boost ?? 0.75,
       style: ad.style ?? 0,
       model_id: ad.model_id || 'eleven_multilingual_v2',
+      bed_music_id: ad.bed_music_id || '',
+      bed_volume_pct: ad.bed_volume_pct ?? 18,
     });
   };
 
@@ -565,6 +575,58 @@ function AdsTab({ voices, voicesLoading, onResyncVoices, ads, onAdsChange }) {
                 </div>
               ) : null;
             })()}
+          </div>
+
+          {/* Music bed — optional background track mixed under the
+              voice with sidechain ducking. Defaults to none = clean
+              narration (existing behaviour). (26 May 2026) */}
+          <div className="bg-slate-900/40 rounded-lg px-3 py-3 border border-slate-700/40">
+            <label className="block text-xs font-bold text-slate-300 mb-2 flex items-center gap-2">
+              <Music className="w-3.5 h-3.5 text-fuchsia-400" />
+              Background music bed
+              <span className="text-[10px] font-normal text-slate-500">(optional — adds energy)</span>
+            </label>
+            <select
+              data-testid="radio-ad-bed-select"
+              value={form.bed_music_id}
+              onChange={(e) => setForm({ ...form, bed_music_id: e.target.value })}
+              className="w-full px-2 py-1.5 bg-slate-900 border border-slate-600 rounded text-xs"
+            >
+              <option value="">— No music bed (voice only) —</option>
+              {(music || []).map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.name}{m.duration_seconds ? ` · ${Math.round(m.duration_seconds)}s` : ''}
+                </option>
+              ))}
+            </select>
+            {(music || []).length === 0 && (
+              <p className="mt-1.5 text-[11px] text-slate-500">
+                Upload a royalty-free track on the <span className="text-fuchsia-300 font-semibold">Music</span> tab first to use it as a bed.
+              </p>
+            )}
+            {form.bed_music_id && (
+              <div className="mt-3">
+                <label className="block text-[11px] text-slate-400 mb-0.5">
+                  Bed volume: <span className="text-fuchsia-300 font-mono">{form.bed_volume_pct}%</span>
+                  <span className="ml-2 text-slate-500 text-[10px]">Voice always sits on top — bed ducks automatically while talking</span>
+                </label>
+                <input
+                  data-testid="radio-ad-bed-volume"
+                  type="range"
+                  min="0"
+                  max="50"
+                  step="1"
+                  value={form.bed_volume_pct}
+                  onChange={(e) => setForm({ ...form, bed_volume_pct: parseInt(e.target.value, 10) })}
+                  className="w-full accent-fuchsia-500"
+                />
+                <div className="flex justify-between text-[10px] text-slate-500 mt-0.5">
+                  <span>Silent</span>
+                  <span>18% (recommended)</span>
+                  <span>50% (loud)</span>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Voice tuning */}
