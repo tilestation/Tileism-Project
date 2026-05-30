@@ -66,7 +66,9 @@ def test_generate_endpoint_calls_elevenlabs_with_correct_settings():
       • passes the script as `text=`
       • uses the saved voice_id
       • forwards stability/similarity_boost/style into VoiceSettings
-      • requests mp3_44100_128 output (the in-store-speaker friendly format)"""
+      • requests mp3_44100_128 output (the in-store-speaker friendly format)
+      • stores the resulting bytes in MongoDB (not the filesystem —
+        Railway's container disk is ephemeral, see 24 May 2026 fix)"""
     from routes import radio_studio
     src = inspect.getsource(radio_studio.generate_ad_audio)
     assert "client.text_to_speech.convert" in src
@@ -76,14 +78,27 @@ def test_generate_endpoint_calls_elevenlabs_with_correct_settings():
     assert "VoiceSettings(" in src
     assert "stability=" in src
     assert "similarity_boost=" in src
+    # MUST persist to MongoDB, not filesystem.
+    assert '"audio_blob": audio_data' in src, (
+        "Generated audio MUST be stored as audio_blob in MongoDB — "
+        "Railway wipes the container filesystem on every redeploy, "
+        "so filesystem storage means audio vanishes on each deploy"
+    )
 
 
-def test_storage_dirs_exist():
-    """The filesystem storage dirs are created at import time so the
-    very first ad generation doesn't crash with FileNotFoundError."""
-    from routes.radio_studio import ADS_DIR, MUSIC_DIR
-    assert ADS_DIR.is_dir(), f"Ads dir missing: {ADS_DIR}"
-    assert MUSIC_DIR.is_dir(), f"Music dir missing: {MUSIC_DIR}"
+def test_no_filesystem_storage_dirs():
+    """Storage migrated from filesystem to MongoDB on 24 May 2026
+    after Railway redeploys silently wiped uploaded MP3 files. The
+    old STORAGE_ROOT / ADS_DIR / MUSIC_DIR constants must NOT come
+    back."""
+    from routes import radio_studio
+    src = inspect.getsource(radio_studio)
+    # The dangerous filesystem-storage symbols are gone.
+    assert "ADS_DIR" not in src
+    assert "MUSIC_DIR" not in src
+    assert "STORAGE_ROOT" not in src
+    # FileResponse is also gone — we now serve bytes via Response.
+    assert "FileResponse" not in src
 
 
 def test_delete_ad_strips_from_playlists():

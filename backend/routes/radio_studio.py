@@ -7,40 +7,14 @@ royalty-free music. Customers in showrooms hear product offers, trade-
 account benefits and seasonal promotions on a loop through Bluetooth
 speakers.
 
-This route module exposes:
-  • POST /api/admin/radio-studio/voices/sync     — refresh the cached
-    ElevenLabs voice list (UK English filter applied)
-  • GET  /api/admin/radio-studio/voices          — list cached voices
-  • POST /api/admin/radio-studio/ads             — create an ad script
-  • PUT  /api/admin/radio-studio/ads/{id}        — update script/voice
-  • POST /api/admin/radio-studio/ads/{id}/generate
-                                                 — generate the MP3 via
-                                                   ElevenLabs TTS
-  • GET  /api/admin/radio-studio/ads             — list all ads
-  • DELETE /api/admin/radio-studio/ads/{id}      — delete an ad
-  • POST /api/admin/radio-studio/music/upload    — upload a royalty-free
-                                                   music track
-  • GET  /api/admin/radio-studio/music           — list music tracks
-  • DELETE /api/admin/radio-studio/music/{id}    — delete a track
-  • POST /api/admin/radio-studio/playlist        — save/update the active
-                                                   playlist
-  • GET  /api/admin/radio-studio/playlist        — read active playlist
-  • GET  /api/radio-studio/stream/{filename}     — public MP3 stream
-                                                   (used by admin <audio>
-                                                   preview AND the
-                                                   future in-store
-                                                   speakers — no auth so
-                                                   speakers can hit it
-                                                   without a token)
-
-Storage layout (filesystem, not GridFS — MP3s are small but binary, and
-serving them via FastAPI StreamingResponse is faster than streaming a
-base64 string from Mongo):
-
-  /app/backend/storage/radio_studio/ads/{ad_id}.mp3
-  /app/backend/storage/radio_studio/music/{track_id}.mp3
-
-The DB just holds metadata pointing at the files.
+Storage architecture (24 May 2026 — REWRITTEN):
+  v1 stored MP3s on the local filesystem at /app/backend/storage/...
+  → DISASTER on Railway: ephemeral disk wipes every deploy, all audio
+    files vanished, database metadata pointed at non-existent paths.
+  v2 (this version) stores MP3 bytes DIRECTLY in MongoDB Atlas as
+    BSON Binary fields. MongoDB Atlas is persistent so audio survives
+    every deploy. 15 MB cap per file (under the 16 MB BSON limit) =
+    ~15 minutes of 128 kbps audio — plenty for any in-store loop.
 """
 from __future__ import annotations
 
@@ -48,13 +22,11 @@ import logging
 import os
 import uuid
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import List, Literal, Optional
 
 from elevenlabs import VoiceSettings
 from elevenlabs.client import ElevenLabs
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, Response
 from pydantic import BaseModel, Field
 
 from config import get_db
@@ -68,15 +40,15 @@ public_router = APIRouter(prefix="/radio-studio", tags=["Radio Studio (public)"]
 
 
 # ------------------------------------------------------------------
-# Storage helpers
+# Limits
 # ------------------------------------------------------------------
 
-STORAGE_ROOT = Path("/app/backend/storage/radio_studio")
-ADS_DIR = STORAGE_ROOT / "ads"
-MUSIC_DIR = STORAGE_ROOT / "music"
-
-for _dir in (ADS_DIR, MUSIC_DIR):
-    _dir.mkdir(parents=True, exist_ok=True)
+# 15 MB ceiling per file. BSON document limit is 16 MB; we leave 1 MB
+# of headroom for the other fields (name, voice settings, timestamps).
+# At 128 kbps MP3 → ~15 minutes of audio per track. Anything longer
+# should be split into segments by the admin (in-store loops rarely
+# need single tracks >5 minutes anyway).
+MAX_AUDIO_BYTES = 15 * 1024 * 1024
 
 
 def _require_admin(user: dict):
@@ -357,7 +329,13 @@ async def create_ad(req: AdCreate, current_user: dict = Depends(get_current_user
 async def list_ads(current_user: dict = Depends(get_current_user)):
     _require_admin(current_user)
     db = get_db()
-    ads = await db.radio_studio_ads.find({}, {"_id": 0}).sort("created_at", -1).to_list(500)
+    # Projection deliberately excludes `audio_blob` so we don't ship
+    # MBs of audio with every list call. The frontend reads audio
+    # via the streaming endpoint instead.
+    ads = await db.radio_studio_ads.find(
+        {},
+        {"_id": 0, "audio_blob": 0},
+    ).sort("created_at", -1).to_list(500)
     return {"ads": ads, "count": len(ads)}
 
 
@@ -376,7 +354,7 @@ async def update_ad(
     result = await db.radio_studio_ads.update_one({"id": ad_id}, {"$set": updates})
     if result.matched_count == 0:
         raise HTTPException(status_code=404, detail="Ad not found")
-    ad = await db.radio_studio_ads.find_one({"id": ad_id}, {"_id": 0})
+    ad = await db.radio_studio_ads.find_one({"id": ad_id}, {"_id": 0, "audio_blob": 0})
     return ad
 
 
@@ -385,12 +363,13 @@ async def generate_ad_audio(
     ad_id: str,
     current_user: dict = Depends(get_current_user),
 ):
-    """Call ElevenLabs TTS, save the MP3 to disk, update the DB doc.
-    Re-running this regenerates and overwrites the existing file
-    (useful when the admin tweaks the script or voice settings)."""
+    """Call ElevenLabs TTS, save the MP3 bytes directly to MongoDB,
+    update the ad doc. Re-running regenerates and overwrites the
+    stored bytes. Audio survives Railway redeploys because MongoDB
+    Atlas is persistent (filesystem is NOT — that's why v1 failed)."""
     _require_admin(current_user)
     db = get_db()
-    ad = await db.radio_studio_ads.find_one({"id": ad_id}, {"_id": 0})
+    ad = await db.radio_studio_ads.find_one({"id": ad_id}, {"_id": 0, "audio_blob": 0})
     if not ad:
         raise HTTPException(status_code=404, detail="Ad not found")
 
@@ -420,27 +399,27 @@ async def generate_ad_audio(
 
     if not audio_data:
         raise HTTPException(status_code=502, detail="ElevenLabs returned empty audio")
+    if len(audio_data) > MAX_AUDIO_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Generated audio is {len(audio_data) // 1_000_000} MB which exceeds the 15 MB limit. Shorten the script.",
+        )
 
-    filename = f"{ad_id}.mp3"
-    file_path = ADS_DIR / filename
-    file_path.write_bytes(audio_data)
-
-    # Estimate duration: 128 kbps mp3 → ~16 KB/s. Good enough for a
-    # playlist-length estimate; the admin sees the real duration when
-    # the player loads metadata.
+    # Estimate duration: 128 kbps mp3 → ~16 KB/s.
     estimated_seconds = round(len(audio_data) / 16_000, 1)
 
     await db.radio_studio_ads.update_one(
         {"id": ad_id},
         {"$set": {
-            "audio_filename": filename,
+            "audio_blob": audio_data,  # BSON Binary — persistent in Atlas
+            "audio_filename": f"{ad_id}.mp3",  # legacy marker, kept for frontend's "audio ready?" check
             "duration_seconds": estimated_seconds,
             "audio_bytes": len(audio_data),
             "generated_at": datetime.now(timezone.utc).isoformat(),
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }},
     )
-    ad = await db.radio_studio_ads.find_one({"id": ad_id}, {"_id": 0})
+    ad = await db.radio_studio_ads.find_one({"id": ad_id}, {"_id": 0, "audio_blob": 0})
     return ad
 
 
@@ -448,14 +427,9 @@ async def generate_ad_audio(
 async def delete_ad(ad_id: str, current_user: dict = Depends(get_current_user)):
     _require_admin(current_user)
     db = get_db()
-    ad = await db.radio_studio_ads.find_one({"id": ad_id}, {"_id": 0})
+    ad = await db.radio_studio_ads.find_one({"id": ad_id}, {"_id": 0, "audio_blob": 0})
     if not ad:
         raise HTTPException(status_code=404, detail="Ad not found")
-    if ad.get("audio_filename"):
-        try:
-            (ADS_DIR / ad["audio_filename"]).unlink(missing_ok=True)
-        except Exception:
-            logger.exception("Failed to delete ad audio file")
     await db.radio_studio_ads.delete_one({"id": ad_id})
     # Also strip this ad from any saved playlists so they don't
     # reference a dangling id.
@@ -467,7 +441,7 @@ async def delete_ad(ad_id: str, current_user: dict = Depends(get_current_user)):
 
 
 # ------------------------------------------------------------------
-# Music library
+# Music library (MongoDB storage)
 # ------------------------------------------------------------------
 
 @router.post("/music/upload")
@@ -482,26 +456,29 @@ async def upload_music(
         raise HTTPException(status_code=400, detail="File must be audio (mp3, wav, etc.)")
 
     audio_bytes = await file.read()
-    if len(audio_bytes) > 30 * 1024 * 1024:
-        raise HTTPException(status_code=413, detail="Music track exceeds 30 MB limit")
+    if len(audio_bytes) > MAX_AUDIO_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Track is {len(audio_bytes) // 1_000_000} MB which exceeds the 15 MB limit (≈15 min at 128 kbps).",
+        )
 
     track_id = uuid.uuid4().hex
-    filename = f"{track_id}.mp3"
-    file_path = MUSIC_DIR / filename
-    file_path.write_bytes(audio_bytes)
-
     estimated_seconds = round(len(audio_bytes) / 16_000, 1)
     doc = {
         "id": track_id,
         "name": name,
-        "audio_filename": filename,
+        "audio_blob": audio_bytes,  # BSON Binary — persistent in Atlas
+        "audio_filename": f"{track_id}.mp3",  # legacy marker
         "duration_seconds": estimated_seconds,
         "audio_bytes": len(audio_bytes),
         "uploaded_at": datetime.now(timezone.utc).isoformat(),
         "uploaded_by": (current_user or {}).get("email"),
     }
     await db.radio_studio_music.insert_one(doc)
+    # Strip the binary + Mongo internals before returning so the
+    # response stays tiny.
     doc.pop("_id", None)
+    doc.pop("audio_blob", None)
     return doc
 
 
@@ -509,7 +486,10 @@ async def upload_music(
 async def list_music(current_user: dict = Depends(get_current_user)):
     _require_admin(current_user)
     db = get_db()
-    tracks = await db.radio_studio_music.find({}, {"_id": 0}).sort("uploaded_at", -1).to_list(500)
+    tracks = await db.radio_studio_music.find(
+        {},
+        {"_id": 0, "audio_blob": 0},
+    ).sort("uploaded_at", -1).to_list(500)
     return {"tracks": tracks, "count": len(tracks)}
 
 
@@ -517,14 +497,9 @@ async def list_music(current_user: dict = Depends(get_current_user)):
 async def delete_music(track_id: str, current_user: dict = Depends(get_current_user)):
     _require_admin(current_user)
     db = get_db()
-    track = await db.radio_studio_music.find_one({"id": track_id}, {"_id": 0})
+    track = await db.radio_studio_music.find_one({"id": track_id}, {"_id": 0, "audio_blob": 0})
     if not track:
         raise HTTPException(status_code=404, detail="Track not found")
-    if track.get("audio_filename"):
-        try:
-            (MUSIC_DIR / track["audio_filename"]).unlink(missing_ok=True)
-        except Exception:
-            logger.exception("Failed to delete music file")
     await db.radio_studio_music.delete_one({"id": track_id})
     await db.radio_studio_playlists.update_many(
         {},
@@ -591,33 +566,47 @@ async def save_playlist(
 
 @public_router.get("/stream/ad/{ad_id}")
 async def stream_ad(ad_id: str):
-    """Serve an ad MP3. Unauthenticated so the storefront <audio> tag
-    and future in-store speakers can hit it without a token."""
+    """Serve an ad MP3 from MongoDB. Unauthenticated so the
+    storefront <audio> tag and future in-store speakers can hit it
+    without a token."""
     db = get_db()
-    ad = await db.radio_studio_ads.find_one({"id": ad_id}, {"_id": 0})
-    if not ad or not ad.get("audio_filename"):
-        raise HTTPException(status_code=404, detail="Ad audio not found")
-    file_path = ADS_DIR / ad["audio_filename"]
-    if not file_path.is_file():
-        raise HTTPException(status_code=404, detail="Audio file missing on disk")
-    return FileResponse(
-        str(file_path),
+    # Project audio_blob explicitly — list views exclude it for speed,
+    # but the stream needs it.
+    ad = await db.radio_studio_ads.find_one(
+        {"id": ad_id},
+        {"_id": 0, "audio_blob": 1, "audio_bytes": 1, "name": 1},
+    )
+    if not ad or not ad.get("audio_blob"):
+        raise HTTPException(status_code=404, detail="Ad audio not found (regenerate it)")
+    blob = ad["audio_blob"]
+    # bson.binary.Binary subclasses bytes, so this works either way.
+    return Response(
+        content=bytes(blob),
         media_type="audio/mpeg",
-        filename=f"{ad['name']}.mp3",
+        headers={
+            "Content-Length": str(len(blob)),
+            "Cache-Control": "public, max-age=60",
+            "Accept-Ranges": "none",
+        },
     )
 
 
 @public_router.get("/stream/music/{track_id}")
 async def stream_music(track_id: str):
     db = get_db()
-    track = await db.radio_studio_music.find_one({"id": track_id}, {"_id": 0})
-    if not track or not track.get("audio_filename"):
-        raise HTTPException(status_code=404, detail="Track audio not found")
-    file_path = MUSIC_DIR / track["audio_filename"]
-    if not file_path.is_file():
-        raise HTTPException(status_code=404, detail="Audio file missing on disk")
-    return FileResponse(
-        str(file_path),
+    track = await db.radio_studio_music.find_one(
+        {"id": track_id},
+        {"_id": 0, "audio_blob": 1, "audio_bytes": 1, "name": 1},
+    )
+    if not track or not track.get("audio_blob"):
+        raise HTTPException(status_code=404, detail="Track audio not found (re-upload it)")
+    blob = track["audio_blob"]
+    return Response(
+        content=bytes(blob),
         media_type="audio/mpeg",
-        filename=f"{track['name']}.mp3",
+        headers={
+            "Content-Length": str(len(blob)),
+            "Cache-Control": "public, max-age=300",
+            "Accept-Ranges": "none",
+        },
     )
