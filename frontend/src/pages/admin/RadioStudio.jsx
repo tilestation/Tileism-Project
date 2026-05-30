@@ -1186,12 +1186,16 @@ function MusicTab({ music, onMusicChange }) {
 ---------------------------------------------------------------- */
 function PlaylistTab({ ads, music, playlist, onPlaylistChange }) {
   const [items, setItems] = useState(playlist.items || []);
+  // 30 May 2026 — repeat toggle. Default true (matches the
+  // wall-clock-modulo loop that the backend has always done).
+  const [repeat, setRepeat] = useState(playlist.repeat !== false);
   const [saving, setSaving] = useState(false);
   const [playingIdx, setPlayingIdx] = useState(null);
   const [audioEl, setAudioEl] = useState(null);
 
   useEffect(() => {
     setItems(playlist.items || []);
+    setRepeat(playlist.repeat !== false);
   }, [playlist]);
 
   const addItem = (type, refId) => {
@@ -1217,6 +1221,7 @@ function PlaylistTab({ ads, music, playlist, onPlaylistChange }) {
         name: playlist.name || 'Default Playlist',
         items,
         is_active: true,
+        repeat,
       }, { headers: tokenHdr() });
       toast.success('Playlist saved');
       onPlaylistChange();
@@ -1342,7 +1347,28 @@ function PlaylistTab({ ads, music, playlist, onPlaylistChange }) {
               ({items.length} items · ~{Math.round(totalSeconds / 60)} min)
             </span>
           </h2>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            {/* 30 May 2026 — Repeat toggle. When OFF, the stream
+                plays through once and stops. When ON (the default),
+                it loops forever using wall-clock-modulo. */}
+            <label
+              className="flex items-center gap-1.5 px-2.5 py-1.5 bg-slate-900/60 border border-slate-700/50 rounded-lg cursor-pointer hover:border-amber-500/60 transition-colors"
+              title={repeat
+                ? 'Playlist loops forever. Toggle off for a one-shot play-through.'
+                : 'Plays through once then stops. Toggle on to loop.'}
+            >
+              <input
+                type="checkbox"
+                checked={repeat}
+                onChange={(e) => setRepeat(e.target.checked)}
+                data-testid="radio-playlist-repeat"
+                className="w-3.5 h-3.5 accent-amber-500"
+              />
+              <RefreshCw className={`w-3.5 h-3.5 ${repeat ? 'text-amber-400' : 'text-slate-500'}`} />
+              <span className={`text-xs font-bold ${repeat ? 'text-amber-300' : 'text-slate-400'}`}>
+                Repeat
+              </span>
+            </label>
             {playingIdx === null ? (
               <button
                 onClick={() => playFrom(0)}

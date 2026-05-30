@@ -1,3 +1,54 @@
+### [Feb 26, 2026 — Forked session] 🔁 Playlist Repeat toggle + 🇬🇧 £ TTS fix
+
+Two user-reported items in one go.
+
+**1. £ being read as "$" by ElevenLabs** (P0 ad-correctness bug)
+
+Root cause: ElevenLabs voices misread the pound symbol — every `eleven_multilingual_v2` / `turbo_v2` voice reads `£42.99` as `$42.99` (or "pound sign 42.99" for some). The symbol leaks through their text-normalizer.
+
+Fix: `_normalize_for_tts(script)` runs as a preprocessor in `generate_ad_audio` *before* the script is handed to ElevenLabs. The **stored script keeps the clean `£` for the admin UI** — only the bytes ElevenLabs receives are swapped to UK English words:
+
+| Input | TTS hears |
+|---|---|
+| `£42.99` | "42 pounds 99" |
+| `£1.50` | "1 pound 50" (singular pound) |
+| `£99` | "99 pounds" |
+| `£1` | "1 pound" |
+| `£0.50` | "50 pence" |
+| `£1,250` | "1250 pounds" (drops thousands comma) |
+| `m²` / `30 m2` | "square metres" |
+| `€30` | "30 euros" |
+
+17 new tests in `test_radio_studio_tts_normalize.py` covering every pattern + boundary case (decimal .00 elision, GTM2-style false-positive protection, pure-function guarantee).
+
+**2. "How do I play the playlist on repeat after the last item?"**
+
+The wall-clock-modulo loop in `live_now_playing` already looped — but the admin had no explicit control. Added a `repeat: bool = True` field to `PlaylistUpdate` + a checkbox toggle in the admin Playlist tab.
+
+- `repeat=True` (default): wall-clock-modulo cycles the playlist forever (same as before).
+- `repeat=False`: stream plays through once and reports `{"playing": false, "reason": "Playlist finished..."}` once elapsed ≥ total. Uses `started_at_epoch` captured at save time as the stable anchor.
+- Legacy playlists pre-dating the field default to `True` (matches their old implicit behaviour).
+- Save handler resets `started_at_epoch` whenever the items list or the repeat flag actually changes, so re-saving a non-repeat playlist restarts the countdown cleanly.
+
+7 new tests in `test_radio_studio_repeat.py` covering default, opt-out, during-play, post-finish, missing-anchor legacy, and legacy-defaults-to-repeat-True cases.
+
+**End-to-end smoke** (curl through `localhost:8001` with admin JWT):
+- Save `repeat=false` → response includes `started_at_epoch: 1780179362.67` ✓
+- Toggle back to `repeat=true` → response includes `started_at_epoch: null` ✓
+- `_normalize_for_tts("This weekend porcelain at £42.99 m²")` → `"This weekend porcelain at 42 pounds 99 square metres"` ✓
+- Playwright check on the admin Playlist tab: Repeat checkbox renders, ticks/un-ticks correctly ✓
+
+**115/115 radio-studio backend tests pass.**
+
+**Files**:
+- `/app/backend/routes/radio_studio.py` — added `_normalize_for_tts` + `_GBP_PATTERN` + wired into `generate_ad_audio`; added `repeat` field to `PlaylistUpdate`, `started_at_epoch` anchor logic in `save_playlist`, repeat-aware offset calc in `live_now_playing`, and back-compat default in `get_playlist`.
+- `/app/frontend/src/pages/admin/RadioStudio.jsx` — Repeat checkbox on the Playlist tab + state round-trip on save/load.
+- `/app/backend/tests/test_radio_studio_tts_normalize.py` (NEW — 17 tests)
+- `/app/backend/tests/test_radio_studio_repeat.py` (NEW — 7 tests)
+- `/app/backend/tests/test_radio_studio.py` — updated existing static-analysis test for the new `text=_normalize_for_tts(...)` wrapper.
+
+
+
 ### [Feb 26, 2026 — Forked session] 🚨 P0 BUGFIX: /radio page silent — seek into unbuffered audio
 
 **User-reported on production** (with screenshot of `tilestation.co.uk/radio` showing "Lost Myself - Lalanne" with progress bar at 87%, "ON AIR" pill lit, and the Stop button visible): *"There's no sound"*.

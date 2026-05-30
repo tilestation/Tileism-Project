@@ -73,6 +73,85 @@ def _get_eleven_client() -> ElevenLabs:
 
 
 # ------------------------------------------------------------------
+# TTS script normalisation
+# ------------------------------------------------------------------
+#
+# (30 May 2026 — user-reported P0: an ad with "£42.99" in the script
+# was being read out as "$42.99" by ElevenLabs. The pound symbol
+# isn't reliably narrated by any of the eleven_multilingual_v2 /
+# turbo_v2 voices — it leaks through as the dollar sign for most
+# voices, or as the literal phrase "pound sign" for others. The
+# only reliable fix is to convert prices to words BEFORE sending
+# the script to ElevenLabs. The stored script is left untouched so
+# the admin's UI keeps the clean £ display; only the bytes we hand
+# to TTS are normalised.)
+#
+# Conversion rules (UK English):
+#   £42.99      → "42 pounds 99"          (the cleanest UK radio read)
+#   £1.99       → "1 pound 99"            (singular pound)
+#   £42         → "42 pounds"
+#   £1          → "1 pound"
+#   £0.50       → "50 pence"
+#   £1,250      → "1250 pounds"           (drops the thousands comma)
+#   £1,250.99   → "1250 pounds 99"
+#
+# We also touch up a couple of other symbols ElevenLabs gets wrong:
+#   m²          → "square metres"
+#   €           → "euros"  (trailing keeps "30 euros" pattern)
+#   p (after a number standing alone) — left for the script writer
+
+import re
+
+# £<digits>[,<digits>]*[.<digits>] — handles thousands separator and
+# optional decimal portion. Greedy on the integer side, exactly 0-2
+# digits on the decimal side.
+_GBP_PATTERN = re.compile(
+    r"£\s*(\d{1,3}(?:,\d{3})*|\d+)(?:\.(\d{1,2}))?"
+)
+
+
+def _gbp_to_words(match: re.Match) -> str:
+    """Convert a single £-prefixed amount to a spoken UK English
+    phrase. Used as `re.sub` callable."""
+    integer = match.group(1).replace(",", "")
+    decimal = match.group(2)
+    int_value = int(integer)
+    # £0.50 → "50 pence" (no leading "0 pounds")
+    if int_value == 0 and decimal and int(decimal) > 0:
+        # Pad: £0.5 means £0.50 → "50 pence"
+        pence = int(decimal.ljust(2, "0"))
+        return f"{pence} pence"
+    pounds_word = "pound" if int_value == 1 else "pounds"
+    base = f"{int_value} {pounds_word}"
+    if decimal:
+        # £42.99 → "42 pounds 99". We drop "pence" here because UK
+        # radio reads "forty-two ninety-nine" naturally, and that's
+        # the rhythm we want — adding "pence" makes it feel formal.
+        # If the decimal is just "00", skip it.
+        pence_int = int(decimal.ljust(2, "0"))
+        if pence_int > 0:
+            return f"{base} {pence_int:02d}"
+    return base
+
+
+def _normalize_for_tts(script: str) -> str:
+    """Apply pre-TTS substitutions. Returns the modified string —
+    does NOT mutate the stored script."""
+    if not script:
+        return script
+    out = _GBP_PATTERN.sub(_gbp_to_words, script)
+    # m² / m2 → "square metres". Match either Unicode superscript-2
+    # or the common ASCII fallback "m2" when it's adjacent to a
+    # digit (so we don't mangle words like "GTM2").
+    out = re.sub(r"\bm²", "square metres", out)
+    out = re.sub(r"(\d)\s*m2\b", r"\1 square metres", out)
+    # € — same pattern as £ but simpler (no widely-used decimal
+    # pence equivalent in UK marketing copy). Just spell it out.
+    out = re.sub(r"€\s*(\d+(?:\.\d{1,2})?)", r"\1 euros", out)
+    return out
+
+
+# ------------------------------------------------------------------
 # FFmpeg mixing — voice + ducked background music bed
 # ------------------------------------------------------------------
 #
@@ -251,6 +330,12 @@ class PlaylistUpdate(BaseModel):
     name: str = Field(default="Default Playlist", max_length=120)
     items: List[PlaylistItem]
     is_active: bool = True
+    # 30 May 2026 — user-requested "play the playlist in repeat
+    # after the last track". Defaults to True (the wall-clock-modulo
+    # logic in live_now_playing has always looped — this flag lets
+    # the admin opt OUT and have the stream go silent after the
+    # last item finishes, e.g. for a one-shot Sunday announcement).
+    repeat: bool = True
 
 
 class MusicImportFromUrlReq(BaseModel):
@@ -617,7 +702,7 @@ async def generate_ad_audio(
 
     try:
         audio_iter = client.text_to_speech.convert(
-            text=ad["script"],
+            text=_normalize_for_tts(ad["script"]),
             voice_id=ad["voice_id"],
             model_id=ad.get("model_id") or "eleven_multilingual_v2",
             voice_settings=voice_settings,
@@ -992,9 +1077,13 @@ async def get_playlist(current_user: dict = Depends(get_current_user)):
             "name": "Default Playlist",
             "items": [],
             "is_active": True,
+            "repeat": True,
             "created_at": None,
             "updated_at": None,
         }
+    # Legacy playlists predating the repeat flag default to True
+    # (matches the implicit wall-clock-modulo behaviour they had).
+    playlist.setdefault("repeat", True)
     return playlist
 
 
@@ -1014,9 +1103,28 @@ async def save_playlist(
         "name": req.name,
         "items": [item.model_dump() for item in req.items],
         "is_active": req.is_active,
+        "repeat": req.repeat,
         "created_at": (existing or {}).get("created_at") or now,
         "updated_at": now,
     }
+    # When repeat=False, anchor the "playlist clock" to the moment
+    # the admin saved this revision so live_now_playing can compute
+    # elapsed against a stable origin. We reset the anchor any time
+    # the items list or the repeat flag changes (i.e. any meaningful
+    # save) so a re-save restarts the countdown.
+    prev_items = (existing or {}).get("items") or []
+    items_changed = (
+        [it.model_dump() for it in req.items] != prev_items
+        or bool((existing or {}).get("repeat", True)) != bool(req.repeat)
+    )
+    if not req.repeat and items_changed:
+        import time as _t
+        doc["started_at_epoch"] = _t.time()
+    elif req.repeat:
+        # Don't leak a stale anchor when toggling back to repeat.
+        doc["started_at_epoch"] = None
+    else:
+        doc["started_at_epoch"] = (existing or {}).get("started_at_epoch")
     await db.radio_studio_playlists.update_one(
         {"id": doc["id"]},
         {"$set": doc},
@@ -1358,7 +1466,43 @@ async def live_now_playing():
 
     durations = [r["duration_seconds"] for r in resolved]
     total = sum(durations) or 1.0
-    offset = time.time() % total
+    # Repeat flag (30 May 2026 — user-requested). When disabled,
+    # the stream plays through once and stops; when enabled (the
+    # default), the wall-clock-modulo math below keeps looping
+    # forever. We track "elapsed since the playlist started" via a
+    # fixed `created_at` epoch so disabling repeat is meaningful —
+    # using time.time() naked would never "end".
+    repeat = bool(playlist.get("repeat", True))
+    if not repeat:
+        # Anchor to a stable origin (playlist.created_at_epoch or
+        # `is_active` flip time). Each speaker independently
+        # computes elapsed; once elapsed >= total, we report
+        # "playing: false, reason: Playlist finished".
+        started_at = float(playlist.get("started_at_epoch") or 0)
+        if started_at <= 0:
+            # First time this non-repeat playlist is requested — anchor
+            # at "now" so the speakers tuning in get the full playlist.
+            # We DON'T write to Mongo here because /now-playing is hit
+            # 4× per speaker per second when stores are tuned in;
+            # instead we anchor in code below by treating absent
+            # `started_at_epoch` as "starting right now".
+            elapsed = 0.0
+        else:
+            elapsed = max(0.0, time.time() - started_at)
+        if elapsed >= total:
+            return {
+                "playing": False,
+                "reason": "Playlist finished — toggle Repeat on or pick a new playlist.",
+                "playlist": {
+                    "total_items": len(resolved),
+                    "total_seconds": round(total, 1),
+                    "repeat": False,
+                },
+                "stream_url": "/api/radio-studio/live",
+            }
+        offset = elapsed
+    else:
+        offset = time.time() % total
     idx, item_offset = _locate(offset, durations)
     cur = resolved[idx]
     nxt_idx = (idx + 1) % len(resolved)
@@ -1399,6 +1543,7 @@ async def live_now_playing():
             "total_items": len(resolved),
             "total_seconds": round(total, 1),
             "loop_offset_seconds": round(offset, 1),
+            "repeat": repeat,
         },
         # `server_time` lets a client extrapolate elapsed seconds
         # without re-polling — they can interpolate locally for
