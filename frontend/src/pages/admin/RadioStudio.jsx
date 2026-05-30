@@ -658,6 +658,22 @@ function MusicTab({ music, onMusicChange }) {
   const [uploadFile, setUploadFile] = useState(null);
   const [uploading, setUploading] = useState(false);
 
+  // 24 May 2026 — auto-derive the track name from the filename when
+  // the admin picks a file. User reported the Upload button stayed
+  // greyed out forever because they expected picking a file to be
+  // enough — they didn't notice the empty Track Name input above.
+  // Strips the extension and the most common YouTube/SoundCloud
+  // download prefixes so the name is shop-ready.
+  const handleFilePick = (file) => {
+    setUploadFile(file);
+    if (file && !uploadName.trim()) {
+      let n = file.name.replace(/\.[^.]+$/, '');                 // drop extension
+      n = n.replace(/^[a-z0-9-_]{8,}-/i, '');                    // drop hash prefixes
+      n = n.replace(/\s*\([^)]*\)\s*$/, '').trim();              // drop trailing "(Official)" / "(Audio)"
+      setUploadName(n);
+    }
+  };
+
   const handleUpload = async () => {
     if (!uploadFile || !uploadName.trim()) {
       toast.error('Pick a file and give it a name');
@@ -716,7 +732,7 @@ function MusicTab({ music, onMusicChange }) {
           <input
             type="file"
             accept="audio/*"
-            onChange={(e) => setUploadFile(e.target.files?.[0] || null)}
+            onChange={(e) => handleFilePick(e.target.files?.[0] || null)}
             data-testid="radio-music-file"
             className="w-full text-sm text-slate-300 file:mr-3 file:py-2 file:px-3 file:rounded-lg file:border-0 file:bg-amber-500 file:text-slate-900 file:font-bold hover:file:bg-amber-400 file:cursor-pointer"
           />
@@ -724,10 +740,21 @@ function MusicTab({ music, onMusicChange }) {
             onClick={handleUpload}
             disabled={uploading || !uploadFile || !uploadName.trim()}
             data-testid="radio-music-upload"
-            className="w-full py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-900 font-bold rounded-lg disabled:opacity-60 disabled:cursor-wait flex items-center justify-center gap-2"
+            className="w-full py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-900 font-bold rounded-lg disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            title={
+              !uploadFile ? 'Pick an MP3 file first' :
+              !uploadName.trim() ? 'Enter a track name above' :
+              'Upload track'
+            }
           >
             {uploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
-            Upload track
+            {uploading
+              ? 'Uploading...'
+              : !uploadFile
+                ? 'Pick a file above'
+                : !uploadName.trim()
+                  ? 'Enter a track name above'
+                  : 'Upload track'}
           </button>
         </div>
 
