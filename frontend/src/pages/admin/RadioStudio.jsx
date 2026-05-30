@@ -29,7 +29,11 @@ const API_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${API_URL}/api`;
 
 const tokenHdr = () => {
-  const t = localStorage.getItem('admin_token');
+  // Match the rest of the admin app — token lives at localStorage['token'].
+  // (Earlier `'admin_token'` lookup caused every Radio Studio API call
+  // to send no Authorization header → 403 "Not authenticated". Bug
+  // reported 24 May 2026 on music upload.)
+  const t = localStorage.getItem('token');
   return t ? { Authorization: `Bearer ${t}` } : {};
 };
 
