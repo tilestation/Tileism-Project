@@ -1,3 +1,49 @@
+### [Feb 26, 2026 — Forked session] 🌐 Radio Studio: Bulk Import from URL
+
+**User request**: *"YES"* to the suggestion to add a "Bulk import from URL" field that accepts YouTube Audio Library / Bensound / SoundCloud / direct .mp3 links.
+
+**Backend** (`routes/radio_studio.py`):
+- `POST /api/admin/radio-studio/music/import-url` — admin-only.
+- Uses `yt_dlp` Python API (NOT a subprocess — supervisor scrubs `/root/.venv/bin/` from PATH so the CLI binary isn't visible to the running backend; the library API avoids this).
+- Driven by `yt-dlp`'s `FFmpegExtractAudio` postprocessor → 128 kbps MP3 output that matches our ad audio pacing.
+- Hard limits:
+  - `max_filesize=40MB` at the network layer (aborts oversized downloads before transcoding)
+  - `MAX_AUDIO_BYTES=15MB` on the final transcoded MP3 (same cap as manual upload, 413 before insert)
+  - `_IMPORT_TIMEOUT_SECONDS=300` wall-clock cap via `asyncio.wait_for(asyncio.to_thread(...))` — yt-dlp runs in a worker thread so the live-stream event loop stays responsive
+  - URL scheme allow-list: `http://` and `https://` only (rejects `file://`, `ftp://`, `javascript:` etc — prevents reading local files via SSRF)
+- Title auto-extracted from `info["title"]` returned by `extract_info` — admin can override with a `name` field.
+- DownloadError, timeouts, and any other yt-dlp exception are mapped to clean HTTP errors with admin-readable messages (so the toast says "Video unavailable" not a 500 stack).
+- Persisted fields: `audio_blob` (BSON Binary), `audio_filename`, `duration_seconds`, `audio_bytes`, **`source_url`** (audit trail), **`imported_via: 'yt-dlp'`** (so future GETs can filter / show source badge), `uploaded_at`, `uploaded_by`.
+- Response strips `_id` AND `audio_blob` so the admin client gets a tiny JSON payload (just metadata) instead of the raw MP3 bytes.
+
+**Dependencies**: Added `yt-dlp==2026.3.17` to `backend/requirements.txt`. ffmpeg already in `backend/Dockerfile`.
+
+**Frontend** (`pages/admin/RadioStudio.jsx` `MusicTab`):
+- Added "Or import from URL" panel between the dropzone and the queue: Globe icon, multi-line textarea (one URL per line), fuchsia "Add to queue" button.
+- Queue entries grew a `source: 'file' | 'url'` discriminator. Rows show:
+  - File rows → Music icon, "X MB" badge, file size in slate
+  - URL rows → Globe icon, source hostname (`youtube.com`, `bensound.com`) instead of size, name placeholder "Name (auto from source title)"
+- `handleUploadAll` branches on `source`: file → multipart POST to `/music/upload`, url → JSON POST to `/music/import-url`.
+- Files with blank names still block upload; URL rows with blank names DON'T block (backend infers title).
+- Toast aggregates: "Added N tracks" / "Added N, M failed" / "M failed" (works for mixed file+URL batches).
+
+**End-to-end smoke verified** (curl through `localhost:8001` with admin JWT):
+- POST `/music/import-url` with `{"url":"http://localhost:7777/tiny_test.mp3","name":"Test direct mp3"}` → 200 OK in ~150 ms, returned 33 KB track with `source_url`, `imported_via: 'yt-dlp'`, `duration_seconds: 2.1` ✅
+- DELETE on the returned `id` → cleaned up ✅
+
+**Bug found + fixed during integration**: `_ytdlp_bin = shutil.which("yt-dlp")` returned None inside the backend because supervisor strips `/root/.venv/bin/` from PATH. Refactored to use yt-dlp's Python API (`from yt_dlp import YoutubeDL`) which doesn't depend on PATH and is faster (no subprocess fork).
+
+**Tests** (11 NEW, **90/90 radio-studio tests pass**):
+- `tests/test_radio_studio_url_import.py` — Pydantic model validation (URL length, name length cap), scheme allow-list (file://, ftp:// rejected), happy path with mocked `YoutubeDL` (title fallback + admin-supplied name override), oversized-result 413, missing-yt-dlp 500, timeout 504, DownloadError 502, admin-only gate, response excludes `_id`+`audio_blob`.
+
+**Files**:
+- `/app/backend/routes/radio_studio.py` (new `MusicImportFromUrlReq` model + `import_music_from_url` endpoint + `_has_ytdlp_library` helper)
+- `/app/backend/requirements.txt` (added `yt-dlp==2026.3.17`)
+- `/app/frontend/src/pages/admin/RadioStudio.jsx` (URL importer panel + queue source discriminator + branched upload)
+- `/app/backend/tests/test_radio_studio_url_import.py` (NEW — 11 tests)
+
+
+
 ### [Feb 26, 2026 — Forked session] 🎵 Radio Studio: Multi-file Upload + Drag-and-Drop
 
 **User request** (with screenshot of the old single-file uploader): *"Can you allow me to upload multiple tracks at the same time. Also, add a drag and drop feature."*

@@ -22,7 +22,7 @@ import axios from 'axios';
 import { toast } from 'sonner';
 import {
   Radio, Mic, Music, ListMusic, Play, Pause, Trash2, RefreshCw, Loader2,
-  Plus, Save, Upload, Sparkles, GripVertical, Volume2,
+  Plus, Save, Upload, Sparkles, GripVertical, Volume2, Globe,
 } from 'lucide-react';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
@@ -758,12 +758,16 @@ function AdsTab({ voices, voicesLoading, onResyncVoices, ads, music, onAdsChange
    at the same time" + "add a drag and drop feature")
 ---------------------------------------------------------------- */
 function MusicTab({ music, onMusicChange }) {
-  // Each queue entry: { id, file, name, status, error }
+  // Each queue entry: { id, source: 'file'|'url', file?, url?, name, status, error }
   //   status: 'pending' | 'uploading' | 'done' | 'error'
   // ID is just an in-memory counter so we can React-key each row.
   const [queue, setQueue] = useState([]);
   const [uploading, setUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
+  // 26 May 2026 — bulk-import-from-URL field. Textarea (one URL per
+  // line) so admins can paste a single YouTube link OR a list of
+  // 10 Bensound tracks in one go.
+  const [urlInput, setUrlInput] = useState('');
   const fileInputRef = React.useRef(null);
   const queueIdRef = React.useRef(0);
 
@@ -775,6 +779,15 @@ function MusicTab({ music, onMusicChange }) {
     n = n.replace(/^[a-z0-9-_]{8,}-/i, '');           // drop hash prefixes
     n = n.replace(/\s*\([^)]*\)\s*$/, '').trim();     // drop "(Official)"
     return n;
+  };
+
+  // Smart guess for a "looks like a URL we'd give yt-dlp" string.
+  // Doesn't validate completely — backend has the real check, this
+  // is just so we can show a meaningful "Skipped N invalid lines"
+  // toast when the admin pastes random text.
+  const looksLikeUrl = (s) => {
+    const t = (s || '').trim();
+    return /^https?:\/\/[^\s]+$/i.test(t);
   };
 
   const ingestFiles = (filesLike) => {
@@ -791,6 +804,7 @@ function MusicTab({ music, onMusicChange }) {
       const oversize = file.size > 15 * 1024 * 1024;
       return {
         id: ++queueIdRef.current,
+        source: 'file',
         file,
         name: deriveName(file.name),
         status: oversize ? 'error' : 'pending',
@@ -823,6 +837,36 @@ function MusicTab({ music, onMusicChange }) {
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
+  // Parse the textarea into URL queue rows. Skips blank lines and
+  // anything that doesn't start with http(s):// (admin pasted a
+  // title by mistake, etc).
+  const handleAddUrls = () => {
+    const lines = urlInput.split('\n').map((l) => l.trim()).filter(Boolean);
+    if (!lines.length) {
+      toast.error('Paste at least one URL');
+      return;
+    }
+    const valid = lines.filter(looksLikeUrl);
+    const invalid = lines.length - valid.length;
+    if (invalid > 0) {
+      toast.error(`Skipped ${invalid} invalid line${invalid === 1 ? '' : 's'} (must start with http:// or https://)`);
+    }
+    if (!valid.length) return;
+    const newRows = valid.map((url) => ({
+      id: ++queueIdRef.current,
+      source: 'url',
+      url,
+      // Blank name — the backend extracts the title from the source
+      // and uses that. The admin can override before clicking Upload.
+      name: '',
+      status: 'pending',
+      error: null,
+    }));
+    setQueue((q) => [...q, ...newRows]);
+    setUrlInput('');
+    toast.success(`Added ${valid.length} URL${valid.length === 1 ? '' : 's'} to queue`);
+  };
+
   const updateName = (id, name) => {
     setQueue((q) => q.map((it) => (it.id === id ? { ...it, name } : it)));
   };
@@ -841,28 +885,36 @@ function MusicTab({ music, onMusicChange }) {
       toast.error('Nothing to upload');
       return;
     }
-    // All-or-some validation: every pending row needs a non-empty
-    // name. If any are blank, abort up-front rather than getting
-    // halfway through and erroring.
-    const blanks = targets.filter((t) => !t.name.trim());
+    // File rows REQUIRE a name (we can't infer one from the file
+    // beyond what we already did). URL rows can leave name blank —
+    // backend extracts the title from yt-dlp metadata.
+    const blanks = targets.filter((t) => t.source === 'file' && !t.name.trim());
     if (blanks.length) {
-      toast.error(`${blanks.length} track${blanks.length === 1 ? '' : 's'} need a name`);
+      toast.error(`${blanks.length} file${blanks.length === 1 ? '' : 's'} need a name`);
       return;
     }
     setUploading(true);
     let successCount = 0;
     let failCount = 0;
-    // Sequential upload — keeps backend load predictable + lets
-    // the admin watch each one's status flip.
+    // Sequential — keeps backend load predictable + lets the admin
+    // watch each row flip status in real time.
     for (const t of targets) {
       setQueue((q) => q.map((it) => (it.id === t.id ? { ...it, status: 'uploading' } : it)));
       try {
-        const fd = new FormData();
-        fd.append('name', t.name.trim());
-        fd.append('file', t.file);
-        // DO NOT set Content-Type — axios auto-builds it with the
-        // multipart boundary. (24 May 2026 bug.)
-        await axios.post(`${API}/admin/radio-studio/music/upload`, fd, { headers: tokenHdr() });
+        if (t.source === 'url') {
+          await axios.post(
+            `${API}/admin/radio-studio/music/import-url`,
+            { url: t.url, name: t.name.trim() || null },
+            { headers: tokenHdr() },
+          );
+        } else {
+          const fd = new FormData();
+          fd.append('name', t.name.trim());
+          fd.append('file', t.file);
+          // DO NOT set Content-Type — axios auto-builds it with the
+          // multipart boundary. (24 May 2026 bug.)
+          await axios.post(`${API}/admin/radio-studio/music/upload`, fd, { headers: tokenHdr() });
+        }
         setQueue((q) => q.map((it) => (it.id === t.id ? { ...it, status: 'done' } : it)));
         successCount++;
       } catch (e) {
@@ -872,11 +924,11 @@ function MusicTab({ music, onMusicChange }) {
       }
     }
     if (successCount && !failCount) {
-      toast.success(`Uploaded ${successCount} track${successCount === 1 ? '' : 's'}`);
+      toast.success(`Added ${successCount} track${successCount === 1 ? '' : 's'}`);
     } else if (successCount && failCount) {
-      toast.warning(`Uploaded ${successCount}, ${failCount} failed`);
+      toast.warning(`Added ${successCount}, ${failCount} failed`);
     } else {
-      toast.error(`${failCount} upload${failCount === 1 ? '' : 's'} failed`);
+      toast.error(`${failCount} failed`);
     }
     onMusicChange();
     setUploading(false);
@@ -940,12 +992,49 @@ function MusicTab({ music, onMusicChange }) {
           />
         </div>
 
+        {/* Bulk-import from URL — paste one or more public URLs and
+            the backend uses yt-dlp+ffmpeg to download + transcode
+            them to 128 kbps MP3 in one shot. (26 May 2026 user
+            request.) */}
+        <div className="mt-4 bg-slate-900/40 rounded-xl border border-slate-700/40 p-3">
+          <div className="flex items-center gap-2 mb-2">
+            <Globe className="w-4 h-4 text-fuchsia-400" />
+            <span className="text-xs font-bold text-slate-200">Or import from URL</span>
+            <span className="text-[10px] text-slate-500">
+              YouTube / Bensound / SoundCloud / direct .mp3 link
+            </span>
+          </div>
+          <textarea
+            value={urlInput}
+            onChange={(e) => setUrlInput(e.target.value)}
+            placeholder="https://www.youtube.com/watch?v=...&#10;https://www.bensound.com/.../track.mp3&#10;(one URL per line)"
+            data-testid="radio-music-url-input"
+            rows={2}
+            className="w-full px-3 py-2 bg-slate-900 border border-slate-600 rounded-lg text-xs text-slate-100 placeholder-slate-500 focus:border-fuchsia-500 focus:outline-none resize-y font-mono"
+          />
+          <div className="flex items-center justify-between mt-2 gap-2">
+            <p className="text-[10px] text-slate-500">
+              Title is auto-extracted from the source. Backend transcodes to 128 kbps MP3 · 15 MB cap.
+            </p>
+            <button
+              type="button"
+              onClick={handleAddUrls}
+              disabled={!urlInput.trim()}
+              data-testid="radio-music-url-add"
+              className="flex-shrink-0 px-3 py-1.5 bg-fuchsia-500 hover:bg-fuchsia-400 disabled:bg-slate-700 disabled:text-slate-500 text-white text-xs font-bold rounded-lg flex items-center gap-1.5 transition-all"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              Add to queue
+            </button>
+          </div>
+        </div>
+
         {/* Upload queue — per-file row with editable name + status */}
         {queue.length > 0 && (
           <div className="mt-4 space-y-2" data-testid="radio-music-queue">
             <div className="flex items-center justify-between text-[11px] text-slate-400">
               <span>
-                {queue.length} file{queue.length === 1 ? '' : 's'} queued
+                {queue.length} item{queue.length === 1 ? '' : 's'} queued
                 {doneCount ? ` · ${doneCount} done` : ''}
               </span>
               {doneCount > 0 && (
@@ -977,18 +1066,28 @@ function MusicTab({ music, onMusicChange }) {
                     {it.status === 'uploading' && <Loader2 className="w-4 h-4 animate-spin text-amber-400" />}
                     {it.status === 'done' && <span className="text-emerald-400 text-sm font-bold">✓</span>}
                     {it.status === 'error' && <span className="text-red-400 text-sm font-bold">!</span>}
-                    {it.status === 'pending' && <Music className="w-4 h-4 text-slate-500" />}
+                    {it.status === 'pending' && (
+                      it.source === 'url'
+                        ? <Globe className="w-4 h-4 text-fuchsia-400" />
+                        : <Music className="w-4 h-4 text-slate-500" />
+                    )}
                   </div>
                   <input
                     type="text"
                     value={it.name}
                     onChange={(e) => updateName(it.id, e.target.value)}
                     disabled={it.status === 'uploading' || it.status === 'done'}
-                    placeholder="Track name"
+                    placeholder={it.source === 'url' ? 'Name (auto from source title)' : 'Track name'}
                     className="flex-1 min-w-0 bg-transparent border-none text-sm text-slate-100 placeholder-slate-500 focus:outline-none disabled:text-slate-400"
                   />
-                  <span className="text-[10px] text-slate-500 font-mono flex-shrink-0">
-                    {(it.file.size / 1024 / 1024).toFixed(1)} MB
+                  <span className="text-[10px] text-slate-500 font-mono flex-shrink-0 truncate max-w-[140px]" title={it.source === 'url' ? it.url : undefined}>
+                    {it.source === 'url'
+                      ? (() => {
+                          try {
+                            return new URL(it.url).hostname.replace(/^www\./, '');
+                          } catch { return 'url'; }
+                        })()
+                      : `${(it.file.size / 1024 / 1024).toFixed(1)} MB`}
                   </span>
                   {it.error && (
                     <span

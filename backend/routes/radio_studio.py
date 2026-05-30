@@ -244,6 +244,21 @@ class PlaylistUpdate(BaseModel):
     is_active: bool = True
 
 
+class MusicImportFromUrlReq(BaseModel):
+    """Bulk-import a music track from a public URL (YouTube Audio
+    Library, Bensound, SoundCloud, direct .mp3 link, etc). The
+    backend uses yt-dlp + ffmpeg to extract + transcode to 128 kbps
+    MP3, then stores the bytes in MongoDB just like a normal upload.
+    (26 May 2026 — user request: "Bulk import from URL ... saves the
+    click-through-download-upload dance".)"""
+    url: str = Field(min_length=8, max_length=2000,
+                     description="Public URL of the audio/video source. "
+                                 "yt-dlp handles YouTube, SoundCloud, Bensound, direct .mp3/.wav links, etc.")
+    name: Optional[str] = Field(default=None, max_length=120,
+                                description="Override the auto-extracted track title. "
+                                            "Leave blank to use the source's metadata.")
+
+
 class GenerateScriptReq(BaseModel):
     """Auto-generate an ad script from keywords + a few hints.
     (24 May 2026 — user-requested feature: "Could you give an option
@@ -753,6 +768,200 @@ async def delete_music(track_id: str, current_user: dict = Depends(get_current_u
         {"$pull": {"items": {"type": "music", "ref_id": track_id}}},
     )
     return {"success": True, "deleted_id": track_id}
+
+
+# ------------------------------------------------------------------
+# Music import from URL — yt-dlp + ffmpeg (26 May 2026)
+# ------------------------------------------------------------------
+#
+# Saves the admin from the "open YouTube → click Download → save to
+# laptop → open Music tab → click Choose File → wait → click Upload"
+# dance for every track. Paste a URL, click Add, done.
+#
+# Pipeline:
+#   1. yt-dlp downloads the source's audio stream (mp4 → m4a, webm
+#      → opus, direct .mp3 → as-is) into a temp dir.
+#   2. yt-dlp drives ffmpeg via its --extract-audio --audio-format mp3
+#      flag to transcode/rebox to 128 kbps mp3.
+#   3. Title is printed to stdout via --print "%(title)s" so we can
+#      default the track name without a second metadata round-trip.
+#   4. We size-check the result against MAX_AUDIO_BYTES (15 MB)
+#      BEFORE inserting — and pass --max-filesize 40M to yt-dlp so
+#      a 200 MB YouTube video is aborted at the network layer too.
+#
+# Security: admin-only. yt-dlp can in principle hit any HTTP(S) URL
+# so this is an SSRF surface, but only authenticated admins reach
+# it. We don't accept arbitrary file:// or rtmp:// schemes — only
+# http/https.
+
+# Max source size that yt-dlp will start downloading. Bigger than
+# MAX_AUDIO_BYTES because video downloads often start as MP4 then
+# get transcoded down to MP3 (we discard the video track).
+_IMPORT_SOURCE_CEILING = "40M"
+
+# yt-dlp wall-clock timeout per job. Most legit imports complete in
+# 10-30 seconds; 5 minutes is plenty of headroom without letting a
+# stuck job pin a worker.
+_IMPORT_TIMEOUT_SECONDS = 300
+
+
+def _has_ytdlp_library() -> bool:
+    """Returns True iff yt-dlp's Python library is importable.
+    We use the in-process library API rather than the binary so we
+    don't depend on the binary being on the supervisor PATH (it
+    lives in /root/.venv/bin/ which supervisor scrubs)."""
+    try:
+        import yt_dlp  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
+@router.post("/music/import-url")
+async def import_music_from_url(
+    req: MusicImportFromUrlReq,
+    current_user: dict = Depends(get_current_user),
+):
+    """Download + transcode a music track from a public URL and add
+    it straight to the music library. Same end-state as a manual
+    file upload — bytes live in `radio_studio_music.audio_blob`.
+
+    Typical sources: YouTube Audio Library, Bensound, SoundCloud
+    (when the track is publicly streamable), and direct .mp3/.wav
+    links. Anything `yt-dlp` recognises will work."""
+    _require_admin(current_user)
+
+    if not _has_ytdlp_library():
+        raise HTTPException(
+            status_code=500,
+            detail="yt-dlp not installed on the backend — ask the developer.",
+        )
+    if not _ffmpeg_bin():
+        raise HTTPException(
+            status_code=500,
+            detail="ffmpeg not installed on the backend — ask the developer.",
+        )
+
+    url = req.url.strip()
+    lowered = url.lower()
+    if not (lowered.startswith("http://") or lowered.startswith("https://")):
+        raise HTTPException(
+            status_code=400,
+            detail="URL must start with http:// or https://",
+        )
+
+    import yt_dlp
+
+    with tempfile.TemporaryDirectory(prefix="radio_import_") as tmp:
+        out_template = os.path.join(tmp, "out.%(ext)s")
+        # yt-dlp options:
+        #   format=bestaudio/best — pick the best audio-only stream
+        #     if one exists, else best mixed-stream (ffmpeg will
+        #     discard the video track).
+        #   max_filesize       — abort during download if source > 40 MB
+        #     (source is often bigger than the transcoded mp3, e.g.
+        #     a 30 MB m4a → ~3 MB 128 kbps mp3).
+        #   FFmpegExtractAudio postprocessor → mp3 @ 128 kbps,
+        #     matching our ad output's pacing.
+        ydl_opts = {
+            "format": "bestaudio/best",
+            "outtmpl": out_template,
+            "noplaylist": True,
+            "quiet": True,
+            "no_warnings": True,
+            "max_filesize": int(_IMPORT_SOURCE_CEILING.rstrip("M")) * 1024 * 1024,
+            # Short connect/read timeouts so a wedged source can't
+            # tie up a worker for the full 5-min wall-clock cap.
+            "socket_timeout": 30,
+            "postprocessors": [{
+                "key": "FFmpegExtractAudio",
+                "preferredcodec": "mp3",
+                "preferredquality": "128",
+            }],
+            # We resolve ffmpeg explicitly so yt-dlp doesn't have to
+            # walk PATH for it. Belt + braces.
+            "ffmpeg_location": _ffmpeg_bin(),
+        }
+
+        # yt-dlp is sync; run in a worker thread so the event loop
+        # stays free for other requests (live-stream throttling
+        # depends on it).
+        def _run_download():
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                return ydl.extract_info(url, download=True)
+
+        try:
+            info = await asyncio.wait_for(
+                asyncio.to_thread(_run_download),
+                timeout=_IMPORT_TIMEOUT_SECONDS,
+            )
+        except asyncio.TimeoutError as exc:
+            raise HTTPException(
+                status_code=504,
+                detail="Download took too long — try a shorter track or paste a direct .mp3 URL.",
+            ) from exc
+        except yt_dlp.utils.DownloadError as exc:
+            # yt-dlp's DownloadError message is admin-readable.
+            msg = str(exc).strip().splitlines()[-1][:300]
+            raise HTTPException(
+                status_code=502,
+                detail=f"Download failed: {msg}",
+            ) from exc
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("yt-dlp library crashed for %s", url)
+            raise HTTPException(
+                status_code=502,
+                detail=f"Download crashed: {exc}",
+            ) from exc
+
+        title_from_meta = (info or {}).get("title") or ""
+
+        # Find the resulting mp3 (yt-dlp resolves the template).
+        mp3_path = None
+        for fname in os.listdir(tmp):
+            if fname.lower().endswith(".mp3"):
+                mp3_path = os.path.join(tmp, fname)
+                break
+        if not mp3_path or not os.path.exists(mp3_path):
+            raise HTTPException(
+                status_code=502,
+                detail="Download succeeded but no MP3 file was produced.",
+            )
+
+        with open(mp3_path, "rb") as f:
+            audio_bytes = f.read()
+
+    if not audio_bytes:
+        raise HTTPException(status_code=502, detail="Downloaded audio file is empty.")
+    if len(audio_bytes) > MAX_AUDIO_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=(
+                f"Imported track is {len(audio_bytes) // 1_000_000} MB — exceeds the 15 MB limit. "
+                f"Try a shorter source or trim it first."
+            ),
+        )
+
+    final_name = (req.name or title_from_meta or "Imported track").strip()[:120] or "Imported track"
+    track_id = uuid.uuid4().hex
+    estimated_seconds = round(len(audio_bytes) / 16_000, 1)
+    db = get_db()
+    doc = {
+        "id": track_id,
+        "name": final_name,
+        "audio_blob": audio_bytes,  # BSON Binary — persistent in Atlas
+        "audio_filename": f"{track_id}.mp3",
+        "duration_seconds": estimated_seconds,
+        "audio_bytes": len(audio_bytes),
+        "source_url": url,                       # audit / attribution
+        "imported_via": "yt-dlp",
+        "uploaded_at": datetime.now(timezone.utc).isoformat(),
+        "uploaded_by": (current_user or {}).get("email"),
+    }
+    await db.radio_studio_music.insert_one(doc)
+    doc.pop("_id", None)
+    doc.pop("audio_blob", None)
+    return doc
 
 
 # ------------------------------------------------------------------
