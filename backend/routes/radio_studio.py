@@ -125,15 +125,25 @@ def _mix_voice_with_bed(
         return voice_bytes
 
     bed_volume = max(0, min(50, bed_volume_pct)) / 100.0
-    # Build a self-contained filter graph. The bed:
-    #   aloop=loop=-1:size=2e9  → loop forever (the amix truncates
-    #     to voice duration anyway)
-    #   volume=<x>              → attenuate to user-chosen %
-    #   afade in/out            → polish the bed edges
-    # Then split the voice into two streams (one feeds the mix, one
-    # is the sidechain key) and sidechaincompress the bed using the
-    # voice as the trigger, so the bed dips automatically when the
-    # narrator talks.
+    # Filter graph:
+    #   • Bed loops forever (amix truncates to voice length below),
+    #     gets attenuated to user-chosen %, and fades IN over 0.4 s
+    #     so it doesn't pop in suddenly.
+    #   • Voice splits into two streams: one for the mix, one as
+    #     the sidechain key for ducking the bed.
+    #   • sidechaincompress drops the bed by ~12 dB whenever the
+    #     voice is loud → narrator is always intelligible.
+    #   • amix with duration=first ends the mix exactly when the
+    #     voice stops (no trailing bed-only tail).
+    #   • alimiter prevents any post-mix clipping.
+    #
+    # 30 May 2026 — REMOVED the original `afade=t=out:st=0:d=0.6`
+    # tail-fade. It was supposed to fade out the LAST 0.6 s of the
+    # mix but ffmpeg's `st=0` meant the fade-out started AT TIME 0
+    # → audio was silent after 0.6 s. (Fading out at the END
+    # requires `st=<voice_duration - 0.6>` which we'd need ffprobe
+    # to determine first. Not worth the complexity for the few-ms
+    # click the cut produces.)
     filter_complex = (
         "[1:a]aloop=loop=-1:size=2147483647,"
         f"volume={bed_volume:.3f},"
@@ -143,8 +153,7 @@ def _mix_voice_with_bed(
         "threshold=0.03:ratio=20:attack=5:release=250[bedduck];"
         "[v1][bedduck]amix=inputs=2:duration=first:"
         "dropout_transition=0:normalize=0[premix];"
-        "[premix]afade=t=out:st=0:d=0.6:curve=tri,"
-        "alimiter=limit=0.97[mix]"
+        "[premix]alimiter=limit=0.97[mix]"
     )
 
     with tempfile.TemporaryDirectory(prefix="radio_mix_") as tmp:

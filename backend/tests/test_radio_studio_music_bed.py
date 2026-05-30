@@ -201,6 +201,67 @@ def test_mixer_silent_bed_volume_yields_voice_dominated_output():
     assert len(mixed_loud) >= len(mixed_zero) - 1024  # within mp3 quantisation noise
 
 
+
+@requires_ffmpeg
+def test_mixer_audio_audible_throughout_clip():
+    """REGRESSION (30 May 2026 — user-reported P0): the mixer
+    previously had a buggy `afade=t=out:st=0:d=0.6` that faded the
+    ENTIRE mix to silence in the first 0.6 s — so an ad with a
+    music bed played 0.6 s of voice + bed, then silence for the
+    rest. The fix removed the fade-out entirely. This test guards
+    against re-introducing any tail-attenuation: every 1-second
+    window of a 5-second mix should be within 6 dB of the loudest
+    window, i.e. there must be no big silent gap anywhere."""
+    from routes.radio_studio import _mix_voice_with_bed
+
+    voice = _synthesise_mp3(seconds=5.0, freq=440)
+    bed = _synthesise_mp3(seconds=6.0, freq=110)
+    mixed = _mix_voice_with_bed(voice_bytes=voice, bed_bytes=bed, bed_volume_pct=18)
+
+    with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as f:
+        f.write(mixed)
+        mixed_path = f.name
+    try:
+        # astats=reset=1 + the default 1-second window gives a
+        # per-second RMS reading on stdout via ametadata=print.
+        proc = subprocess.run(
+            [
+                _FFMPEG, "-hide_banner", "-loglevel", "error",
+                "-i", mixed_path,
+                "-af", "astats=metadata=1:reset=1,"
+                       "ametadata=print:key=lavfi.astats.Overall.RMS_level:file=-",
+                "-f", "null", "-",
+            ],
+            capture_output=True, text=True, check=True,
+        )
+        rms_per_second = []
+        for line in proc.stdout.splitlines():
+            if "RMS_level=" in line:
+                try:
+                    rms_per_second.append(float(line.split("=", 1)[1]))
+                except ValueError:
+                    pass
+    finally:
+        os.unlink(mixed_path)
+
+    # Drop any -inf (silence) and the very first sample (mp3 frame
+    # priming is sometimes -90 dB before the encoder warms up).
+    audible = [r for r in rms_per_second[1:] if r > -60.0]
+    assert len(audible) >= 4, (
+        f"Only {len(audible)} 1-second windows contained audible audio; "
+        f"the mix has a silent gap — regression of the afade-out bug?"
+    )
+    # Loudest minus quietest must be within 6 dB → no dramatic
+    # tail/head fade. The voice/bed mix is effectively CBR after
+    # the bed's 0.4 s fade-in.
+    span = max(audible) - min(audible)
+    assert span <= 6.0, (
+        f"RMS range across the mix is {span:.1f} dB — too wide. "
+        f"The audio is fading somewhere. Per-second RMS: {audible}"
+    )
+
+
+
 def test_mixer_falls_back_to_voice_when_ffmpeg_missing(monkeypatch):
     """In environments without ffmpeg (e.g. some dev boxes) the
     mixer must NOT raise — it returns the unmixed voice so the

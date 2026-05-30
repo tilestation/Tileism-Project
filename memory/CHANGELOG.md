@@ -1,3 +1,36 @@
+### [Feb 26, 2026 — Forked session] 🚨 P0 BUGFIX: Music-bed mix faded ads to silence after 0.6 s
+
+**User-reported on production**: *"Ads have no voice, I think it's a background song bedding as it was working fine before"* (with screenshot of `https://tilestation.co.uk/admin/radio-studio` showing 3 ads in the library, none of which had audible voice).
+
+**Root cause** — typo in the music-bed FFmpeg filter graph I shipped 2 days ago:
+```
+[premix]afade=t=out:st=0:d=0.6:curve=tri,alimiter=limit=0.97[mix]
+                  ↑ should have been st=<voice_duration - 0.6>
+```
+`st=0` meant "start fading out AT TIME ZERO with 0.6s duration" — so the entire mix went from 100% volume → 0% over the first 0.6 s, then stayed silent for the rest. Reproduced + confirmed via `ffmpeg -af astats` on a synthesised 10 s mix: RMS dropped from -22 dB → -∞ dB by t=0.6s.
+
+**Fix**: removed the broken fade-out entirely. Rationale:
+- The bed already has a 0.4 s fade-IN at the start (correct).
+- The alimiter still prevents clipping.
+- The clip ending hard (when the voice finishes) is the same behaviour as voice-only ads pre-music-bed — which the user said "was working fine before".
+- The "correct" tail-fade would need ffprobe to determine voice duration first → unnecessary complexity for the tiny end-of-voice click avoided.
+
+**Regression test added** (`tests/test_radio_studio_music_bed.py::test_mixer_audio_audible_throughout_clip`): synthesises a 5 s mix, runs `ffmpeg -af astats` to get per-second RMS, asserts:
+1. At least 4 of the 5 windows are audible (>-60 dB)
+2. Range between loudest and quietest 1-second window is ≤ 6 dB (no dramatic fade anywhere)
+
+Would have caught the original bug — verified by reverting + re-running the test, which fails with "Only 1 windows contained audible audio".
+
+**Test status**: **91/91 radio-studio backend tests pass** (10 music-bed + new regression + 80 others).
+
+**⚠️ User action required**: The 3 ads currently in production (`Bathroom Catalogue Out Now`, `BIG SUMMER TILE SALE`, `Tile Station Trade`) were generated with the buggy mixer and are still stored that way in MongoDB. **Click the regenerate (mic) button on each** to re-mix with the fix. Production also needs the Railway redeploy to ship the fix.
+
+**Files**:
+- `/app/backend/routes/radio_studio.py` (`_mix_voice_with_bed` filter graph — removed broken `afade=t=out:st=0:d=0.6` line)
+- `/app/backend/tests/test_radio_studio_music_bed.py` (NEW regression test — 11 tests total now)
+
+
+
 ### [Feb 26, 2026 — Forked session] 🌐 Radio Studio: Bulk Import from URL
 
 **User request**: *"YES"* to the suggestion to add a "Bulk import from URL" field that accepts YouTube Audio Library / Bensound / SoundCloud / direct .mp3 links.
