@@ -22,7 +22,7 @@ import axios from 'axios';
 import { toast } from 'sonner';
 import {
   Radio, Mic, Music, ListMusic, Play, Pause, Trash2, RefreshCw, Loader2,
-  Plus, Save, Upload, Sparkles, GripVertical, Volume2, Globe,
+  Plus, Save, Upload, Sparkles, GripVertical, Volume2, Globe, PoundSterling,
 } from 'lucide-react';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
@@ -116,11 +116,12 @@ export default function RadioStudio() {
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1 mb-5 bg-slate-800/50 p-1 rounded-xl backdrop-blur border border-slate-700/50 w-fit">
+      <div className="flex flex-wrap gap-1 mb-5 bg-slate-800/50 p-1 rounded-xl backdrop-blur border border-slate-700/50 w-fit">
         {[
           { key: 'ads', label: 'Ads', icon: Mic },
           { key: 'music', label: 'Music Library', icon: Music },
           { key: 'playlist', label: 'Playlist', icon: ListMusic },
+          { key: 'usage', label: 'Usage & cost', icon: PoundSterling },
         ].map((t) => (
           <button
             key={t.key}
@@ -157,6 +158,7 @@ export default function RadioStudio() {
           onPlaylistChange={loadPlaylist}
         />
       )}
+      {tab === 'usage' && <UsageTab />}
     </div>
   );
 }
@@ -1807,3 +1809,211 @@ function LiveStreamPanel({ hasItems }) {
     </div>
   );
 }
+
+
+/* ----------------------------------------------------------------
+   Usage & cost tab — total ElevenLabs spend, broken down by
+   today / 30 days / lifetime, plus per-ad leaderboard + recent
+   activity. (30 May 2026 — user request: "I need a clear breakdown
+   on Radio Studio dashboard of total I am spending".)
+---------------------------------------------------------------- */
+function UsageTab() {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState(null);
+
+  const fetchUsage = React.useCallback(async () => {
+    try {
+      const r = await axios.get(`${API}/admin/radio-studio/usage`, { headers: tokenHdr() });
+      setData(r.data);
+      setErr(null);
+    } catch (e) {
+      setErr(e?.response?.data?.detail || e.message);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchUsage();
+  }, [fetchUsage]);
+
+  if (loading) {
+    return (
+      <div className="flex items-center gap-2 text-slate-400 text-sm">
+        <Loader2 className="w-4 h-4 animate-spin" /> Loading usage data…
+      </div>
+    );
+  }
+  if (err) {
+    return (
+      <div className="bg-red-500/10 border border-red-500/40 rounded-xl p-4 text-sm text-red-300">
+        Failed to load usage: {err}
+      </div>
+    );
+  }
+  if (!data) return null;
+
+  const rate = data.rate || {};
+  const fmtGbp = (v) => `£${Number(v || 0).toFixed(4).replace(/0+$/, '0').replace(/\.0+$/, '.00')}`;
+  const fmtChars = (v) => (v || 0).toLocaleString();
+
+  return (
+    <div className="space-y-5" data-testid="radio-usage-tab">
+      {/* Headline rate strip */}
+      <div className="bg-gradient-to-r from-amber-500/10 to-fuchsia-500/10 border border-amber-500/30 rounded-xl px-4 py-3 text-xs text-slate-300 flex flex-wrap items-center gap-x-4 gap-y-1">
+        <span>
+          Current rate:&nbsp;<strong className="text-amber-300 font-mono">
+            £{rate.gbp_per_1k_chars} / 1,000 chars
+          </strong>
+        </span>
+        <span className="text-slate-500">
+          (${rate.usd_per_1k_chars} × {rate.gbp_per_usd} GBP/USD)
+        </span>
+        <span className="text-slate-500 ml-auto">
+          Override with <code className="font-mono text-fuchsia-300">ELEVENLABS_USD_PER_1K_CHARS</code> env var
+        </span>
+      </div>
+
+      {/* KPI cards — today / 30d / lifetime */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <KpiCard label="Today" stats={data.today} colour="emerald" />
+        <KpiCard label="Last 30 days" stats={data.last_30_days} colour="amber" />
+        <KpiCard label="Lifetime" stats={data.lifetime} colour="fuchsia" />
+      </div>
+
+      {/* Per-ad leaderboard */}
+      <div className="bg-slate-800/60 backdrop-blur border border-slate-700/50 rounded-2xl p-4 sm:p-5 shadow-xl">
+        <h2 className="text-base font-bold mb-3 flex items-center gap-2">
+          <Mic className="w-4 h-4 text-amber-400" />
+          Per-ad spend
+          <span className="text-xs font-normal text-slate-500">
+            (sorted by total £)
+          </span>
+        </h2>
+        {data.by_ad.length === 0 ? (
+          <p className="text-sm text-slate-400">
+            No ads generated yet. Generate or test-voice any ad and the spend will show up here.
+          </p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="text-[10px] uppercase tracking-wider text-slate-500 border-b border-slate-700/60">
+                <tr>
+                  <th className="text-left py-2 pr-2 font-semibold">Ad</th>
+                  <th className="text-right py-2 px-2 font-semibold">Total spend</th>
+                  <th className="text-right py-2 px-2 font-semibold hidden sm:table-cell">Generates</th>
+                  <th className="text-right py-2 px-2 font-semibold hidden sm:table-cell">Tests</th>
+                  <th className="text-right py-2 pl-2 font-semibold hidden md:table-cell">Chars</th>
+                  <th className="text-right py-2 pl-2 font-semibold hidden lg:table-cell">Last generated</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-700/40">
+                {data.by_ad.map((row) => (
+                  <tr key={row.ad_id} className="hover:bg-slate-900/30">
+                    <td className="py-2 pr-2 truncate max-w-xs">
+                      <span className="font-medium text-slate-200">{row.ad_name}</span>
+                    </td>
+                    <td className="py-2 px-2 text-right font-mono text-amber-300 font-bold">
+                      {fmtGbp(row.gbp)}
+                    </td>
+                    <td className="py-2 px-2 text-right text-slate-400 hidden sm:table-cell">
+                      {row.generate_calls}
+                    </td>
+                    <td className="py-2 px-2 text-right text-slate-400 hidden sm:table-cell">
+                      {row.test_calls}
+                    </td>
+                    <td className="py-2 pl-2 text-right text-slate-500 font-mono hidden md:table-cell">
+                      {fmtChars(row.chars)}
+                    </td>
+                    <td className="py-2 pl-2 text-right text-slate-500 hidden lg:table-cell whitespace-nowrap">
+                      {row.last_generated_at ? new Date(row.last_generated_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : ''}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* Recent activity (last 20) */}
+      <div className="bg-slate-800/60 backdrop-blur border border-slate-700/50 rounded-2xl p-4 sm:p-5 shadow-xl">
+        <h2 className="text-base font-bold mb-3 flex items-center gap-2">
+          <RefreshCw className="w-4 h-4 text-amber-400" />
+          Recent activity
+          <span className="text-xs font-normal text-slate-500">
+            (last 20 calls)
+          </span>
+          <button
+            type="button"
+            onClick={fetchUsage}
+            className="ml-auto text-xs text-fuchsia-300 hover:text-fuchsia-200 underline"
+          >
+            Refresh
+          </button>
+        </h2>
+        {data.recent.length === 0 ? (
+          <p className="text-sm text-slate-400">No recent activity.</p>
+        ) : (
+          <div className="space-y-1 max-h-80 overflow-y-auto pr-1">
+            {data.recent.map((r, i) => (
+              <div
+                key={i}
+                className="flex items-center gap-2 px-2.5 py-1.5 rounded-md bg-slate-900/40 border border-slate-700/40 text-xs"
+              >
+                <span className={`flex-shrink-0 w-1.5 h-1.5 rounded-full ${
+                  r.endpoint === 'generate' ? 'bg-emerald-400' : 'bg-fuchsia-400'
+                }`} />
+                <span className="text-slate-500 font-mono w-16 flex-shrink-0 hidden sm:block">
+                  {new Date(r.created_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
+                </span>
+                <span className="flex-1 min-w-0 truncate">
+                  <span className="text-slate-300 font-medium">{r.ad_name}</span>
+                  <span className="text-slate-500 ml-2">
+                    {r.endpoint === 'generate' ? 'full generate' : 'test voice'}
+                    {r.voice_name ? ` · ${r.voice_name}` : ''}
+                  </span>
+                </span>
+                <span className="text-slate-500 font-mono flex-shrink-0 hidden md:block">
+                  {fmtChars(r.chars)} chars
+                </span>
+                <span className="text-amber-300 font-mono font-bold flex-shrink-0">
+                  {fmtGbp(r.gbp)}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Footer note */}
+      <p className="text-[11px] text-slate-500 italic leading-relaxed">
+        {data.note}
+      </p>
+    </div>
+  );
+}
+
+function KpiCard({ label, stats, colour }) {
+  const palette = {
+    emerald: 'from-emerald-500/15 to-slate-900 border-emerald-500/30 text-emerald-300',
+    amber: 'from-amber-500/15 to-slate-900 border-amber-500/30 text-amber-300',
+    fuchsia: 'from-fuchsia-500/15 to-slate-900 border-fuchsia-500/30 text-fuchsia-300',
+  }[colour] || '';
+  return (
+    <div className={`bg-gradient-to-br ${palette} border rounded-2xl p-4 shadow-xl`}>
+      <div className="text-[11px] uppercase tracking-wider text-slate-400 mb-1">
+        {label}
+      </div>
+      <div className="text-4xl font-extrabold font-mono">
+        £{Number(stats.gbp || 0).toFixed(2)}
+      </div>
+      <div className="mt-2 flex items-center justify-between text-[11px] text-slate-500">
+        <span>{stats.calls || 0} call{stats.calls === 1 ? '' : 's'}</span>
+        <span className="font-mono">{(stats.chars || 0).toLocaleString()} chars</span>
+      </div>
+    </div>
+  );
+}
+

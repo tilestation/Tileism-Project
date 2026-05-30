@@ -1,3 +1,52 @@
+### [Feb 26, 2026 — Forked session] 💷 ElevenLabs cost-tracking dashboard
+
+**User question**: *"every time I adjust the ad script and regenerate the new audio, does it cost me, if so how much, I need a clear breakdown on Radio Studio dashboard of total I am spending on these ad generations and then regenerations of the same ads after update"*
+
+**Answer to the question**: **Yes — every regeneration is a fresh ElevenLabs API call** that costs ~£0.000237 per character (default rate: $0.30 / 1k chars × £0.79 / $). A 75-word script ≈ 400 chars ≈ ~£0.09 per regeneration. The Test Voice button costs ~£0.04 because it's capped at ~180 chars.
+
+**What was built**:
+
+**Backend** (`routes/radio_studio.py`):
+- New collection `radio_studio_tts_usage` — one tiny doc per TTS call.
+- `_chars_to_gbp(chars)` helper using configurable env vars `ELEVENLABS_USD_PER_1K_CHARS` (default `0.30`) and `GBP_PER_USD` (default `0.79`) so the dashboard matches whatever ElevenLabs tier the admin is on.
+- `_log_tts_usage(...)` — async helper called after every successful synthesis. Records `chars` (the count actually sent to ElevenLabs, post-normalisation, NOT raw script length), `cost_gbp_estimate`, `endpoint` ('generate' | 'test_voice'), `ad_id`, `ad_name`, `voice_id`, `voice_name`, `triggered_by`, `created_at`. Best-effort — wrapped in try/except so a Mongo wedge can't take down a TTS call.
+- Wired into BOTH `generate_ad_audio` AND `test_ad_voice`.
+- **NEW endpoint** `GET /api/admin/radio-studio/usage` returns aggregated dashboard data via 4 concurrent Mongo aggregations:
+  - `today` / `last_30_days` / `lifetime` — `{calls, chars, gbp}`
+  - `by_ad` — leaderboard sorted by total spend, top 50, with `generate_calls`/`test_calls` split
+  - `recent` — last 20 calls in reverse-chronological order
+  - `rate` — surface the current rate so the admin sees what the figures assume
+
+**Frontend** (`pages/admin/RadioStudio.jsx`):
+- New "**£ Usage & cost**" tab with `PoundSterling` icon, alongside Ads / Music Library / Playlist.
+- Rate strip at top: "Current rate: **£0.237 / 1,000 chars** ($0.3 × 0.79 GBP/USD)" + helper note about the env var override.
+- 3 KPI cards in a colour-coded grid: **Today** (emerald) / **Last 30 days** (amber) / **Lifetime** (fuchsia) — each showing total £ in large mono font + call count + char total.
+- **Per-ad spend leaderboard** table with columns: Ad name · Total spend · Generates · Tests · Chars · Last generated. Sorted by £, highest first. Responsive: phone hides everything but Ad + Total.
+- **Recent activity** feed (last 20 calls) — endpoint badge (emerald dot for generate, fuchsia for test), timestamp, ad name, voice, chars, £. Manual Refresh link.
+- Footer disclaimer about tier-dependent billing.
+
+**Testing**: 10 NEW tests (`test_radio_studio_usage.py`):
+- Cost formula: zero/negative input → 0, default rate produces expected value, scales linearly
+- `_log_tts_usage` writes all expected fields AND records the rate snapshot so historical costs stay faithful even if the admin changes their env vars
+- Logger swallows DB errors (TTS must never crash because of a log write)
+- Source check: both `generate_ad_audio` and `test_ad_voice` call the logger
+- `GET /usage` empty state shape
+- `GET /usage` with mocked data — verifies aggregation pipelines, sort order, and per-ad split (generates vs tests)
+- `_require_admin` runs before any DB read
+
+**172/172 radio-studio backend tests pass.** Lint clean.
+
+**End-to-end smoke** (curl through localhost):
+- GET `/usage` empty → 200 OK with zeros + rate strip showing £0.237/1000 chars ✓
+- Playwright check: new tab renders, rate strip visible, 3 KPI cards in £0.00 empty state ✓
+
+**Files**:
+- `/app/backend/routes/radio_studio.py` (`_chars_to_gbp`, `_log_tts_usage`, wired into both TTS endpoints, new `get_tts_usage` aggregation endpoint)
+- `/app/frontend/src/pages/admin/RadioStudio.jsx` (Usage tab, `UsageTab` + `KpiCard` components, `PoundSterling` icon import)
+- `/app/backend/tests/test_radio_studio_usage.py` (NEW — 10 tests)
+
+
+
 ### [Feb 26, 2026 — Forked session] 🌐 URL TTS follow-up: comma-pace separators
 
 **User report**: *"Links are still a bit of problem, from www.tilestation.co.uk/bathrooms it doesn't read out . or /"*

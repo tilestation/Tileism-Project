@@ -26,7 +26,7 @@ import subprocess
 import tempfile
 import time
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import List, Literal, Optional, Tuple
 from elevenlabs import VoiceSettings
 from elevenlabs.client import ElevenLabs
@@ -69,6 +69,78 @@ def _get_eleven_client() -> ElevenLabs:
             detail="ELEVENLABS_API_KEY not configured on the backend",
         )
     return ElevenLabs(api_key=api_key)
+
+
+# ------------------------------------------------------------------
+# ElevenLabs cost tracking (30 May 2026 — user request: "every
+# time I adjust the ad script and regenerate the new audio, does
+# it cost me, if so how much... I need a clear breakdown on Radio
+# Studio dashboard of total I am spending")
+# ------------------------------------------------------------------
+#
+# Pricing model: ElevenLabs charges per CHARACTER of input text —
+# the same chars we send to `text_to_speech.convert(text=...)`.
+# Default rate is the PAYG list price for eleven_multilingual_v2
+# (~$0.30 / 1,000 chars on the Creator tier as of May 2026), but
+# the admin can override via env so the dashboard matches whatever
+# tier they're actually on.
+#
+# Storage: one doc per TTS call in `radio_studio_tts_usage`. Tiny
+# docs (few hundred bytes each) so even 10,000 regenerations would
+# only cost ~3 MB of Mongo space. We never delete them — the admin
+# might want to see "what did I spend in March?" 6 months later.
+
+# Defaults: $0.30 / 1k chars at GBP 0.79 / USD = £0.000237 / char.
+# Both knobs are settable via env so the admin can match their tier.
+_TTS_USD_PER_1K_CHARS = float(os.environ.get("ELEVENLABS_USD_PER_1K_CHARS", "0.30"))
+_GBP_PER_USD = float(os.environ.get("GBP_PER_USD", "0.79"))
+
+
+def _chars_to_gbp(chars: int) -> float:
+    """Estimate the £ cost of synthesising `chars` characters."""
+    if chars <= 0:
+        return 0.0
+    usd = (chars / 1000.0) * _TTS_USD_PER_1K_CHARS
+    return round(usd * _GBP_PER_USD, 6)  # 6 d.p. → 0.0001p resolution
+
+
+async def _log_tts_usage(
+    *,
+    db,
+    ad_id: Optional[str],
+    ad_name: Optional[str],
+    endpoint: Literal["generate", "test_voice"],
+    chars: int,
+    voice_id: Optional[str],
+    voice_name: Optional[str],
+    model_id: Optional[str],
+    triggered_by: Optional[str],
+) -> None:
+    """Record one ElevenLabs synthesis call for the usage dashboard.
+    Best-effort — if Mongo is wedged, log + carry on (we don't want
+    cost-tracking to break TTS itself).
+
+    `chars` MUST be the count of characters sent to ElevenLabs
+    (post-normalisation), not the raw script length. That's what
+    the user is actually charged for."""
+    try:
+        await db.radio_studio_tts_usage.insert_one({
+            "id": uuid.uuid4().hex,
+            "ad_id": ad_id,
+            "ad_name": ad_name,
+            "endpoint": endpoint,
+            "chars": int(chars),
+            "voice_id": voice_id,
+            "voice_name": voice_name,
+            "model_id": model_id,
+            "cost_gbp_estimate": _chars_to_gbp(chars),
+            "usd_per_1k_chars": _TTS_USD_PER_1K_CHARS,
+            "gbp_per_usd": _GBP_PER_USD,
+            "triggered_by": triggered_by,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        })
+    except Exception:  # noqa: BLE001 — never crash TTS over a log
+        logger.exception("Failed to log TTS usage for ad %s", ad_id)
 
 
 # ------------------------------------------------------------------
@@ -919,6 +991,20 @@ async def test_ad_voice(
     if not audio_data:
         raise HTTPException(status_code=502, detail="ElevenLabs returned empty audio")
 
+    # Log the TTS call for the cost dashboard. Best-effort — never
+    # breaks playback if the log write fails. (30 May 2026.)
+    await _log_tts_usage(
+        db=db,
+        ad_id=ad_id,
+        ad_name=ad.get("name"),
+        endpoint="test_voice",
+        chars=len(preview),
+        voice_id=ad.get("voice_id"),
+        voice_name=ad.get("voice_name"),
+        model_id=ad.get("model_id"),
+        triggered_by=(current_user or {}).get("email"),
+    )
+
     return Response(
         content=audio_data,
         media_type="audio/mpeg",
@@ -954,12 +1040,15 @@ async def generate_ad_audio(
     )
 
     try:
-        audio_iter = client.text_to_speech.convert(
-            text=_normalize_for_tts(
-                _apply_pronunciation_hints(
-                    ad["script"], ad.get("pronunciation_hints"),
-                ),
+        # Pre-compute the normalised text so we can log the EXACT
+        # char count ElevenLabs will charge for.
+        normalised_text = _normalize_for_tts(
+            _apply_pronunciation_hints(
+                ad["script"], ad.get("pronunciation_hints"),
             ),
+        )
+        audio_iter = client.text_to_speech.convert(
+            text=normalised_text,
             voice_id=ad["voice_id"],
             model_id=ad.get("model_id") or "eleven_multilingual_v2",
             voice_settings=voice_settings,
@@ -1033,6 +1122,21 @@ async def generate_ad_audio(
         }},
     )
     ad = await db.radio_studio_ads.find_one({"id": ad_id}, {"_id": 0, "audio_blob": 0})
+
+    # Log the TTS spend for the cost dashboard. Best-effort — never
+    # breaks generation if the log write fails. (30 May 2026.)
+    await _log_tts_usage(
+        db=db,
+        ad_id=ad_id,
+        ad_name=ad.get("name") if ad else None,
+        endpoint="generate",
+        chars=len(normalised_text),
+        voice_id=ad.get("voice_id") if ad else None,
+        voice_name=ad.get("voice_name") if ad else None,
+        model_id=(ad.get("model_id") if ad else None) or "eleven_multilingual_v2",
+        triggered_by=(current_user or {}).get("email"),
+    )
+
     return ad
 
 
@@ -1313,6 +1417,129 @@ async def import_music_from_url(
     doc.pop("_id", None)
     doc.pop("audio_blob", None)
     return doc
+
+
+
+# ------------------------------------------------------------------
+# Cost dashboard — total ElevenLabs spend (30 May 2026)
+# ------------------------------------------------------------------
+
+@router.get("/usage")
+async def get_tts_usage(current_user: dict = Depends(get_current_user)):
+    """Aggregated ElevenLabs cost breakdown for the Radio Studio
+    dashboard. Returns today / 30-day / lifetime totals, plus a
+    per-ad spend leaderboard and the 20 most recent calls. All
+    cost figures are ESTIMATES (the truth is on ElevenLabs's
+    billing dashboard) computed from the chars × rate the admin
+    has configured."""
+    _require_admin(current_user)
+    db = get_db()
+    now = datetime.now(timezone.utc)
+    today_iso = now.replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+    thirty_days_ago_iso = (now - timedelta(days=30)).isoformat()
+
+    # Lifetime, 30d, today — three concurrent aggregations.
+    pipeline_total = [
+        {"$group": {
+            "_id": None,
+            "calls": {"$sum": 1},
+            "chars": {"$sum": "$chars"},
+            "gbp": {"$sum": "$cost_gbp_estimate"},
+        }},
+    ]
+    pipeline_30d = [
+        {"$match": {"created_at": {"$gte": thirty_days_ago_iso}}},
+        *pipeline_total,
+    ]
+    pipeline_today = [
+        {"$match": {"created_at": {"$gte": today_iso}}},
+        *pipeline_total,
+    ]
+    # Per-ad leaderboard — top 50 by spend.
+    pipeline_by_ad = [
+        {"$match": {"ad_id": {"$ne": None}}},
+        {"$group": {
+            "_id": {"ad_id": "$ad_id", "ad_name": "$ad_name"},
+            "calls": {"$sum": 1},
+            "chars": {"$sum": "$chars"},
+            "gbp": {"$sum": "$cost_gbp_estimate"},
+            "last_generated_at": {"$max": "$created_at"},
+            "generate_calls": {
+                "$sum": {"$cond": [{"$eq": ["$endpoint", "generate"]}, 1, 0]},
+            },
+            "test_calls": {
+                "$sum": {"$cond": [{"$eq": ["$endpoint", "test_voice"]}, 1, 0]},
+            },
+        }},
+        {"$sort": {"gbp": -1}},
+        {"$limit": 50},
+    ]
+
+    async def _one(pipe):
+        cursor = db.radio_studio_tts_usage.aggregate(pipe)
+        async for doc in cursor:
+            return doc
+        return None
+
+    total_doc = await _one(pipeline_total) or {"calls": 0, "chars": 0, "gbp": 0}
+    thirty_doc = await _one(pipeline_30d) or {"calls": 0, "chars": 0, "gbp": 0}
+    today_doc = await _one(pipeline_today) or {"calls": 0, "chars": 0, "gbp": 0}
+
+    by_ad: list = []
+    async for doc in db.radio_studio_tts_usage.aggregate(pipeline_by_ad):
+        by_ad.append({
+            "ad_id": (doc.get("_id") or {}).get("ad_id"),
+            "ad_name": (doc.get("_id") or {}).get("ad_name") or "(deleted ad)",
+            "calls": doc.get("calls", 0),
+            "generate_calls": doc.get("generate_calls", 0),
+            "test_calls": doc.get("test_calls", 0),
+            "chars": doc.get("chars", 0),
+            "gbp": round(float(doc.get("gbp", 0) or 0), 4),
+            "last_generated_at": doc.get("last_generated_at"),
+        })
+
+    recent: list = []
+    cursor = db.radio_studio_tts_usage.find(
+        {}, {"_id": 0},
+    ).sort("created_at", -1).limit(20)
+    async for doc in cursor:
+        # Keep a tiny shape — we just need date+ad+chars+£ for the
+        # "recent activity" list.
+        recent.append({
+            "ad_name": doc.get("ad_name") or "(deleted ad)",
+            "endpoint": doc.get("endpoint"),
+            "chars": doc.get("chars", 0),
+            "gbp": round(float(doc.get("cost_gbp_estimate", 0) or 0), 4),
+            "voice_name": doc.get("voice_name"),
+            "triggered_by": doc.get("triggered_by"),
+            "created_at": doc.get("created_at"),
+        })
+
+    def _shape(d):
+        return {
+            "calls": int(d.get("calls") or 0),
+            "chars": int(d.get("chars") or 0),
+            "gbp": round(float(d.get("gbp") or 0), 4),
+        }
+
+    return {
+        "today": _shape(today_doc),
+        "last_30_days": _shape(thirty_doc),
+        "lifetime": _shape(total_doc),
+        "by_ad": by_ad,
+        "recent": recent,
+        "rate": {
+            "usd_per_1k_chars": _TTS_USD_PER_1K_CHARS,
+            "gbp_per_usd": _GBP_PER_USD,
+            "gbp_per_1k_chars": round(_TTS_USD_PER_1K_CHARS * _GBP_PER_USD, 4),
+        },
+        "note": (
+            "Estimates only — actual ElevenLabs billing may differ "
+            "based on your subscription tier. Set ELEVENLABS_USD_PER_1K_CHARS "
+            "and GBP_PER_USD env vars to match your tier."
+        ),
+    }
+
 
 
 # ------------------------------------------------------------------
