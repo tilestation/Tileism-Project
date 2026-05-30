@@ -1478,10 +1478,13 @@ function LiveStreamPanel({ hasItems }) {
     return () => { alive = false; clearInterval(t); };
   }, [fetchNow]);
 
-  // Client-orchestrated preview playback — same sync strategy as
-  // PublicRadioPage so it works through every proxy. Each speaker
-  // (browser/tab) seeks to wall-clock-derived elapsed_seconds on
-  // load, then chains the next track when the current one ends.
+  // Client-orchestrated preview playback. Each store plays the
+  // current item FROM THE START (we deliberately don't seek into
+  // the track — the stream endpoint doesn't support byte ranges so
+  // a seek into unbuffered audio silently fails on most browsers).
+  // Stores stay in sync because they all see the same SERVER-
+  // reported current item and chain to the next on `ended`. (30 May
+  // 2026 bugfix.)
   useEffect(() => {
     if (!streamOpen) return;
     if (!now?.playing || !now?.now?.audio_url) return;
@@ -1491,17 +1494,7 @@ function LiveStreamPanel({ hasItems }) {
     if (currentRefRef.current === refKey && !audio.paused) return;
     currentRefRef.current = refKey;
     audio.src = `${API_URL}${now.now.audio_url}`;
-    const onLoaded = () => {
-      try {
-        audio.currentTime = Math.max(0, Math.min(
-          (now.now.elapsed_seconds || 0),
-          (now.now.duration_seconds || 999) - 0.2,
-        ));
-      } catch (_e) { /* ignore — next loadedmetadata retries */ }
-      audio.play().catch((e) => toast.error(`Preview blocked: ${e?.message || 'tap again'}`));
-      audio.removeEventListener('loadedmetadata', onLoaded);
-    };
-    audio.addEventListener('loadedmetadata', onLoaded);
+    audio.play().catch((e) => toast.error(`Preview blocked: ${e?.message || 'tap again'}`));
   }, [streamOpen, now]);
 
   useEffect(() => {
@@ -1543,6 +1536,32 @@ function LiveStreamPanel({ hasItems }) {
 
   const cur = now?.now;
   const isAd = cur?.type === 'ad';
+  // Drive the admin's preview progress strip off audio.currentTime
+  // so it matches what the admin is actually hearing in the
+  // preview (rather than the server's wall-clock-derived elapsed).
+  // Falls back to the server values when the admin hasn't pressed
+  // Preview yet — gives them a still-useful "now playing" badge.
+  const [previewPos, setPreviewPos] = useState({ current: 0, duration: 0 });
+  useEffect(() => {
+    const a = audioRef.current;
+    if (!a) return;
+    const onTime = () => setPreviewPos({
+      current: a.currentTime || 0,
+      duration: a.duration || 0,
+    });
+    a.addEventListener('timeupdate', onTime);
+    a.addEventListener('loadedmetadata', onTime);
+    return () => {
+      a.removeEventListener('timeupdate', onTime);
+      a.removeEventListener('loadedmetadata', onTime);
+    };
+  }, []);
+  // Show local audio position while previewing, server elapsed
+  // otherwise (so the strip stays useful even without preview).
+  const showLocal = streamOpen && previewPos.duration > 0;
+  const elapsedDisplay = showLocal ? previewPos.current : (cur?.elapsed_seconds || 0);
+  const durationDisplay = showLocal ? previewPos.duration : (cur?.duration_seconds || 0);
+  const remainingDisplay = Math.max(0, durationDisplay - elapsedDisplay);
 
   return (
     <div
@@ -1622,15 +1641,15 @@ function LiveStreamPanel({ hasItems }) {
                 <div
                   className="h-full bg-gradient-to-r from-amber-400 to-fuchsia-500 transition-all duration-500"
                   style={{
-                    width: cur.duration_seconds
-                      ? `${Math.min(100, (cur.elapsed_seconds / cur.duration_seconds) * 100)}%`
+                    width: durationDisplay
+                      ? `${Math.min(100, (elapsedDisplay / durationDisplay) * 100)}%`
                       : '0%',
                   }}
                 />
               </div>
               <div className="flex justify-between text-[10px] text-slate-500 mt-0.5 font-mono">
-                <span>{Math.floor(cur.elapsed_seconds || 0)}s</span>
-                <span>-{Math.floor(cur.remaining_seconds || 0)}s</span>
+                <span>{Math.floor(elapsedDisplay)}s</span>
+                <span>-{Math.floor(remainingDisplay)}s</span>
               </div>
             </div>
             {now.next && (

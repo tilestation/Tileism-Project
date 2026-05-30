@@ -1,3 +1,32 @@
+### [Feb 26, 2026 — Forked session] 🚨 P0 BUGFIX: /radio page silent — seek into unbuffered audio
+
+**User-reported on production** (with screenshot of `tilestation.co.uk/radio` showing "Lost Myself - Lalanne" with progress bar at 87%, "ON AIR" pill lit, and the Stop button visible): *"There's no sound"*.
+
+**Root cause**: my client-orchestrated playback set `audio.src = URL` and then immediately did `audio.currentTime = elapsed_seconds` (478 in the user's case) to "sync" to the wall-clock playlist offset. But the `/api/radio-studio/stream/music/{id}` endpoint sends `Accept-Ranges: none` — so browsers can't seek into an unbuffered region. Result: `audio.play()` silently stalls or fails, the audio element shows `paused: true` and never advances, but the UI keeps rendering the server's wall-clock-derived progress so the page LOOKS like it's playing.
+
+Reproduced in the preview env: with the seek-then-play flow + `Accept-Ranges: none`, `audio.paused = true` indefinitely.
+
+**Fix** (`PublicRadioPage.jsx` + admin `LiveStreamPanel`):
+1. **Removed the seek entirely** — each speaker plays the current track FROM THE START.
+2. **Drive the progress bar off `audio.currentTime`** (via `timeupdate`/`loadedmetadata` listeners) so what the viewer sees on screen always matches what they hear.
+3. Sync model is now: all 4 stores see the same SERVER-reported current item and chain to the next one when their local `audio.ended` fires. Stores stay within ~one item length of each other — fine for in-store ambient radio (the wall-clock-perfect sync was overkill anyway).
+
+**End-to-end verification** (preview env with a seeded playlist of two 8s music tracks):
+- `audio.paused`: **false** ✓ (was `true` before)
+- `audio.currentTime` advanced from 0.66s → 3.67s over the 3-second wait ✓
+- `audio.duration`: 8s loaded cleanly ✓
+- `audio.readyState`: 4 (HAVE_ENOUGH_DATA) ✓
+- Progress bar showed "3s / -4s" matching local playback (was previously stuck on server elapsed) ✓
+- Screenshot confirms the UI renders correctly with the local progress.
+
+**Why not add byte-range support to the stream endpoint?** Considered but deferred — would require ~50 LOC to handle `Range` headers correctly across the existing audio.mpeg responses, and gains us at most a few seconds of sync improvement. For in-store ambient radio, "all stores play the same track at roughly the same time" is more than sufficient. Can revisit if we ever need scrubbable playback.
+
+**Files**:
+- `/app/frontend/src/pages/public/PublicRadioPage.jsx` (removed seek, added local timeupdate-driven progress)
+- `/app/frontend/src/pages/admin/RadioStudio.jsx` (`LiveStreamPanel` — same fix applied to the admin preview)
+
+
+
 ### [Feb 26, 2026 — Forked session] 🚨 P0 BUGFIX: Music-bed mix faded ads to silence after 0.6 s
 
 **User-reported on production**: *"Ads have no voice, I think it's a background song bedding as it was working fine before"* (with screenshot of `https://tilestation.co.uk/admin/radio-studio` showing 3 ads in the library, none of which had audible voice).

@@ -37,8 +37,20 @@ export default function PublicRadioPage() {
   const [tunedIn, setTunedIn] = useState(false);
   const [now, setNow] = useState(null);
   const [err, setErr] = useState(null);
+  // Local audio progress — drives the on-screen progress bar
+  // off `audio.currentTime` rather than the server's wall-clock
+  // elapsed. Avoids the bug where the UI showed "elapsed 478s" but
+  // the actual audio was at 0s because we couldn't seek without
+  // byte-range support on the stream endpoint. (30 May 2026.)
+  const [audioPos, setAudioPos] = useState({ current: 0, duration: 0 });
   // Used to detect when the SERVER's "now playing" item changes
-  // between polls — that's when we cross-fade to the next track.
+  // between polls — that's when we switch the audio element to the
+  // next track. We do NOT seek into the track to "sync to wall
+  // clock" — the stream endpoint doesn't support byte ranges so the
+  // seek silently fails. Each store plays the current item from the
+  // start and chains to the next on `ended`. All 4 stores see the
+  // same SERVER-reported current item, so they advance through the
+  // playlist together within ~one-item-length of each other.
   const currentRefRef = useRef(null);
 
   const fetchNow = useCallback(async () => {
@@ -62,9 +74,12 @@ export default function PublicRadioPage() {
     return () => { alive = false; clearInterval(t); };
   }, [fetchNow]);
 
-  // When the SERVER changes the current item OR we just tuned in,
-  // load the audio for that item and seek to the synced offset so
-  // every speaker is at the same moment of the same track.
+  // When the SERVER reports a different current item OR we just
+  // tuned in, swap the audio element's source and play it from the
+  // start. We deliberately DON'T set `audio.currentTime` — our
+  // stream endpoint serves the full file without HTTP byte-range
+  // support, so a seek into unbuffered audio silently fails on
+  // most browsers and the audio never starts. (30 May 2026 bugfix.)
   useEffect(() => {
     if (!tunedIn) return;
     if (!now?.playing || !now?.now?.audio_url) return;
@@ -72,31 +87,32 @@ export default function PublicRadioPage() {
     if (!audio) return;
     const refKey = `${now.now.type}:${now.now.ref_id}`;
     if (currentRefRef.current === refKey && !audio.paused) {
-      // Same track still playing — let it run, don't re-seek (would
-      // cause an audible jump every poll cycle).
+      // Same track still playing — let it run.
       return;
     }
     currentRefRef.current = refKey;
-    const fullUrl = `${API_URL}${now.now.audio_url}`;
-    audio.src = fullUrl;
-    const onLoaded = () => {
-      // Seek to wall-clock offset for instant sync across speakers.
-      try {
-        audio.currentTime = Math.max(0, Math.min(
-          (now.now.elapsed_seconds || 0),
-          (now.now.duration_seconds || 999) - 0.2,
-        ));
-      } catch (_e) {
-        // Some browsers refuse seek before metadata fully loaded —
-        // ignore, next loadedmetadata fires it correctly.
-      }
-      audio.play().catch((e) => {
-        setErr(e?.message || 'Browser blocked playback — tap Tune in again');
-      });
-      audio.removeEventListener('loadedmetadata', onLoaded);
-    };
-    audio.addEventListener('loadedmetadata', onLoaded);
+    audio.src = `${API_URL}${now.now.audio_url}`;
+    audio.play().catch((e) => {
+      setErr(e?.message || 'Browser blocked playback — tap Tune in again');
+    });
   }, [tunedIn, now]);
+
+  // Drive the progress bar off the audio element itself so what the
+  // viewer sees on screen matches what they hear.
+  useEffect(() => {
+    const a = audioRef.current;
+    if (!a) return;
+    const onTime = () => setAudioPos({
+      current: a.currentTime || 0,
+      duration: a.duration || 0,
+    });
+    a.addEventListener('timeupdate', onTime);
+    a.addEventListener('loadedmetadata', onTime);
+    return () => {
+      a.removeEventListener('timeupdate', onTime);
+      a.removeEventListener('loadedmetadata', onTime);
+    };
+  }, []);
 
   // When the current track finishes, refresh now-playing once so
   // the next render picks up the new item without waiting for the
@@ -207,15 +223,15 @@ export default function PublicRadioPage() {
                   <div
                     className="h-full bg-gradient-to-r from-amber-400 to-fuchsia-500 transition-all duration-500"
                     style={{
-                      width: cur.duration_seconds
-                        ? `${Math.min(100, (cur.elapsed_seconds / cur.duration_seconds) * 100)}%`
+                      width: audioPos.duration
+                        ? `${Math.min(100, (audioPos.current / audioPos.duration) * 100)}%`
                         : '0%',
                     }}
                   />
                 </div>
                 <div className="flex justify-between text-[11px] text-slate-500 mt-1 font-mono">
-                  <span>{Math.floor(cur.elapsed_seconds || 0)}s</span>
-                  <span>-{Math.floor(cur.remaining_seconds || 0)}s</span>
+                  <span>{Math.floor(audioPos.current || 0)}s</span>
+                  <span>{audioPos.duration ? `-${Math.floor(Math.max(0, audioPos.duration - audioPos.current))}s` : ''}</span>
                 </div>
               </div>
 
