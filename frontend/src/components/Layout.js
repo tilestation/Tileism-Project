@@ -258,6 +258,7 @@ export const Layout = () => {
       items: [
         { to: '/admin/seo', icon: Trophy, label: 'SEO Command Centre', permission: 'marketing', legacyPermission: 'marketing' },
         { to: '/admin/marketing-studio', icon: Wand2, label: 'Marketing Studio', permission: 'marketing', legacyPermission: 'marketing' },
+        { to: '/admin/radio-studio', icon: Radio, label: 'Radio Studio (in-store)', permission: 'marketing', legacyPermission: 'marketing' },
         { to: '/admin/visualizer', icon: Sparkles, label: 'Tile Visualizer', permission: 'marketing', legacyPermission: 'marketing' },
         { to: '/admin/marketing', icon: Megaphone, label: 'Marketing Campaigns', permission: 'marketing', legacyPermission: 'marketing' },
         { to: '/admin/promo-codes', icon: Tag, label: 'Promo Codes', permission: 'marketing', legacyPermission: 'marketing' },

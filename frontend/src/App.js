@@ -31,6 +31,7 @@ const GoogleBusinessProfile = React.lazy(() => import('./pages/admin/GoogleBusin
 const GoogleSearchConsole = React.lazy(() => import('./pages/admin/GoogleSearchConsole'));
 const VisualizerAdmin = React.lazy(() => import('./pages/admin/VisualizerAdmin'));
 const MarketingStudio = React.lazy(() => import('./pages/admin/MarketingStudio'));
+const RadioStudio = React.lazy(() => import('./pages/admin/RadioStudio'));
 const TradeCreditEmails = React.lazy(() => import('./pages/admin/TradeCreditEmails'));
 const EmailHub = React.lazy(() => import('./pages/admin/EmailHub'));
 const PinterestPack = React.lazy(() => import('./pages/admin/PinterestPack'));
@@ -493,6 +494,7 @@ function App() {
             <Route path="gsc" element={<GoogleSearchConsole />} />
             <Route path="visualizer" element={<VisualizerAdmin />} />
             <Route path="marketing-studio" element={<MarketingStudio />} />
+            <Route path="radio-studio" element={<RadioStudio />} />
             <Route path="trade-credit-emails" element={<TradeCreditEmails />} />
             <Route path="email-hub" element={<EmailHub />} />
             <Route path="pinterest-pack" element={<PinterestPack />} />

@@ -100,6 +100,7 @@ from .mission_admin import router as mission_admin_router
 from .seo_health_status import router as seo_health_status_router
 from .visualizer import router as visualizer_router, admin_router as visualizer_admin_router
 from .marketing_studio import router as marketing_studio_router, public_router as marketing_studio_public_router
+from .radio_studio import router as radio_studio_router, public_router as radio_studio_public_router
 from .marketing_videos import router as marketing_videos_router, public_router as marketing_videos_public_router
 from .editorial_autopilot import admin_router as editorial_autopilot_admin_router, public_router as editorial_autopilot_public_router
 from .google_shopping_feed import router as google_shopping_feed_router
@@ -243,7 +244,8 @@ api_router.include_router(trader_self_service_router)
 api_router.include_router(email_hub_router)
 api_router.include_router(pinterest_pack_router)
 api_router.include_router(stripe_reconcile_router)
-
+api_router.include_router(radio_studio_router)
+api_router.include_router(radio_studio_public_router)
 __all__ = [
     "api_router",
     "showrooms_router",
