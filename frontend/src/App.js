@@ -37,6 +37,7 @@ const EmailHub = React.lazy(() => import('./pages/admin/EmailHub'));
 const PinterestPack = React.lazy(() => import('./pages/admin/PinterestPack'));
 const StripeReconcile = React.lazy(() => import('./pages/admin/StripeReconcile'));
 const UnsubscribePage = React.lazy(() => import('./pages/public/UnsubscribePage'));
+const PublicRadioPage = React.lazy(() => import('./pages/public/PublicRadioPage'));
 const VideoStudio = React.lazy(() => import('./pages/admin/VideoStudio'));
 const BlogIndexPage = React.lazy(() => import('./pages/shop/BlogIndexPage'));
 const BlogArticlePage = React.lazy(() => import('./pages/shop/BlogArticlePage'));
@@ -446,6 +447,7 @@ function App() {
           <Route path="/shop/tile-forgot-password" element={<ForgotPassword />} />
             <Route path="/reset-password" element={<ResetPassword />} />
             <Route path="/unsubscribe" element={<UnsubscribePage />} />
+            <Route path="/radio" element={<PublicRadioPage />} />
 
             {/* Public blog (Editorial Autopilot output) — wrapped in
                 the same Cart/Wishlist providers as the rest of the

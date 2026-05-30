@@ -1,0 +1,44 @@
+{
+  "summary": "Phase 2 Radio Studio live-stream certification. Wrote 7 new integration tests against REACT_APP_BACKEND_URL covering header contract, public unauthenticated access, now-playing JSON shape (empty / populated / orphan / playlist-edit / sync-proof) and real-time byte pacing. Final result: 7/7 new tests pass + 32/32 existing live tests + 40/40 other radio_studio tests = 79/79 green. Backend implementation of Phase 2 is functionally correct. HOWEVER one CRITICAL environment issue was uncovered: Cloudflare / Kubernetes ingress buffers the audio/mpeg StreamingResponse so that the PUBLIC URL returns 0 bytes within 20 seconds even though the backend streams cleanly at ~17 KB/s (51 KB in 3 s) via localhost. X-Accel-Buffering: no is set by the backend but is stripped/ignored at the edge. This will prevent the 4 in-store Bluetooth speakers from ever receiving audio via the public URL until the buffering layer is reconfigured.",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "GET /api/radio-studio/live (public URL only)",
+        "issue": "Cloudflare / ingress buffers the StreamingResponse — public URL returns 0 bytes for ≥20 s with status 200 but empty body, even though localhost:8001 streams 51 KB / 3 s correctly. X-Accel-Buffering: no, Cache-Control: no-store, and chunked Transfer-Encoding are all set by the backend; the edge ignores them. In-store speakers will not receive audio via the public URL.",
+        "priority": "CRITICAL"
+      }
+    ],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_radio_studio_live_stream_integration.py",
+    "/app/test_reports/pytest/iter184_live_integration.xml"
+  ],
+  "action_items": [
+    "CRITICAL: Fix streaming-response buffering at the ingress / Cloudflare layer for /api/radio-studio/live. Options: (a) confirm the kubernetes nginx-ingress has `proxy_buffering off` and `proxy_request_buffering off` annotations for this route, (b) enable Cloudflare's WebSocket / streaming bypass on this hostname, (c) for CF specifically, ensure the response is sent without Content-Length and that CF's 'Smart Tiered Cache' / 'Buffer streaming responses' setting is disabled — or worst-case proxy the audio via a custom domain that bypasses CF.",
+    "Confirmed working at backend: byte pacing, MP3 frame validity (ID3 header), now-playing JSON shape (empty / populated / orphan / playlist-edit), wall-clock sync (loop_offset_seconds advances with wall clock), resilience to playlist mutation between cycles."
+  ],
+  "critical_code_review_comments": [
+    "loop_offset_seconds and elapsed_seconds are rounded to 0.1 s precision (round(_, 1)). For a 4-track ~120 s playlist this is fine, but for very short playlists (< 1 s total) the sync test could falsely fail. Phase 2 tests inflate the seed MP3 to ~2 s per track to avoid this — production should warn or refuse if total playlist duration < 1 s.",
+    "/api/radio-studio/live emits an endless body. There is no soft cap (e.g. 24 h max-age) — a wedged client connection could in theory hold an async generator indefinitely. Consider closing the StreamingResponse after N hours so memory + connection slots recycle.",
+    "Cache-Control header is set on the response, but X-Accel-Buffering: no is not surviving the public ingress. Adding a nginx-ingress annotation `nginx.ingress.kubernetes.io/proxy-buffering: 'off'` for the radio-studio route would harden this."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_radio_studio_live_stream_integration.py (created — 7 integration tests)"
+  ],
+  "success_rate": {
+    "backend": "100% (79/79 radio_studio tests pass — 7 new integration + 32 existing live + 40 other)",
+    "frontend": "n/a (backend-only review)"
+  },
+  "test_credentials": "admin@test.com / admin123 (super_admin) — confirmed working at /api/auth/login",
+  "seed_data_creation": "Each test that needs audio uploads two tiny silent MP3 tracks via /api/admin/radio-studio/music/upload (name prefix TEST_live_*) and deletes them in fixture teardown. The snapshot_playlist module fixture captures the active playlist on entry and best-effort restores it on exit so iteration_184 leaves no residue beyond the cleanup paths it owns.",
+  "retest_needed": true,
+  "main_agent_can_self_test": false,
+  "context_for_next_testing_agent": "All Phase 2 backend logic is verified. The ONLY outstanding issue is the public-ingress buffering of the audio/mpeg stream. To verify any fix to that, re-run `curl -sS --max-time 3 -w 'bytes=%{size_download}' -o /tmp/x.mp3 ${REACT_APP_BACKEND_URL}/api/radio-studio/live` — must show bytes > 5000. As a control, the same curl against http://localhost:8001/api/radio-studio/live already shows ~51 KB / 3 s.",
+  "rca of the issue": "Public live audio stream returns 0 bytes. RCA: the upstream Cloudflare + Kubernetes nginx-ingress layer buffers responses with Transfer-Encoding: chunked + audio/mpeg content-type before flushing. The backend's StreamingResponse correctly yields bytes (verified via localhost:8001 → 51 KB in 3 s with valid ID3 / 0xFFFB MP3 frame headers). The backend sets Cache-Control: no-store, Pragma: no-cache, X-Accel-Buffering: no on the response, but the latter is stripped/ignored at the edge. Reproduction: `curl -sS --max-time 20 ${REACT_APP_BACKEND_URL}/api/radio-studio/live -o /tmp/x` → 0 bytes; vs the same curl against http://localhost:8001 → ~340 KB. Mitigation: add `nginx.ingress.kubernetes.io/proxy-buffering: off` to the ingress (and `proxy-request-buffering: off`) for the radio-studio path, OR configure Cloudflare to bypass streaming buffering for this hostname / path, OR serve the stream from a custom subdomain that doesn't sit behind CF."
+}

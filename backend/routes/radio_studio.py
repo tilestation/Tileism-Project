@@ -18,18 +18,21 @@ Storage architecture (24 May 2026 — REWRITTEN):
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import shutil
 import subprocess
 import tempfile
+import time
 import uuid
 from datetime import datetime, timezone
-from typing import List, Literal, Optional
+from typing import List, Literal, Optional, Tuple
 
 from elevenlabs import VoiceSettings
 from elevenlabs.client import ElevenLabs
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, Response
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from config import get_db
@@ -854,3 +857,316 @@ async def stream_music(track_id: str):
             "Accept-Ranges": "none",
         },
     )
+
+
+# ------------------------------------------------------------------
+# Phase 2 (26 May 2026) — Synchronised live stream
+# ------------------------------------------------------------------
+#
+# Goal: 4 Bluetooth speakers in 4 stores tune to ONE endless mp3
+# stream and all hear the same ad/track at the same moment (±1 s of
+# network jitter). User request, end-2026.
+#
+# How sync works: instead of "every connection plays the playlist
+# from item 0", we treat the playlist as an infinite tape head whose
+# position is `wall_clock_seconds_since_epoch % total_loop_duration`.
+# Any client connecting at time `t` joins the tape head at exactly
+# that offset → all clients converge regardless of when they tuned
+# in. This is the simplest scheme that gives genuine sync without
+# a separate broadcasting daemon (Icecast etc).
+#
+# Real-time pacing: we throttle yielded bytes to each track's actual
+# byte-rate (computed from `audio_bytes / duration_seconds`, so any
+# CBR or near-CBR mp3 works) so the audio player downloads at the
+# same speed it plays.
+#
+# Resilience: playlist queue is refreshed at the start of every loop
+# iteration — admins editing the playlist mid-cycle see their changes
+# at the next wrap-around, not the next byte.
+
+# Length of audio chunk yielded to the client. 4 KB at ~16 KB/s
+# byte-rate = 4 yields per second. Plenty of granularity for clean
+# pause/resume without overloading the event loop.
+_LIVE_CHUNK_BYTES = 4096
+
+# Fallback bitrate when a track has no recorded `duration_seconds`
+# (legacy upload). 128 kbps mp3 → 16,000 bytes/sec.
+_DEFAULT_BYTE_RATE = 16_000
+
+# Lazily-generated 1-second silent MP3 served when the playlist is
+# empty (rather than tearing down the connection — the speaker app
+# would otherwise keep reconnecting in a loop).
+_silence_mp3: Optional[bytes] = None
+
+
+def _get_silence_mp3() -> bytes:
+    """Render (or return cached) 1 second of silent 128 kbps stereo
+    MP3 via ffmpeg. Used to keep the live stream alive when the
+    playlist is empty or every item's audio_blob is missing."""
+    global _silence_mp3
+    if _silence_mp3 is not None:
+        return _silence_mp3
+    ffmpeg = _ffmpeg_bin()
+    if not ffmpeg:
+        # Last-resort tiny ID3 + null frames so the stream doesn't
+        # 500. Won't decode as audio but keeps the socket alive.
+        _silence_mp3 = b"ID3\x03\x00\x00\x00\x00\x00\x00" + b"\xff\xfb\x90\x00" + b"\x00" * 400
+        return _silence_mp3
+    with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as f:
+        path = f.name
+    try:
+        subprocess.run(
+            [
+                ffmpeg, "-hide_banner", "-loglevel", "error", "-y",
+                "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo",
+                "-t", "1", "-c:a", "libmp3lame", "-b:a", "128k",
+                path,
+            ],
+            check=True,
+        )
+        with open(path, "rb") as fp:
+            _silence_mp3 = fp.read()
+    finally:
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+    return _silence_mp3
+
+
+async def _build_play_queue() -> List[dict]:
+    """Resolve the active playlist's items to a list of dicts ready
+    for streaming. Each entry has `type` ('ad' | 'music'), `ref_id`,
+    `name`, `blob` (raw mp3 bytes), `duration_seconds` (float),
+    `byte_rate` (bytes/sec — computed from blob/duration so CBR mp3
+    paces correctly). Items with missing audio are silently skipped
+    so a dangling reference doesn't kill the loop."""
+    db = get_db()
+    playlist = await db.radio_studio_playlists.find_one(
+        {"is_active": True}, {"_id": 0},
+    )
+    if not playlist:
+        return []
+    items = playlist.get("items") or []
+    if not items:
+        return []
+
+    # Fetch the referenced media. Two find_many queries (one per
+    # collection) is faster than N individual lookups.
+    ad_ids = [it["ref_id"] for it in items if it.get("type") == "ad"]
+    music_ids = [it["ref_id"] for it in items if it.get("type") == "music"]
+    ads_by_id: dict = {}
+    music_by_id: dict = {}
+    if ad_ids:
+        async for doc in db.radio_studio_ads.find(
+            {"id": {"$in": ad_ids}},
+            {"_id": 0, "id": 1, "name": 1, "audio_blob": 1,
+             "audio_bytes": 1, "duration_seconds": 1},
+        ):
+            ads_by_id[doc["id"]] = doc
+    if music_ids:
+        async for doc in db.radio_studio_music.find(
+            {"id": {"$in": music_ids}},
+            {"_id": 0, "id": 1, "name": 1, "audio_blob": 1,
+             "audio_bytes": 1, "duration_seconds": 1},
+        ):
+            music_by_id[doc["id"]] = doc
+
+    resolved: List[dict] = []
+    for it in items:
+        ref = (ads_by_id if it.get("type") == "ad" else music_by_id).get(it.get("ref_id"))
+        if not ref or not ref.get("audio_blob"):
+            continue  # dangling — skip without killing the queue
+        blob = bytes(ref["audio_blob"])
+        duration = float(ref.get("duration_seconds") or 0)
+        if duration <= 0:
+            # Estimate from byte length at default rate so the timing
+            # math doesn't blow up.
+            duration = max(1.0, len(blob) / _DEFAULT_BYTE_RATE)
+        byte_rate = len(blob) / duration if duration > 0 else _DEFAULT_BYTE_RATE
+        resolved.append({
+            "type": it.get("type"),
+            "ref_id": it.get("ref_id"),
+            "name": ref.get("name") or "Untitled",
+            "blob": blob,
+            "duration_seconds": duration,
+            "byte_rate": byte_rate,
+        })
+    return resolved
+
+
+def _locate(offset_seconds: float, durations: List[float]) -> Tuple[int, float]:
+    """Given the offset into a concatenated loop and the duration of
+    each item, return (item_index, seconds_into_item). Pure function
+    — no I/O — so it's trivial to unit-test."""
+    if not durations:
+        return 0, 0.0
+    cursor = 0.0
+    for idx, d in enumerate(durations):
+        if offset_seconds < cursor + d:
+            return idx, max(0.0, offset_seconds - cursor)
+        cursor += d
+    # Past the end → wrap to last item's tail (defensive — caller
+    # always pre-modulos).
+    return len(durations) - 1, max(0.0, durations[-1] - 0.01)
+
+
+async def _throttle_item(item: dict, skip_seconds: float):
+    """Yield the item's mp3 bytes from `skip_seconds` to the end at
+    its real byte-rate, in `_LIVE_CHUNK_BYTES` chunks. Sleeps between
+    chunks so the audio player doesn't buffer the whole thing in
+    50 ms (which would defeat sync the moment a new client joined)."""
+    blob = item["blob"]
+    byte_rate = max(1.0, float(item.get("byte_rate", _DEFAULT_BYTE_RATE)))
+    start = max(0, min(int(skip_seconds * byte_rate), len(blob)))
+    pos = start
+    while pos < len(blob):
+        nxt = min(pos + _LIVE_CHUNK_BYTES, len(blob))
+        chunk = blob[pos:nxt]
+        yield chunk
+        # Real-time pacing: sleep for the duration of audio just
+        # emitted (0.95× as a tiny safety margin so the client's
+        # buffer never quite drains under network jitter).
+        await asyncio.sleep(max(0.001, len(chunk) / byte_rate * 0.95))
+        pos = nxt
+
+
+async def _live_generator():
+    """Endless async generator that yields synchronised mp3 chunks.
+    Every connected client computes its position from `time.time()`
+    so multiple speakers stay locked together regardless of when
+    they connected."""
+    while True:
+        queue = await _build_play_queue()
+
+        if not queue:
+            # No items → push 1 s of silence + re-poll. Keeps the
+            # connection alive until admins add the first item.
+            yield _get_silence_mp3()
+            await asyncio.sleep(1.0)
+            continue
+
+        durations = [q["duration_seconds"] for q in queue]
+        total = sum(durations) or 1.0
+        # Wall-clock-modulated offset so every client aligns.
+        offset = time.time() % total
+        idx, item_offset = _locate(offset, durations)
+
+        # Walk the queue from (idx, item_offset) to the end, then
+        # let the outer while-loop refresh + restart at 0 → infinite
+        # synced loop, with playlist edits picked up between cycles.
+        while idx < len(queue):
+            item = queue[idx]
+            async for chunk in _throttle_item(item, skip_seconds=item_offset):
+                yield chunk
+            idx += 1
+            item_offset = 0.0
+
+
+@public_router.get("/live")
+async def live_stream():
+    """Endless synchronised in-store radio stream. Unauthenticated
+    so the Bluetooth speakers (and any phone/tablet tethered to one)
+    can just tune in by URL. Browser <audio> tags, VLC, and
+    iOS/Android audio apps all consume this natively."""
+    headers = {
+        # Long-lived audio response — no proxy should cache or
+        # buffer it. (Cloudflare doesn't cache audio/mpeg by
+        # default but we belt-and-brace.)
+        "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+        "Pragma": "no-cache",
+        "X-Accel-Buffering": "no",  # disable nginx/Cloudflare buffering
+        "Connection": "keep-alive",
+    }
+    return StreamingResponse(
+        _live_generator(),
+        media_type="audio/mpeg",
+        headers=headers,
+    )
+
+
+@public_router.get("/live/now-playing")
+async def live_now_playing():
+    """Returns the item currently playing on the live stream + its
+    offset in seconds. The admin UI polls this every few seconds to
+    show a 'Now playing' badge; the public /radio page uses it to
+    drive a big in-store screen. Cheap — one playlist read, no
+    audio blobs."""
+    db = get_db()
+    playlist = await db.radio_studio_playlists.find_one(
+        {"is_active": True}, {"_id": 0},
+    )
+    items = (playlist or {}).get("items") or []
+    if not items:
+        return {
+            "playing": False,
+            "reason": "Playlist is empty — go to Radio Studio → Playlist to add items.",
+            "stream_url": "/api/radio-studio/live",
+        }
+
+    ad_ids = [it["ref_id"] for it in items if it.get("type") == "ad"]
+    music_ids = [it["ref_id"] for it in items if it.get("type") == "music"]
+    ads_by_id: dict = {}
+    music_by_id: dict = {}
+    if ad_ids:
+        async for d in db.radio_studio_ads.find(
+            {"id": {"$in": ad_ids}},
+            {"_id": 0, "id": 1, "name": 1, "duration_seconds": 1,
+             "audio_filename": 1, "voice_name": 1, "bed_music_name": 1},
+        ):
+            ads_by_id[d["id"]] = d
+    if music_ids:
+        async for d in db.radio_studio_music.find(
+            {"id": {"$in": music_ids}},
+            {"_id": 0, "id": 1, "name": 1, "duration_seconds": 1,
+             "audio_filename": 1},
+        ):
+            music_by_id[d["id"]] = d
+
+    # Build duration table, skipping items with no audio.
+    resolved = []
+    for it in items:
+        ref = (ads_by_id if it.get("type") == "ad" else music_by_id).get(it.get("ref_id"))
+        if not ref or not ref.get("audio_filename"):
+            continue
+        d = float(ref.get("duration_seconds") or 0) or 30.0
+        resolved.append({**it, "ref": ref, "duration_seconds": d})
+    if not resolved:
+        return {
+            "playing": False,
+            "reason": "Every playlist item is missing audio — generate or re-upload them.",
+            "stream_url": "/api/radio-studio/live",
+        }
+
+    durations = [r["duration_seconds"] for r in resolved]
+    total = sum(durations) or 1.0
+    offset = time.time() % total
+    idx, item_offset = _locate(offset, durations)
+    cur = resolved[idx]
+    nxt_idx = (idx + 1) % len(resolved)
+    return {
+        "playing": True,
+        "now": {
+            "type": cur.get("type"),
+            "ref_id": cur.get("ref_id"),
+            "name": cur["ref"].get("name"),
+            "voice_name": cur["ref"].get("voice_name") if cur.get("type") == "ad" else None,
+            "bed_music_name": cur["ref"].get("bed_music_name") if cur.get("type") == "ad" else None,
+            "duration_seconds": cur["duration_seconds"],
+            "elapsed_seconds": round(item_offset, 1),
+            "remaining_seconds": round(max(0.0, cur["duration_seconds"] - item_offset), 1),
+        },
+        "next": (
+            {
+                "type": resolved[nxt_idx].get("type"),
+                "name": resolved[nxt_idx]["ref"].get("name"),
+            }
+            if len(resolved) > 1 else None
+        ),
+        "playlist": {
+            "total_items": len(resolved),
+            "total_seconds": round(total, 1),
+            "loop_offset_seconds": round(offset, 1),
+        },
+        "stream_url": "/api/radio-studio/live",
+    }

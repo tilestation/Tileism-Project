@@ -1025,7 +1025,9 @@ function PlaylistTab({ ads, music, playlist, onPlaylistChange }) {
   };
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+    <div className="space-y-5">
+      <LiveStreamPanel hasItems={items.length > 0} />
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
       {/* Asset picker */}
       <div className="lg:col-span-1 space-y-4">
         <div className="bg-slate-800/60 backdrop-blur border border-slate-700/50 rounded-2xl p-4">
@@ -1174,6 +1176,201 @@ function PlaylistTab({ ads, music, playlist, onPlaylistChange }) {
           ))}
         </div>
       </div>
+      </div>
+    </div>
+  );
+}
+
+/* ----------------------------------------------------------------
+   Live stream panel — Phase 2 (26 May 2026)
+
+   The synced live-stream control surface inside the Playlist tab.
+   Shows the public tune-in URL, a "Now playing" pill that polls
+   /live/now-playing every 4s, an inline preview audio for the
+   admin's own desk, and a button to open the public /radio screen
+   in a new tab (for the in-store tablet wall display).
+---------------------------------------------------------------- */
+function LiveStreamPanel({ hasItems }) {
+  const [now, setNow] = useState(null);
+  const [streamOpen, setStreamOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const audioRef = React.useRef(null);
+
+  const liveUrl = `${API}/radio-studio/live`;
+  const publicScreenUrl = `${API_URL}/radio`;
+
+  // Poll now-playing every 4s. Cheap endpoint, no audio blobs.
+  useEffect(() => {
+    let alive = true;
+    const fetchNow = async () => {
+      try {
+        const r = await axios.get(`${API}/radio-studio/live/now-playing`);
+        if (alive) setNow(r.data);
+      } catch (_e) {
+        // Network blip — keep last known state.
+      }
+    };
+    fetchNow();
+    const t = setInterval(fetchNow, 4000);
+    return () => { alive = false; clearInterval(t); };
+  }, []);
+
+  const togglePreview = () => {
+    if (!audioRef.current) return;
+    if (streamOpen) {
+      audioRef.current.pause();
+      audioRef.current.removeAttribute('src');
+      audioRef.current.load();
+      setStreamOpen(false);
+    } else {
+      audioRef.current.src = liveUrl;
+      const p = audioRef.current.play();
+      if (p?.catch) {
+        p.then(() => setStreamOpen(true)).catch((e) => {
+          toast.error(`Browser blocked: ${e?.message || 'tap again'}`);
+        });
+      } else {
+        setStreamOpen(true);
+      }
+    }
+  };
+
+  const copyUrl = () => {
+    navigator.clipboard.writeText(liveUrl).then(() => {
+      setCopied(true);
+      toast.success('Stream URL copied');
+      setTimeout(() => setCopied(false), 1800);
+    });
+  };
+
+  const cur = now?.now;
+  const isAd = cur?.type === 'ad';
+
+  return (
+    <div
+      className="bg-gradient-to-br from-fuchsia-950/40 via-slate-900 to-slate-900 border border-fuchsia-700/30 rounded-2xl p-4 sm:p-5 shadow-xl"
+      data-testid="radio-live-panel"
+    >
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
+        <div className="flex items-center gap-2">
+          <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-fuchsia-500 to-purple-600 flex items-center justify-center shadow-lg shadow-fuchsia-500/30">
+            <Radio className="w-5 h-5 text-white" />
+          </div>
+          <div>
+            <h2 className="text-base font-bold flex items-center gap-2">
+              Live Stream
+              <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                now?.playing
+                  ? 'bg-emerald-500/20 text-emerald-300 ring-1 ring-emerald-500/40'
+                  : 'bg-slate-700/60 text-slate-300'
+              }`}>
+                <span className={`w-1.5 h-1.5 rounded-full ${now?.playing ? 'bg-emerald-400 animate-pulse' : 'bg-slate-500'}`} />
+                {now?.playing ? 'ON AIR' : (hasItems ? 'STARTING…' : 'WAITING')}
+              </span>
+            </h2>
+            <p className="text-[11px] text-slate-400">
+              All 4 stores tune to one synced loop. ±1s sync window across speakers.
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={togglePreview}
+            disabled={!hasItems}
+            data-testid="radio-live-preview-toggle"
+            className="px-3 py-1.5 bg-fuchsia-500 hover:bg-fuchsia-400 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-bold rounded-lg flex items-center gap-1.5 transition-all"
+          >
+            {streamOpen ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
+            {streamOpen ? 'Stop preview' : 'Preview here'}
+          </button>
+          <a
+            href={publicScreenUrl}
+            target="_blank"
+            rel="noreferrer"
+            data-testid="radio-live-open-screen"
+            className="px-3 py-1.5 bg-white/5 hover:bg-white/10 border border-white/10 text-white text-xs font-bold rounded-lg flex items-center gap-1.5 transition-all"
+          >
+            <Volume2 className="w-3.5 h-3.5" />
+            Open in-store screen
+          </a>
+        </div>
+      </div>
+
+      {/* Now-playing strip */}
+      <div className="bg-slate-950/40 rounded-lg p-3 flex flex-wrap items-center gap-3">
+        {now?.playing && cur ? (
+          <>
+            <div className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${
+              isAd
+                ? 'bg-gradient-to-br from-amber-400 to-orange-500'
+                : 'bg-gradient-to-br from-fuchsia-500 to-purple-600'
+            }`}>
+              {isAd ? <Mic className="w-5 h-5 text-slate-900" /> : <Music className="w-5 h-5 text-white" />}
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="text-[10px] uppercase tracking-wider text-slate-500">
+                {isAd ? 'Ad on air' : 'Music on air'}
+              </div>
+              <div className="text-sm font-bold truncate" data-testid="radio-live-now-name">{cur.name}</div>
+              <div className="text-[11px] text-slate-400 truncate">
+                {isAd && cur.voice_name ? `Voice · ${cur.voice_name}` : null}
+                {cur.bed_music_name ? ` · bed ${cur.bed_music_name}` : null}
+                {!isAd ? `${Math.round(cur.duration_seconds)}s` : null}
+              </div>
+            </div>
+            <div className="flex-shrink-0 w-32">
+              <div className="h-1 bg-slate-800 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-gradient-to-r from-amber-400 to-fuchsia-500 transition-all duration-500"
+                  style={{
+                    width: cur.duration_seconds
+                      ? `${Math.min(100, (cur.elapsed_seconds / cur.duration_seconds) * 100)}%`
+                      : '0%',
+                  }}
+                />
+              </div>
+              <div className="flex justify-between text-[10px] text-slate-500 mt-0.5 font-mono">
+                <span>{Math.floor(cur.elapsed_seconds || 0)}s</span>
+                <span>-{Math.floor(cur.remaining_seconds || 0)}s</span>
+              </div>
+            </div>
+            {now.next && (
+              <div className="text-[11px] text-slate-500 flex-shrink-0 hidden sm:block">
+                Up next:&nbsp;<span className="text-slate-300 font-medium">{now.next.name}</span>
+              </div>
+            )}
+          </>
+        ) : (
+          <div className="text-xs text-slate-400 py-1">
+            {now?.reason || 'Loading…'}
+          </div>
+        )}
+      </div>
+
+      {/* Shareable URL strip */}
+      <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px]">
+        <span className="text-slate-500">Tune-in URL:</span>
+        <code
+          data-testid="radio-live-url"
+          className="px-2 py-1 bg-slate-950/60 border border-slate-700 rounded font-mono text-fuchsia-300 truncate max-w-md"
+        >
+          {liveUrl}
+        </code>
+        <button
+          type="button"
+          onClick={copyUrl}
+          data-testid="radio-live-copy-url"
+          className="px-2 py-1 bg-white/5 hover:bg-white/10 border border-white/10 rounded font-bold"
+        >
+          {copied ? 'Copied ✓' : 'Copy'}
+        </button>
+        <span className="text-slate-500 hidden md:inline">
+          · Paste in VLC, browser, or any audio app on a phone tethered to your Bluetooth speaker.
+        </span>
+      </div>
+
+      <audio ref={audioRef} preload="none" data-testid="radio-live-preview-audio" />
     </div>
   );
 }
