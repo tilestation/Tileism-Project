@@ -180,6 +180,7 @@ function AdsTab({ voices, voicesLoading, onResyncVoices, ads, music, onAdsChange
     // with sidechain ducking at `bed_volume_pct`% on generation.
     bed_music_id: '',
     bed_volume_pct: 18,
+    pronunciation_hints: '',
   });
   const [saving, setSaving] = useState(false);
   const [generatingId, setGeneratingId] = useState(null);
@@ -213,6 +214,7 @@ function AdsTab({ voices, voicesLoading, onResyncVoices, ads, music, onAdsChange
       model_id: 'eleven_multilingual_v2',
       bed_music_id: '',
       bed_volume_pct: 18,
+      pronunciation_hints: '',
     });
   };
 
@@ -229,6 +231,7 @@ function AdsTab({ voices, voicesLoading, onResyncVoices, ads, music, onAdsChange
       model_id: ad.model_id || 'eleven_multilingual_v2',
       bed_music_id: ad.bed_music_id || '',
       bed_volume_pct: ad.bed_volume_pct ?? 18,
+      pronunciation_hints: ad.pronunciation_hints || '',
     });
   };
 
@@ -670,6 +673,40 @@ function AdsTab({ voices, voicesLoading, onResyncVoices, ads, music, onAdsChange
               </div>
             )}
           </div>
+
+          {/* Pronunciation hints — per-ad word substitution applied
+              before TTS. Useful for brand/product names ElevenLabs
+              gets wrong. (30 May 2026 user request.) */}
+          <details className="bg-slate-900/40 rounded-lg px-3 py-2">
+            <summary className="text-xs font-bold text-slate-300 cursor-pointer flex items-center gap-2">
+              <Mic className="w-3 h-3 text-amber-400" />
+              Pronunciation hints
+              <span className="text-[10px] font-normal text-slate-500">
+                ({(form.pronunciation_hints || '').split('\n').filter((l) => l.trim() && !l.trim().startsWith('#') && /[:=→]|->|is pronounced/i.test(l)).length} active)
+              </span>
+            </summary>
+            <div className="mt-2 space-y-2">
+              <textarea
+                value={form.pronunciation_hints}
+                onChange={(e) => setForm({ ...form, pronunciation_hints: e.target.value })}
+                placeholder={'porcelain: por-suh-lin\ncatalogue → cat-uh-log\nLa Dolce = lah-doll-chay\nCarrara is pronounced kar-RAR-uh'}
+                rows={4}
+                maxLength={4000}
+                data-testid="radio-ad-pronunciation-hints"
+                className="w-full px-2 py-1.5 bg-slate-900 border border-slate-600 rounded text-xs text-slate-100 placeholder-slate-600 focus:border-amber-500 focus:outline-none font-mono resize-y"
+              />
+              <p className="text-[10px] text-slate-500 leading-relaxed">
+                One <span className="text-amber-300 font-bold">word : phonetic</span> pair per line. Supports
+                <span className="font-mono mx-1">:</span>
+                <span className="font-mono mx-1">=</span>
+                <span className="font-mono mx-1">→</span>
+                <span className="font-mono mx-1">-&gt;</span>
+                or <span className="font-mono">is pronounced</span> as separators.
+                Lines starting with <span className="font-mono">#</span> are notes (ignored).
+                Click <span className="text-fuchsia-300 font-semibold">Test voice</span> on the saved ad to verify.
+              </p>
+            </div>
+          </details>
 
           {/* Voice tuning */}
           <details className="bg-slate-900/40 rounded-lg px-3 py-2">

@@ -1,3 +1,48 @@
+### [Feb 26, 2026 — Forked session] 🗣️ Pronunciation Hints — per-ad custom pronunciation
+
+**User request**: *"YES"* to the suggestion of a Pronunciation Hints field for fixing words ElevenLabs gets wrong (porcelain, catalogue, La Dolce, Carrara, etc).
+
+**Backend** (`routes/radio_studio.py`):
+- New `pronunciation_hints: Optional[str]` field (4000-char cap) on `AdCreate` + `AdUpdate` + the stored doc.
+- `_parse_pronunciation_hints(raw)` — loose parser. Accepts ANY of these separators on each line:
+  - `word: phonetic`
+  - `word = phonetic`
+  - `word -> phonetic`
+  - `word → phonetic`
+  - `word is pronounced phonetic`  ← natural language
+- Lines starting with `#` are notes (skipped). Blank lines tolerated. De-dupe with last-write-wins.
+- `_apply_pronunciation_hints(text, hints)` — **two-pass placeholder substitution** so a later hint can't accidentally match inside an earlier hint's replacement text (e.g. a hint for `Tile` would otherwise re-match inside `Tile Station`'s `tile-stay-shun` phonetic).
+- Wired into BOTH `generate_ad_audio` AND `test_ad_voice` — runs first, then `_normalize_for_tts` does its £/URL pass on the hint-applied text. So you can write a hint for `tilestation` → custom phonetic and it wins over the built-in brand split.
+- Empty-string on PATCH clears the field cleanly (no need to delete the ad to remove all hints).
+
+**Frontend** (`pages/admin/RadioStudio.jsx`):
+- New collapsible **"Pronunciation hints"** `<details>` section in the ad form (between music bed and Advanced voice settings).
+- Live **"(N active)"** counter in the summary header — counts only lines that contain a valid separator, so notes / blank lines don't inflate it.
+- Textarea with helpful placeholder: `porcelain: por-suh-lin\ncatalogue → cat-uh-log\nLa Dolce = lah-doll-chay\nCarrara is pronounced kar-RAR-uh`.
+- Help copy directly under the textarea showing all 4 separator characters + the "is pronounced" natural-language option + "Click Test voice to verify" guidance.
+- Round-trips on save + edit. Empty value sent on save → backend clears the field.
+
+**18 new tests** (`test_radio_studio_pronunciation_hints.py`):
+- 13 parser cases: all separators, multi-line, comments, blank lines, quoted values, dedup (last-write-wins), pathological inputs (60-char word cap).
+- Application: case-insensitive whole-word substitution; word-boundary protection (no match inside larger words); multi-word phrases (`La Dolce`); **longest-match-wins via placeholder approach** (Tile Station beats Tile); empty/None no-op; regex-special-chars in word (`1+1` doesn't crash); never mutates caller's string.
+- Integration: both `generate_ad_audio` AND `test_ad_voice` call the helper before normalisation.
+- Pydantic model: field exists on Create + Update; default None; 4000-char cap; empty-string clears.
+
+**End-to-end smoke** (curl through localhost):
+- POST `/ads` with `"pronunciation_hints": "porcelain: por-suh-lin\ncatalogue: cat-uh-log"` → 200 OK, field persisted ✓
+- Backend preview: `"Visit our porcelain showroom for the latest catalogue."` + hints → `"Visit our por-suh-lin showroom for the latest cat-uh-log."` ✓
+- Playwright check: textarea accepts text, "(3 active)" counter updates as user types ✓
+
+**160/160 radio-studio backend tests pass.** Lint clean.
+
+**Files**:
+- `/app/backend/routes/radio_studio.py` (parser, applier, model fields, wired into both TTS endpoints)
+- `/app/frontend/src/pages/admin/RadioStudio.jsx` (form state, collapsible UI section, round-trip)
+- `/app/backend/tests/test_radio_studio_pronunciation_hints.py` (NEW — 18 tests)
+- Updated `/app/backend/tests/test_radio_studio.py` and `test_radio_studio_tts_normalize.py` static-analysis assertions for the new wrapping order.
+
+
+
 ### [Feb 26, 2026 — Forked session] 🔊 Test Voice button + URL TTS normalisation
 
 **User feedback**: *"the AD voice doesn't read the links properly. I generated the AD for Download Bathroom Catalogue and asked to read out a link www.tilestation.co.uk/bathrooms but it doesn't sound right"* + *"YES"* to the "Test voice" suggestion.

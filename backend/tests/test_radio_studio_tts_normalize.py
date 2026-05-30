@@ -105,13 +105,15 @@ def test_normalize_euros():
 def test_generate_handler_normalises_before_elevenlabs():
     """Source check — `generate_ad_audio` MUST pass the script
     through `_normalize_for_tts` before handing it to ElevenLabs.
-    Otherwise the £-reads-as-$ bug returns."""
+    Otherwise the £-reads-as-$ bug returns. (Updated 30 May 2026
+    for the pronunciation-hints wrap: hints are applied first, then
+    the result is normalised.)"""
     from routes import radio_studio
     src = inspect.getsource(radio_studio.generate_ad_audio)
-    assert 'text=_normalize_for_tts(ad["script"])' in src, (
-        "generate_ad_audio must wrap ad['script'] in _normalize_for_tts "
-        "before passing to ElevenLabs. Don't pass the raw script — "
-        "ElevenLabs voices read £ as $."
+    assert "_normalize_for_tts(" in src and "_apply_pronunciation_hints(" in src, (
+        "generate_ad_audio must wrap ad['script'] in BOTH "
+        "_apply_pronunciation_hints + _normalize_for_tts before "
+        "passing to ElevenLabs."
     )
 
 

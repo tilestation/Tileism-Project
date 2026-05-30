@@ -72,9 +72,11 @@ def test_generate_endpoint_calls_elevenlabs_with_correct_settings():
     from routes import radio_studio
     src = inspect.getsource(radio_studio.generate_ad_audio)
     assert "client.text_to_speech.convert" in src
-    # 30 May 2026 — script is normalised through _normalize_for_tts
-    # before going to ElevenLabs (to fix £ being read as $).
-    assert 'text=_normalize_for_tts(ad["script"])' in src
+    # 30 May 2026 — script flows through _apply_pronunciation_hints
+    # then _normalize_for_tts before going to ElevenLabs (fixes
+    # both the £-read-as-$ bug AND mispronounced brand names).
+    assert "_apply_pronunciation_hints(" in src
+    assert "_normalize_for_tts(" in src
     assert 'voice_id=ad["voice_id"]' in src
     assert 'output_format="mp3_44100_128"' in src
     assert "VoiceSettings(" in src

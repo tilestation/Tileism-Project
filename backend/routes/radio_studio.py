@@ -28,7 +28,6 @@ import time
 import uuid
 from datetime import datetime, timezone
 from typing import List, Literal, Optional, Tuple
-
 from elevenlabs import VoiceSettings
 from elevenlabs.client import ElevenLabs
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, Response
@@ -156,6 +155,93 @@ def _normalize_for_tts(script: str) -> str:
     # € — same pattern as £ but simpler (no widely-used decimal
     # pence equivalent in UK marketing copy). Just spell it out.
     out = re.sub(r"€\s*(\d+(?:\.\d{1,2})?)", r"\1 euros", out)
+    return out
+
+
+# ------------------------------------------------------------------
+# Pronunciation hints (30 May 2026)
+# ------------------------------------------------------------------
+#
+# User-requested per-ad free-text field: tell the voice e.g.
+#   "porcelain: por-suh-lin"
+#   "Catalogue → cat-uh-log"
+#   "La Dolce = lah-doll-chay"
+# so brand/product names that ElevenLabs gets wrong are pronounced
+# correctly. Implementation = case-insensitive whole-word replace
+# in the script BEFORE it goes to TTS. This is exactly how radio
+# voice talents have always handled phonetic respellings — works
+# on every model, costs nothing extra, and is transparent (the
+# admin can see what changed by clicking Test voice).
+#
+# Format (parsed loosely — admin doesn't need to memorise syntax):
+#   word: phonetic
+#   word = phonetic
+#   word -> phonetic
+#   word → phonetic
+#   word is pronounced phonetic     ← natural language
+# One pair per line; blank lines and # comments ignored.
+
+_HINT_SEPARATORS = re.compile(
+    r"\s*(?:→|->|=|:|\bis pronounced(?:\s+as)?\b)\s*",
+    re.IGNORECASE,
+)
+
+
+def _parse_pronunciation_hints(hints: Optional[str]) -> List[Tuple[str, str]]:
+    """Parse the free-text hints into [(word, phonetic), ...]. Lines
+    that can't be split into a word + phonetic pair are skipped.
+    Words longer than 60 chars are dropped as paranoid pre-check
+    against pathological inputs."""
+    if not hints:
+        return []
+    pairs: List[Tuple[str, str]] = []
+    seen_keys: set = set()  # de-dupe — last write wins
+    for raw_line in hints.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        parts = _HINT_SEPARATORS.split(line, maxsplit=1)
+        if len(parts) != 2:
+            continue
+        word = parts[0].strip().strip('"\'')
+        phonetic = parts[1].strip().strip('"\'')
+        if not word or not phonetic or len(word) > 60 or len(phonetic) > 120:
+            continue
+        key = word.lower()
+        if key in seen_keys:
+            # Replace the earlier entry — last write wins.
+            pairs = [p for p in pairs if p[0].lower() != key]
+        seen_keys.add(key)
+        pairs.append((word, phonetic))
+    return pairs
+
+
+def _apply_pronunciation_hints(text: str, hints: Optional[str]) -> str:
+    """Apply parsed hints to `text`. Case-insensitive whole-word
+    replacement (so "Catalogue" → "cat-uh-log" matches both
+    "catalogue" and "Catalogue" in the script). Pure function —
+    leaves the stored script untouched.
+
+    Uses a placeholder-based two-pass approach so a later hint
+    can't accidentally match inside an earlier hint's replacement
+    text (e.g. when a hint for "Tile" would otherwise re-match
+    inside "Tile Station"'s already-substituted phonetic)."""
+    pairs = _parse_pronunciation_hints(hints)
+    if not pairs:
+        return text
+    # Pass 1: longest-first → swap into NUL-fenced placeholders so
+    # subsequent hint patterns can't see the new phonetic text.
+    pairs.sort(key=lambda p: -len(p[0]))
+    out = text
+    for idx, (word, _) in enumerate(pairs):
+        pattern = re.compile(
+            r"\b" + re.escape(word) + r"\b",
+            re.IGNORECASE,
+        )
+        out = pattern.sub(f"\x00HINT{idx}\x00", out)
+    # Pass 2: swap placeholders for their phonetics.
+    for idx, (_, phonetic) in enumerate(pairs):
+        out = out.replace(f"\x00HINT{idx}\x00", phonetic)
     return out
 
 
@@ -368,6 +454,13 @@ class AdCreate(BaseModel):
     # the final mix — no extra mixing needed at playback time.
     bed_music_id: Optional[str] = None
     bed_volume_pct: int = Field(default=18, ge=0, le=50)
+    # 30 May 2026 — per-ad pronunciation hints (free text, one
+    # `word: phonetic` pair per line). Applied as case-insensitive
+    # whole-word replacement BEFORE the script goes to ElevenLabs.
+    # See `_parse_pronunciation_hints` for the supported separators.
+    # 4000-char cap matches the script field — generous enough for
+    # dozens of hint pairs.
+    pronunciation_hints: Optional[str] = Field(default=None, max_length=4000)
 
 
 class AdUpdate(BaseModel):
@@ -381,6 +474,7 @@ class AdUpdate(BaseModel):
     model_id: Optional[str] = None
     bed_music_id: Optional[str] = None
     bed_volume_pct: Optional[int] = Field(default=None, ge=0, le=50)
+    pronunciation_hints: Optional[str] = Field(default=None, max_length=4000)
 
 
 class PlaylistItem(BaseModel):
@@ -690,6 +784,7 @@ async def create_ad(req: AdCreate, current_user: dict = Depends(get_current_user
         "model_id": req.model_id,
         "bed_music_id": req.bed_music_id,
         "bed_volume_pct": req.bed_volume_pct,
+        "pronunciation_hints": req.pronunciation_hints,
         "audio_filename": None,  # populated after first generation
         "duration_seconds": None,
         "generated_at": None,
@@ -729,6 +824,10 @@ async def update_ad(
     # it as an explicit unset rather than treating empty as truthy.
     if "bed_music_id" in req.model_dump(exclude_unset=True) and not updates.get("bed_music_id"):
         updates["bed_music_id"] = None
+    # Same pattern for pronunciation_hints — empty-string clears it.
+    sent = req.model_dump(exclude_unset=True)
+    if "pronunciation_hints" in sent and not (sent.get("pronunciation_hints") or "").strip():
+        updates["pronunciation_hints"] = None
     if not updates:
         raise HTTPException(status_code=400, detail="No fields to update")
     updates["updated_at"] = datetime.now(timezone.utc).isoformat()
@@ -771,9 +870,11 @@ async def test_ad_voice(
     if not ad.get("voice_id"):
         raise HTTPException(status_code=400, detail="Ad has no voice selected")
 
-    # Truncate the normalised script to a sentence boundary near
-    # the budget so the preview ends naturally rather than mid-word.
-    normalised = _normalize_for_tts(ad["script"])
+    # Apply per-ad pronunciation hints first (so they get a chance
+    # to substitute words BEFORE £/URL normalisation runs), then
+    # normalise £/URLs/m². Truncate the result to the test budget.
+    hinted = _apply_pronunciation_hints(ad["script"], ad.get("pronunciation_hints"))
+    normalised = _normalize_for_tts(hinted)
     preview = normalised[:_TEST_VOICE_CHAR_BUDGET]
     # Try to end at the last sentence/clause boundary inside budget.
     cut_at = max(preview.rfind(". "), preview.rfind("! "), preview.rfind("? "), preview.rfind(", "))
@@ -841,7 +942,11 @@ async def generate_ad_audio(
 
     try:
         audio_iter = client.text_to_speech.convert(
-            text=_normalize_for_tts(ad["script"]),
+            text=_normalize_for_tts(
+                _apply_pronunciation_hints(
+                    ad["script"], ad.get("pronunciation_hints"),
+                ),
+            ),
             voice_id=ad["voice_id"],
             model_id=ad.get("model_id") or "eleven_multilingual_v2",
             voice_settings=voice_settings,
