@@ -136,6 +136,125 @@ class PlaylistUpdate(BaseModel):
     is_active: bool = True
 
 
+class GenerateScriptReq(BaseModel):
+    """Auto-generate an ad script from keywords + a few hints.
+    (24 May 2026 — user-requested feature: "Could you give an option
+    to auto generate ads by adding few keywords as well as manual").
+    The LLM returns 2-4 short sentences in a UK English voice tone
+    suited to in-store narration."""
+    keywords: str = Field(min_length=1, max_length=500,
+                          description="Comma- or free-text keywords. e.g. 'La Dolce, 20% off, weekend, porcelain'")
+    duration_seconds: int = Field(default=20, ge=10, le=60,
+                                  description="Target read-aloud length in seconds (10-60). Drives script length.")
+    tone: Literal["friendly", "energetic", "calm", "authoritative", "premium"] = "friendly"
+    call_to_action: Optional[str] = Field(default=None, max_length=200,
+                                          description="Optional CTA — e.g. 'visit our showroom in Manchester', 'ask a team member'")
+    audience: Literal["retail", "trade", "both"] = "both"
+
+
+# ------------------------------------------------------------------
+# AI script generation (Emergent LLM key — Claude Haiku)
+# ------------------------------------------------------------------
+
+@router.post("/scripts/generate")
+async def generate_script(req: GenerateScriptReq, current_user: dict = Depends(get_current_user)):
+    """LLM-generate an ad script from keywords + tone. Returns the
+    text only — the admin can edit it, pick a voice, then save the
+    ad and trigger TTS as a separate step.
+    (24 May 2026 — user-requested auto-generate option.)"""
+    _require_admin(current_user)
+    api_key = os.environ.get("EMERGENT_LLM_KEY")
+    if not api_key:
+        raise HTTPException(status_code=500, detail="EMERGENT_LLM_KEY not set")
+
+    # Rough words-per-second budget for spoken radio: 2.3 wps ~ a
+    # natural pace for UK English narration. Cap at ~140 words for a
+    # 60s ad so we don't blow ElevenLabs credits.
+    target_words = max(20, min(140, int(req.duration_seconds * 2.3)))
+    tone_directives = {
+        "friendly": "Warm, conversational, like a friendly shopkeeper greeting a regular. Avoid hard-sell language.",
+        "energetic": "Upbeat, punchy, weekend-sale-style. Short snappy sentences, exclamation marks sparingly.",
+        "calm": "Measured, premium-feel, like a high-end brand voiceover. Slower pace, longer sentences.",
+        "authoritative": "Confident, knowledgeable, trade-professional. Highlight expertise and quality credentials.",
+        "premium": "Sophisticated, aspirational, luxury showroom feel. Evocative descriptive language.",
+    }
+    audience_directives = {
+        "retail": "Speak directly to homeowners and DIY shoppers. Mention free samples, design help, and easy returns.",
+        "trade": "Speak to professional tilers, builders, and designers. Mention trade discounts, bulk pricing, dedicated trade counter, and trade credit accounts.",
+        "both": "Address both retail customers AND trade professionals. Reference 'whether you're decorating one bathroom or fitting an entire development'.",
+    }
+
+    system = (
+        "You are a senior copywriter producing in-store RADIO ad scripts for Tile Station, "
+        "a UK tile, bathroom and flooring retailer with 4 showrooms. These scripts are "
+        "narrated by an ElevenLabs UK English voice on the in-store speakers — customers "
+        "browsing the showroom HEAR them, they don't read them.\n\n"
+        "STRICT RULES:\n"
+        "1. Output ONLY the script text — no headlines, no labels, no quotes, no markdown, "
+        "no 'Script:' prefix, no stage directions like '[pause]' or '*upbeat tone*'. "
+        "Just the words the narrator will speak.\n"
+        f"2. Target {req.duration_seconds} seconds of read-aloud time, roughly {target_words} words.\n"
+        "3. Spell out numbers naturally for narration: 'twenty percent off' not '20% off'.\n"
+        "4. Use UK English spelling (colour, optimise, centre, behaviour).\n"
+        "5. Always end with a clear next action the customer can take in-store.\n"
+        "6. Brand name is 'Tile Station' (two words). Do NOT abbreviate or rebrand.\n"
+        "7. Never invent prices, sale percentages or product details the admin didn't ask for.\n"
+        "8. Avoid clichés: 'visit us today', 'don't miss out', 'limited time only' — be specific.\n"
+        f"9. TONE: {tone_directives[req.tone]}\n"
+        f"10. AUDIENCE: {audience_directives[req.audience]}\n"
+    )
+
+    user_msg_parts = [
+        f"Keywords / themes to weave in:\n{req.keywords.strip()}",
+    ]
+    if req.call_to_action:
+        user_msg_parts.append(f"\nCall to action (must appear near the end):\n{req.call_to_action.strip()}")
+    user_msg_parts.append(
+        f"\nWrite the {req.duration_seconds}-second ad script now. Output ONLY the spoken words."
+    )
+    user_msg = "\n".join(user_msg_parts)
+
+    try:
+        from emergentintegrations.llm.chat import LlmChat, UserMessage
+        chat = LlmChat(
+            api_key=api_key,
+            session_id=f"radio-ad-{os.urandom(4).hex()}",
+            system_message=system,
+        )
+        chat.with_model("anthropic", "claude-haiku-4-5-20251001")
+        out = await chat.send_message(UserMessage(text=user_msg))
+    except Exception as exc:
+        logger.exception("Radio script generation failed")
+        raise HTTPException(
+            status_code=502,
+            detail=f"Script generation failed: {str(exc)[:200]}",
+        ) from exc
+
+    script = (out or "").strip()
+    # Strip common LLM defects: code fences, leading/trailing quotes,
+    # "Script:" labels the model occasionally adds despite instructions.
+    if script.startswith("```"):
+        script = script.split("\n", 1)[-1]
+        if script.endswith("```"):
+            script = script.rsplit("```", 1)[0]
+    if script.startswith('"') and script.endswith('"'):
+        script = script[1:-1]
+    for prefix in ("Script:", "SCRIPT:", "Ad:", "AD:"):
+        if script.startswith(prefix):
+            script = script[len(prefix):].strip()
+
+    # Suggest a sensible default ad name from the first 6 keyword words.
+    suggested_name_parts = [w for w in (req.keywords or "").replace(",", " ").split() if w][:6]
+    suggested_name = " ".join(suggested_name_parts) or "Untitled ad"
+
+    return {
+        "script": script.strip(),
+        "suggested_name": suggested_name,
+        "approx_words": len(script.split()),
+        "approx_seconds": round(len(script.split()) / 2.3, 1),
+    }
+
+
 # ------------------------------------------------------------------
 # Voices
 # ------------------------------------------------------------------

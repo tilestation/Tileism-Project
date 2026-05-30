@@ -167,6 +167,18 @@ function AdsTab({ voices, voicesLoading, onResyncVoices, ads, onAdsChange }) {
   });
   const [saving, setSaving] = useState(false);
   const [generatingId, setGeneratingId] = useState(null);
+  // 24 May 2026 — AI auto-generate state. Open the panel, fill the
+  // keywords + tone, click "Generate" — the LLM-written script lands
+  // straight into the Script textarea where the admin can tweak it.
+  const [aiOpen, setAiOpen] = useState(false);
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiForm, setAiForm] = useState({
+    keywords: '',
+    duration_seconds: 20,
+    tone: 'friendly',
+    audience: 'both',
+    call_to_action: '',
+  });
 
   const resetForm = () => {
     setEditingAd(null);
@@ -245,6 +257,48 @@ function AdsTab({ voices, voicesLoading, onResyncVoices, ads, onAdsChange }) {
     }
   };
 
+  // 24 May 2026 — AI auto-generate. LLM writes the script from
+  // keywords + tone; result populates the Script textarea so the
+  // admin can edit before saving. The voice + voice settings remain
+  // independent of the script source — auto-generated scripts can
+  // use any voice the admin picks.
+  const handleAiGenerate = async () => {
+    if (!aiForm.keywords.trim()) {
+      toast.error('Add a few keywords first (e.g. "La Dolce, 20% off, weekend")');
+      return;
+    }
+    setAiBusy(true);
+    try {
+      const r = await axios.post(
+        `${API}/admin/radio-studio/scripts/generate`,
+        {
+          keywords: aiForm.keywords.trim(),
+          duration_seconds: aiForm.duration_seconds,
+          tone: aiForm.tone,
+          audience: aiForm.audience,
+          call_to_action: aiForm.call_to_action.trim() || null,
+        },
+        { headers: tokenHdr() }
+      );
+      // Drop the generated script into the form. Preserve the name
+      // if the admin already typed one, otherwise seed from the
+      // backend's suggested name.
+      setForm((f) => ({
+        ...f,
+        script: r.data.script || '',
+        name: f.name.trim() ? f.name : (r.data.suggested_name || ''),
+      }));
+      toast.success(
+        `Script ready · ${r.data.approx_words} words · ~${r.data.approx_seconds}s`,
+      );
+      setAiOpen(false);
+    } catch (e) {
+      toast.error(`Generation failed: ${e?.response?.data?.detail || e.message}`);
+    } finally {
+      setAiBusy(false);
+    }
+  };
+
   // Group voices by accent so the dropdown is easier to scan. UK
   // English first because that's the default request.
   const groupedVoices = (() => {
@@ -285,6 +339,136 @@ function AdsTab({ voices, voicesLoading, onResyncVoices, ads, onAdsChange }) {
               data-testid="radio-ad-name"
               className="w-full px-3 py-2 bg-slate-900 border border-slate-600 rounded-lg text-sm text-slate-100 placeholder-slate-500 focus:border-amber-500 focus:outline-none"
             />
+          </div>
+
+          {/* 24 May 2026 — AI auto-generate panel. Collapsed by
+              default so manual scripting (the existing UX) stays the
+              primary path. Click to expand → fill keywords → click
+              Generate. The LLM's text lands in the Script textarea
+              below, ready to edit. Voice selection is independent —
+              the admin still picks the voice + tuning separately. */}
+          <div className="bg-gradient-to-br from-purple-900/40 to-fuchsia-900/30 border border-purple-500/30 rounded-lg overflow-hidden">
+            <button
+              type="button"
+              onClick={() => setAiOpen((v) => !v)}
+              data-testid="radio-ad-ai-toggle"
+              className="w-full flex items-center justify-between gap-2 px-3 py-2 text-left hover:bg-purple-500/10 transition-colors"
+            >
+              <span className="flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-fuchsia-300" />
+                <span className="text-sm font-semibold text-fuchsia-200">
+                  Auto-generate script with AI
+                </span>
+                <span className="text-[10px] text-fuchsia-400/70 font-normal">— or write manually below</span>
+              </span>
+              <span className="text-xs text-fuchsia-300">{aiOpen ? '▲' : '▼'}</span>
+            </button>
+            {aiOpen && (
+              <div className="px-3 pb-3 pt-1 space-y-2 border-t border-purple-500/20">
+                <div>
+                  <label className="block text-[10px] uppercase tracking-wider text-fuchsia-300/80 font-bold mb-0.5">
+                    Keywords / themes
+                  </label>
+                  <input
+                    type="text"
+                    value={aiForm.keywords}
+                    onChange={(e) => setAiForm({ ...aiForm, keywords: e.target.value })}
+                    placeholder="La Dolce porcelain, 20% off, free samples, this weekend"
+                    data-testid="radio-ad-ai-keywords"
+                    className="w-full px-2.5 py-1.5 bg-slate-900 border border-purple-500/40 rounded text-sm text-slate-100 placeholder-slate-500 focus:border-fuchsia-400 focus:outline-none"
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-[10px] uppercase tracking-wider text-fuchsia-300/80 font-bold mb-0.5">
+                      Tone
+                    </label>
+                    <select
+                      value={aiForm.tone}
+                      onChange={(e) => setAiForm({ ...aiForm, tone: e.target.value })}
+                      data-testid="radio-ad-ai-tone"
+                      className="w-full px-2 py-1.5 bg-slate-900 border border-purple-500/40 rounded text-xs text-slate-100 focus:border-fuchsia-400 focus:outline-none"
+                    >
+                      <option value="friendly">Friendly · conversational</option>
+                      <option value="energetic">Energetic · sale-style</option>
+                      <option value="calm">Calm · premium</option>
+                      <option value="authoritative">Authoritative · trade</option>
+                      <option value="premium">Premium · luxury</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] uppercase tracking-wider text-fuchsia-300/80 font-bold mb-0.5">
+                      Length
+                    </label>
+                    <select
+                      value={aiForm.duration_seconds}
+                      onChange={(e) => setAiForm({ ...aiForm, duration_seconds: parseInt(e.target.value, 10) })}
+                      data-testid="radio-ad-ai-length"
+                      className="w-full px-2 py-1.5 bg-slate-900 border border-purple-500/40 rounded text-xs text-slate-100 focus:border-fuchsia-400 focus:outline-none"
+                    >
+                      <option value={10}>~10s (snappy)</option>
+                      <option value={15}>~15s</option>
+                      <option value={20}>~20s (standard)</option>
+                      <option value={30}>~30s</option>
+                      <option value={45}>~45s (detailed)</option>
+                      <option value={60}>~60s (full story)</option>
+                    </select>
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-[10px] uppercase tracking-wider text-fuchsia-300/80 font-bold mb-0.5">
+                    Audience
+                  </label>
+                  <div className="flex gap-1">
+                    {[
+                      { value: 'retail', label: 'Retail' },
+                      { value: 'trade', label: 'Trade' },
+                      { value: 'both', label: 'Both' },
+                    ].map((opt) => (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        onClick={() => setAiForm({ ...aiForm, audience: opt.value })}
+                        data-testid={`radio-ad-ai-audience-${opt.value}`}
+                        className={`flex-1 text-xs py-1.5 rounded font-semibold transition-colors ${
+                          aiForm.audience === opt.value
+                            ? 'bg-fuchsia-500 text-white'
+                            : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-[10px] uppercase tracking-wider text-fuchsia-300/80 font-bold mb-0.5">
+                    Call to action <span className="normal-case opacity-70 font-normal">(optional)</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={aiForm.call_to_action}
+                    onChange={(e) => setAiForm({ ...aiForm, call_to_action: e.target.value })}
+                    placeholder="e.g. visit our Manchester showroom · ask a team member · grab a free sample"
+                    data-testid="radio-ad-ai-cta"
+                    className="w-full px-2.5 py-1.5 bg-slate-900 border border-purple-500/40 rounded text-xs text-slate-100 placeholder-slate-500 focus:border-fuchsia-400 focus:outline-none"
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={handleAiGenerate}
+                  disabled={aiBusy || !aiForm.keywords.trim()}
+                  data-testid="radio-ad-ai-generate"
+                  className="w-full py-2 bg-gradient-to-r from-fuchsia-500 to-purple-500 hover:from-fuchsia-400 hover:to-purple-400 text-white font-bold rounded-lg disabled:opacity-50 disabled:cursor-wait transition-all flex items-center justify-center gap-2 text-sm"
+                >
+                  {aiBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+                  {aiBusy ? 'Writing your ad…' : 'Generate script'}
+                </button>
+                <p className="text-[10px] text-fuchsia-300/60 leading-snug">
+                  ✓ Script lands in the box below — edit it freely · ✓ Pick voice + tuning separately · ✓ Doesn&apos;t cost ElevenLabs credits until you click Generate Audio
+                </p>
+              </div>
+            )}
           </div>
 
           <div>
