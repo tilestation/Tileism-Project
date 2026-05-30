@@ -1,3 +1,26 @@
+### [Feb 26, 2026 — Forked session] 🎵 Radio Studio: Multi-file Upload + Drag-and-Drop
+
+**User request** (with screenshot of the old single-file uploader): *"Can you allow me to upload multiple tracks at the same time. Also, add a drag and drop feature."*
+
+**Implementation** (`pages/admin/RadioStudio.jsx::MusicTab`):
+- Replaced the single-file `<input>` + Track-Name input with a **drag-and-drop zone** + an **upload queue** with per-file editable rows.
+- Multi-select file picker (`multiple` attribute on the hidden `<input type="file">`) — the dropzone is fully clickable and opens the OS picker if drag-drop isn't an option (mobile, etc).
+- Each file in the queue auto-derives a clean track name (strips extension, hash prefixes, "(Official)" cruft) but the name is **editable inline** before upload.
+- Per-file **size precheck (15 MB cap)** — oversized files are flagged in the queue with a red "!" icon and a "Too big (X MB · 15 MB max)" reason BEFORE the user hits Upload, so they don't wait for a 413.
+- Non-audio files dropped onto the zone are silently filtered with a toast ("Skipped N non-audio files").
+- **Sequential upload** loop with live status flips (`pending → uploading → done/error`), spinner during upload, ✓ on success, ! with truncated error reason on failure.
+- "Clear done" link appears once any uploads succeed so the admin can tidy the queue without losing pending rows.
+- Toast aggregates the final result: "Uploaded 3 tracks" / "Uploaded 2, 1 failed" / "3 uploads failed".
+
+**Bonus fix found via the user's screenshot**: The help copy claimed "Max 30 MB per track" but the backend `MAX_AUDIO_BYTES` is **15 MB**. Updated the copy to match the actual cap so admins don't waste time picking 20 MB files that would always 413.
+
+**Smoke screenshot**: dropzone renders with hover state, "MP3/WAV/M4A · multi-select supported" hint visible, button correctly disabled until files are added.
+
+**Files**:
+- `/app/frontend/src/pages/admin/RadioStudio.jsx` (rewrote `MusicTab` upload section — ~170 LOC; everything else unchanged)
+
+
+
 ### [Feb 26, 2026 — Forked session] 📻 Radio Studio Phase 2 — Synchronised Live Stream
 
 **User request**: *"Build a live streaming endpoint (Icecast/Shoutcast style or continuous loop) that 4 Bluetooth speakers can tune into simultaneously."* All 4 stores hear the **same** track at the **same** moment — sync within ~1 s of network jitter.

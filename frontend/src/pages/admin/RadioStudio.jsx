@@ -753,58 +753,133 @@ function AdsTab({ voices, voicesLoading, onResyncVoices, ads, music, onAdsChange
 }
 
 /* ----------------------------------------------------------------
-   Music library tab
+   Music library tab — multi-file uploads with drag-and-drop
+   (26 May 2026, user request: "allow me to upload multiple tracks
+   at the same time" + "add a drag and drop feature")
 ---------------------------------------------------------------- */
 function MusicTab({ music, onMusicChange }) {
-  const [uploadName, setUploadName] = useState('');
-  const [uploadFile, setUploadFile] = useState(null);
+  // Each queue entry: { id, file, name, status, error }
+  //   status: 'pending' | 'uploading' | 'done' | 'error'
+  // ID is just an in-memory counter so we can React-key each row.
+  const [queue, setQueue] = useState([]);
   const [uploading, setUploading] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
+  const fileInputRef = React.useRef(null);
+  const queueIdRef = React.useRef(0);
 
-  // 24 May 2026 — auto-derive the track name from the filename when
-  // the admin picks a file. User reported the Upload button stayed
-  // greyed out forever because they expected picking a file to be
-  // enough — they didn't notice the empty Track Name input above.
-  // Strips the extension and the most common YouTube/SoundCloud
-  // download prefixes so the name is shop-ready.
-  const handleFilePick = (file) => {
-    setUploadFile(file);
-    if (file && !uploadName.trim()) {
-      let n = file.name.replace(/\.[^.]+$/, '');                 // drop extension
-      n = n.replace(/^[a-z0-9-_]{8,}-/i, '');                    // drop hash prefixes
-      n = n.replace(/\s*\([^)]*\)\s*$/, '').trim();              // drop trailing "(Official)" / "(Audio)"
-      setUploadName(n);
-    }
+  // Strip extension + common YouTube/SoundCloud hash prefixes +
+  // trailing "(Official)"/"(Audio)" cruft so the name is shop-ready
+  // straight out of the box.
+  const deriveName = (filename) => {
+    let n = filename.replace(/\.[^.]+$/, '');         // drop extension
+    n = n.replace(/^[a-z0-9-_]{8,}-/i, '');           // drop hash prefixes
+    n = n.replace(/\s*\([^)]*\)\s*$/, '').trim();     // drop "(Official)"
+    return n;
   };
 
-  const handleUpload = async () => {
-    if (!uploadFile || !uploadName.trim()) {
-      toast.error('Pick a file and give it a name');
+  const ingestFiles = (filesLike) => {
+    const arr = Array.from(filesLike || []);
+    if (!arr.length) return;
+    const audioOnly = arr.filter((f) => (f.type || '').startsWith('audio/') || /\.(mp3|wav|ogg|m4a|aac|flac)$/i.test(f.name));
+    const rejected = arr.length - audioOnly.length;
+    if (rejected > 0) {
+      toast.error(`Skipped ${rejected} non-audio file${rejected === 1 ? '' : 's'}`);
+    }
+    // 15 MB backend cap (MAX_AUDIO_BYTES) — flag oversize files
+    // BEFORE the user clicks Upload so they don't wait for a 413.
+    const sized = audioOnly.map((file) => {
+      const oversize = file.size > 15 * 1024 * 1024;
+      return {
+        id: ++queueIdRef.current,
+        file,
+        name: deriveName(file.name),
+        status: oversize ? 'error' : 'pending',
+        error: oversize ? `Too big (${Math.round(file.size / 1024 / 1024)} MB · 15 MB max)` : null,
+      };
+    });
+    setQueue((q) => [...q, ...sized]);
+  };
+
+  const onDrop = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragOver(false);
+    ingestFiles(e.dataTransfer?.files);
+  };
+
+  const onDragOver = (e) => {
+    e.preventDefault();
+    if (!dragOver) setDragOver(true);
+  };
+
+  const onDragLeave = (e) => {
+    e.preventDefault();
+    setDragOver(false);
+  };
+
+  const onPickFiles = (e) => {
+    ingestFiles(e.target.files);
+    // Reset so picking the same file twice still fires onChange.
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const updateName = (id, name) => {
+    setQueue((q) => q.map((it) => (it.id === id ? { ...it, name } : it)));
+  };
+
+  const removeFromQueue = (id) => {
+    setQueue((q) => q.filter((it) => it.id !== id));
+  };
+
+  const clearDone = () => {
+    setQueue((q) => q.filter((it) => it.status !== 'done'));
+  };
+
+  const handleUploadAll = async () => {
+    const targets = queue.filter((q) => q.status === 'pending');
+    if (!targets.length) {
+      toast.error('Nothing to upload');
+      return;
+    }
+    // All-or-some validation: every pending row needs a non-empty
+    // name. If any are blank, abort up-front rather than getting
+    // halfway through and erroring.
+    const blanks = targets.filter((t) => !t.name.trim());
+    if (blanks.length) {
+      toast.error(`${blanks.length} track${blanks.length === 1 ? '' : 's'} need a name`);
       return;
     }
     setUploading(true);
-    try {
-      const fd = new FormData();
-      fd.append('name', uploadName.trim());
-      fd.append('file', uploadFile);
-      // 24 May 2026 — DO NOT manually set Content-Type on FormData
-      // uploads. Axios auto-generates it as
-      //   "multipart/form-data; boundary=----WebKitFormBoundaryXxx"
-      // The boundary is auto-derived from the FormData instance.
-      // Setting Content-Type manually here OMITS the boundary, so
-      // the backend's multipart parser couldn't find any fields →
-      // silent 422 / "field required" → upload looked stuck.
-      await axios.post(`${API}/admin/radio-studio/music/upload`, fd, {
-        headers: tokenHdr(),
-      });
-      toast.success('Track uploaded');
-      setUploadName('');
-      setUploadFile(null);
-      onMusicChange();
-    } catch (e) {
-      toast.error(`Upload failed: ${e?.response?.data?.detail || e.message}`);
-    } finally {
-      setUploading(false);
+    let successCount = 0;
+    let failCount = 0;
+    // Sequential upload — keeps backend load predictable + lets
+    // the admin watch each one's status flip.
+    for (const t of targets) {
+      setQueue((q) => q.map((it) => (it.id === t.id ? { ...it, status: 'uploading' } : it)));
+      try {
+        const fd = new FormData();
+        fd.append('name', t.name.trim());
+        fd.append('file', t.file);
+        // DO NOT set Content-Type — axios auto-builds it with the
+        // multipart boundary. (24 May 2026 bug.)
+        await axios.post(`${API}/admin/radio-studio/music/upload`, fd, { headers: tokenHdr() });
+        setQueue((q) => q.map((it) => (it.id === t.id ? { ...it, status: 'done' } : it)));
+        successCount++;
+      } catch (e) {
+        const detail = e?.response?.data?.detail || e.message || 'Upload failed';
+        setQueue((q) => q.map((it) => (it.id === t.id ? { ...it, status: 'error', error: detail } : it)));
+        failCount++;
+      }
     }
+    if (successCount && !failCount) {
+      toast.success(`Uploaded ${successCount} track${successCount === 1 ? '' : 's'}`);
+    } else if (successCount && failCount) {
+      toast.warning(`Uploaded ${successCount}, ${failCount} failed`);
+    } else {
+      toast.error(`${failCount} upload${failCount === 1 ? '' : 's'} failed`);
+    }
+    onMusicChange();
+    setUploading(false);
   };
 
   const handleDelete = async (id) => {
@@ -818,54 +893,140 @@ function MusicTab({ music, onMusicChange }) {
     }
   };
 
+  const pendingCount = queue.filter((q) => q.status === 'pending').length;
+  const doneCount = queue.filter((q) => q.status === 'done').length;
+
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
       <div className="bg-slate-800/60 backdrop-blur border border-slate-700/50 rounded-2xl p-4 sm:p-5 shadow-xl">
         <h2 className="text-lg font-bold mb-3 flex items-center gap-2">
           <Upload className="w-5 h-5 text-amber-400" />
-          Upload music track
+          Upload music tracks
         </h2>
         <p className="text-xs text-slate-400 mb-3 leading-relaxed">
-          Royalty-free MP3s only (e.g. YouTube Audio Library, Epidemic Sound free tier, Bensound). Max 30 MB per track.
-          Music plays between ads in the playlist.
+          Royalty-free MP3s only (e.g. YouTube Audio Library, Epidemic Sound free tier, Bensound). Max 15 MB per track.
+          Drop multiple files at once — name each one and click Upload all.
         </p>
-        <div className="space-y-3">
+
+        {/* Drag-and-drop zone — also clickable to open file picker. */}
+        <div
+          onDragOver={onDragOver}
+          onDragEnter={onDragOver}
+          onDragLeave={onDragLeave}
+          onDrop={onDrop}
+          onClick={() => fileInputRef.current?.click()}
+          data-testid="radio-music-dropzone"
+          className={`relative cursor-pointer border-2 border-dashed rounded-xl px-4 py-8 text-center transition-all ${
+            dragOver
+              ? 'border-amber-400 bg-amber-500/10 scale-[1.01]'
+              : 'border-slate-600 hover:border-amber-500/60 hover:bg-amber-500/5'
+          }`}
+        >
+          <Upload className={`w-8 h-8 mx-auto mb-2 ${dragOver ? 'text-amber-300' : 'text-slate-400'}`} />
+          <p className="text-sm font-bold text-slate-200">
+            {dragOver ? 'Drop to add to upload queue' : 'Drop audio files here'}
+          </p>
+          <p className="text-[11px] text-slate-500 mt-0.5">
+            or <span className="text-amber-400 underline underline-offset-2">click to pick from your computer</span> · MP3/WAV/M4A · multi-select supported
+          </p>
           <input
-            type="text"
-            value={uploadName}
-            onChange={(e) => setUploadName(e.target.value)}
-            placeholder="Track name (e.g. Upbeat morning loop)"
-            data-testid="radio-music-name"
-            className="w-full px-3 py-2 bg-slate-900 border border-slate-600 rounded-lg text-sm text-slate-100 placeholder-slate-500 focus:border-amber-500 focus:outline-none"
-          />
-          <input
+            ref={fileInputRef}
             type="file"
             accept="audio/*"
-            onChange={(e) => handleFilePick(e.target.files?.[0] || null)}
+            multiple
+            onChange={onPickFiles}
             data-testid="radio-music-file"
-            className="w-full text-sm text-slate-300 file:mr-3 file:py-2 file:px-3 file:rounded-lg file:border-0 file:bg-amber-500 file:text-slate-900 file:font-bold hover:file:bg-amber-400 file:cursor-pointer"
+            className="hidden"
           />
-          <button
-            onClick={handleUpload}
-            disabled={uploading || !uploadFile || !uploadName.trim()}
-            data-testid="radio-music-upload"
-            className="w-full py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-900 font-bold rounded-lg disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-            title={
-              !uploadFile ? 'Pick an MP3 file first' :
-              !uploadName.trim() ? 'Enter a track name above' :
-              'Upload track'
-            }
-          >
-            {uploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
-            {uploading
-              ? 'Uploading...'
-              : !uploadFile
-                ? 'Pick a file above'
-                : !uploadName.trim()
-                  ? 'Enter a track name above'
-                  : 'Upload track'}
-          </button>
         </div>
+
+        {/* Upload queue — per-file row with editable name + status */}
+        {queue.length > 0 && (
+          <div className="mt-4 space-y-2" data-testid="radio-music-queue">
+            <div className="flex items-center justify-between text-[11px] text-slate-400">
+              <span>
+                {queue.length} file{queue.length === 1 ? '' : 's'} queued
+                {doneCount ? ` · ${doneCount} done` : ''}
+              </span>
+              {doneCount > 0 && (
+                <button
+                  type="button"
+                  onClick={clearDone}
+                  className="text-amber-400 hover:text-amber-300 underline"
+                >
+                  Clear done
+                </button>
+              )}
+            </div>
+            <div className="max-h-72 overflow-y-auto space-y-1.5 pr-1">
+              {queue.map((it) => (
+                <div
+                  key={it.id}
+                  data-testid={`radio-music-queue-row-${it.id}`}
+                  className={`flex items-center gap-2 px-2.5 py-2 rounded-lg border ${
+                    it.status === 'done'
+                      ? 'bg-emerald-500/10 border-emerald-500/30'
+                      : it.status === 'error'
+                        ? 'bg-red-500/10 border-red-500/30'
+                        : it.status === 'uploading'
+                          ? 'bg-amber-500/10 border-amber-500/40'
+                          : 'bg-slate-900/60 border-slate-700/50'
+                  }`}
+                >
+                  <div className="flex-shrink-0 w-5 h-5 flex items-center justify-center">
+                    {it.status === 'uploading' && <Loader2 className="w-4 h-4 animate-spin text-amber-400" />}
+                    {it.status === 'done' && <span className="text-emerald-400 text-sm font-bold">✓</span>}
+                    {it.status === 'error' && <span className="text-red-400 text-sm font-bold">!</span>}
+                    {it.status === 'pending' && <Music className="w-4 h-4 text-slate-500" />}
+                  </div>
+                  <input
+                    type="text"
+                    value={it.name}
+                    onChange={(e) => updateName(it.id, e.target.value)}
+                    disabled={it.status === 'uploading' || it.status === 'done'}
+                    placeholder="Track name"
+                    className="flex-1 min-w-0 bg-transparent border-none text-sm text-slate-100 placeholder-slate-500 focus:outline-none disabled:text-slate-400"
+                  />
+                  <span className="text-[10px] text-slate-500 font-mono flex-shrink-0">
+                    {(it.file.size / 1024 / 1024).toFixed(1)} MB
+                  </span>
+                  {it.error && (
+                    <span
+                      className="text-[10px] text-red-300 truncate max-w-[160px]"
+                      title={it.error}
+                    >
+                      {it.error}
+                    </span>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => removeFromQueue(it.id)}
+                    disabled={it.status === 'uploading'}
+                    className="p-1 text-slate-500 hover:text-red-400 disabled:opacity-30 rounded"
+                    title="Remove from queue"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <button
+          onClick={handleUploadAll}
+          disabled={uploading || pendingCount === 0}
+          data-testid="radio-music-upload"
+          className="mt-4 w-full py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-900 font-bold rounded-lg disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-all"
+          title={pendingCount === 0 ? 'Add files first' : `Upload ${pendingCount} track${pendingCount === 1 ? '' : 's'}`}
+        >
+          {uploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+          {uploading
+            ? `Uploading… (${queue.filter((q) => q.status === 'done').length}/${queue.filter((q) => q.status !== 'pending').length})`
+            : pendingCount === 0
+              ? 'Add files to upload'
+              : `Upload ${pendingCount} track${pendingCount === 1 ? '' : 's'}`}
+        </button>
 
         <div className="mt-5 pt-4 border-t border-slate-700/50">
           <h3 className="text-xs uppercase tracking-wider text-slate-400 font-bold mb-2">Free music sources</h3>
