@@ -1,3 +1,4 @@
+--extra-index-url https://d33sy5i8bnduwe.cloudfront.net/simple/
 aiohappyeyeballs==2.6.1
 aiohttp==3.13.3
 aiohttp-retry==2.9.1
