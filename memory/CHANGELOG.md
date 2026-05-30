@@ -1,3 +1,69 @@
+### [Feb 26, 2026 — Forked session] 🔊 Test Voice button + URL TTS normalisation
+
+**User feedback**: *"the AD voice doesn't read the links properly. I generated the AD for Download Bathroom Catalogue and asked to read out a link www.tilestation.co.uk/bathrooms but it doesn't sound right"* + *"YES"* to the "Test voice" suggestion.
+
+**Part 1 — URL → spoken TTS pre-processor** (`_normalize_for_tts`):
+Extended the existing £/m²/€ normaliser to also handle URLs.
+
+| Input | Voice hears |
+|---|---|
+| `www.tilestation.co.uk/bathrooms` | "tile station dot co dot uk slash bathrooms" |
+| `https://tilestation.co.uk` | "tile station dot co dot uk" |
+| `tilestation.co.uk/sale-this-week` | "tile station dot co dot uk slash sale dash this dash week" |
+| `tilestation` (bare brand mention) | "tile station" |
+
+Implementation:
+- `_URL_PATTERN` regex matches `http(s)://`, `www.`, and bare-TLD URLs (only when followed by `/path` — keeps false-positive rate low on company names with periods).
+- Allowlist of TLDs (`com`, `co.uk`, `org`, `net`, `io`, `app`, `uk`, `biz`, `ai`) so it doesn't grab random period-separated tokens.
+- Brand-name word-split `tilestation` → `tile station` (case-insensitive) runs AFTER the URL pass.
+
+Combined real-world script:
+> "This weekend at Tile Station: porcelain from **£19.99 m²**. Order online at **www.tilestation.co.uk/sale**."
+
+becomes:
+> "This weekend at tile station: porcelain from **19 pounds 99 square metres**. Order online at **tile station dot co dot uk slash sale**."
+
+8 new tests in `test_radio_studio_tts_normalize.py` (25 total). All passing.
+
+**Part 2 — Test Voice button**:
+
+`POST /api/admin/radio-studio/ads/{id}/test-voice` — admin-only.
+- Synthesises only the first ~180 normalised chars (≈ first sentence) of the ad's script.
+- Truncates at a natural sentence boundary (`. ` / `! ` / `? ` / `, `) when possible so the preview doesn't end mid-word.
+- Does **NOT** apply the music bed → admin hears the voice clearly to sanity-check pronunciations (£, URLs).
+- Does **NOT** touch the stored audio_blob → throwaway preview.
+- Returns `audio/mpeg` bytes inline with `Cache-Control: no-store` (fresh on every click).
+- Cost: ~£0.0002 per preview vs ~£0.005 for a full 30 s ad generation.
+- 400 with clear message when the ad has no script or no voice; 404 when the ad doesn't exist; 502 on ElevenLabs errors with the upstream message bubbled up.
+
+Frontend: new fuchsia **🔊 Volume2** button between the 🎙 Edit and ✨ Generate buttons on every ad card. Spinner while in flight. Plays the returned bytes inline via `<audio>` + blob URL (revoked on `ended` to prevent memory leaks). Tooltip: *"Test voice — play the first sentence to check pronunciations (£, URLs). ~£0.0002"*
+
+10 new tests in `test_radio_studio_test_voice.py`:
+- Returns audio/mpeg bytes ✓
+- TTS receives the NORMALISED text (£, URLs swapped before send) ✓
+- Long scripts truncated at sentence boundary within 180-char budget ✓
+- Does not call `update_one`/`insert_one` on the ad doc ✓
+- Does not apply the music bed ✓
+- 400 when script is empty / voice not selected ✓
+- 404 when ad doesn't exist ✓
+- 502 surfaces ElevenLabs error message ✓
+- `_require_admin` runs before any DB lookup ✓
+
+**133/133 radio-studio backend tests pass.** Lint clean on both files.
+
+**End-to-end smoke** (curl through `localhost:8001`):
+- POST to non-existent ad → 404 "Ad not found" ✓
+- Endpoint visible in `/openapi.json` ✓
+- `_normalize_for_tts("Download our catalogue at www.tilestation.co.uk/bathrooms today!")` → `"Download our catalogue at tile station dot co dot uk slash bathrooms today!"` ✓
+
+**Files**:
+- `/app/backend/routes/radio_studio.py` — extended `_normalize_for_tts` with `_URL_PATTERN`+`_url_to_spoken` + brand-split; new `test_ad_voice` endpoint above `generate_ad_audio`.
+- `/app/frontend/src/pages/admin/RadioStudio.jsx` — `handleTestVoice` + `testingId` state + fuchsia Volume2 button on each ad card row.
+- `/app/backend/tests/test_radio_studio_tts_normalize.py` — added URL coverage (8 new tests, 25 total).
+- `/app/backend/tests/test_radio_studio_test_voice.py` (NEW — 10 tests).
+
+
+
 ### [Feb 26, 2026 — Forked session] 🔁 Playlist Repeat toggle + 🇬🇧 £ TTS fix
 
 Two user-reported items in one go.

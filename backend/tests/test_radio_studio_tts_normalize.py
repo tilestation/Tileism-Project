@@ -121,3 +121,50 @@ def test_normalize_does_not_mutate_stored_script():
     original = "Sale £49.99 today."
     _ = _normalize_for_tts(original)
     assert original == "Sale £49.99 today."
+
+
+# ---------------------------------------------------------------
+# URLs — the second user-reported P0 (30 May 2026)
+# ElevenLabs reads bare URLs unpredictably. We convert them to
+# spaced-out spoken form before sending to TTS.
+# ---------------------------------------------------------------
+
+@pytest.mark.parametrize("script,expected", [
+    # The exact case the user complained about.
+    ("Download at www.tilestation.co.uk/bathrooms today!",
+     "Download at tile station dot co dot uk slash bathrooms today!"),
+    # Explicit https://
+    ("Visit https://tilestation.co.uk",
+     "Visit tile station dot co dot uk"),
+    # Bare domain with path
+    ("Browse tilestation.co.uk/sale for deals.",
+     "Browse tile station dot co dot uk slash sale for deals."),
+    # Dashes in path
+    ("tilestation.co.uk/sale-this-week is live.",
+     "tile station dot co dot uk slash sale dash this dash week is live."),
+    # No URL — no change
+    ("Visit us today.",
+     "Visit us today."),
+    # Bare brand mention (no domain) — still gets word-split
+    ("Tile Station is the place.",
+     "Tile Station is the place."),
+    ("come to tilestation for tiles",
+     "come to tile station for tiles"),
+])
+def test_normalize_urls(script, expected):
+    from routes.radio_studio import _normalize_for_tts
+    assert _normalize_for_tts(script) == expected
+
+
+def test_normalize_combines_url_and_gbp_in_one_script():
+    """The combined real-world case — an ad script with BOTH a URL
+    and a £-priced offer must normalise both correctly."""
+    from routes.radio_studio import _normalize_for_tts
+    script = (
+        "This weekend at Tile Station: porcelain from £19.99 m². "
+        "Order online at www.tilestation.co.uk/sale."
+    )
+    out = _normalize_for_tts(script)
+    assert "19 pounds 99" in out
+    assert "square metres" in out
+    assert "tile station dot co dot uk slash sale" in out

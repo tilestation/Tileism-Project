@@ -139,7 +139,15 @@ def _normalize_for_tts(script: str) -> str:
     does NOT mutate the stored script."""
     if not script:
         return script
-    out = _GBP_PATTERN.sub(_gbp_to_words, script)
+    # URLs FIRST — must run before any other substitution because
+    # later steps would mangle the dots/slashes inside the URL.
+    # See _spoken_url for the full conversion rules.
+    out = _URL_PATTERN.sub(_url_to_spoken, script)
+    # Brand-name word-split — "tilestation" → "tile station". Done
+    # AFTER the URL pass so we touch up both bare brand mentions
+    # ("tilestation") and the chunks left inside an unraveled URL.
+    out = re.sub(r"\btilestation\b", "tile station", out, flags=re.IGNORECASE)
+    out = _GBP_PATTERN.sub(_gbp_to_words, out)
     # m² / m2 → "square metres". Match either Unicode superscript-2
     # or the common ASCII fallback "m2" when it's adjacent to a
     # digit (so we don't mangle words like "GTM2").
@@ -149,6 +157,60 @@ def _normalize_for_tts(script: str) -> str:
     # pence equivalent in UK marketing copy). Just spell it out.
     out = re.sub(r"€\s*(\d+(?:\.\d{1,2})?)", r"\1 euros", out)
     return out
+
+
+# ------------------------------------------------------------------
+# URL → spoken form
+# ------------------------------------------------------------------
+#
+# (30 May 2026 — user-reported: an ad with `www.tilestation.co.uk/bathrooms`
+# came out garbled in TTS. ElevenLabs reads bare URLs unpredictably:
+# sometimes letter-by-letter, sometimes it skips the slash, sometimes
+# it inserts the literal word "URL". Converting the URL to spaced-out
+# words before sending gives the voice something it can narrate cleanly.)
+#
+# Rules:
+#   • Strip http(s):// + leading www.
+#   • "." → " dot "
+#   • "/" → " slash "
+#   • "-" → " dash "
+#   • "_" → " underscore "
+#   • Brand-name split (tilestation → tile station) runs AFTER, so
+#     a URL like "www.tilestation.co.uk/bathrooms" reads as
+#     "tile station dot co dot uk slash bathrooms".
+
+# Matches:
+#   • Explicit http/https URLs:   https://example.com/path
+#   • www-prefixed URLs:           www.example.co.uk/path
+#   • Bare TLD-ish strings:        example.co.uk/path (only when followed
+#                                  by a slash + path → reduces false-
+#                                  positives on company names with periods)
+_URL_PATTERN = re.compile(
+    r"""
+    (?:https?://|www\.|(?<=\s)|(?<=^))      # leading boundary
+    (?:[a-z0-9-]+\.)+                       # one or more label.
+    (?:com|co\.uk|org|net|io|app|uk|biz|ai) # known TLDs only
+    (?:/[a-z0-9_\-/.?=&%#]*)?               # optional path/query
+    """,
+    re.IGNORECASE | re.VERBOSE,
+)
+
+
+def _url_to_spoken(match: re.Match) -> str:
+    """Convert a single matched URL into its spoken form."""
+    raw = match.group(0).strip()
+    # Strip the prefix our regex's leading-boundary chunk pulled in.
+    spoken = raw
+    spoken = re.sub(r"^https?://", "", spoken, flags=re.IGNORECASE)
+    spoken = re.sub(r"^www\.", "", spoken, flags=re.IGNORECASE)
+    spoken = spoken.replace(".", " dot ")
+    spoken = spoken.replace("/", " slash ")
+    spoken = spoken.replace("-", " dash ")
+    spoken = spoken.replace("_", " underscore ")
+    # Collapse the double spaces that " dot "/" slash " can produce
+    # at adjacent boundaries.
+    spoken = re.sub(r"\s+", " ", spoken).strip()
+    return spoken
 
 
 # ------------------------------------------------------------------
@@ -675,6 +737,83 @@ async def update_ad(
         raise HTTPException(status_code=404, detail="Ad not found")
     ad = await db.radio_studio_ads.find_one({"id": ad_id}, {"_id": 0, "audio_blob": 0})
     return ad
+
+
+# Test-voice endpoint: budget = first N chars of the normalised
+# script. ElevenLabs charges per character so a "preview" of the
+# opening sentence costs ~80 chars × $0.30/1000 chars ≈ £0.0002 —
+# basically free, and the admin gets to sanity-check pronunciations
+# (especially £/URL normalisation) before committing to a full re-
+# render. (30 May 2026 user request.)
+_TEST_VOICE_CHAR_BUDGET = 180
+
+
+@router.post("/ads/{ad_id}/test-voice")
+async def test_ad_voice(
+    ad_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """Synthesise a short preview of the ad's voice (first ~180
+    normalised chars) and stream the bytes back inline. Does NOT
+    apply the music bed (so the admin hears the voice clearly) and
+    does NOT touch the stored audio_blob — perfect for "does this
+    pronounce £42.99 right?" sanity checks before committing to a
+    full ElevenLabs generation."""
+    _require_admin(current_user)
+    db = get_db()
+    ad = await db.radio_studio_ads.find_one(
+        {"id": ad_id}, {"_id": 0, "audio_blob": 0},
+    )
+    if not ad:
+        raise HTTPException(status_code=404, detail="Ad not found")
+    if not ad.get("script", "").strip():
+        raise HTTPException(status_code=400, detail="Ad has no script — write one first")
+    if not ad.get("voice_id"):
+        raise HTTPException(status_code=400, detail="Ad has no voice selected")
+
+    # Truncate the normalised script to a sentence boundary near
+    # the budget so the preview ends naturally rather than mid-word.
+    normalised = _normalize_for_tts(ad["script"])
+    preview = normalised[:_TEST_VOICE_CHAR_BUDGET]
+    # Try to end at the last sentence/clause boundary inside budget.
+    cut_at = max(preview.rfind(". "), preview.rfind("! "), preview.rfind("? "), preview.rfind(", "))
+    if cut_at > _TEST_VOICE_CHAR_BUDGET // 2:
+        # Keep the boundary character.
+        preview = preview[: cut_at + 1]
+    preview = preview.strip()
+
+    client = _get_eleven_client()
+    voice_settings = VoiceSettings(
+        stability=float(ad.get("stability", 0.5)),
+        similarity_boost=float(ad.get("similarity_boost", 0.75)),
+        style=float(ad.get("style", 0.0)),
+        use_speaker_boost=True,
+    )
+    try:
+        audio_iter = client.text_to_speech.convert(
+            text=preview,
+            voice_id=ad["voice_id"],
+            model_id=ad.get("model_id") or "eleven_multilingual_v2",
+            voice_settings=voice_settings,
+            output_format="mp3_44100_128",
+        )
+        audio_data = b"".join(chunk for chunk in audio_iter if chunk)
+    except Exception as e:
+        logger.exception("ElevenLabs test-voice failed for ad %s", ad_id)
+        raise HTTPException(status_code=502, detail=f"ElevenLabs error: {e}") from e
+
+    if not audio_data:
+        raise HTTPException(status_code=502, detail="ElevenLabs returned empty audio")
+
+    return Response(
+        content=audio_data,
+        media_type="audio/mpeg",
+        headers={
+            "Cache-Control": "no-store",  # Each preview is fresh.
+            "Content-Length": str(len(audio_data)),
+            "X-Preview-Chars": str(len(preview)),  # surface chars used in response header
+        },
+    )
 
 
 @router.post("/ads/{ad_id}/generate")

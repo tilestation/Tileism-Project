@@ -183,6 +183,9 @@ function AdsTab({ voices, voicesLoading, onResyncVoices, ads, music, onAdsChange
   });
   const [saving, setSaving] = useState(false);
   const [generatingId, setGeneratingId] = useState(null);
+  // 30 May 2026 — separate state from generatingId so the Test
+  // Voice spinner can show while a different ad is mid-generate.
+  const [testingId, setTestingId] = useState(null);
   // 24 May 2026 — AI auto-generate state. Open the panel, fill the
   // keywords + tone, click "Generate" — the LLM-written script lands
   // straight into the Script textarea where the admin can tweak it.
@@ -264,6 +267,45 @@ function AdsTab({ voices, voicesLoading, onResyncVoices, ads, music, onAdsChange
       toast.error(`Generation failed: ${e?.response?.data?.detail || e.message}`);
     } finally {
       setGeneratingId(null);
+    }
+  };
+
+  // 30 May 2026 — Test voice. Synthesises only the first ~180
+  // normalised characters of the ad's script and plays them inline.
+  // ~£0.0002 per preview (vs ~£0.005 for a full 30s ad). Lets the
+  // admin sanity-check pronunciations (£, URLs) before committing.
+  const handleTestVoice = async (adId) => {
+    setTestingId(adId);
+    try {
+      // axios+blob — backend returns audio/mpeg bytes inline.
+      const r = await axios.post(
+        `${API}/admin/radio-studio/ads/${adId}/test-voice`,
+        {},
+        { headers: tokenHdr(), responseType: 'blob' },
+      );
+      const url = URL.createObjectURL(r.data);
+      const audio = new Audio(url);
+      // Revoke the blob URL once playback finishes (or fails) so
+      // we don't leak object URLs across many previews.
+      const cleanup = () => URL.revokeObjectURL(url);
+      audio.addEventListener('ended', cleanup, { once: true });
+      audio.addEventListener('error', cleanup, { once: true });
+      await audio.play();
+    } catch (e) {
+      const detail = e?.response?.data?.detail;
+      // axios responseType=blob keeps `data` as a Blob even on
+      // error — try to parse the JSON error body if there is one.
+      if (e?.response?.data && typeof e.response.data.text === 'function') {
+        try {
+          const text = await e.response.data.text();
+          const parsed = JSON.parse(text);
+          toast.error(`Test voice failed: ${parsed.detail || text}`);
+          return;
+        } catch (_e) { /* fall through */ }
+      }
+      toast.error(`Test voice failed: ${detail || e.message}`);
+    } finally {
+      setTestingId(null);
     }
   };
 
@@ -709,6 +751,17 @@ function AdsTab({ voices, voicesLoading, onResyncVoices, ads, music, onAdsChange
                     title="Edit"
                   >
                     <Mic className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    onClick={() => handleTestVoice(ad.id)}
+                    disabled={testingId === ad.id || generatingId === ad.id}
+                    data-testid={`radio-ad-test-voice-${ad.id}`}
+                    className="p-1.5 text-fuchsia-400 hover:text-fuchsia-300 hover:bg-slate-800 rounded disabled:opacity-60 disabled:cursor-wait"
+                    title="Test voice — play the first sentence to check pronunciations (£, URLs). ~£0.0002"
+                  >
+                    {testingId === ad.id
+                      ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      : <Volume2 className="w-3.5 h-3.5" />}
                   </button>
                   <button
                     onClick={() => handleGenerate(ad.id)}
