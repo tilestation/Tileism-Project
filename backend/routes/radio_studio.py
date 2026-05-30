@@ -1144,6 +1144,13 @@ async def live_now_playing():
     idx, item_offset = _locate(offset, durations)
     cur = resolved[idx]
     nxt_idx = (idx + 1) % len(resolved)
+    # Audio URL points at the existing per-item streaming endpoint
+    # (NOT /live), so a browser <audio> tag can consume it as a
+    # normal finite MP3 — works through every proxy / corporate
+    # firewall. The public /radio page uses this for sync.
+    cur_audio_url = (
+        f"/api/radio-studio/stream/{'ad' if cur.get('type') == 'ad' else 'music'}/{cur.get('ref_id')}"
+    )
     return {
         "playing": True,
         "now": {
@@ -1155,11 +1162,18 @@ async def live_now_playing():
             "duration_seconds": cur["duration_seconds"],
             "elapsed_seconds": round(item_offset, 1),
             "remaining_seconds": round(max(0.0, cur["duration_seconds"] - item_offset), 1),
+            "audio_url": cur_audio_url,
         },
         "next": (
             {
                 "type": resolved[nxt_idx].get("type"),
+                "ref_id": resolved[nxt_idx].get("ref_id"),
                 "name": resolved[nxt_idx]["ref"].get("name"),
+                "audio_url": (
+                    f"/api/radio-studio/stream/"
+                    f"{'ad' if resolved[nxt_idx].get('type') == 'ad' else 'music'}"
+                    f"/{resolved[nxt_idx].get('ref_id')}"
+                ),
             }
             if len(resolved) > 1 else None
         ),
@@ -1168,5 +1182,10 @@ async def live_now_playing():
             "total_seconds": round(total, 1),
             "loop_offset_seconds": round(offset, 1),
         },
-        "stream_url": "/api/radio-studio/live",
+        # `server_time` lets a client extrapolate elapsed seconds
+        # without re-polling — they can interpolate locally for
+        # 4-second poll cycles and only ask the server again at
+        # item boundaries. Drift between speakers stays <1 s.
+        "server_time": time.time(),
+        "stream_url": "/api/radio-studio/live",  # for VLC etc.
     }

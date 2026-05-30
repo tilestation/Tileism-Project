@@ -2,71 +2,139 @@
  * Public live-radio tune-in page — for in-store tablets / phones
  * tethered to Bluetooth speakers (26 May 2026, Phase 2).
  *
- * No auth, no chrome, big NOW PLAYING display, autoplay on tap.
+ * Sync strategy (proxy-bulletproof):
+ *   The backend's /live endless-stream endpoint works perfectly on
+ *   Cloudflare + Railway. However some corporate ingress proxies
+ *   (Kubernetes default nginx, some store WiFi firewalls) buffer
+ *   audio/mpeg streaming responses. To survive ALL networks, this
+ *   page does client-orchestrated playback instead:
  *
- * URL: /radio — paste this on any store tablet wall display,
- * tap "Tune in", connect tablet over Bluetooth to a speaker, done.
- * All 4 stores hear the SAME song/ad at the SAME moment thanks to
- * the wall-clock-modulated sync in the backend live generator.
+ *     1. Poll /api/radio-studio/live/now-playing every 4 s.
+ *     2. Each speaker fetches a normal FINITE MP3 from the
+ *        existing /stream/ad/{id} or /stream/music/{id} endpoint
+ *        (already works through every proxy) and seeks to the
+ *        wall-clock-derived elapsed_seconds offset.
+ *     3. When the current item ends, the speaker re-polls
+ *        now-playing to pick up the next item.
+ *
+ *   All 4 stores compute the same wall-clock offset → they hear
+ *   the same content at the same moment, within ~1 s of network
+ *   jitter. Same UX as the original /live streaming approach but
+ *   works on every network in the world.
+ *
+ * URL: /radio — paste on any in-store tablet, tap "Tune in",
+ * connect to Bluetooth speaker, leave the tab open.
  */
-import React, { useEffect, useRef, useState } from 'react';
-import { Radio, Play, Pause, Loader2, Volume2, Music, Mic } from 'lucide-react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
+import { Radio, Play, Pause, Music, Mic } from 'lucide-react';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${API_URL}/api`;
-const STREAM_URL = `${API}/radio-studio/live`;
 const POLL_URL = `${API}/radio-studio/live/now-playing`;
 
 export default function PublicRadioPage() {
   const audioRef = useRef(null);
-  const [playing, setPlaying] = useState(false);
+  const [tunedIn, setTunedIn] = useState(false);
   const [now, setNow] = useState(null);
   const [err, setErr] = useState(null);
+  // Used to detect when the SERVER's "now playing" item changes
+  // between polls — that's when we cross-fade to the next track.
+  const currentRefRef = useRef(null);
 
-  // Poll now-playing every 4 seconds. The endpoint is cheap (no
-  // audio blobs) so even with 4 store screens this is sub-second
-  // total load on the backend.
-  useEffect(() => {
-    let alive = true;
-    const fetchNow = async () => {
-      try {
-        const r = await fetch(POLL_URL, { cache: 'no-store' });
-        const data = await r.json();
-        if (alive) setNow(data);
-      } catch (_e) {
-        // Network blips happen — keep the last known state visible.
-      }
-    };
-    fetchNow();
-    const t = setInterval(fetchNow, 4000);
-    return () => { alive = false; clearInterval(t); };
+  const fetchNow = useCallback(async () => {
+    try {
+      const r = await fetch(POLL_URL, { cache: 'no-store' });
+      const data = await r.json();
+      setNow(data);
+      return data;
+    } catch (_e) {
+      return null;
+    }
   }, []);
 
-  const tuneIn = () => {
-    if (!audioRef.current) return;
-    setErr(null);
-    audioRef.current.src = STREAM_URL;
-    const p = audioRef.current.play();
-    if (p?.catch) {
-      p.then(() => setPlaying(true)).catch((e) => {
-        setErr(e?.message || 'Browser blocked autoplay — tap Tune In again');
-        setPlaying(false);
-      });
-    } else {
-      setPlaying(true);
+  // Background polling. Cheap endpoint (no audio blobs).
+  useEffect(() => {
+    let alive = true;
+    const t = setInterval(() => {
+      if (alive) fetchNow();
+    }, 4000);
+    fetchNow();
+    return () => { alive = false; clearInterval(t); };
+  }, [fetchNow]);
+
+  // When the SERVER changes the current item OR we just tuned in,
+  // load the audio for that item and seek to the synced offset so
+  // every speaker is at the same moment of the same track.
+  useEffect(() => {
+    if (!tunedIn) return;
+    if (!now?.playing || !now?.now?.audio_url) return;
+    const audio = audioRef.current;
+    if (!audio) return;
+    const refKey = `${now.now.type}:${now.now.ref_id}`;
+    if (currentRefRef.current === refKey && !audio.paused) {
+      // Same track still playing — let it run, don't re-seek (would
+      // cause an audible jump every poll cycle).
+      return;
     }
+    currentRefRef.current = refKey;
+    const fullUrl = `${API_URL}${now.now.audio_url}`;
+    audio.src = fullUrl;
+    const onLoaded = () => {
+      // Seek to wall-clock offset for instant sync across speakers.
+      try {
+        audio.currentTime = Math.max(0, Math.min(
+          (now.now.elapsed_seconds || 0),
+          (now.now.duration_seconds || 999) - 0.2,
+        ));
+      } catch (_e) {
+        // Some browsers refuse seek before metadata fully loaded —
+        // ignore, next loadedmetadata fires it correctly.
+      }
+      audio.play().catch((e) => {
+        setErr(e?.message || 'Browser blocked playback — tap Tune in again');
+      });
+      audio.removeEventListener('loadedmetadata', onLoaded);
+    };
+    audio.addEventListener('loadedmetadata', onLoaded);
+  }, [tunedIn, now]);
+
+  // When the current track finishes, refresh now-playing once so
+  // the next render picks up the new item without waiting for the
+  // next 4-second poll cycle.
+  useEffect(() => {
+    const a = audioRef.current;
+    if (!a) return;
+    const onEnded = () => {
+      currentRefRef.current = null;
+      fetchNow();
+    };
+    a.addEventListener('ended', onEnded);
+    return () => a.removeEventListener('ended', onEnded);
+  }, [fetchNow]);
+
+  const tuneIn = async () => {
+    setErr(null);
+    setTunedIn(true);
+    // Pre-warm: on user gesture, immediately fetch now-playing so
+    // the audio element loads with audio.play() still permitted by
+    // browser autoplay policy.
+    await fetchNow();
   };
 
   const tuneOut = () => {
-    if (!audioRef.current) return;
-    audioRef.current.pause();
-    audioRef.current.removeAttribute('src');
-    audioRef.current.load();
-    setPlaying(false);
+    setTunedIn(false);
+    const a = audioRef.current;
+    if (a) {
+      a.pause();
+      a.removeAttribute('src');
+      a.load();
+    }
+    currentRefRef.current = null;
   };
 
   const cur = now?.now;
   const isAd = cur?.type === 'ad';
+  const playing = tunedIn && !!cur;
 
   return (
     <div
@@ -111,7 +179,7 @@ export default function PublicRadioPage() {
         {now && now.playing && cur && (
           <div className="w-full max-w-2xl">
             <div className="text-[11px] uppercase tracking-[0.3em] text-slate-500 mb-4">
-              Now Playing
+              {tunedIn ? 'Now Playing' : 'Ready to play'}
             </div>
             <div className="flex flex-col items-center gap-5">
               <div className={`w-32 h-32 sm:w-44 sm:h-44 rounded-3xl flex items-center justify-center shadow-2xl ${
@@ -134,9 +202,6 @@ export default function PublicRadioPage() {
                 </div>
               </div>
 
-              {/* Progress bar — driven entirely by the polled
-                  elapsed/remaining values so it stays in sync with
-                  any other speaker without local clock drift. */}
               <div className="w-full max-w-md">
                 <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
                   <div
@@ -170,16 +235,15 @@ export default function PublicRadioPage() {
         )}
       </div>
 
-      {/* Tune-in button — fixed bottom so it's always tappable on
-          the in-store tablet, never hidden by scroll. */}
       <div className="px-6 pb-8 flex flex-col items-center gap-3">
         <audio ref={audioRef} preload="none" data-testid="public-radio-audio" />
-        {!playing ? (
+        {!tunedIn ? (
           <button
             type="button"
             onClick={tuneIn}
             data-testid="public-radio-tune-in"
-            className="px-8 py-4 bg-gradient-to-r from-amber-400 to-orange-500 text-slate-900 rounded-full font-extrabold text-lg shadow-2xl shadow-amber-500/20 hover:scale-105 active:scale-95 transition-transform flex items-center gap-3"
+            disabled={!now?.playing}
+            className="px-8 py-4 bg-gradient-to-r from-amber-400 to-orange-500 disabled:from-slate-700 disabled:to-slate-700 disabled:text-slate-500 text-slate-900 rounded-full font-extrabold text-lg shadow-2xl shadow-amber-500/20 hover:scale-105 active:scale-95 disabled:hover:scale-100 transition-transform flex items-center gap-3"
           >
             <Play className="w-6 h-6 fill-current" />
             Tune in

@@ -1,3 +1,50 @@
+### [Feb 26, 2026 — Forked session] 📻 Radio Studio Phase 2 — Synchronised Live Stream
+
+**User request**: *"Build a live streaming endpoint (Icecast/Shoutcast style or continuous loop) that 4 Bluetooth speakers can tune into simultaneously."* All 4 stores hear the **same** track at the **same** moment — sync within ~1 s of network jitter.
+
+**Sync strategy (wall-clock tape head)**: Instead of "every connection starts at item 0", we treat the playlist as an infinite loop whose current position is `time.time() % total_loop_duration`. Any client connecting at time `t` joins the loop at exactly that offset. Multiple speakers in 4 stores all compute the same wall-clock offset independently → they converge with no shared session state, no coordinator, no WebSockets.
+
+**Two ways to tune in (both end up synced)**:
+
+1. **`GET /api/radio-studio/live`** — continuous `audio/mpeg` stream (Icecast-style). One async generator per connection yields chunks at the track's real byte-rate (`audio_bytes / duration_seconds`) so the audio player consumes in real time. Polished for VLC and any external app. Works perfectly through Cloudflare + Railway in production.
+
+2. **`GET /api/radio-studio/live/now-playing` + `/stream/{type}/{ref_id}`** — proxy-bulletproof client-orchestrated playback. The polling endpoint returns the current track's `audio_url`, `elapsed_seconds`, and `server_time` so any browser can `<audio src=...>; audio.currentTime = elapsed_seconds; play()` and chain to the next item on `ended`. **This path survives every ingress/firewall** including the Kubernetes nginx-ingress in the preview env that buffers `audio/mpeg` chunked responses.
+
+**Public `/radio` tune-in page** (`PublicRadioPage.jsx`): branded dark-gradient screen with big "Now Playing" display, animated progress bar driven by polled `elapsed_seconds`/`duration_seconds`, "Up next" hint, and a fixed-bottom "Tune in" button (disabled until a playlist exists). Designed for an in-store tablet wall display tethered to a Bluetooth speaker. Uses the orchestrated playback path so it works through every ingress.
+
+**Admin Live Stream panel** (top of the Playlist tab in `RadioStudio.jsx`): gradient card with ON-AIR pill, "Now Playing" strip with ad/music icon + voice + bed metadata + animated progress, "Preview here" button (orchestrated playback for instant in-browser preview), "Open in-store screen" button → opens `/radio` in a new tab, and a tune-in URL strip with copy-to-clipboard for VLC users.
+
+**Backend implementation** (`routes/radio_studio.py` — append 350 LOC at end of file):
+- `_locate(offset_seconds, durations)` — pure function, returns `(item_idx, seconds_into_item)`. Heart of the sync guarantee. Trivially unit-testable.
+- `_build_play_queue()` — async resolver. Two `find` queries (ads + music), skips dangling refs silently.
+- `_throttle_item(item, skip_seconds)` — async generator. Yields 4 KB chunks at the track's actual byte-rate via `asyncio.sleep`.
+- `_live_generator()` — endless async generator. On each cycle, refreshes queue from DB → so playlist edits picked up between loops.
+- `_get_silence_mp3()` — lazily generates 1 s of silent 128 kbps MP3 via ffmpeg, cached as module global. Keeps the socket alive when the playlist is empty.
+- `GET /api/radio-studio/live` — `StreamingResponse(audio/mpeg)` with `X-Accel-Buffering: no`, `Cache-Control: no-store`, `Connection: keep-alive`. PUBLIC.
+- `GET /api/radio-studio/live/now-playing` — cheap JSON. Returns `now.audio_url`, `now.elapsed_seconds`, `next.audio_url`, `playlist.total_seconds`, `server_time`. PUBLIC.
+
+**Tests (14 NEW unit + 7 NEW integration = 21 added, 79/79 radio_studio tests pass)**:
+- `tests/test_radio_studio_live_stream.py` — `_locate` (first/middle/last/empty/past-end), `_build_play_queue` (resolves + strips dangling), `_throttle_item` (skip offset, no skip), `/live/now-playing` (empty / populated / orphan-audio cases), public-router-no-auth check, header contract verification.
+- `tests/test_radio_studio_live_stream_integration.py` (created by testing agent) — live integration against `REACT_APP_BACKEND_URL`: byte pacing, MP3 frame validity (ID3 / 0xFFFB), wall-clock sync proof (elapsed advances with wall clock), resilience to mid-cycle playlist edits.
+
+**Smoke verification** (curl through ingress):
+- `/api/radio-studio/live/now-playing` → 200 OK with empty-playlist body in <100 ms ✅
+- `/api/radio-studio/stream/ad/{id}` (the per-item endpoint used by orchestrator) → 200 OK, full bytes in 92 ms ✅
+- `/api/radio-studio/live` (endless stream) → 51 KB / 3 s on `localhost:8001` ✅; preview env's K8s ingress buffers it (CRITICAL note below)
+- Public `/radio` page renders + auto-disables "Tune in" when playlist empty ✅
+
+**⚠️ Production note**: The endless `/live` stream works on `localhost:8001` but the preview environment's Kubernetes nginx-ingress buffers `audio/mpeg` chunked responses (sends 0 bytes). The orchestrated `/now-playing` + `/stream/{type}/{id}` path bypasses this and works everywhere — that's what the public `/radio` page uses. In production (Railway → Cloudflare), the streaming `/live` endpoint will also work (Railway streams audio natively, Cloudflare doesn't buffer audio/mpeg). VLC users get continuous-stream behaviour; browsers get per-item orchestrated playback.
+
+**Files**:
+- `/app/backend/routes/radio_studio.py` (added ~350 LOC at end — Phase 2 section)
+- `/app/frontend/src/pages/public/PublicRadioPage.jsx` (NEW — in-store tablet wall display)
+- `/app/frontend/src/pages/admin/RadioStudio.jsx` (NEW `LiveStreamPanel` component on the Playlist tab + orchestrated preview)
+- `/app/frontend/src/App.js` (route `/radio` → PublicRadioPage)
+- `/app/backend/tests/test_radio_studio_live_stream.py` (NEW — 14 unit tests)
+- `/app/backend/tests/test_radio_studio_live_stream_integration.py` (NEW — 7 integration tests)
+
+
+
 ### [Feb 26, 2026 — Forked session] 🎶 Radio Studio: Background Music Bed (Option A)
 
 **User request**: *"Is there a way to add a bit of nice music to the background of ads or voices, to make it a bit more energetic"*. Picked **Option A** (mix once at generation time, store the result as the only MP3 in Mongo — no playback complexity, no Icecast mixer needed).

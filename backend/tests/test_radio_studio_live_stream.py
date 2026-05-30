@@ -221,9 +221,17 @@ def test_now_playing_returns_current_item(client):
     assert body["now"]["bed_music_name"] == "Lounge Loop"
     assert body["now"]["elapsed_seconds"] == 10.0
     assert body["now"]["remaining_seconds"] == 10.0
+    # Phase 2 proxy-bulletproof field: the per-item audio URL so a
+    # browser <audio> can play it as a normal finite MP3 (no buffering
+    # issues at any ingress). 26 May 2026.
+    assert body["now"]["audio_url"] == "/api/radio-studio/stream/ad/ad-1"
     assert body["next"]["name"] == "Jingle"
+    assert body["next"]["audio_url"] == "/api/radio-studio/stream/music/music-1"
     assert body["playlist"]["total_items"] == 2
     assert body["playlist"]["total_seconds"] == 60.0
+    # server_time exists so clients can extrapolate elapsed_seconds
+    # locally between polls.
+    assert isinstance(body["server_time"], (int, float))
 
 
 def test_now_playing_drops_items_with_no_audio(client):

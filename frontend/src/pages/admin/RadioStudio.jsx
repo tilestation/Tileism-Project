@@ -1195,43 +1195,81 @@ function LiveStreamPanel({ hasItems }) {
   const [streamOpen, setStreamOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const audioRef = React.useRef(null);
+  const currentRefRef = React.useRef(null);
 
   const liveUrl = `${API}/radio-studio/live`;
   const publicScreenUrl = `${API_URL}/radio`;
 
   // Poll now-playing every 4s. Cheap endpoint, no audio blobs.
-  useEffect(() => {
-    let alive = true;
-    const fetchNow = async () => {
-      try {
-        const r = await axios.get(`${API}/radio-studio/live/now-playing`);
-        if (alive) setNow(r.data);
-      } catch (_e) {
-        // Network blip — keep last known state.
-      }
-    };
-    fetchNow();
-    const t = setInterval(fetchNow, 4000);
-    return () => { alive = false; clearInterval(t); };
+  const fetchNow = React.useCallback(async () => {
+    try {
+      const r = await axios.get(`${API}/radio-studio/live/now-playing`);
+      setNow(r.data);
+      return r.data;
+    } catch (_e) {
+      return null;
+    }
   }, []);
 
-  const togglePreview = () => {
-    if (!audioRef.current) return;
+  useEffect(() => {
+    let alive = true;
+    fetchNow();
+    const t = setInterval(() => alive && fetchNow(), 4000);
+    return () => { alive = false; clearInterval(t); };
+  }, [fetchNow]);
+
+  // Client-orchestrated preview playback — same sync strategy as
+  // PublicRadioPage so it works through every proxy. Each speaker
+  // (browser/tab) seeks to wall-clock-derived elapsed_seconds on
+  // load, then chains the next track when the current one ends.
+  useEffect(() => {
+    if (!streamOpen) return;
+    if (!now?.playing || !now?.now?.audio_url) return;
+    const audio = audioRef.current;
+    if (!audio) return;
+    const refKey = `${now.now.type}:${now.now.ref_id}`;
+    if (currentRefRef.current === refKey && !audio.paused) return;
+    currentRefRef.current = refKey;
+    audio.src = `${API_URL}${now.now.audio_url}`;
+    const onLoaded = () => {
+      try {
+        audio.currentTime = Math.max(0, Math.min(
+          (now.now.elapsed_seconds || 0),
+          (now.now.duration_seconds || 999) - 0.2,
+        ));
+      } catch (_e) { /* ignore — next loadedmetadata retries */ }
+      audio.play().catch((e) => toast.error(`Preview blocked: ${e?.message || 'tap again'}`));
+      audio.removeEventListener('loadedmetadata', onLoaded);
+    };
+    audio.addEventListener('loadedmetadata', onLoaded);
+  }, [streamOpen, now]);
+
+  useEffect(() => {
+    const a = audioRef.current;
+    if (!a) return;
+    const onEnded = () => {
+      currentRefRef.current = null;
+      fetchNow();
+    };
+    a.addEventListener('ended', onEnded);
+    return () => a.removeEventListener('ended', onEnded);
+  }, [fetchNow]);
+
+  const togglePreview = async () => {
     if (streamOpen) {
-      audioRef.current.pause();
-      audioRef.current.removeAttribute('src');
-      audioRef.current.load();
+      const a = audioRef.current;
+      if (a) {
+        a.pause();
+        a.removeAttribute('src');
+        a.load();
+      }
+      currentRefRef.current = null;
       setStreamOpen(false);
     } else {
-      audioRef.current.src = liveUrl;
-      const p = audioRef.current.play();
-      if (p?.catch) {
-        p.then(() => setStreamOpen(true)).catch((e) => {
-          toast.error(`Browser blocked: ${e?.message || 'tap again'}`);
-        });
-      } else {
-        setStreamOpen(true);
-      }
+      // Re-fetch on user gesture so the audio.play() below isn't
+      // blocked by browser autoplay policies.
+      await fetchNow();
+      setStreamOpen(true);
     }
   };
 
@@ -1366,7 +1404,7 @@ function LiveStreamPanel({ hasItems }) {
           {copied ? 'Copied ✓' : 'Copy'}
         </button>
         <span className="text-slate-500 hidden md:inline">
-          · Paste in VLC, browser, or any audio app on a phone tethered to your Bluetooth speaker.
+          · Use this URL in VLC or any continuous-stream audio app. Browsers use the in-store screen page above.
         </span>
       </div>
 
