@@ -9,6 +9,24 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Feb 26, 2026 — Forked session] 🎧 Radio Studio: Volume-parity Test Player (Music → Ad → Music)
+
+**User intent**: *"Test playback mini-player on the Music tab that interleaves a track + an ad + a track in sequence (just like the real playlist does in-store) → YES"* — so volume parity can be audited from the office in 30 s instead of walking into a showroom every tweak.
+
+**What was built** (`/app/frontend/src/pages/admin/RadioStudio.jsx`, MusicTab):
+- New full-width "Volume-parity test" card sitting between the Upload card and the Music Library card. Branded with an "OFFICE SPEAKERS" badge so the intent is obvious.
+- **▶ "Play Music → Ad → Music"** button — picks a random music track, a random generated ad, and a different random music track from the library, then plays them in sequence through a hidden `<audio>` element exactly like the in-store playlist does. Advances on the `ended` event.
+- **"Trim each step to 10 s" toggle** (default on) — caps each item to 10 s so the whole test runs in ~30 s. Toggle off to hear full-length items.
+- **Live step indicator** — shows all 3 items as a vertical list with the active one ring-highlighted (amber for music, fuchsia for ads — matches Ads tab colour identity), played items struck through.
+- **Stop button** kills playback mid-sequence and tears down the audio element + trim timer.
+- **Disabled state with explanatory hint** when the library is empty (e.g. "Generate at least 1 ad first").
+- All elements carry `data-testid`s (`radio-test-playback-start`, `radio-test-playback-stop`, `radio-test-trim-toggle`, `radio-test-step-{i}`) for future regression coverage.
+
+**Verified live**: button + trim toggle + stop button render correctly; disabled state shows the right hint copy when the music/ad library is empty.
+
+**Files**: `/app/frontend/src/pages/admin/RadioStudio.jsx` (MusicTab — added `ads` prop, test-playback state/effects/UI; root component passes `ads={ads}` down).
+
+
 ### [Feb 26, 2026 — Forked session] 🔊 Radio Studio: Loudness Normalisation — ads now match music volume
 
 **User report (verbatim, after in-store testing)**: *"When the song is playing, music is on a good volume but when ad plays the volume is too low. it needs to be on same level as the music so if the ad is playing customers can hear clearly."*

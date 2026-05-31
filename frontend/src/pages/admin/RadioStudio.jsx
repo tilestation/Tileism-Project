@@ -149,7 +149,7 @@ export default function RadioStudio() {
           onAdsChange={loadAds}
         />
       )}
-      {tab === 'music' && <MusicTab music={music} onMusicChange={loadMusic} />}
+      {tab === 'music' && <MusicTab music={music} ads={ads} onMusicChange={loadMusic} />}
       {tab === 'playlist' && (
         <PlaylistTab
           ads={ads}
@@ -1468,7 +1468,7 @@ function VoicePickerInline({
 }
 
 
-function MusicTab({ music, onMusicChange }) {
+function MusicTab({ music, ads, onMusicChange }) {
   // Each queue entry: { id, source: 'file'|'url', file?, url?, name, status, error }
   //   status: 'pending' | 'uploading' | 'done' | 'error'
   // ID is just an in-memory counter so we can React-key each row.
@@ -1481,6 +1481,16 @@ function MusicTab({ music, onMusicChange }) {
   const [urlInput, setUrlInput] = useState('');
   const fileInputRef = React.useRef(null);
   const queueIdRef = React.useRef(0);
+
+  // 31 May 2026 — Test playback. Builds a 3-item Music→Ad→Music
+  // sequence so the admin can audit volume parity from their office
+  // speakers instead of walking into a showroom every tweak.
+  // We trim each item to ~10 s by default so the whole test is <40 s.
+  const [testSeq, setTestSeq] = useState(null);          // [{type,label,id}] | null
+  const [testIdx, setTestIdx] = useState(0);             // which step is playing
+  const [testTrim, setTestTrim] = useState(true);        // cap each step to 10 s
+  const testAudioRef = React.useRef(null);
+  const testTrimTimerRef = React.useRef(null);
 
   // Strip extension + common YouTube/SoundCloud hash prefixes +
   // trailing "(Official)"/"(Audio)" cruft so the name is shop-ready
@@ -1658,6 +1668,103 @@ function MusicTab({ music, onMusicChange }) {
 
   const pendingCount = queue.filter((q) => q.status === 'pending').length;
   const doneCount = queue.filter((q) => q.status === 'done').length;
+
+  // ---- Test playback (volume parity audit) ----------------------
+  // Build a Music → Ad → Music sequence using whatever is in the
+  // library + generated-ad pool. Pick distinct random items so the
+  // admin hears a real-world snippet, not the same track twice.
+  // Generated ads are filtered to those with audio_filename set
+  // (i.e. ElevenLabs render completed).
+  const playableAds = (ads || []).filter((a) => a.audio_filename);
+
+  const startTestSequence = () => {
+    if (music.length < 1 || playableAds.length < 1) {
+      toast.error('Need at least 1 music track AND 1 generated ad in the library.');
+      return;
+    }
+    const pickRandom = (arr, exclude = null) => {
+      const pool = exclude ? arr.filter((x) => x.id !== exclude) : arr;
+      return pool[Math.floor(Math.random() * pool.length)] || arr[0];
+    };
+    const m1 = pickRandom(music);
+    const ad = pickRandom(playableAds);
+    const m2 = pickRandom(music, m1.id);
+    const seq = [
+      { type: 'music', id: m1.id, label: m1.name },
+      { type: 'ad', id: ad.id, label: ad.name },
+      { type: 'music', id: m2.id, label: m2.name },
+    ];
+    setTestSeq(seq);
+    setTestIdx(0);
+  };
+
+  const stopTestSequence = () => {
+    if (testAudioRef.current) {
+      testAudioRef.current.pause();
+      testAudioRef.current.removeAttribute('src');
+      testAudioRef.current.load();
+    }
+    if (testTrimTimerRef.current) {
+      clearTimeout(testTrimTimerRef.current);
+      testTrimTimerRef.current = null;
+    }
+    setTestSeq(null);
+    setTestIdx(0);
+  };
+
+  // Effect: when testSeq + testIdx change, load and play the audio
+  // for the current step. Set up `ended` handler to advance, and a
+  // trim-timer to cap each item at 10 s if testTrim is on.
+  React.useEffect(() => {
+    if (!testSeq || testIdx >= testSeq.length) {
+      // Sequence finished
+      if (testSeq && testIdx >= testSeq.length) {
+        toast.success('Test playback complete — did the volumes match?');
+        setTestSeq(null);
+        setTestIdx(0);
+      }
+      return;
+    }
+    const step = testSeq[testIdx];
+    const audio = testAudioRef.current;
+    if (!audio) return;
+    const url =
+      step.type === 'music'
+        ? `${API}/radio-studio/stream/music/${step.id}`
+        : `${API}/radio-studio/stream/ad/${step.id}`;
+    audio.src = url;
+    audio.volume = 1.0;
+    audio
+      .play()
+      .catch((err) => {
+        toast.error(`Playback blocked by browser: ${err.message}`);
+        stopTestSequence();
+      });
+    const onEnded = () => setTestIdx((i) => i + 1);
+    audio.addEventListener('ended', onEnded, { once: true });
+    if (testTrim) {
+      testTrimTimerRef.current = setTimeout(() => {
+        audio.removeEventListener('ended', onEnded);
+        setTestIdx((i) => i + 1);
+      }, 10_000);
+    }
+    return () => {
+      audio.removeEventListener('ended', onEnded);
+      if (testTrimTimerRef.current) {
+        clearTimeout(testTrimTimerRef.current);
+        testTrimTimerRef.current = null;
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [testSeq, testIdx, testTrim]);
+
+  // Cleanup on unmount
+  React.useEffect(() => {
+    return () => {
+      if (testTrimTimerRef.current) clearTimeout(testTrimTimerRef.current);
+    };
+  }, []);
+  // ----------------------------------------------------------------
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
@@ -1846,6 +1953,106 @@ function MusicTab({ music, onMusicChange }) {
             <li><a href="https://pixabay.com/music/" target="_blank" rel="noreferrer" className="text-amber-400 hover:underline">Pixabay Music</a> — free, no attribution required</li>
           </ul>
         </div>
+      </div>
+
+      {/* Test Playback — Music → Ad → Music sequence for volume-parity audit. */}
+      <div className="bg-slate-800/60 backdrop-blur border border-slate-700/50 rounded-2xl p-4 sm:p-5 shadow-xl lg:col-span-2">
+        <div className="flex items-start sm:items-center justify-between gap-3 flex-wrap">
+          <div className="min-w-0">
+            <h2 className="text-lg font-bold flex items-center gap-2">
+              <Play className="w-5 h-5 text-emerald-400" />
+              Volume-parity test
+              <span className="text-[10px] uppercase tracking-wider text-emerald-300 bg-emerald-500/15 border border-emerald-500/30 px-1.5 py-0.5 rounded">
+                Office speakers
+              </span>
+            </h2>
+            <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+              Plays a random <span className="text-slate-200 font-semibold">Music → Ad → Music</span> sequence — exactly like in-store.
+              Listen for whether the ad is at the same loudness as the music. Trim mode caps each step at 10 s so the test takes under 40 seconds.
+            </p>
+          </div>
+          <div className="flex items-center gap-2 flex-wrap">
+            <label className="flex items-center gap-1.5 text-xs text-slate-300 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={testTrim}
+                onChange={(e) => setTestTrim(e.target.checked)}
+                disabled={!!testSeq}
+                className="accent-emerald-500"
+                data-testid="radio-test-trim-toggle"
+              />
+              Trim each step to 10 s
+            </label>
+            {!testSeq ? (
+              <button
+                type="button"
+                onClick={startTestSequence}
+                disabled={music.length < 1 || playableAds.length < 1}
+                data-testid="radio-test-playback-start"
+                className="text-xs px-4 py-2 rounded-md bg-emerald-500 text-white hover:bg-emerald-600 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1.5 font-semibold transition"
+              >
+                <Play className="w-3.5 h-3.5" />
+                Play Music → Ad → Music
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={stopTestSequence}
+                data-testid="radio-test-playback-stop"
+                className="text-xs px-4 py-2 rounded-md bg-red-500/20 text-red-200 border border-red-500/40 hover:bg-red-500/30 flex items-center gap-1.5 font-semibold transition"
+              >
+                <Pause className="w-3.5 h-3.5" />
+                Stop
+              </button>
+            )}
+          </div>
+        </div>
+
+        {(music.length < 1 || playableAds.length < 1) && (
+          <p className="text-[11px] text-amber-300 mt-3" data-testid="radio-test-playback-disabled-hint">
+            {music.length < 1 && playableAds.length < 1
+              ? 'Upload at least 1 music track AND generate at least 1 ad first.'
+              : music.length < 1
+              ? 'Upload at least 1 music track first.'
+              : 'Generate at least 1 ad first (Ads tab → click Generate).'}
+          </p>
+        )}
+
+        {testSeq && (
+          <div className="mt-4 bg-slate-900/60 border border-slate-700/40 rounded-lg p-3" data-testid="radio-test-playback-active">
+            <div className="flex items-center gap-2 text-[11px] uppercase tracking-wider text-slate-400 mb-2 font-bold">
+              <span>Step {testIdx + 1} of {testSeq.length}</span>
+              <span className="text-slate-600">·</span>
+              <span>Now playing</span>
+            </div>
+            <div className="space-y-1.5">
+              {testSeq.map((step, i) => (
+                <div
+                  key={`${step.type}-${step.id}-${i}`}
+                  className={`flex items-center gap-2 text-sm rounded px-2 py-1.5 transition ${
+                    i === testIdx
+                      ? step.type === 'ad'
+                        ? 'bg-fuchsia-500/15 text-fuchsia-100 border border-fuchsia-500/40 ring-1 ring-fuchsia-400/30'
+                        : 'bg-amber-500/15 text-amber-100 border border-amber-500/40 ring-1 ring-amber-400/30'
+                      : i < testIdx
+                      ? 'text-slate-500 line-through'
+                      : 'text-slate-400 border border-slate-700/30'
+                  }`}
+                  data-testid={`radio-test-step-${i}`}
+                >
+                  {i === testIdx && <Play className="w-3 h-3 flex-shrink-0 animate-pulse" />}
+                  <span className="text-[10px] uppercase tracking-wider font-bold w-12 flex-shrink-0">
+                    {step.type === 'ad' ? 'Ad' : 'Music'}
+                  </span>
+                  <span className="truncate flex-1">{step.label}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Hidden audio element — controlled by the sequence effect. */}
+        <audio ref={testAudioRef} preload="auto" data-testid="radio-test-playback-audio" />
       </div>
 
       <div className="bg-slate-800/60 backdrop-blur border border-slate-700/50 rounded-2xl p-4 sm:p-5 shadow-xl">
