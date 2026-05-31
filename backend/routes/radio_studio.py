@@ -825,6 +825,12 @@ class PlaylistUpdate(BaseModel):
     # the admin opt OUT and have the stream go silent after the
     # last item finishes, e.g. for a one-shot Sunday announcement).
     repeat: bool = True
+    # 31 May 2026 — user-requested crossfade. Seconds of equal-power
+    # fade between consecutive items in the playlist. 0 disables it
+    # (hard cut, the legacy behaviour). 1.5 s is a nice "real radio"
+    # feel; 3 s is the upper sanity cap (longer than that and short
+    # ads / station idents start to blur into each other).
+    crossfade_seconds: float = Field(default=0.0, ge=0.0, le=3.0)
 
 
 class MusicImportFromUrlReq(BaseModel):
@@ -2643,6 +2649,8 @@ async def get_playlist(current_user: dict = Depends(get_current_user)):
     # Legacy playlists predating the repeat flag default to True
     # (matches the implicit wall-clock-modulo behaviour they had).
     playlist.setdefault("repeat", True)
+    # Legacy playlists predating crossfade default to 0 (hard cut).
+    playlist.setdefault("crossfade_seconds", 0.0)
     return playlist
 
 
@@ -2663,6 +2671,7 @@ async def save_playlist(
         "items": [item.model_dump() for item in req.items],
         "is_active": req.is_active,
         "repeat": req.repeat,
+        "crossfade_seconds": float(req.crossfade_seconds or 0.0),
         "created_at": (existing or {}).get("created_at") or now,
         "updated_at": now,
     }
@@ -3056,6 +3065,7 @@ async def live_now_playing():
                     "total_items": len(resolved),
                     "total_seconds": round(total, 1),
                     "repeat": False,
+                    "crossfade_seconds": float(playlist.get("crossfade_seconds") or 0.0),
                 },
                 "stream_url": "/api/radio-studio/live",
             }
@@ -3103,6 +3113,7 @@ async def live_now_playing():
             "total_seconds": round(total, 1),
             "loop_offset_seconds": round(offset, 1),
             "repeat": repeat,
+            "crossfade_seconds": float(playlist.get("crossfade_seconds") or 0.0),
         },
         # `server_time` lets a client extrapolate elapsed seconds
         # without re-polling — they can interpolate locally for

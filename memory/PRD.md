@@ -9,6 +9,51 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Feb 26, 2026 — Forked session] 📻 Radio Studio: Crossfade between consecutive items (real-radio feel)
+
+**User intent**: *"Add 'Crossfade between items' toggle to the in-store playlist. Right now there's a hard cut between music ↔ ad ↔ music. A 1-2 second crossfade would make the whole playlist feel like a real radio station → YES."*
+
+**Design choice**: Client-side equal-power crossfade (cosine ramp) using two `<audio>` elements rather than server-side ffmpeg pre-concat. Reasons:
+- Preserves the existing client-orchestrated playback model — every speaker stays in sync via `/live/now-playing` polling.
+- No pre-rendering needed → playlist edits take effect instantly (no waiting for an ffmpeg pass).
+- Equal-power cosine ramp keeps perceived total loudness ~flat through the swap (vs linear which dips ~3 dB at the midpoint).
+- 20 steps × 50 ms = silky-smooth fade with no extra deps.
+
+**What was built**:
+
+**Backend** (`/app/backend/routes/radio_studio.py`):
+- `PlaylistUpdate.crossfade_seconds: float = Field(default=0.0, ge=0.0, le=3.0)` — 0 = hard cut (legacy), max 3 s.
+- `save_playlist` persists it; `get_playlist` defaults legacy docs to 0.0 (no broken UI on first edit of pre-existing rows).
+- `/api/radio-studio/live/now-playing` surfaces it inside `playlist.crossfade_seconds` so every speaker knows when to start fading. Also exposed in the "playlist finished" branch for the non-repeat case.
+
+**Admin UI** (`/app/frontend/src/pages/admin/RadioStudio.jsx` → PlaylistTab):
+- New **Crossfade slider** (0-3 s, 0.5 s steps) next to the existing Repeat toggle.
+- Fuchsia accent so it doesn't visually compete with the amber Repeat control.
+- Shows "off" when at 0, else "1.5s" / "2.5s" etc. Persists with the playlist save.
+
+**Public player** (`/app/frontend/src/pages/public/PublicRadioPage.jsx`):
+- Two `<audio>` refs (`audioRefA`, `audioRefB`) + `activeRef` tracking the foreground element.
+- `timeupdate` listener watches for `duration - currentTime <= crossfade_seconds`. When inside the window:
+  1. Pre-load the inactive element with `now.next.audio_url` at volume 0.
+  2. Run a 50 ms-interval gain ramp: `outGain = cos(t·π/2)`, `inGain = cos((1−t)·π/2)` — equal-power.
+  3. After `crossfade_seconds`, swap active/inactive, pause the outgoing element, fetchNow() to advance the server-side cursor.
+- Hard-cut path (cfSec=0) is unchanged — preserves the legacy single-audio behaviour.
+- `tuneOut()` cleans up both elements + the fade timer.
+- Crossfade-fired flag is re-set whenever the source changes, preventing double-trigger if `timeupdate` fires repeatedly inside the window.
+
+**Tests (3/3 new pass, 202/203 radio_studio suite green; the 1 failure pre-existed)**:
+- `test_playlist_crossfade_seconds_round_trip` — save → GET → public now-playing surfaces 1.5, then update to 0 → all three reads echo 0.
+- `test_playlist_crossfade_seconds_clamped_to_3` — Pydantic rejects 99 with 422 (slider 0-3 s is the contract).
+- `test_playlist_legacy_doc_defaults_crossfade_to_zero` — pre-existing playlist rows without the field default to 0.0 on read (prevents broken slider on first edit of a production row).
+- Live verified: API round-trip on preview returns `crossfade_seconds: 1.5`.
+
+**Files**:
+- `/app/backend/routes/radio_studio.py` (PlaylistUpdate model, save_playlist persist, get_playlist default, live/now-playing surface in both branches)
+- `/app/frontend/src/pages/admin/RadioStudio.jsx` (PlaylistTab — state, save, slider UI)
+- `/app/frontend/src/pages/public/PublicRadioPage.jsx` (dual audio refs, equal-power crossfade ramp, fade timer cleanup on tuneOut)
+- `/app/backend/tests/test_radio_studio_crossfade.py` (NEW — 3 tests)
+
+
 ### [Feb 26, 2026 — Forked session] 🎧 Radio Studio: Volume-parity Test Player (Music → Ad → Music)
 
 **User intent**: *"Test playback mini-player on the Music tab that interleaves a track + an ad + a track in sequence (just like the real playlist does in-store) → YES"* — so volume parity can be audited from the office in 30 s instead of walking into a showroom every tweak.

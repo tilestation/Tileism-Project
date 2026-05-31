@@ -2158,6 +2158,11 @@ function PlaylistTab({ ads, music, playlist, onPlaylistChange }) {
   // 30 May 2026 — repeat toggle. Default true (matches the
   // wall-clock-modulo loop that the backend has always done).
   const [repeat, setRepeat] = useState(playlist.repeat !== false);
+  // 31 May 2026 — crossfade between consecutive items. 0 = hard cut
+  // (legacy); 1.5 = real-radio feel. Slider goes 0-3 s.
+  const [crossfadeSeconds, setCrossfadeSeconds] = useState(
+    typeof playlist.crossfade_seconds === 'number' ? playlist.crossfade_seconds : 0
+  );
   const [saving, setSaving] = useState(false);
   const [playingIdx, setPlayingIdx] = useState(null);
   const [audioEl, setAudioEl] = useState(null);
@@ -2165,6 +2170,9 @@ function PlaylistTab({ ads, music, playlist, onPlaylistChange }) {
   useEffect(() => {
     setItems(playlist.items || []);
     setRepeat(playlist.repeat !== false);
+    setCrossfadeSeconds(
+      typeof playlist.crossfade_seconds === 'number' ? playlist.crossfade_seconds : 0
+    );
   }, [playlist]);
 
   const addItem = (type, refId) => {
@@ -2191,6 +2199,7 @@ function PlaylistTab({ ads, music, playlist, onPlaylistChange }) {
         items,
         is_active: true,
         repeat,
+        crossfade_seconds: crossfadeSeconds,
       }, { headers: tokenHdr() });
       toast.success('Playlist saved');
       onPlaylistChange();
@@ -2336,6 +2345,31 @@ function PlaylistTab({ ads, music, playlist, onPlaylistChange }) {
               <RefreshCw className={`w-3.5 h-3.5 ${repeat ? 'text-amber-400' : 'text-slate-500'}`} />
               <span className={`text-xs font-bold ${repeat ? 'text-amber-300' : 'text-slate-400'}`}>
                 Repeat
+              </span>
+            </label>
+            {/* 31 May 2026 — Crossfade between consecutive items.
+                0 s = hard cut (legacy). 1.5 s = real-radio feel.
+                Frontend public/radio page applies the gain ramp
+                client-side using the value sent in /live/now-playing. */}
+            <label
+              className="flex items-center gap-1.5 px-2.5 py-1.5 bg-slate-900/60 border border-slate-700/50 rounded-lg cursor-pointer hover:border-fuchsia-500/60 transition-colors"
+              title="Cross-fades the end of one item with the start of the next. 0 = hard cut (legacy). 1.5 s = real-radio feel."
+            >
+              <span className={`text-xs font-bold ${crossfadeSeconds > 0 ? 'text-fuchsia-300' : 'text-slate-400'}`}>
+                Crossfade
+              </span>
+              <input
+                type="range"
+                min="0"
+                max="3"
+                step="0.5"
+                value={crossfadeSeconds}
+                onChange={(e) => setCrossfadeSeconds(parseFloat(e.target.value))}
+                data-testid="radio-playlist-crossfade"
+                className="w-24 accent-fuchsia-500"
+              />
+              <span className={`text-xs font-mono tabular-nums w-9 text-right ${crossfadeSeconds > 0 ? 'text-fuchsia-300' : 'text-slate-500'}`}>
+                {crossfadeSeconds === 0 ? 'off' : `${crossfadeSeconds.toFixed(1)}s`}
               </span>
             </label>
             {playingIdx === null ? (

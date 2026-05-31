@@ -33,7 +33,15 @@ const API = `${API_URL}/api`;
 const POLL_URL = `${API}/radio-studio/live/now-playing`;
 
 export default function PublicRadioPage() {
-  const audioRef = useRef(null);
+  // 31 May 2026 — TWO audio elements so we can crossfade between
+  // consecutive items. `activeRef` tracks which one is currently
+  // foregrounded; the other is used to preload + ramp in the next
+  // item while the current one ramps out. Hard cut (legacy) just
+  // uses A; the right-hand `audioRefB` element sits silent.
+  const audioRefA = useRef(null);
+  const audioRefB = useRef(null);
+  const activeRef = useRef('A'); // 'A' | 'B' — which element is foreground
+  const fadeTimerRef = useRef(null);
   const [tunedIn, setTunedIn] = useState(false);
   const [now, setNow] = useState(null);
   const [err, setErr] = useState(null);
@@ -52,6 +60,11 @@ export default function PublicRadioPage() {
   // same SERVER-reported current item, so they advance through the
   // playlist together within ~one-item-length of each other.
   const currentRefRef = useRef(null);
+  const crossfadeFiredRef = useRef(false);
+
+  // Helper to fetch the currently-active audio element.
+  const getActive = () => (activeRef.current === 'A' ? audioRefA.current : audioRefB.current);
+  const getInactive = () => (activeRef.current === 'A' ? audioRefB.current : audioRefA.current);
 
   const fetchNow = useCallback(async () => {
     try {
@@ -75,57 +88,150 @@ export default function PublicRadioPage() {
   }, [fetchNow]);
 
   // When the SERVER reports a different current item OR we just
-  // tuned in, swap the audio element's source and play it from the
-  // start. We deliberately DON'T set `audio.currentTime` — our
-  // stream endpoint serves the full file without HTTP byte-range
-  // support, so a seek into unbuffered audio silently fails on
-  // most browsers and the audio never starts. (30 May 2026 bugfix.)
+  // tuned in, swap the active audio element's source and play it
+  // from the start. We deliberately DON'T set `audio.currentTime`
+  // — our stream endpoint serves the full file without HTTP byte-
+  // range support, so a seek into unbuffered audio silently fails
+  // on most browsers and the audio never starts. (30 May 2026.)
   useEffect(() => {
     if (!tunedIn) return;
     if (!now?.playing || !now?.now?.audio_url) return;
-    const audio = audioRef.current;
+    const audio = getActive();
     if (!audio) return;
     const refKey = `${now.now.type}:${now.now.ref_id}`;
+    // If the client has already crossfaded INTO this item, the
+    // active element is already playing it — skip the resync.
     if (currentRefRef.current === refKey && !audio.paused) {
-      // Same track still playing — let it run.
       return;
     }
     currentRefRef.current = refKey;
+    crossfadeFiredRef.current = false;
     audio.src = `${API_URL}${now.now.audio_url}`;
+    audio.volume = 1.0;
     audio.play().catch((e) => {
       setErr(e?.message || 'Browser blocked playback — tap Tune in again');
     });
   }, [tunedIn, now]);
 
-  // Drive the progress bar off the audio element itself so what the
-  // viewer sees on screen matches what they hear.
+  // Drive the progress bar AND the crossfade trigger off the
+  // active audio element's timeupdate. When we're within
+  // `crossfade_seconds` of the end and we have a `next` item,
+  // pre-load the inactive element and start ramping.
   useEffect(() => {
-    const a = audioRef.current;
+    const a = getActive();
     if (!a) return;
-    const onTime = () => setAudioPos({
-      current: a.currentTime || 0,
-      duration: a.duration || 0,
-    });
+
+    const onTime = () => {
+      setAudioPos({ current: a.currentTime || 0, duration: a.duration || 0 });
+
+      // ---- Crossfade trigger -------------------------------------
+      const cfSec = Number(now?.playlist?.crossfade_seconds || 0);
+      if (cfSec <= 0) return;
+      if (crossfadeFiredRef.current) return;
+      if (!now?.next?.audio_url) return;
+      const dur = a.duration || 0;
+      const cur = a.currentTime || 0;
+      if (dur <= 0 || cur <= 0) return;
+      if (dur - cur > cfSec) return;
+      // We're inside the crossfade window — kick it off ONCE.
+      crossfadeFiredRef.current = true;
+      startCrossfade(cfSec);
+    };
+
     a.addEventListener('timeupdate', onTime);
     a.addEventListener('loadedmetadata', onTime);
+    // Also listen on the OTHER element so swapping active doesn't
+    // lose the progress-bar updates.
+    const b = getInactive();
+    if (b) {
+      b.addEventListener('timeupdate', onTime);
+      b.addEventListener('loadedmetadata', onTime);
+    }
     return () => {
       a.removeEventListener('timeupdate', onTime);
       a.removeEventListener('loadedmetadata', onTime);
+      if (b) {
+        b.removeEventListener('timeupdate', onTime);
+        b.removeEventListener('loadedmetadata', onTime);
+      }
     };
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tunedIn, now]);
 
-  // When the current track finishes, refresh now-playing once so
+  // Kick off a linear crossfade: ramp `current` from 1 → 0 and
+  // `next` from 0 → 1 over `seconds`, then swap active and fetch
+  // a fresh now-playing. Uses a 50 ms interval — 20 steps per
+  // crossfade is smoother than the human ear cares about.
+  const startCrossfade = (seconds) => {
+    const fromEl = getActive();
+    const toEl = getInactive();
+    if (!fromEl || !toEl || !now?.next?.audio_url) return;
+    const nextRefKey = `${now.next.type}:${now.next.ref_id}`;
+
+    // Prime the incoming element with the next track.
+    toEl.src = `${API_URL}${now.next.audio_url}`;
+    toEl.volume = 0;
+    toEl.play().catch(() => {
+      // If the browser blocked autoplay on the secondary element
+      // for some reason, fall back to a hard cut — at least the
+      // listener hears the next item rather than silence.
+      fromEl.pause();
+      activeRef.current = activeRef.current === 'A' ? 'B' : 'A';
+      currentRefRef.current = nextRefKey;
+      crossfadeFiredRef.current = false;
+      toEl.volume = 1;
+      toEl.play();
+      fetchNow();
+    });
+
+    const stepMs = 50;
+    const steps = Math.max(1, Math.floor((seconds * 1000) / stepMs));
+    let i = 0;
+    if (fadeTimerRef.current) clearInterval(fadeTimerRef.current);
+    fadeTimerRef.current = setInterval(() => {
+      i += 1;
+      const t = Math.min(1, i / steps);
+      // Equal-power crossfade so the perceived total loudness stays
+      // ~constant through the swap (vs linear which dips ~3 dB at
+      // the midpoint).
+      const outGain = Math.cos((t * Math.PI) / 2);
+      const inGain = Math.cos(((1 - t) * Math.PI) / 2);
+      try { fromEl.volume = Math.max(0, Math.min(1, outGain)); } catch { /* ignore */ }
+      try { toEl.volume = Math.max(0, Math.min(1, inGain)); } catch { /* ignore */ }
+      if (i >= steps) {
+        clearInterval(fadeTimerRef.current);
+        fadeTimerRef.current = null;
+        try { fromEl.pause(); fromEl.removeAttribute('src'); fromEl.load(); } catch { /* ignore */ }
+        try { fromEl.volume = 1; } catch { /* ignore */ }
+        activeRef.current = activeRef.current === 'A' ? 'B' : 'A';
+        currentRefRef.current = nextRefKey;
+        crossfadeFiredRef.current = false;
+        // Pull the next item from the server so `now.next` updates.
+        fetchNow();
+      }
+    }, stepMs);
+  };
+
+  // When the current track finishes WITHOUT a crossfade (cfSec=0
+  // or the next URL hadn't loaded), refresh now-playing once so
   // the next render picks up the new item without waiting for the
   // next 4-second poll cycle.
   useEffect(() => {
-    const a = audioRef.current;
-    if (!a) return;
+    const a = audioRefA.current;
+    const b = audioRefB.current;
+    if (!a || !b) return;
     const onEnded = () => {
+      if (fadeTimerRef.current) return; // crossfade is handling it
       currentRefRef.current = null;
+      crossfadeFiredRef.current = false;
       fetchNow();
     };
     a.addEventListener('ended', onEnded);
-    return () => a.removeEventListener('ended', onEnded);
+    b.addEventListener('ended', onEnded);
+    return () => {
+      a.removeEventListener('ended', onEnded);
+      b.removeEventListener('ended', onEnded);
+    };
   }, [fetchNow]);
 
   const tuneIn = async () => {
@@ -139,13 +245,20 @@ export default function PublicRadioPage() {
 
   const tuneOut = () => {
     setTunedIn(false);
-    const a = audioRef.current;
-    if (a) {
-      a.pause();
-      a.removeAttribute('src');
-      a.load();
+    if (fadeTimerRef.current) {
+      clearInterval(fadeTimerRef.current);
+      fadeTimerRef.current = null;
     }
+    [audioRefA.current, audioRefB.current].forEach((a) => {
+      if (a) {
+        a.pause();
+        a.removeAttribute('src');
+        a.load();
+        a.volume = 1;
+      }
+    });
     currentRefRef.current = null;
+    crossfadeFiredRef.current = false;
   };
 
   const cur = now?.now;
@@ -252,7 +365,8 @@ export default function PublicRadioPage() {
       </div>
 
       <div className="px-6 pb-8 flex flex-col items-center gap-3">
-        <audio ref={audioRef} preload="none" data-testid="public-radio-audio" />
+        <audio ref={audioRefA} preload="none" data-testid="public-radio-audio" />
+        <audio ref={audioRefB} preload="none" data-testid="public-radio-audio-b" />
         {!tunedIn ? (
           <button
             type="button"
