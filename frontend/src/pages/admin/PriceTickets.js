@@ -5,7 +5,7 @@ import { api } from '../../lib/api';
 import { toast } from 'sonner';
 import { 
   Printer, Search, Trash2, RefreshCw, 
-  Tag, Package, Check, Settings, Grid, Save, History, Edit
+  Tag, Package, Check, Settings, Grid, Save, History, Edit, Maximize2, X
 } from 'lucide-react';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
@@ -493,6 +493,25 @@ export const PriceTickets = () => {
   // next save becomes an in-place PUT instead of creating a new row.
   const [savedBatches, setSavedBatches] = useState([]);
   const [batchSearch, setBatchSearch] = useState('');
+  // 31 May 2026 — Preview enlarge modal. Click on the small 0.45×
+  // preview to open a near-full-screen 0.9× version so the admin
+  // can actually read the prices/codes before printing.
+  const [previewEnlarged, setPreviewEnlarged] = useState(false);
+
+  // Esc closes the enlarged preview from anywhere on the page +
+  // lock body scroll while open so the page behind doesn't jump
+  // around when the user scrolls inside the modal.
+  useEffect(() => {
+    if (!previewEnlarged) return undefined;
+    const onKey = (e) => { if (e.key === 'Escape') setPreviewEnlarged(false); };
+    document.addEventListener('keydown', onKey);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.body.style.overflow = prev;
+    };
+  }, [previewEnlarged]);
   const [editingBatchId, setEditingBatchId] = useState(null);
   const [currentBatchName, setCurrentBatchName] = useState('');
   const [sendingDigest, setSendingDigest] = useState(false);
@@ -2023,9 +2042,22 @@ export const PriceTickets = () => {
             ) : (
               <div 
                 ref={printRef}
-                className="bg-gray-100 rounded-lg p-4 overflow-auto"
+                onClick={() => setPreviewEnlarged(true)}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setPreviewEnlarged(true); }}
+                data-testid="price-tickets-preview-thumb"
+                title="Click to enlarge preview"
+                className="bg-gray-100 rounded-lg p-4 overflow-auto relative cursor-zoom-in group transition-all hover:ring-2 hover:ring-amber-400/60"
                 style={{ maxHeight: '600px' }}
               >
+                {/* Hover hint — only shows on hover so the un-hovered
+                    preview stays clean. Useful nudge for admins who
+                    haven't discovered the click-to-enlarge yet. */}
+                <div className="absolute top-2 right-2 z-10 bg-slate-900/85 text-white text-[10px] uppercase tracking-wider font-bold px-2 py-1 rounded flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+                  <Maximize2 className="w-3 h-3" />
+                  Click to enlarge
+                </div>
                 {/* A4 Page Preview (scaled down) */}
                 <div 
                   className="bg-white mx-auto shadow-lg"
@@ -2063,6 +2095,69 @@ export const PriceTickets = () => {
           </Card>
         </div>
       </div>
+
+      {/* Enlarged preview modal — fires on click of the small
+          preview. Full-viewport overlay with the A4 page at 0.9×
+          scale (vs 0.45× in the inline preview) so admins can
+          actually read prices + codes before printing. Esc / click-
+          outside / X button to dismiss. */}
+      {previewEnlarged && ticketsToRender.length > 0 && (
+        <div
+          className="fixed inset-0 z-[100] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in"
+          data-testid="price-tickets-preview-modal"
+          onClick={() => setPreviewEnlarged(false)}
+          onKeyDown={(e) => { if (e.key === 'Escape') setPreviewEnlarged(false); }}
+          role="dialog"
+          aria-label="Enlarged price-ticket preview"
+        >
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); setPreviewEnlarged(false); }}
+            data-testid="price-tickets-preview-modal-close"
+            aria-label="Close preview"
+            className="absolute top-4 right-4 bg-white text-slate-900 rounded-full p-2 shadow-lg hover:bg-amber-100 transition-colors z-10"
+          >
+            <X className="w-5 h-5" />
+          </button>
+          <div className="absolute top-4 left-4 bg-slate-900/90 text-white text-xs font-mono px-3 py-1.5 rounded shadow-lg z-10 flex items-center gap-2">
+            <Maximize2 className="w-3.5 h-3.5" />
+            {ticketsToRender.length} ticket(s) · {customWidthMm}×{customHeightMm}mm · Click anywhere or press Esc to close
+          </div>
+          {/* Stop propagation so clicks INSIDE the preview don't
+              close the modal (admin might want to scroll/zoom). */}
+          <div
+            className="bg-gray-100 rounded-xl shadow-2xl overflow-auto p-6"
+            style={{ maxWidth: '95vw', maxHeight: '92vh' }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div 
+              className="bg-white mx-auto shadow-lg"
+              style={{
+                width: '210mm',
+                minHeight: '297mm',
+                transform: 'scale(0.9)',
+                transformOrigin: 'top left',
+                display: 'flex',
+                flexWrap: 'wrap'
+              }}
+            >
+              {ticketsToRender.map((product, idx) => (
+                <PriceTicket 
+                  key={`${product.id}-${product.copyIndex}-enlarged`}
+                  product={product}
+                  showOriginalPrice={showOriginalPrice}
+                  showClearanceBadge={showClearanceBadge}
+                  showThisWeekBadge={showThisWeekBadge}
+                  showBarcode={showBarcode}
+                  showQR={showQR}
+                  index={idx}
+                  paperSize={currentPaperSize}
+                />
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

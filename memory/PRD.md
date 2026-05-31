@@ -9,6 +9,24 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Feb 26, 2026 — Forked session] 🔍 Price Tickets: click-to-enlarge preview modal
+
+**User report (with screenshot)**: *"Can you make this preview larger when clicking on it"* — the inline 0.45× preview was too small to read the prices/codes before printing, forcing admins to do test prints.
+
+**What was shipped** (`/app/frontend/src/pages/admin/PriceTickets.js`):
+
+- **Clickable preview thumbnail** — entire preview pane is now a button with `cursor-zoom-in`, amber hover ring, and a tooltip pill **"↗ Click to enlarge"** that fades in on hover. `role="button"` + Enter/Space keyboard support for accessibility.
+- **Full-screen modal** at z-index 100, 80% opacity black backdrop with backdrop blur. Renders the same `ticketsToRender` data at **0.9× scale** (vs 0.45× inline) — twice as readable. Info bar top-left shows ticket count + paper size + dismissal hint. White close button top-right.
+- **Three dismissal paths**: click outside the preview, press Escape, click the X button. Modal content uses `stopPropagation` so clicks INSIDE (e.g. scrolling a multi-ticket A4) don't dismiss.
+- **Body scroll lock** while open so the page underneath doesn't jump when the user scrolls inside the modal. Cleanly restored on close.
+- **No backend changes** — pure frontend enhancement.
+
+**Live verified on preview** with a real selected product ("Adhesive 20kg"): inline preview shows the hover pill cleanly, click opens the modal with the price ticket fully readable (price, RRP, suitability/finish/material, sizes, barcode, QR all crisp).
+
+**Files**:
+- `/app/frontend/src/pages/admin/PriceTickets.js` (new `previewEnlarged` state, Escape/body-scroll effect, clickable preview wrapper with hover pill, enlarged modal at bottom of component, `Maximize2 + X` lucide imports)
+
+
 ### [Feb 26, 2026 — Forked session] 💾 Save-as-template + "Recently asked in showroom" picker
 
 **User intent**: *"Save as starter content — turn ANY Q&A or Trade Talk episode you've polished into a re-usable template. Paired with a 'Recently asked in showroom' quick-pick list pulled from live-chat history so admins can one-tap turn real customer questions into Q&A episodes → YES."*
