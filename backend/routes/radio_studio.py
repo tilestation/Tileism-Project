@@ -30,7 +30,7 @@ from datetime import datetime, timedelta, timezone
 from typing import List, Literal, Optional, Tuple
 from elevenlabs import VoiceSettings
 from elevenlabs.client import ElevenLabs
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, Response
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, Response
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -2699,6 +2699,159 @@ async def save_playlist(
         upsert=True,
     )
     return doc
+
+
+# ------------------------------------------------------------------
+# Tune-in heartbeats (31 May 2026)
+# ------------------------------------------------------------------
+#
+# Goal: tell the super admin at-a-glance whether each showroom
+# actually has the radio playing (vs the playlist merely being
+# configured). The public /radio tab pings POST /tune-in/heartbeat
+# every 30 s while tuned in; the admin pill polls the rolled-up
+# status every 15 s.
+#
+# Design choices:
+#   - device_id is a client-generated UUID stored in localStorage so
+#     the same showroom device counts as ONE listener even across
+#     refreshes / tab reopens.
+#   - device_label is optional; the admin can name a device (e.g.
+#     "Tonbridge front of house") via the /radio settings dialog
+#     later. For v1 we accept it on the heartbeat itself so showrooms
+#     can self-label.
+#   - We consider a device "active" if its last_seen_at is within
+#     90 s. With a 30 s ping cycle that's 3 missed pings → definitely
+#     off. Generous enough to ride out a WiFi blip.
+#   - upsert keeps the collection at exactly one row per device_id;
+#     pruning unseen rows is left to a manual /reset endpoint (added
+#     below) — keeps Mongo writes minimal and avoids "phantom store"
+#     entries from short-lived experiments showing up forever.
+
+ACTIVE_HEARTBEAT_WINDOW_SECONDS = 90
+
+
+class TuneInHeartbeatReq(BaseModel):
+    device_id: str = Field(min_length=4, max_length=64)
+    device_label: Optional[str] = Field(default=None, max_length=80)
+
+
+@public_router.post("/tune-in/heartbeat")
+async def radio_tune_in_heartbeat(req: TuneInHeartbeatReq, request: Request):
+    """Public endpoint — each `/radio` tab posts here every 30 s
+    while tuned in. We don't authenticate (the showroom devices
+    don't carry a token), just stamp `last_seen_at`. Replay-safe via
+    upsert on device_id."""
+    db = get_db()
+    now_iso = datetime.now(timezone.utc).isoformat()
+    ip = (
+        request.headers.get("cf-connecting-ip")
+        or request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+        or (request.client.host if request.client else None)
+    )
+    ua = (request.headers.get("user-agent") or "")[:160]
+    update = {
+        "$set": {
+            "last_seen_at": now_iso,
+            "last_ip": ip,
+            "last_user_agent": ua,
+        },
+        "$setOnInsert": {
+            "device_id": req.device_id,
+            "first_seen_at": now_iso,
+        },
+    }
+    if req.device_label:
+        update["$set"]["device_label"] = req.device_label.strip()[:80]
+    await db.radio_tune_in_heartbeats.update_one(
+        {"device_id": req.device_id},
+        update,
+        upsert=True,
+    )
+    return {"ok": True, "device_id": req.device_id}
+
+
+@router.get("/tune-in/status")
+async def radio_tune_in_status(current_user: dict = Depends(get_current_user)):
+    """Admin pill polls this every 15 s. Returns:
+      - active_count: devices seen within ACTIVE_HEARTBEAT_WINDOW_SECONDS
+      - devices: list (newest-last-seen first) with label/id/last_seen
+      - now_playing: convenience — what should be playing right now
+        if the playlist is configured. Pulled from the same logic as
+        /live/now-playing so the pill can show "Now: {track}" without
+        a second fetch.
+    Auth required — keeps device IPs / UAs out of public view.
+    """
+    _require_admin(current_user)
+    db = get_db()
+    cutoff = (datetime.now(timezone.utc) - timedelta(seconds=ACTIVE_HEARTBEAT_WINDOW_SECONDS)).isoformat()
+    cursor = db.radio_tune_in_heartbeats.find(
+        {"last_seen_at": {"$gte": cutoff}},
+        {"_id": 0, "device_id": 1, "device_label": 1,
+         "last_seen_at": 1, "first_seen_at": 1, "last_ip": 1},
+    ).sort("last_seen_at", -1).limit(20)
+    devices = [doc async for doc in cursor]
+
+    # Resolve current playing item — best-effort, never blocks the pill
+    now_playing = None
+    try:
+        playlist = await db.radio_studio_playlists.find_one(
+            {"is_active": True}, {"_id": 0},
+        )
+        items = (playlist or {}).get("items") or []
+        if items:
+            ad_ids = [it["ref_id"] for it in items if it.get("type") == "ad"]
+            music_ids = [it["ref_id"] for it in items if it.get("type") == "music"]
+            ads_by_id: dict = {}
+            music_by_id: dict = {}
+            if ad_ids:
+                async for d in db.radio_studio_ads.find(
+                    {"id": {"$in": ad_ids}},
+                    {"_id": 0, "id": 1, "name": 1, "duration_seconds": 1, "audio_filename": 1},
+                ):
+                    ads_by_id[d["id"]] = d
+            if music_ids:
+                async for d in db.radio_studio_music.find(
+                    {"id": {"$in": music_ids}},
+                    {"_id": 0, "id": 1, "name": 1, "duration_seconds": 1, "audio_filename": 1},
+                ):
+                    music_by_id[d["id"]] = d
+            resolved = []
+            for it in items:
+                ref = (ads_by_id if it.get("type") == "ad" else music_by_id).get(it.get("ref_id"))
+                if not ref or not ref.get("audio_filename"):
+                    continue
+                d = float(ref.get("duration_seconds") or 0) or 30.0
+                resolved.append({**it, "ref": ref, "duration_seconds": d})
+            if resolved:
+                durations = [r["duration_seconds"] for r in resolved]
+                total = sum(durations) or 1.0
+                offset = time.time() % total
+                idx, _ = _locate(offset, durations)
+                cur = resolved[idx]
+                now_playing = {
+                    "type": cur.get("type"),
+                    "name": cur["ref"].get("name"),
+                }
+    except Exception:  # noqa: BLE001 — never block the pill on an aggregation error
+        logger.exception("tune-in/status: failed to resolve now_playing")
+
+    return {
+        "active_count": len(devices),
+        "active_window_seconds": ACTIVE_HEARTBEAT_WINDOW_SECONDS,
+        "devices": devices,
+        "now_playing": now_playing,
+    }
+
+
+@router.post("/tune-in/reset")
+async def radio_tune_in_reset(current_user: dict = Depends(get_current_user)):
+    """Wipe all heartbeats — useful for clearing out a stale device
+    that was renamed or replaced. Each active showroom will re-register
+    within 30 s on its next ping."""
+    _require_admin(current_user)
+    db = get_db()
+    res = await db.radio_tune_in_heartbeats.delete_many({})
+    return {"ok": True, "deleted": res.deleted_count}
 
 
 # ------------------------------------------------------------------

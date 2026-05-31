@@ -31,6 +31,42 @@ import { Radio, Play, Pause, Music, Mic } from 'lucide-react';
 const API_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${API_URL}/api`;
 const POLL_URL = `${API}/radio-studio/live/now-playing`;
+const HEARTBEAT_URL = `${API}/radio-studio/tune-in/heartbeat`;
+const HEARTBEAT_INTERVAL_MS = 30_000;
+
+// Per-device id persisted in localStorage so the same showroom
+// device counts as ONE listener even across page refreshes / tab
+// reopens. First-time visitors get a fresh UUID.
+const getDeviceId = () => {
+  try {
+    const k = 'tilestation_radio_device_id';
+    let v = localStorage.getItem(k);
+    if (!v) {
+      v =
+        (window.crypto && window.crypto.randomUUID && window.crypto.randomUUID()) ||
+        `dev-${Math.random().toString(36).slice(2)}-${Date.now()}`;
+      localStorage.setItem(k, v);
+    }
+    return v;
+  } catch (_e) {
+    return `dev-anon-${Date.now()}`;
+  }
+};
+const getDeviceLabel = () => {
+  try {
+    return localStorage.getItem('tilestation_radio_device_label') || '';
+  } catch (_e) {
+    return '';
+  }
+};
+const setDeviceLabel = (v) => {
+  try {
+    if (v && v.trim()) localStorage.setItem('tilestation_radio_device_label', v.trim());
+    else localStorage.removeItem('tilestation_radio_device_label');
+  } catch (_e) {
+    /* ignore */
+  }
+};
 
 export default function PublicRadioPage() {
   // 31 May 2026 — TWO audio elements so we can crossfade between
@@ -261,6 +297,36 @@ export default function PublicRadioPage() {
     crossfadeFiredRef.current = false;
   };
 
+  // 31 May 2026 — Heartbeat to the backend every 30 s while tuned
+  // in. Lets super admins see which showrooms are actually playing
+  // the radio (vs the playlist merely being configured). Fire once
+  // immediately on tune-in for a fast pill update; then on interval.
+  const [deviceLabel, setDeviceLabelState] = useState(() => getDeviceLabel());
+  useEffect(() => {
+    if (!tunedIn) return undefined;
+    let cancelled = false;
+    const send = async () => {
+      try {
+        await fetch(HEARTBEAT_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            device_id: getDeviceId(),
+            device_label: deviceLabel || null,
+          }),
+          // keepalive lets the browser deliver the final ping even if
+          // the tab is closing (best-effort; modern browsers honour it).
+          keepalive: true,
+        });
+      } catch (_e) {
+        /* offline / network blip — pill will mark us off-air after 90 s */
+      }
+    };
+    send();
+    const t = setInterval(() => { if (!cancelled) send(); }, HEARTBEAT_INTERVAL_MS);
+    return () => { cancelled = true; clearInterval(t); };
+  }, [tunedIn, deviceLabel]);
+
   const cur = now?.now;
   const isAd = cur?.type === 'ad';
   const playing = tunedIn && !!cur;
@@ -393,6 +459,30 @@ export default function PublicRadioPage() {
           Connect this device to your store's Bluetooth speaker, tap Tune in,
           and leave the tab open. All 4 stores stay in sync.
         </p>
+
+        {/* Per-device label — lets the admin status pill show
+            "Tonbridge front of house" instead of an opaque UUID. */}
+        <div className="mt-2 flex items-center gap-2 max-w-sm w-full">
+          <label
+            htmlFor="radio-device-label"
+            className="text-[10px] uppercase tracking-wider text-slate-500 font-bold whitespace-nowrap"
+          >
+            This device
+          </label>
+          <input
+            id="radio-device-label"
+            type="text"
+            placeholder="e.g. Tonbridge front of house"
+            value={deviceLabel}
+            onChange={(e) => {
+              setDeviceLabelState(e.target.value);
+              setDeviceLabel(e.target.value);
+            }}
+            data-testid="public-radio-device-label"
+            className="flex-1 bg-white/5 border border-white/10 rounded-md px-2 py-1.5 text-xs text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-amber-400/60"
+            maxLength={80}
+          />
+        </div>
       </div>
     </div>
   );

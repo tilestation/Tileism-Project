@@ -9,6 +9,51 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Feb 26, 2026 — Forked session] 🟢 Radio Studio: Tune-in heartbeats + topbar status pill
+
+**User intent**: *"Radio status pill in the admin topbar — green ON AIR with 'Now playing: {track}' or red OFF AIR — so super-admins can monitor at a glance whether stores actually have the radio running, without having to call each one → YES."*
+
+**Design (deliberately NOT just polling `/live/now-playing`)**: that endpoint can only tell you "is a playlist configured", NOT "is any showroom actually playing it". So we built a heartbeat layer:
+
+**Backend** (`/app/backend/routes/radio_studio.py`):
+- `POST /api/radio-studio/tune-in/heartbeat` — **public** endpoint. Every `/radio` tab POSTs `{device_id, device_label?}` every 30 s while tuned in. Upserts a `radio_tune_in_heartbeats` row keyed by `device_id` (so one row per showroom device no matter how many times the tab reloads). Captures CF-aware IP + UA for diagnostics.
+- `GET /api/admin/radio-studio/tune-in/status` — **admin** endpoint. Returns:
+  - `active_count` — devices with `last_seen_at` inside a 90 s window (3× the 30 s ping → forgiving of WiFi blips)
+  - `devices[]` — newest-first list with `device_label`, `last_seen_at`, sliced to 20
+  - `now_playing` — convenience field, resolves "what should be playing right now" from the same wall-clock-modulo logic as `/live/now-playing` so the pill can show "Now: {track}" without a second fetch. Failure here never blocks the pill.
+- `POST /api/admin/radio-studio/tune-in/reset` — admin one-button collection wipe (for cleaning up renamed/replaced devices).
+- New collection: `radio_tune_in_heartbeats { device_id, device_label, last_seen_at, first_seen_at, last_ip, last_user_agent }`.
+
+**Public radio page** (`/app/frontend/src/pages/public/PublicRadioPage.jsx`):
+- Per-device UUID in `localStorage` (`tilestation_radio_device_id`) so refreshes don't create phantom devices.
+- Heartbeat loop: fires immediately on `tuneIn()`, then every 30 s via `setInterval`. Uses `fetch(..., {keepalive: true})` so the final ping survives a tab-close. Silent on network errors (pill marks OFF AIR after 90 s anyway).
+- New device-label input at the bottom of the page (max 80 chars) — each showroom can type "Tonbridge front of house" / "Maidstone back office" etc. Persisted to `localStorage` and sent with every heartbeat.
+
+**Topbar pill** (`/app/frontend/src/components/admin/RadioStatusPill.jsx` — NEW):
+- Polls `/admin/radio-studio/tune-in/status` every 15 s.
+- **Green** with pulsing emerald ping + "**N tuned in · {track-name}**" when `active_count > 0`.
+- **Red** "**OFF AIR**" + Radio icon when no devices are active.
+- Tooltip: lists active device labels so super-admin sees WHICH stores are on.
+- Clicking the pill opens `/radio` in a new tab (`target="_blank"`) — same destination as the sidebar "Play Store Radio" item.
+- Mounted between date and Search button in topbar; only renders for admins (`isAdmin` guard); silent fallback (`setHidden(true)`) on any backend error so radio outage never breaks the topbar.
+
+**Tests (5/5 new pass)**:
+- Heartbeat upserts by device_id (re-ping doesn't create duplicates)
+- Status returns active list within the 90 s window, **excludes stale** rows
+- Status requires admin auth (401/403 anonymously)
+- Reset wipes the collection
+- Heartbeat 422s on short device_id (validation guard)
+
+**Live verified on preview**: POST heartbeat → `active_count: 1`, `device_label: "Tonbridge front of house"`. Pill renders red "OFF AIR" with the external-link icon as expected for an empty preview DB.
+
+**Files**:
+- `/app/backend/routes/radio_studio.py` (3 new endpoints, heartbeat model, Request import)
+- `/app/frontend/src/components/admin/RadioStatusPill.jsx` (NEW)
+- `/app/frontend/src/components/Layout.js` (mount the pill in topbar)
+- `/app/frontend/src/pages/public/PublicRadioPage.jsx` (heartbeat loop + device-label input + persisted device UUID)
+- `/app/backend/tests/test_radio_studio_tune_in.py` (NEW — 5 tests)
+
+
 ### [Feb 26, 2026 — Forked session] 📻 Sidebar: One-click "Play Store Radio" link for every showroom
 
 **User report**: *"At the moment nothing is visible to stores, I have to send them link (tilestation.co.uk/radio) manually. Add a one-click radio button so they can click on it to play when they open the stores in the mornings."*

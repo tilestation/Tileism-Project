@@ -7,6 +7,7 @@ import PageGate from './PageGate';
 import OutageBanner from './admin/OutageBanner';
 import SchemaDriftBanner from './admin/SchemaDriftBanner';
 import CommandPalette from './admin/CommandPalette';
+import RadioStatusPill from './admin/RadioStatusPill';
 import { 
   Package, 
   LayoutDashboard, 
@@ -582,6 +583,7 @@ export const Layout = () => {
             {new Date().toLocaleDateString('en-US', { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' })}
           </div>
           <div className="flex-1" />
+          {isAdmin && <RadioStatusPill />}
           {isAdmin && (
             <button
               type="button"
