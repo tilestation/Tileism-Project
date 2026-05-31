@@ -27,7 +27,7 @@ import tempfile
 import time
 import uuid
 from datetime import datetime, timedelta, timezone
-from typing import List, Literal, Optional, Tuple
+from typing import Any, Dict, List, Literal, Optional, Tuple
 from elevenlabs import VoiceSettings
 from elevenlabs.client import ElevenLabs
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, Response
@@ -1131,6 +1131,139 @@ class GenerateTradeTalkReq(BaseModel):
                            description="Name of the Tile Station expert character")
     guest_name: str = Field(default="Dave", max_length=40,
                             description="Name of the calling-in builder character")
+
+
+class GenerateTurnReplyReq(BaseModel):
+    """Generate a single AI continuation turn at a chosen position in
+    an existing Trade Talk conversation. Used by the in-place
+    "✨ Generate AI reply" button on each turn — the admin types a
+    question/comment, the LLM produces the matching reply turn
+    (host responds to guest, or vice versa), and the reply is
+    inserted RIGHT AFTER the prompt turn for the admin to edit."""
+    prior_turns: List[Dict[str, Any]] = Field(
+        default_factory=list,
+        description="All turns BEFORE the new reply, in order. Each: {speaker:'host'|'guest', text:str}",
+    )
+    reply_speaker: str = Field(
+        default="host",
+        description="Which speaker should the new turn be ('host' or 'guest'). Usually the OPPOSITE of the last prior turn.",
+    )
+    topic: Optional[str] = Field(
+        default=None, max_length=400,
+        description="Optional original episode topic — gives the LLM context if `prior_turns` is short or empty",
+    )
+    host_name: str = Field(default="Mark", max_length=40)
+    guest_name: str = Field(default="Dave", max_length=40)
+
+
+@router.post("/scripts/generate-turn-reply")
+async def generate_turn_reply(req: GenerateTurnReplyReq, current_user: dict = Depends(get_current_user)):
+    """LLM-generate ONE dialogue turn that fits the surrounding
+    context. Returns `{speaker, text}` for the new turn — the
+    frontend inserts it at the requested position and lets the
+    admin tweak the wording.
+
+    Why this exists: user wants to add a custom question mid-way
+    through an existing podcast (e.g. *"Can I add a question here
+    and have AI generate the answer that fits the flow?"*).
+    Re-running the full /generate-trade-talk endpoint rewrites the
+    whole episode, losing the admin's edits. This endpoint touches
+    one turn only.
+    """
+    _require_admin(current_user)
+    api_key = os.environ.get("EMERGENT_LLM_KEY")
+    if not api_key:
+        raise HTTPException(status_code=500, detail="EMERGENT_LLM_KEY not set")
+
+    speaker = (req.reply_speaker or "host").lower().strip()
+    if speaker not in ("host", "guest"):
+        raise HTTPException(status_code=422, detail="reply_speaker must be 'host' or 'guest'")
+
+    # Keep the prompt short — only the LAST 8 turns of context are
+    # passed to the LLM. More than that risks blowing past the
+    # token budget AND tends to muddle "what should come next" with
+    # earlier irrelevant tangents.
+    recent = [t for t in (req.prior_turns or [])
+              if isinstance(t, dict) and t.get("text")][-8:]
+    if not recent and not req.topic:
+        raise HTTPException(
+            status_code=422,
+            detail="Need at least one prior turn OR an episode topic to generate from.",
+        )
+
+    system = (
+        "You write a SINGLE dialogue turn for a Tile Station 'Trade Talk' "
+        "phone-in podcast. The episode is already in progress — your job is "
+        "to write the NEXT line that fits naturally after the conversation "
+        "you're shown.\n\n"
+        f"CHARACTERS:\n"
+        f"  HOST = {req.host_name} — Tile Station expert. Calm, technical, "
+        "UK English mid-40s. Uses precise terminology but explains it.\n"
+        f"  GUEST = {req.guest_name} — a working builder calling in. "
+        "Friendly, asks the questions a real builder would.\n\n"
+        "HARD RULES:\n"
+        f"1. Write ONLY a {speaker.upper()} turn. Not the next exchange — just one line.\n"
+        "2. UK English (metres, kilos, mil, square metres).\n"
+        "3. 1-4 sentences. Roughly 15-60 words. Conversational — like real speech.\n"
+        "4. Reference specific products/brands we stock when relevant (Mapei "
+        "Keraflex Maxi S1, Ardex FS-DD, HardieBacker, etc).\n"
+        "5. NEVER say 'visit our showroom' or 'visit our website' — the listener "
+        "is already in the showroom.\n"
+        "6. Output FORMAT: just the dialogue text. No 'HOST:' / 'GUEST:' prefix, "
+        "no quotes, no stage directions, no markdown."
+    )
+
+    # Build the user message — show the LLM what came before.
+    convo_lines: List[str] = []
+    if req.topic:
+        convo_lines.append(f"Episode topic: {req.topic.strip()}\n")
+    if recent:
+        convo_lines.append("Conversation so far:")
+        for t in recent:
+            label = (req.host_name if t.get("speaker") == "host" else req.guest_name).upper()
+            convo_lines.append(f"{label}: {(t.get('text') or '').strip()}")
+    convo_lines.append(
+        f"\nWrite the next {speaker.upper()} turn now. Just the line — no label, no quotes."
+    )
+    user_msg = "\n".join(convo_lines)
+
+    try:
+        from emergentintegrations.llm.chat import LlmChat, UserMessage
+        chat = LlmChat(
+            api_key=api_key,
+            session_id=f"radio-talk-turn-{os.urandom(4).hex()}",
+            system_message=system,
+        )
+        chat.with_model("anthropic", "claude-haiku-4-5-20251001")
+        raw = await chat.send_message(UserMessage(text=user_msg))
+    except Exception as exc:
+        logger.exception("Trade Talk single-turn generation failed")
+        raise HTTPException(status_code=502, detail=f"Generation failed: {str(exc)[:200]}") from exc
+
+    text = (raw or "").strip()
+    # Strip stray labels the model occasionally adds even though we
+    # told it not to ("HOST:", "MARK:", etc).
+    for prefix in ("HOST:", "GUEST:", f"{req.host_name.upper()}:", f"{req.guest_name.upper()}:"):
+        if text.upper().startswith(prefix):
+            text = text[len(prefix):].strip()
+    # Strip wrapping quotes / markdown the LLM sometimes adds.
+    text = text.lstrip("*-• ").strip()
+    if text.startswith('"') and text.endswith('"'):
+        text = text[1:-1]
+    if text.startswith("'") and text.endswith("'"):
+        text = text[1:-1]
+    if not text:
+        raise HTTPException(
+            status_code=502,
+            detail="LLM returned empty text — try again or rephrase the prompt turn.",
+        )
+
+    return {
+        "speaker": speaker,
+        "text": text,
+        "approx_words": len(text.split()),
+        "approx_seconds": round(len(text.split()) / 2.1, 1),
+    }
 
 
 @router.post("/scripts/generate-trade-talk")

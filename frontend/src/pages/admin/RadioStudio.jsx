@@ -1226,12 +1226,63 @@ function TradeTalkFields({ form, setForm, voices, voicesLoading, onResyncVoices,
     });
   };
 
+  const insertTurnAfter = (idx, speaker) => {
+    const prev = form.turns[idx];
+    const defaultSpeaker = prev ? (prev.speaker === 'host' ? 'guest' : 'host') : 'host';
+    const next = [...form.turns];
+    next.splice(idx + 1, 0, { speaker: speaker || defaultSpeaker, text: '' });
+    setForm({ ...form, turns: next });
+  };
+
   const moveTurn = (from, to) => {
     if (to < 0 || to >= form.turns.length) return;
     const next = [...form.turns];
     const [moved] = next.splice(from, 1);
     next.splice(to, 0, moved);
     setForm({ ...form, turns: next });
+  };
+
+  // 31 May 2026 — single-turn AI generator. The user types a
+  // question/comment into a turn, clicks "✨ Generate AI reply",
+  // and the LLM produces the matching response turn fitting the
+  // surrounding context. Inserted directly after the prompt turn
+  // for the admin to tweak.
+  const [aiTurnBusy, setAiTurnBusy] = useState(null); // idx of turn whose reply is being generated
+  const generateReplyAfter = async (idx) => {
+    const promptTurn = form.turns[idx];
+    if (!promptTurn || !(promptTurn.text || '').trim()) {
+      toast.error('Type your question/comment in this turn first, then click Generate AI reply.');
+      return;
+    }
+    const replySpeaker = promptTurn.speaker === 'host' ? 'guest' : 'host';
+    setAiTurnBusy(idx);
+    try {
+      const r = await axios.post(
+        `${API}/admin/radio-studio/scripts/generate-turn-reply`,
+        {
+          prior_turns: form.turns.slice(0, idx + 1).map((t) => ({
+            speaker: t.speaker, text: t.text,
+          })),
+          reply_speaker: replySpeaker,
+          topic: aiTopic || null,
+          host_name: 'Mark',
+          guest_name: 'Dave',
+        },
+        { headers: tokenHdr(), timeout: 30_000 },
+      );
+      const newTurn = { speaker: r.data.speaker, text: r.data.text };
+      const next = [...form.turns];
+      next.splice(idx + 1, 0, newTurn);
+      setForm({ ...form, turns: next });
+      toast.success(`AI reply added · ${r.data.approx_words} words · ~${r.data.approx_seconds}s`);
+    } catch (e) {
+      const detail = e?.response?.data?.detail;
+      toast.error(
+        typeof detail === 'string' ? detail : (e.message || 'AI reply failed — try again'),
+      );
+    } finally {
+      setAiTurnBusy(null);
+    }
   };
 
   const totalWords = form.turns.reduce(
@@ -1364,6 +1415,21 @@ function TradeTalkFields({ form, setForm, voices, voicesLoading, onResyncVoices,
                   <div className="ml-auto flex items-center gap-1">
                     <button
                       type="button"
+                      onClick={() => generateReplyAfter(idx)}
+                      disabled={aiTurnBusy !== null || !(turn.text || '').trim()}
+                      data-testid={`radio-talk-ai-reply-${idx}`}
+                      title="Generate the next turn (an AI reply that fits this question/comment). The reply is inserted right after this turn for you to edit."
+                      className="px-1.5 py-0.5 rounded-md flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider bg-fuchsia-500/15 text-fuchsia-300 hover:bg-fuchsia-500/25 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                    >
+                      {aiTurnBusy === idx ? (
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                      ) : (
+                        <Sparkles className="w-3 h-3" />
+                      )}
+                      AI reply
+                    </button>
+                    <button
+                      type="button"
                       onClick={() => moveTurn(idx, idx - 1)}
                       disabled={idx === 0}
                       className="p-1 text-slate-500 hover:text-slate-200 disabled:opacity-30 rounded"
@@ -1402,8 +1468,41 @@ function TradeTalkFields({ form, setForm, voices, voicesLoading, onResyncVoices,
                   data-testid={`radio-talk-text-${idx}`}
                   className="w-full px-2 py-1.5 bg-slate-950/60 border border-slate-700/50 rounded text-sm text-slate-100 placeholder-slate-600 focus:border-amber-500 focus:outline-none resize-y leading-snug"
                 />
+                {/* In-place "insert turn below" — appears at the
+                    bottom of every turn except the last (the last
+                    one uses the "+ Insert turn at end" rail). */}
+                {idx < form.turns.length - 1 && (
+                  <div className="flex items-center gap-2 pt-1.5">
+                    <button
+                      type="button"
+                      onClick={() => insertTurnAfter(idx)}
+                      data-testid={`radio-talk-insert-after-${idx}`}
+                      title="Insert a new turn directly below this one (then type your question + click AI reply to auto-fill the next turn)"
+                      className="text-[10px] uppercase tracking-wider px-2 py-0.5 rounded text-slate-500 hover:text-fuchsia-300 hover:bg-fuchsia-500/10 transition-colors"
+                    >
+                      + Insert below
+                    </button>
+                  </div>
+                )}
               </div>
             ))}
+            {/* "Insert turn here" rail — appears BETWEEN consecutive
+                turns so admins can splice a custom question or
+                comment in mid-conversation rather than having to
+                add at the end + shuffle up. Hover-only by default
+                so it doesn't clutter when not needed. */}
+            {form.turns.length > 0 && (
+              <div className="-mt-1 flex justify-center">
+                <button
+                  type="button"
+                  onClick={() => insertTurnAfter(form.turns.length - 1)}
+                  data-testid="radio-talk-insert-at-end"
+                  className="text-[10px] uppercase tracking-wider px-2 py-0.5 rounded text-slate-500 hover:text-fuchsia-300 hover:bg-fuchsia-500/10 transition-colors"
+                >
+                  + Insert turn at end
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>

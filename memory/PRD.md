@@ -9,6 +9,49 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Feb 26, 2026 — Forked session] 🎙️ Trade Talk: in-place "AI reply" + "Insert turn below" controls
+
+**User intent (with screenshot)**: *"I am going through Trade Talk. If I have any question I want to add it among these dialogue boxes and AI needs to generate the answer. Then allow me to adjust the conversation."*
+
+**The need**: re-running the full episode generator overwrites every existing turn → loses any tweaks. The user wants surgical edits — splice in one new question or comment mid-conversation, get the LLM to write the matching reply, then keep adjusting.
+
+**Backend** (`/app/backend/routes/radio_studio.py`):
+- New endpoint `POST /api/admin/radio-studio/scripts/generate-turn-reply`
+- New `GenerateTurnReplyReq` model — accepts `prior_turns[]` (last 8 sliced server-side to keep prompts cheap), `reply_speaker` (`host`|`guest`), optional `topic`, plus `host_name` / `guest_name`.
+- Claude Haiku 4.5 via `LlmChat` + Emergent LLM key. System prompt enforces: single-turn output (no full exchange), UK English + units, 15-60 words, mention real stocked products (Mapei, Ardex, HardieBacker), never tell the listener to "visit our showroom" (they're already there), strip any speaker label / wrapping quotes the model accidentally outputs.
+- Returns `{speaker, text, approx_words, approx_seconds}` so the UI can toast the size.
+- 422 guard: if `prior_turns` is empty AND no `topic` provided → reject (no context to generate from).
+- 422 guard: `reply_speaker` must be host|guest before any LLM call.
+
+**Admin UI** (`/app/frontend/src/pages/admin/RadioStudio.jsx` — `TradeTalkSubForm`):
+- **`✨ AI REPLY` button** on every turn card (in the controls row next to ▲▼ + delete). Disabled until the turn has text. Click → generates the OPPOSITE speaker's response and inserts it right below for editing. Loader2 spinner while busy.
+- **`+ Insert below` rail** at the bottom of every turn (except the last) — splices a fresh empty turn directly below this one without scrolling to the bottom. Speaker auto-alternates from the previous turn.
+- **`+ Insert turn at end` rail** beneath the whole list — same as the existing "Add turn" button, just discoverable at the natural "I want one more" location.
+- All buttons carry `data-testid` for future regression coverage.
+
+**Workflow this enables** (matches the user's described intent):
+1. Generate a starter Trade Talk episode from a topic
+2. Spot a place to add a custom question → click `+ Insert below` under the previous turn
+3. Type the question in the new (empty) GUEST box → click `✨ AI REPLY`
+4. Claude generates the matching HOST response that fits the surrounding context
+5. Edit either turn freely; the rest of the episode is untouched
+
+**Tests (4/4 new pass)** in `tests/test_radio_studio_turn_reply.py`:
+- Empty input + no topic → 422
+- Stubbed Claude response with stray "HOST:" prefix + wrapping quotes → endpoint strips both
+- Bogus `reply_speaker` ("narrator") → 422 BEFORE LLM call (saves credits)
+- Anonymous → 401/403
+
+**Live verified**: real Claude call on preview with a porcelain/UFH adhesive question returned a 44-word host reply mentioning Mapei Keraflex Maxi S1 — exactly the persona we asked for.
+
+**Session-wide regression**: 40/40 new tests pass.
+
+**Files**:
+- `/app/backend/routes/radio_studio.py` (NEW endpoint + `GenerateTurnReplyReq` model + `Dict, Any` typing import)
+- `/app/frontend/src/pages/admin/RadioStudio.jsx` (`TradeTalkSubForm` — `generateReplyAfter`, `insertTurnAfter`, inline buttons, insert-below + insert-at-end rails)
+- `/app/backend/tests/test_radio_studio_turn_reply.py` (NEW — 4 tests)
+
+
 ### [Feb 26, 2026 — Forked session] 📻 Radio: visible Up Next list + sync explainer + Solo preview from track #1
 
 **User report (with screenshots)**: *"Why doesn't the radio follow Saved Playlist?"* — diagnosis showed the radio WAS playing the saved playlist correctly; confusion was because wall-clock-modulo sync means you join mid-loop, not at track #1. Three-pronged fix shipped:
