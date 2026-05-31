@@ -1849,11 +1849,51 @@ function MusicTab({ music, onMusicChange }) {
       </div>
 
       <div className="bg-slate-800/60 backdrop-blur border border-slate-700/50 rounded-2xl p-4 sm:p-5 shadow-xl">
-        <h2 className="text-lg font-bold mb-3 flex items-center gap-2">
-          <Music className="w-5 h-5 text-amber-400" />
-          Music library
-          <span className="text-xs text-slate-400 font-normal">({music.length})</span>
-        </h2>
+        <div className="flex items-center justify-between gap-2 mb-3 flex-wrap">
+          <h2 className="text-lg font-bold flex items-center gap-2">
+            <Music className="w-5 h-5 text-amber-400" />
+            Music library
+            <span className="text-xs text-slate-400 font-normal">({music.length})</span>
+          </h2>
+          <button
+            type="button"
+            onClick={async () => {
+              if (!window.confirm(
+                'Re-process every un-normalised track + ad to the −16 LUFS loudness target?\n\n' +
+                'This brings older content up to the same volume as new uploads/ads.\n' +
+                'Each track takes 1-2 seconds. Safe to run multiple times.'
+              )) return;
+              const tId = toast.loading('Normalising library… this can take a minute');
+              try {
+                const r = await axios.post(
+                  `${API}/admin/radio-studio/music/normalize-existing`,
+                  {},
+                  { headers: tokenHdr() }
+                );
+                const { music_normalised, ads_normalised, music_failed, ads_failed } = r.data;
+                toast.success(
+                  `Normalised ${music_normalised} track(s) + ${ads_normalised} ad(s)` +
+                  (music_failed + ads_failed > 0
+                    ? ` · ${music_failed + ads_failed} skipped (already done or unreadable)`
+                    : ''),
+                  { id: tId }
+                );
+                onMusicChange();
+              } catch (e) {
+                toast.error(
+                  `Normalisation failed: ${e?.response?.data?.detail || e.message}`,
+                  { id: tId }
+                );
+              }
+            }}
+            data-testid="radio-music-normalize-existing-btn"
+            className="text-[11px] px-3 py-1.5 rounded-md bg-amber-500/15 border border-amber-500/40 text-amber-200 hover:bg-amber-500/25 transition flex items-center gap-1.5"
+            title="Bring older tracks up to the same volume as new uploads"
+          >
+            <RefreshCw className="w-3 h-3" />
+            Normalise volume across library
+          </button>
+        </div>
         {music.length === 0 && (
           <p className="text-sm text-slate-400 py-8 text-center">No tracks yet. Upload your first one on the left.</p>
         )}
@@ -1862,7 +1902,18 @@ function MusicTab({ music, onMusicChange }) {
             <div key={t.id} className="bg-slate-900/60 border border-slate-700/50 rounded-lg p-3" data-testid={`radio-music-card-${t.id}`}>
               <div className="flex items-start justify-between gap-2 mb-1">
                 <div className="min-w-0 flex-1">
-                  <div className="font-semibold text-sm truncate">{t.name}</div>
+                  <div className="font-semibold text-sm truncate flex items-center gap-1.5">
+                    {t.name}
+                    {t.loudnorm_applied && (
+                      <span
+                        className="text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
+                        title={`Normalised to ${t.loudnorm_target_lufs || -16} LUFS`}
+                        data-testid={`radio-music-normalised-badge-${t.id}`}
+                      >
+                        ✓ Normalised
+                      </span>
+                    )}
+                  </div>
                   <div className="text-[11px] text-slate-400 truncate">
                     {t.duration_seconds ? `${t.duration_seconds}s` : '—'}
                     {' · '}

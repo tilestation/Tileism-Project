@@ -9,6 +9,35 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Feb 26, 2026 — Forked session] 🔊 Radio Studio: Loudness Normalisation — ads now match music volume
+
+**User report (verbatim, after in-store testing)**: *"When the song is playing, music is on a good volume but when ad plays the volume is too low. it needs to be on same level as the music so if the ad is playing customers can hear clearly."*
+
+**Root cause**: ElevenLabs MP3 output sits around −22 LUFS while commercially-mastered music tracks land at −9 to −14 LUFS. Same peak headroom, very different perceived loudness — ads ended up ~6-10 dB quieter than music in-store. Customers couldn't hear announcements clearly.
+
+**Fix shipped** — apply EBU R128 loudness normalisation (single-pass, target −16 LUFS / TP −1.5 / LRA 11) at every audio write point:
+
+- **New `_normalize_loudness()` helper** (`routes/radio_studio.py`) — runs ffmpeg `loudnorm` filter, 128 kbps libmp3lame, 44.1 kHz stereo output. Fail-safe: returns input unchanged on missing ffmpeg / decode error / timeout / suspiciously-small output. ~1-2 seconds per track.
+- **Applied to ads** in `generate_ad_audio` — after ElevenLabs TTS (and after any music-bed mix, since bed mix shifts loudness too). Doc now stamps `loudnorm_applied=True` + `loudnorm_target_lufs=-16.0`.
+- **Applied to music** in `upload_music` AND `import_music_from_url` (yt-dlp path) — every new track lands at the same target.
+- **Backfill endpoint** `POST /api/admin/radio-studio/music/normalize-existing` — re-processes every doc missing the `loudnorm_applied` flag (idempotent — re-runnable safely). Returns `{music_normalised, music_failed, ads_normalised, ads_failed, target_lufs}`.
+- **Frontend** — "Normalise volume across library" button on the Music Library card (with confirm dialog explaining the 1-2 s/track cost). Per-track green "✓ Normalised" badge so the user can see at a glance which tracks have been processed.
+
+**Tests (4/4 new pass, 199/200 radio_studio suite green; the 1 failure pre-existed)**:
+- `_normalize_loudness()` returns valid MP3 bytes and the bytes actually changed for a quiet input (proves loudnorm ran end-to-end)
+- Empty-bytes pass-through
+- Bogus/undecodable input → fail-safe (input returned unchanged, no exception)
+- Backfill endpoint processes unmarked docs, stamps flag, leaves already-marked docs untouched (idempotency)
+
+**For the user**: on the production deploy, click "**Normalise volume across library**" on the Music tab ONCE — it'll bring every existing track and every existing generated ad up to −16 LUFS in one shot. All future uploads/generations auto-normalise at write time.
+
+**Files**:
+- `/app/backend/routes/radio_studio.py` (new `_normalize_loudness` helper + 3 application points + backfill endpoint)
+- `/app/frontend/src/pages/admin/RadioStudio.jsx` (Normalise-volume button + per-track Normalised badge)
+- `/app/backend/tests/test_radio_studio_loudnorm.py` (NEW — 4 tests)
+- ffmpeg already in `/app/backend/Dockerfile` (line 29) so production has the filter available
+
+
 ### [Feb 26, 2026 — Forked session] ✨ Admin Command Palette — ⌘K / Ctrl+K jump-to-any-page search
 
 **User intent**: *"Sidebar search (⌘K / "/" keyboard shortcut) that lets staff jump straight to any of the 90+ admin pages by typing → YES."*

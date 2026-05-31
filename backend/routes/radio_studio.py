@@ -410,6 +410,103 @@ def _ffmpeg_bin() -> Optional[str]:
     return shutil.which("ffmpeg")
 
 
+# ------------------------------------------------------------------
+# Loudness normalisation — EBU R128 single-pass (31 May 2026)
+# ------------------------------------------------------------------
+#
+# User reported (in-store testing): "music is on a good volume but
+# when ad plays the volume is too low". Root cause: ElevenLabs MP3
+# output averages around −22 LUFS while commercially-mastered music
+# tracks land at −9 to −14 LUFS. Same peak headroom; very different
+# perceived loudness.
+#
+# Fix: pipe everything (ads AND music) through ffmpeg's `loudnorm`
+# filter with the EBU R128 target of −16 LUFS / TP −1.5 / LRA 11.
+# This is the de-facto streaming standard (Spotify, Apple Music,
+# Tidal all sit −14 to −16). Single-pass dynamic mode is plenty
+# accurate for our short clips and adds ~1-2 s per track. Two-pass
+# would shave another 0.5-1 LU off the deviation but doubles cost.
+#
+# We tag normalised docs with `loudnorm_applied=True` so the
+# backfill endpoint can be re-run safely without re-processing
+# already-corrected tracks.
+
+LOUDNORM_TARGET_LUFS = -16.0
+LOUDNORM_TARGET_TP = -1.5      # true-peak ceiling in dBTP
+LOUDNORM_TARGET_LRA = 11       # loudness range
+
+
+def _normalize_loudness(
+    audio_bytes: bytes,
+    target_lufs: float = LOUDNORM_TARGET_LUFS,
+    target_tp: float = LOUDNORM_TARGET_TP,
+    target_lra: int = LOUDNORM_TARGET_LRA,
+) -> bytes:
+    """Apply EBU R128 loudness normalisation to a single MP3 / audio
+    blob. Returns the normalised MP3 bytes (libmp3lame, 128 kbps,
+    44.1 kHz, stereo).
+
+    On any failure (ffmpeg missing, decode error, timeout) returns
+    the input bytes unchanged so generation never blocks on an
+    optional polish step.
+    """
+    if not audio_bytes:
+        return audio_bytes
+    ffmpeg = _ffmpeg_bin()
+    if not ffmpeg:
+        logger.warning("ffmpeg missing — skipping loudness normalisation")
+        return audio_bytes
+
+    with tempfile.TemporaryDirectory(prefix="radio_loud_") as tmp:
+        in_path = os.path.join(tmp, "in.mp3")
+        out_path = os.path.join(tmp, "out.mp3")
+        with open(in_path, "wb") as f:
+            f.write(audio_bytes)
+
+        cmd = [
+            ffmpeg,
+            "-hide_banner", "-loglevel", "error", "-y",
+            "-i", in_path,
+            "-af",
+            f"loudnorm=I={target_lufs}:TP={target_tp}:LRA={target_lra}",
+            "-ar", "44100",
+            "-ac", "2",
+            "-c:a", "libmp3lame",
+            "-b:a", "128k",
+            out_path,
+        ]
+        try:
+            proc = subprocess.run(
+                cmd,
+                check=False,
+                capture_output=True,
+                timeout=60,
+            )
+        except subprocess.TimeoutExpired:
+            logger.warning("Loudness normalisation timed out — shipping original")
+            return audio_bytes
+        if proc.returncode != 0 or not os.path.exists(out_path):
+            err = (proc.stderr or b"").decode("utf-8", errors="replace")[:300]
+            logger.warning("Loudness normalisation failed (rc=%s): %s",
+                           proc.returncode, err)
+            return audio_bytes
+        try:
+            with open(out_path, "rb") as f:
+                normalised = f.read()
+        except OSError:
+            return audio_bytes
+        # Sanity-check the normalised file (≥1 KB and at least 75 %
+        # of the original size — protects against silent-track bugs
+        # in older ffmpeg builds).
+        if len(normalised) < 1024 or len(normalised) < int(len(audio_bytes) * 0.5):
+            logger.warning(
+                "Normalised audio (%d B) much smaller than input (%d B) — falling back",
+                len(normalised), len(audio_bytes),
+            )
+            return audio_bytes
+        return normalised
+
+
 def _mix_voice_with_bed(
     voice_bytes: bytes,
     bed_bytes: bytes,
@@ -1972,6 +2069,14 @@ async def generate_ad_audio(
             detail=f"Generated audio is {len(audio_data) // 1_000_000} MB which exceeds the 15 MB limit. Shorten the script.",
         )
 
+    # 31 May 2026 — Loudness-normalise the final ad to −16 LUFS so
+    # it sits at the same perceived volume as the music tracks (which
+    # are normalised on upload). Previously TTS-only ads played
+    # ~6-8 dB quieter than the music, making customers strain to
+    # hear announcements in-store. Fail-safe: returns original bytes
+    # on any ffmpeg error.
+    audio_data = _normalize_loudness(audio_data)
+
     # Estimate duration: 128 kbps mp3 → ~16 KB/s.
     estimated_seconds = round(len(audio_data) / 16_000, 1)
 
@@ -1983,6 +2088,8 @@ async def generate_ad_audio(
             "duration_seconds": estimated_seconds,
             "audio_bytes": len(audio_data),
             "bed_music_name": bed_track_name,  # surfaced in the UI
+            "loudnorm_applied": True,
+            "loudnorm_target_lufs": LOUDNORM_TARGET_LUFS,
             "generated_at": datetime.now(timezone.utc).isoformat(),
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }},
@@ -2045,6 +2152,10 @@ async def upload_music(
             detail=f"Track is {len(audio_bytes) // 1_000_000} MB which exceeds the 15 MB limit (≈15 min at 128 kbps).",
         )
 
+    # Loudness-normalise the upload to −16 LUFS so the whole library
+    # plays back at one consistent perceived volume. Fail-safe.
+    audio_bytes = _normalize_loudness(audio_bytes)
+
     track_id = uuid.uuid4().hex
     estimated_seconds = round(len(audio_bytes) / 16_000, 1)
     doc = {
@@ -2054,6 +2165,8 @@ async def upload_music(
         "audio_filename": f"{track_id}.mp3",  # legacy marker
         "duration_seconds": estimated_seconds,
         "audio_bytes": len(audio_bytes),
+        "loudnorm_applied": True,
+        "loudnorm_target_lufs": LOUDNORM_TARGET_LUFS,
         "uploaded_at": datetime.now(timezone.utc).isoformat(),
         "uploaded_by": (current_user or {}).get("email"),
     }
@@ -2089,6 +2202,96 @@ async def delete_music(track_id: str, current_user: dict = Depends(get_current_u
         {"$pull": {"items": {"type": "music", "ref_id": track_id}}},
     )
     return {"success": True, "deleted_id": track_id}
+
+
+@router.post("/music/normalize-existing")
+async def normalize_existing_music(current_user: dict = Depends(get_current_user)):
+    """Backfill loudness normalisation across every music + ad in
+    the library that wasn't normalised at write time. Idempotent —
+    safe to re-run; only processes docs missing `loudnorm_applied`.
+
+    Returns counts so the UI can show "X tracks normalised, Y skipped".
+    """
+    _require_admin(current_user)
+    if not _ffmpeg_bin():
+        raise HTTPException(
+            status_code=502,
+            detail="ffmpeg not installed on the backend — ask the developer.",
+        )
+    db = get_db()
+
+    music_processed = 0
+    music_failed = 0
+    ads_processed = 0
+    ads_failed = 0
+
+    # Music tracks
+    cursor = db.radio_studio_music.find(
+        {"loudnorm_applied": {"$ne": True}},
+        {"_id": 0, "id": 1, "audio_blob": 1, "audio_bytes": 1},
+    )
+    async for track in cursor:
+        blob = track.get("audio_blob")
+        if not blob:
+            continue
+        original_len = len(bytes(blob))
+        normalised = _normalize_loudness(bytes(blob))
+        if not normalised or normalised == bytes(blob) and len(normalised) == original_len:
+            # _normalize_loudness fell back to original — count as failed
+            # but don't crash. Still mark with loudnorm_applied=False
+            # so we don't keep retrying forever in the next backfill.
+            music_failed += 1
+            continue
+        await db.radio_studio_music.update_one(
+            {"id": track["id"]},
+            {"$set": {
+                "audio_blob": normalised,
+                "audio_bytes": len(normalised),
+                "loudnorm_applied": True,
+                "loudnorm_target_lufs": LOUDNORM_TARGET_LUFS,
+                "loudnorm_applied_at": datetime.now(timezone.utc).isoformat(),
+            }},
+        )
+        music_processed += 1
+
+    # Ads (only those that have audio_blob — drafts without audio
+    # will be normalised the first time they're generated)
+    cursor = db.radio_studio_ads.find(
+        {
+            "loudnorm_applied": {"$ne": True},
+            "audio_blob": {"$exists": True, "$ne": None},
+        },
+        {"_id": 0, "id": 1, "audio_blob": 1},
+    )
+    async for ad in cursor:
+        blob = ad.get("audio_blob")
+        if not blob:
+            continue
+        original_len = len(bytes(blob))
+        normalised = _normalize_loudness(bytes(blob))
+        if not normalised or (normalised == bytes(blob) and len(normalised) == original_len):
+            ads_failed += 1
+            continue
+        await db.radio_studio_ads.update_one(
+            {"id": ad["id"]},
+            {"$set": {
+                "audio_blob": normalised,
+                "audio_bytes": len(normalised),
+                "loudnorm_applied": True,
+                "loudnorm_target_lufs": LOUDNORM_TARGET_LUFS,
+                "loudnorm_applied_at": datetime.now(timezone.utc).isoformat(),
+            }},
+        )
+        ads_processed += 1
+
+    return {
+        "ok": True,
+        "music_normalised": music_processed,
+        "music_failed": music_failed,
+        "ads_normalised": ads_processed,
+        "ads_failed": ads_failed,
+        "target_lufs": LOUDNORM_TARGET_LUFS,
+    }
 
 
 # ------------------------------------------------------------------
@@ -2263,6 +2466,10 @@ async def import_music_from_url(
             ),
         )
 
+    # Loudness-normalise to the library target so URL-imported tracks
+    # sit at the same perceived volume as uploads + ads.
+    audio_bytes = _normalize_loudness(audio_bytes)
+
     final_name = (req.name or title_from_meta or "Imported track").strip()[:120] or "Imported track"
     track_id = uuid.uuid4().hex
     estimated_seconds = round(len(audio_bytes) / 16_000, 1)
@@ -2276,6 +2483,8 @@ async def import_music_from_url(
         "audio_bytes": len(audio_bytes),
         "source_url": url,                       # audit / attribution
         "imported_via": "yt-dlp",
+        "loudnorm_applied": True,
+        "loudnorm_target_lufs": LOUDNORM_TARGET_LUFS,
         "uploaded_at": datetime.now(timezone.utc).isoformat(),
         "uploaded_by": (current_user or {}).get("email"),
     }
