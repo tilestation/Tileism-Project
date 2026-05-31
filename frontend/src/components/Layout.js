@@ -6,6 +6,7 @@ import { cn } from '../lib/utils';
 import PageGate from './PageGate';
 import OutageBanner from './admin/OutageBanner';
 import SchemaDriftBanner from './admin/SchemaDriftBanner';
+import CommandPalette from './admin/CommandPalette';
 import { 
   Package, 
   LayoutDashboard, 
@@ -79,7 +80,8 @@ import {
   Wand2,
   ShieldAlert,
   ShieldCheck,
-  Target
+  Target,
+  Search as SearchIcon
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 
@@ -88,6 +90,7 @@ export const Layout = () => {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [expandedGroups, setExpandedGroups] = useState(['sales', 'products', 'stock', 'marketing-growth']);
   const [showScrollIndicator, setShowScrollIndicator] = useState(true);
+  const [paletteOpen, setPaletteOpen] = useState(false);
   const mainRef = useRef(null);
   const { user, logout } = useAuth();
   const navigate = useNavigate();
@@ -120,6 +123,37 @@ export const Layout = () => {
       clearTimeout(timer);
     };
   }, [location.pathname]);
+
+  // Global keyboard shortcut: ⌘K / Ctrl+K opens the command palette.
+  // "/" also opens it, but only when the user isn't already typing
+  // into an input/textarea/contenteditable — otherwise we'd hijack
+  // every slash key on the EPOS / product editor screens.
+  useEffect(() => {
+    const onKey = (e) => {
+      const isMod = e.metaKey || e.ctrlKey;
+      if (isMod && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setPaletteOpen((v) => !v);
+        return;
+      }
+      if (e.key === '/' && !isMod) {
+        const t = e.target;
+        const tag = t?.tagName?.toLowerCase();
+        if (
+          tag === 'input' ||
+          tag === 'textarea' ||
+          tag === 'select' ||
+          t?.isContentEditable
+        ) {
+          return;
+        }
+        e.preventDefault();
+        setPaletteOpen(true);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   const handleLogout = () => {
     logout();
@@ -502,6 +536,32 @@ export const Layout = () => {
             {new Date().toLocaleDateString('en-US', { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' })}
           </div>
           <div className="flex-1" />
+          {isAdmin && (
+            <button
+              type="button"
+              onClick={() => setPaletteOpen(true)}
+              data-testid="command-palette-trigger"
+              className="hidden md:inline-flex items-center gap-2 px-3 py-1.5 mr-3 rounded-md border border-border bg-secondary/60 text-sm text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors"
+              aria-label="Search admin pages"
+            >
+              <SearchIcon className="h-4 w-4" />
+              <span>Search pages…</span>
+              <kbd className="ml-1 px-1.5 py-0.5 text-[10px] font-mono bg-background border border-border rounded">
+                {typeof navigator !== 'undefined' && /Mac/i.test(navigator.platform) ? '⌘K' : 'Ctrl K'}
+              </kbd>
+            </button>
+          )}
+          {isAdmin && (
+            <button
+              type="button"
+              onClick={() => setPaletteOpen(true)}
+              data-testid="command-palette-trigger-mobile"
+              className="md:hidden p-2 mr-1 rounded-md hover:bg-secondary active:bg-secondary/80"
+              aria-label="Search admin pages"
+            >
+              <SearchIcon className="h-5 w-5" />
+            </button>
+          )}
           <button
             onClick={() => setMobileOpen(!mobileOpen)}
             className="md:hidden p-2 rounded-md hover:bg-secondary active:bg-secondary/80"
@@ -620,6 +680,17 @@ export const Layout = () => {
           </div>
         </div>
       </aside>
+
+      {isAdmin && (
+        <CommandPalette
+          open={paletteOpen}
+          onOpenChange={setPaletteOpen}
+          groups={filteredGroups}
+          hubLinks={filteredGroups
+            .filter((g) => g.hubLink && g.label)
+            .map((g) => ({ hubLink: g.hubLink, label: g.label, icon: g.icon }))}
+        />
+      )}
     </div>
   );
 };

@@ -9,6 +9,37 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Feb 26, 2026 — Forked session] ✨ Admin Command Palette — ⌘K / Ctrl+K jump-to-any-page search
+
+**User intent**: *"Sidebar search (⌘K / "/" keyboard shortcut) that lets staff jump straight to any of the 90+ admin pages by typing → YES."*
+
+**What was built**:
+- **`/app/frontend/src/components/admin/CommandPalette.jsx`** (NEW) — shadcn `CommandDialog` powered by `cmdk`. Accepts the SAME `filteredGroups` Layout.js renders for the sidebar, so the palette automatically inherits permission filtering (showroom staff see only the pages they can reach; super-admin sees everything ~90+ entries). Each result row shows: icon · page label · right-aligned uppercase group tag.
+- **Hubs section pinned at top** — typing "hub" or "marketing" surfaces every group's hub-link first (Sales-Hub, Products-Hub, etc.), so a department-level jump is one keystroke.
+- **Global keyboard listener in `Layout.js`**:
+  - `⌘K` (Mac) / `Ctrl+K` (Win/Linux) → toggle palette open/close
+  - `/` → open palette (but ONLY when not focused inside an `<input>` / `<textarea>` / contenteditable — so it doesn't hijack the slash key on EPOS, product editor, search filters, etc.)
+- **Discoverable trigger button** in the topbar — "🔍 Search pages…" pill with the platform-appropriate ⌘K / Ctrl K kbd hint. Mobile gets a compact icon-only version.
+
+**UX details**:
+- Auto-focus input on open
+- Empty-state message: "No matching pages."
+- Each row carries `data-testid="command-palette-item-{route}"` so testing & deep-link bookmarks are straightforward
+- Closes on Esc / selection (handled by shadcn `Dialog`)
+- Only mounted for admin users (`isAdmin` guard) so customer accounts never see it
+
+**Verified** (Playwright against preview):
+1. ✅ Trigger button mounted in topbar
+2. ✅ Click opens dialog, focus on search input
+3. ✅ Typing "radio" filters to Radio Studio + Marketing Studio under "Marketing & Growth" heading
+4. ✅ Pressing Enter navigates to `/admin/radio-studio`
+5. ✅ Sidebar stays rendered behind the dialog (no layout shift)
+
+**Files**:
+- `/app/frontend/src/components/admin/CommandPalette.jsx` (NEW)
+- `/app/frontend/src/components/Layout.js` (imports, palette state, global key listener, topbar trigger, mount)
+
+
 ### [Feb 26, 2026 — Forked session] 🐛 Admin sidebar missing child items — Radio Studio / Marketing Studio / SEO not clickable
 
 **User report (with screenshot)**: *"I can't see quite few features in menu, No /marketing-studio, no /seo, no /radio-studio. Only the links but nothing in clickable menu."*
