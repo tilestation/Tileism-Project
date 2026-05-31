@@ -9,6 +9,25 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Feb 26, 2026 — Forked session] 📻 Sidebar: One-click "Play Store Radio" link for every showroom
+
+**User report**: *"At the moment nothing is visible to stores, I have to send them link (tilestation.co.uk/radio) manually. Add a one-click radio button so they can click on it to play when they open the stores in the mornings."*
+
+**What was built** (`/app/frontend/src/components/Layout.js`):
+- **New nav item** at the top of the sidebar, directly under Dashboard: **"Play Store Radio"** with a Radio icon.
+- Opens `/radio` in a **new tab** (`target="_blank"` + `rel="noopener noreferrer"`) so the staff admin session stays put and the radio parks on a 2nd screen / Bluetooth-paired device.
+- **Visible to every staff role** — uses `permission: 'dashboard'` (the most permissive page key, granted to staff/manager/admin/super_admin alike). Morning openers don't need admin help.
+- **Amber → fuchsia accent gradient** + external-link icon so it visually stands out from the rest of the sidebar (it's an action, not just navigation).
+- New `external: true` and `accent: true` flags on the nav-item schema → `renderNavItem` branches on them to render a `<a target="_blank">` instead of a `<NavLink>`.
+
+**Verified live**:
+- DOM count of `[data-testid="nav-play-store-radio"]` = 1
+- `href="/radio"`, `target="_blank"` confirmed
+- Renders right below Dashboard at the top of the sidebar (full-width screenshot taken)
+
+**Files**: `/app/frontend/src/components/Layout.js` (nav item added to main group; renderNavItem extended to handle `external` items).
+
+
 ### [Feb 26, 2026 — Forked session] 📻 Radio Studio: Crossfade between consecutive items (real-radio feel)
 
 **User intent**: *"Add 'Crossfade between items' toggle to the in-store playlist. Right now there's a hard cut between music ↔ ad ↔ music. A 1-2 second crossfade would make the whole playlist feel like a real radio station → YES."*

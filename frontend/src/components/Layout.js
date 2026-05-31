@@ -215,6 +215,20 @@ export const Layout = () => {
       label: null,
       items: [
         { to: '/admin', icon: LayoutDashboard, label: 'Dashboard', end: true, permission: 'dashboard', legacyPermission: 'dashboard' },
+        // One-click "open the in-store radio" link. Opens in a new
+        // tab so the showroom can leave it running on a 2nd screen /
+        // Bluetooth-connected device while keeping admin open.
+        // Visible to EVERY staff role (uses `dashboard` permission)
+        // so morning openers can tap it without admin help.
+        {
+          to: '/radio',
+          icon: Radio,
+          label: 'Play Store Radio',
+          permission: 'dashboard',
+          legacyPermission: 'dashboard',
+          external: true,
+          accent: true,
+        },
       ]
     },
     {
@@ -388,26 +402,58 @@ export const Layout = () => {
   ];
 
   // Render a single nav item
-  const renderNavItem = (item) => (
-    <NavLink
-      key={item.to}
-      to={item.to}
-      end={item.end}
-      data-testid={`nav-${item.label.toLowerCase().replace(/\s+/g, '-')}`}
-      className={({ isActive }) =>
-        cn(
-          'flex items-center gap-3 px-4 py-2.5 rounded-md font-medium duration-200 text-sm',
-          isActive
-            ? 'bg-accent text-accent-foreground shadow-md'
-            : 'text-primary-foreground/80 hover:bg-white/10 hover:text-primary-foreground',
-          collapsed && 'justify-center px-2'
-        )
-      }
-    >
-      <item.icon className="h-4 w-4 flex-shrink-0" strokeWidth={1.5} />
-      {!collapsed && <span className="truncate">{item.label}</span>}
-    </NavLink>
-  );
+  const renderNavItem = (item) => {
+    // External items (e.g. Play Store Radio → /radio public page)
+    // open in a new tab so the admin session stays put and the
+    // showroom can park the radio on a 2nd screen.
+    if (item.external) {
+      return (
+        <a
+          key={item.to}
+          href={item.to}
+          target="_blank"
+          rel="noopener noreferrer"
+          data-testid={`nav-${item.label.toLowerCase().replace(/\s+/g, '-')}`}
+          className={cn(
+            'flex items-center gap-3 px-4 py-2.5 rounded-md font-medium duration-200 text-sm',
+            item.accent
+              ? 'bg-gradient-to-r from-amber-500/20 to-fuchsia-500/15 text-amber-200 hover:from-amber-500/30 hover:to-fuchsia-500/25 ring-1 ring-amber-400/30'
+              : 'text-primary-foreground/80 hover:bg-white/10 hover:text-primary-foreground',
+            collapsed && 'justify-center px-2'
+          )}
+        >
+          <item.icon className="h-4 w-4 flex-shrink-0" strokeWidth={1.5} />
+          {!collapsed && (
+            <>
+              <span className="truncate flex-1">{item.label}</span>
+              <ExternalLink className="h-3 w-3 opacity-60" strokeWidth={1.5} />
+            </>
+          )}
+        </a>
+      );
+    }
+
+    return (
+      <NavLink
+        key={item.to}
+        to={item.to}
+        end={item.end}
+        data-testid={`nav-${item.label.toLowerCase().replace(/\s+/g, '-')}`}
+        className={({ isActive }) =>
+          cn(
+            'flex items-center gap-3 px-4 py-2.5 rounded-md font-medium duration-200 text-sm',
+            isActive
+              ? 'bg-accent text-accent-foreground shadow-md'
+              : 'text-primary-foreground/80 hover:bg-white/10 hover:text-primary-foreground',
+            collapsed && 'justify-center px-2'
+          )
+        }
+      >
+        <item.icon className="h-4 w-4 flex-shrink-0" strokeWidth={1.5} />
+        {!collapsed && <span className="truncate">{item.label}</span>}
+      </NavLink>
+    );
+  };
 
   // Render a collapsible group
   const renderGroup = (group) => {
