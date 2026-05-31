@@ -1436,6 +1436,132 @@ async def seed_starter_content(current_user: dict = Depends(get_current_user)):
 
 
 # ------------------------------------------------------------------
+# One-click Trade Talk episode (31 May 2026)
+# ------------------------------------------------------------------
+#
+# Chains Claude (script) + Mongo (insert) + ElevenLabs (TTS per turn) +
+# ffmpeg (concat) into a single endpoint. Useful for "fire off 10
+# episodes for the week in 5 minutes" workflow — the admin clicks
+# Generate, waits ~30-60 seconds per episode, and the finished
+# audio drops into the library ready to drag into the playlist.
+
+class GenerateFullEpisodeReq(BaseModel):
+    topic: str = Field(min_length=5, max_length=400)
+    host_voice_id: str = Field(min_length=1)
+    guest_voice_id: str = Field(min_length=1)
+    host_voice_name: Optional[str] = None
+    guest_voice_name: Optional[str] = None
+    target_duration_seconds: int = Field(default=240, ge=60, le=480)
+    host_name: str = Field(default="Mark", max_length=40)
+    guest_name: str = Field(default="Dave", max_length=40)
+    # Optional knobs that mirror the per-ad voice tuning. If omitted
+    # we fall through to ElevenLabs defaults.
+    stability: float = Field(default=0.5, ge=0.0, le=1.0)
+    similarity_boost: float = Field(default=0.75, ge=0.0, le=1.0)
+    style: float = Field(default=0.0, ge=0.0, le=1.0)
+    model_id: str = "eleven_multilingual_v2"
+    # If True (default), save the dialogue AND render audio. If False,
+    # we just save the script + turns as a draft (the existing
+    # generate-trade-talk-script behaviour) — useful when the admin
+    # wants to review before paying for synthesis.
+    render_audio: bool = True
+
+
+@router.post("/generate-full-episode")
+async def generate_full_episode(
+    req: GenerateFullEpisodeReq,
+    current_user: dict = Depends(get_current_user),
+):
+    """One-click Trade Talk: script + create + (optionally) render audio.
+    Returns the saved ad doc (with audio_filename set if render_audio=True).
+    Total cost: ~£0.0001 for the Claude script + ~£0.20-0.40 for the
+    ElevenLabs TTS (depending on episode length)."""
+    _require_admin(current_user)
+    db = get_db()
+
+    # 1. Generate dialogue via Claude (reuses the existing endpoint's
+    #    LLM call shape — we call the function directly to avoid the
+    #    HTTP round-trip).
+    script_req = GenerateTradeTalkReq(
+        topic=req.topic,
+        target_duration_seconds=req.target_duration_seconds,
+        host_name=req.host_name,
+        guest_name=req.guest_name,
+    )
+    script_result = await generate_trade_talk_script(script_req, current_user)
+    turns = script_result["turns"]
+    if not turns:
+        raise HTTPException(status_code=502, detail="LLM returned no turns")
+
+    # 2. Create the ad doc with kind=trade_talk.
+    ad_id = uuid.uuid4().hex
+    now_iso = datetime.now(timezone.utc).isoformat()
+    doc = {
+        "id": ad_id,
+        "name": script_result.get("suggested_name") or f"Trade Talk: {req.topic[:80]}",
+        "kind": "trade_talk",
+        "script": "",
+        "question": None,
+        "narrate_question": True,
+        "voice_id": "",
+        "voice_name": None,
+        "stability": req.stability,
+        "similarity_boost": req.similarity_boost,
+        "style": req.style,
+        "model_id": req.model_id,
+        "bed_music_id": None,
+        "bed_volume_pct": 18,
+        "pronunciation_hints": None,
+        "host_voice_id": req.host_voice_id,
+        "host_voice_name": req.host_voice_name,
+        "guest_voice_id": req.guest_voice_id,
+        "guest_voice_name": req.guest_voice_name,
+        "turns": turns,
+        "topic": req.topic,
+        "audio_filename": None,
+        "duration_seconds": None,
+        "generated_at": None,
+        "created_at": now_iso,
+        "updated_at": now_iso,
+        "created_by": (current_user or {}).get("email"),
+    }
+    await db.radio_studio_ads.insert_one(doc)
+    doc.pop("_id", None)
+
+    # Caller asked for script-only — return without burning ElevenLabs
+    # credits. Admin can review then click Generate when happy.
+    if not req.render_audio:
+        return {"ad": doc, "audio_rendered": False, "turns_count": len(turns)}
+
+    # 3. Render audio. We invoke the existing generation route by
+    #    function call so all the share-of-features (cost logging,
+    #    pronunciation hints, normalisation, ffmpeg concat) stay DRY
+    #    — exactly the same pipeline as clicking "Generate audio" on
+    #    the ad card after the fact.
+    try:
+        rendered = await generate_ad_audio(ad_id, current_user)
+    except HTTPException as exc:
+        # The doc is already saved at this point (so the admin can
+        # retry generation manually without re-paying for Claude). Add
+        # a hint to the error so they understand what happened.
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail=(
+                f"Script saved successfully (ID: {ad_id}) but audio "
+                f"rendering failed: {exc.detail}. "
+                f"Click the regenerate button on the ad card to retry."
+            ),
+        ) from exc
+
+    return {
+        "ad": rendered,
+        "audio_rendered": True,
+        "turns_count": len(turns),
+        "approx_seconds": script_result.get("approx_seconds"),
+    }
+
+
+# ------------------------------------------------------------------
 # Voices
 # ------------------------------------------------------------------
 

@@ -471,3 +471,145 @@ def test_starter_qa_pairs_each_have_real_content():
         # we promised (no "**bold**" markdown, no code fences).
         assert "**" not in a
         assert "```" not in a
+
+
+# ---------------------------------------------------------------
+# One-click full episode generation (31 May 2026 polish)
+# ---------------------------------------------------------------
+
+def test_generate_full_episode_chains_script_and_save_skipping_audio(client, admin_override):
+    """When render_audio=False, the endpoint:
+       1. Calls Claude to write the dialogue
+       2. Inserts the doc with turns + kind=trade_talk
+       3. Returns without burning ElevenLabs credits
+
+    This is the 'review before paying for synthesis' path."""
+    from routes import radio_studio
+
+    fake_llm_output = (
+        "HOST: Welcome back to Trade Talk on Tile Station Radio.\n"
+        "GUEST: Hi Mark, got a question about porcelain over UFH.\n"
+        "HOST: Sure, what's the size?\n"
+        "GUEST: 35 square metres in a kitchen-diner.\n"
+        "HOST: You need a flexible S1 adhesive — Mapei Keraflex Maxi S1.\n"
+        "GUEST: Brilliant. Thanks Mark.\n"
+        "HOST: Cheers Dave. Trade Talk back tomorrow.\n"
+    )
+    fake_db = MagicMock()
+    fake_db.radio_studio_ads.insert_one = AsyncMock()
+    fake_db.radio_studio_ads.find_one = AsyncMock()
+
+    with patch("emergentintegrations.llm.chat.LlmChat") as MockChat, \
+         patch.object(radio_studio, "get_db", return_value=fake_db), \
+         patch.dict(os.environ, {"EMERGENT_LLM_KEY": "test-key"}):
+        instance = MagicMock()
+        instance.with_model.return_value = instance
+        instance.send_message = AsyncMock(return_value=fake_llm_output)
+        MockChat.return_value = instance
+
+        r = client.post(
+            "/api/admin/radio-studio/generate-full-episode",
+            json={
+                "topic": "Porcelain over underfloor heating",
+                "host_voice_id": "host-v",
+                "guest_voice_id": "guest-v",
+                "render_audio": False,
+            },
+        )
+
+    body = r.json()
+    assert r.status_code == 200, r.text
+    assert body["audio_rendered"] is False
+    assert body["turns_count"] == 7
+    saved = body["ad"]
+    assert saved["kind"] == "trade_talk"
+    assert saved["host_voice_id"] == "host-v"
+    assert saved["guest_voice_id"] == "guest-v"
+    assert len(saved["turns"]) == 7
+    assert saved["audio_filename"] is None  # render skipped
+    # Mongo insert happened, ElevenLabs convert was NOT called.
+    fake_db.radio_studio_ads.insert_one.assert_awaited_once()
+
+
+def test_generate_full_episode_rejects_short_topic(client, admin_override):
+    from routes import radio_studio
+    r = client.post(
+        "/api/admin/radio-studio/generate-full-episode",
+        json={
+            "topic": "x",  # too short — fails Pydantic min_length
+            "host_voice_id": "host-v",
+            "guest_voice_id": "guest-v",
+        },
+    )
+    assert r.status_code == 422  # Pydantic validation error
+
+
+def test_generate_full_episode_requires_both_voices(client, admin_override):
+    from routes import radio_studio
+    r = client.post(
+        "/api/admin/radio-studio/generate-full-episode",
+        json={
+            "topic": "A valid topic about tiling",
+            "host_voice_id": "host-v",
+            # missing guest_voice_id
+        },
+    )
+    assert r.status_code == 422
+
+
+def test_generate_full_episode_admin_only():
+    from routes import radio_studio
+    src = inspect.getsource(radio_studio.generate_full_episode)
+    assert "_require_admin(current_user)" in src
+    # And the gate must run BEFORE the LLM call (don't burn credits
+    # on un-authenticated users).
+    require_idx = src.index("_require_admin")
+    llm_idx = src.index("generate_trade_talk_script(")
+    assert require_idx < llm_idx
+
+
+def test_generate_full_episode_preserves_doc_on_audio_failure(client, admin_override):
+    """If audio rendering fails AFTER the doc is saved, the error
+    message must reference the saved ad_id so the admin can retry
+    without re-running Claude (which already wrote the script)."""
+    from routes import radio_studio
+
+    fake_llm_output = (
+        "HOST: Line 1.\nGUEST: Line 2.\nHOST: Line 3.\n"
+        "GUEST: Line 4.\nHOST: Line 5.\n"
+    )
+    fake_db = MagicMock()
+    fake_db.radio_studio_ads.insert_one = AsyncMock()
+
+    # Stub generate_ad_audio to raise so we exercise the rescue path.
+    async def _failing_generate(ad_id, current_user):
+        raise HTTPException(status_code=502, detail="ElevenLabs unavailable")
+
+    with patch("emergentintegrations.llm.chat.LlmChat") as MockChat, \
+         patch.object(radio_studio, "get_db", return_value=fake_db), \
+         patch.object(radio_studio, "generate_ad_audio", side_effect=_failing_generate), \
+         patch.dict(os.environ, {"EMERGENT_LLM_KEY": "test-key"}):
+        instance = MagicMock()
+        instance.with_model.return_value = instance
+        instance.send_message = AsyncMock(return_value=fake_llm_output)
+        MockChat.return_value = instance
+
+        r = client.post(
+            "/api/admin/radio-studio/generate-full-episode",
+            json={
+                "topic": "A test topic about tiles",
+                "host_voice_id": "host-v",
+                "guest_voice_id": "guest-v",
+                "render_audio": True,
+            },
+        )
+
+    assert r.status_code == 502
+    body = r.json()
+    detail = body["detail"]
+    # Must surface the underlying ElevenLabs error AND tell the admin
+    # the script is already saved so they don't re-run Claude.
+    assert "ElevenLabs unavailable" in detail
+    assert "Script saved" in detail or "saved successfully" in detail
+    # The doc was inserted to Mongo despite the audio failure.
+    fake_db.radio_studio_ads.insert_one.assert_awaited_once()
