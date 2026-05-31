@@ -86,7 +86,7 @@ import { Button } from '../components/ui/button';
 export const Layout = () => {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [expandedGroups, setExpandedGroups] = useState(['sales', 'products', 'stock']);
+  const [expandedGroups, setExpandedGroups] = useState(['sales', 'products', 'stock', 'marketing-growth']);
   const [showScrollIndicator, setShowScrollIndicator] = useState(true);
   const mainRef = useRef(null);
   const { user, logout } = useAuth();
@@ -394,28 +394,66 @@ export const Layout = () => {
       );
     }
 
-    // If group has hubLink, render as a direct link to the hub page
+    // If group has hubLink, render the label as a direct link to the hub
+    // page AND a separate chevron button that expands the child items
+    // below. This way the hub page is still one click away, but every
+    // child route (Radio Studio, Marketing Studio, SEO, etc.) is also
+    // discoverable from the sidebar — not just by typing the URL.
     if (group.hubLink) {
       return (
         <div key={group.id} className="space-y-1">
-          <NavLink
-            to={group.hubLink}
-            data-testid={`nav-group-${group.id}`}
-            className={({ isActive }) =>
-              cn(
-                'w-full flex items-center gap-3 px-4 py-2.5 rounded-md font-medium duration-200 text-sm',
-                isActive || groupActive
-                  ? 'bg-white/10 text-primary-foreground'
-                  : 'text-primary-foreground/80 hover:bg-white/10 hover:text-primary-foreground',
-                collapsed && 'justify-center px-2'
-              )
-            }
-          >
-            <group.icon className="h-4 w-4 flex-shrink-0" strokeWidth={1.5} />
-            {!collapsed && (
-              <span className="flex-1 text-left truncate">{group.label}</span>
+          <div
+            className={cn(
+              'w-full flex items-center rounded-md font-medium duration-200 text-sm',
+              groupActive
+                ? 'bg-white/10 text-primary-foreground'
+                : 'text-primary-foreground/80 hover:bg-white/10 hover:text-primary-foreground',
+              collapsed && 'justify-center'
             )}
-          </NavLink>
+          >
+            <NavLink
+              to={group.hubLink}
+              data-testid={`nav-group-${group.id}`}
+              className={({ isActive }) =>
+                cn(
+                  'flex items-center gap-3 py-2.5 flex-1 min-w-0',
+                  collapsed ? 'justify-center px-2' : 'pl-4',
+                  isActive && 'text-primary-foreground'
+                )
+              }
+            >
+              <group.icon className="h-4 w-4 flex-shrink-0" strokeWidth={1.5} />
+              {!collapsed && (
+                <span className="flex-1 text-left truncate">{group.label}</span>
+              )}
+            </NavLink>
+            {!collapsed && group.items && group.items.length > 0 && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  toggleGroup(group.id);
+                }}
+                aria-label={`Toggle ${group.label} menu`}
+                data-testid={`nav-group-toggle-${group.id}`}
+                className="p-2 mr-1 rounded-md hover:bg-white/10 text-primary-foreground/70 hover:text-primary-foreground"
+              >
+                <ChevronDown
+                  className={cn(
+                    'h-4 w-4 transition-transform duration-200',
+                    isExpanded && 'rotate-180'
+                  )}
+                />
+              </button>
+            )}
+          </div>
+
+          {!collapsed && isExpanded && (
+            <div className="ml-4 pl-2 border-l border-white/10 space-y-1">
+              {group.items.map(renderNavItem)}
+            </div>
+          )}
         </div>
       );
     }

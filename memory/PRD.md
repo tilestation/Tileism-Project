@@ -9,6 +9,22 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Feb 26, 2026 — Forked session] 🐛 Admin sidebar missing child items — Radio Studio / Marketing Studio / SEO not clickable
+
+**User report (with screenshot)**: *"I can't see quite few features in menu, No /marketing-studio, no /seo, no /radio-studio. Only the links but nothing in clickable menu."*
+
+**Root cause**: `components/Layout.js` `renderGroup` — the `if (group.hubLink)` branch (lines 397-421) early-returned with ONLY a `<NavLink>` to the group's hub page. The chevron + expand-children block lived in the fall-through path that became unreachable once every navigation group got assigned a `hubLink`. Net effect: sidebar showed group LABELS only; child routes (Radio Studio, Marketing Studio, SEO Command Centre, Tile Visualizer, Email Hub, etc.) were only reachable by direct URL or by hopping through the hub page.
+
+**Fix**: Restructured the hub-link branch so the row now renders BOTH:
+1. The label/icon as a `<NavLink>` to `hubLink` (existing click target preserved — Marketing & Growth still navigates to /admin/seo)
+2. A separate ChevronDown button (`data-testid="nav-group-toggle-{id}"`) that calls `toggleGroup()` to reveal child items inline, without leaving the page
+3. Default-expanded groups bumped from `['sales', 'products', 'stock']` → `['sales', 'products', 'stock', 'marketing-growth']` so Radio Studio + Marketing Studio + SEO appear on first load
+
+**Verified** (Playwright against preview): `a[href="/admin/radio-studio"]` count = 1, `a[href="/admin/marketing-studio"]` count = 1, 9 chevron toggles rendered. Sidebar visually expanded showing all children of Sales / Products / Stock / Marketing.
+
+**Files**: `/app/frontend/src/components/Layout.js` (renderGroup hub-link branch + default expanded set).
+
+
 ### [Feb 26, 2026 — Forked session] ✅ Radio Studio: Trade Talk (2-voice podcasts) + Q&A formats — CERTIFIED END-TO-END
 
 **User intent (verbatim follow-ups)**: *"Approved building both formats and starter seed content."* → *"Yes finish it all"* (asking for full close-out of the in-progress work).
