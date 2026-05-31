@@ -1,0 +1,39 @@
+{
+  "summary": "Real end-to-end LIVE certification of Radio Studio's two new content kinds (Q&A and Trade Talk). 6/6 backend pytest tests pass against the public preview URL hitting real ElevenLabs + Claude + ffmpeg. Real MP3 bytes validated (Content-Type=audio/mpeg, MP3 frame header / ID3 tag, file size > 5KB for QA and > 10KB for the 2-turn Trade Talk concat). Frontend admin RadioStudio.jsx smoke test confirms the 3 kind tabs render, switching between Ad / Q&A / Trade Talk shows the right form fields, and the Add-turn repeater for Trade Talk works.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/admin/radio-studio/seed-starter-content", "issue": "Review request called this endpoint /starter-content but actual route is /seed-starter-content — purely a doc/PRD mismatch, code & behaviour are correct."},
+      {"endpoint": "/api/radio-studio/stream/ad/{ad_id}", "issue": "Review request called this /audio/{ad_id} but actual route is /stream/ad/{ad_id}; serves audio inline from the ad doc's `audio_blob` field, NOT GridFS as stated in the review (BSON 16MB limit handles short MP3s fine)."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_radio_studio_e2e_live.py",
+    "/app/test_reports/pytest/iter_e2e_live.xml"
+  ],
+  "action_items": [
+    "Optional doc cleanup: align PRD/review wording with actual routes — /seed-starter-content and /stream/ad/{ad_id}.",
+    "Optional clarification in PRD: audio is stored inline as `audio_blob` in the ad document, not in GridFS (still within Mongo so the high-level statement holds)."
+  ],
+  "critical_code_review_comments": [
+    "routes/radio_studio.py is 2,905 lines — long-term it should be split into ads.py / scripts.py / playlist.py / stream.py for maintainability (not blocking).",
+    "Public /stream/ad/{ad_id} returns 200 with the stored mime; if a future kind stores wav it will still hand back audio/* — current QA + TT tests confirm audio/mpeg. Good.",
+    "Trade Talk multi-turn concat correctly handles the 2-voice case end-to-end; ffmpeg pipeline validated by byte signature check on the served file.",
+    "Seed endpoint is idempotent (qa + tt + skipped sum == 30 in both fresh & reseed cases). Good design — won't litter the DB on accidental re-call."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_radio_studio_e2e_live.py (new — 6 live E2E tests)"
+  ],
+  "success_rate": {"backend": "100% (6/6 live E2E)", "frontend": "100% (smoke)"},
+  "test_credentials": "admin@test.com / admin123 (super_admin) — confirmed working via POST /api/auth/login",
+  "seed_data_creation": "Test ads created with TEST_QA_*, TEST_TT_*, TEST_NOAUDIO_* prefixes were all deleted in the module teardown fixture so the production-shape DB is clean. Starter content (30 default segments) was already seeded by a previous run; the seed endpoint was re-called and correctly reported skipped=30.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Live E2E tests for Radio Studio kinds qa + trade_talk live at /app/backend/tests/test_radio_studio_e2e_live.py. They hit real ElevenLabs (small payloads, 2-3 turns max) so each run burns a few credits — only re-run when audio path or ElevenLabs integration changes. Voices come from GET /api/admin/radio-studio/voices; first two voice_ids are used for host/guest. Public play URL is /api/radio-studio/stream/ad/{ad_id} (NOT /audio/{ad_id}). Audio is stored as inline `audio_blob` in the ad doc — when validating you can pull bytes either via the stream endpoint or directly from the DB doc.",
+  "rca of the issue": "N/A — no defects found. All 6 live tests green on first run."
+}
