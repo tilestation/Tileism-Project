@@ -1061,6 +1061,14 @@ function AdsTab({ voices, voicesLoading, onResyncVoices, ads, music, onAdsChange
 ---------------------------------------------------------------- */
 function QaFields({ form, setForm, voices, voicesLoading, onResyncVoices, groupedVoices }) {
   const [aiBusy, setAiBusy] = useState(false);
+  // 31 May 2026 — tone selector. The backend already supports
+  // 'friendly' | 'expert' | 'trade' but the UI was hard-coding
+  // 'expert'. Letting the user pick means a "Can I tile onto
+  // plasterboard?" question gets a friendly DIY-tone answer while
+  // a "What's the S1 vs S2 spec?" question gets the trade-only
+  // pro voice. Persisted on the form so re-generates stay consistent.
+  const tone = form.qa_tone || 'expert';
+  const setTone = (t) => setForm({ ...form, qa_tone: t });
 
   const handleGenerate = async () => {
     if (!form.question.trim()) {
@@ -1071,17 +1079,23 @@ function QaFields({ form, setForm, voices, voicesLoading, onResyncVoices, groupe
     try {
       const r = await axios.post(
         `${API}/admin/radio-studio/scripts/generate-qa`,
-        { question: form.question.trim(), tone: 'expert' },
+        { question: form.question.trim(), tone },
         { headers: tokenHdr() },
       );
       setForm({
         ...form,
         script: r.data.answer,
         name: form.name || r.data.suggested_name,
+        qa_tone: tone,
       });
-      toast.success(`Answer written (~${r.data.approx_seconds}s)`);
+      toast.success(`Answer written · ${r.data.approx_words} words · ~${r.data.approx_seconds}s`);
     } catch (e) {
-      toast.error(`Generation failed: ${e?.response?.data?.detail || e.message}`);
+      const detail = e?.response?.data?.detail;
+      toast.error(
+        typeof detail === 'string'
+          ? `Generation failed: ${detail}`
+          : `Generation failed: ${e.message}`,
+      );
     } finally {
       setAiBusy(false);
     }
@@ -1125,10 +1139,57 @@ function QaFields({ form, setForm, voices, voicesLoading, onResyncVoices, groupe
         {aiBusy ? 'Writing the answer…' : 'Auto-generate answer with Claude'}
       </button>
 
+      {/* Tone selector — picks the voice/register the LLM writes in.
+          Sits BELOW the big generate button so the default-tap path
+          is unchanged; users discover tone control on second glance.
+          (31 May 2026.) */}
+      <div className="flex items-center gap-2 flex-wrap text-[11px]">
+        <span className="uppercase tracking-wider text-slate-500 font-bold">Tone:</span>
+        {[
+          { key: 'friendly', label: 'Friendly', hint: 'DIYer / neighbour tone, no jargon' },
+          { key: 'expert', label: 'Expert', hint: 'Senior fitter — precise but accessible' },
+          { key: 'trade', label: 'Trade-only', hint: 'Pro builders — skip basic explanations' },
+        ].map((opt) => (
+          <button
+            key={opt.key}
+            type="button"
+            onClick={() => setTone(opt.key)}
+            data-testid={`radio-qa-tone-${opt.key}`}
+            title={opt.hint}
+            className={`px-2.5 py-1 rounded-full border transition-colors ${
+              tone === opt.key
+                ? 'bg-fuchsia-500/25 border-fuchsia-400/60 text-fuchsia-100 font-bold'
+                : 'bg-slate-900 border-slate-700 text-slate-400 hover:border-slate-500 hover:text-slate-200'
+            }`}
+          >
+            {opt.label}
+          </button>
+        ))}
+      </div>
+
       <div>
-        <label className="block text-xs uppercase tracking-wider text-slate-400 font-bold mb-1">
-          Answer
-        </label>
+        <div className="flex items-center justify-between mb-1">
+          <label className="block text-xs uppercase tracking-wider text-slate-400 font-bold">
+            Answer
+          </label>
+          {/* Inline "Re-generate" — when the user has already typed/
+              generated an answer and wants to retry with a different
+              tone or a tweaked question. Disabled until there's a
+              question to work from. */}
+          {form.question.trim() && (
+            <button
+              type="button"
+              onClick={handleGenerate}
+              disabled={aiBusy}
+              data-testid="radio-qa-regenerate-inline"
+              title="Regenerate the answer with the current tone setting"
+              className="text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full flex items-center gap-1 bg-fuchsia-500/10 border border-fuchsia-500/30 text-fuchsia-300 hover:bg-fuchsia-500/20 disabled:opacity-40 transition-colors"
+            >
+              {aiBusy ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
+              {form.script ? 'Regenerate' : 'Generate'}
+            </button>
+          )}
+        </div>
         <textarea
           value={form.script}
           onChange={(e) => setForm({ ...form, script: e.target.value })}

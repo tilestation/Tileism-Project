@@ -9,6 +9,40 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Feb 26, 2026 — Forked session] ✨ Q&A: tone selector + inline regenerate
+
+**User intent**: extend the same in-place AI-generate UX from Trade Talk to Q&A — *"Let admins paste a CUSTOMER question they keep getting in-store, click ✨ Generate answer, and Claude writes the showroom expert's answer in your house voice."*
+
+**Reality check**: Q&A already had a big "Auto-generate answer with Claude" button wired to `POST /api/admin/radio-studio/scripts/generate-qa`. The backend already accepted `tone: 'friendly' | 'expert' | 'trade'`. Just two polish gaps to fix.
+
+**What was shipped**:
+
+**1. Tone selector** (`QaFields` in RadioStudio.jsx):
+- Three pill buttons under the big generate button: **Friendly** (DIYer / neighbour tone), **Expert** (senior tile-fitter — default), **Trade-only** (pro builders, skip basics).
+- Persisted on the form as `qa_tone` so regenerates stay consistent.
+- Each pill has a tooltip explaining its register so admins pick the right one for the question.
+- Was hard-coded to `'expert'`; now wired all the way through to the LLM system prompt.
+
+**2. Inline "✨ Regenerate" pill** in the Answer header:
+- Fuchsia accent matching the Trade Talk in-place generator we shipped earlier.
+- Hidden until a question is typed (avoids dead controls).
+- Label flips: "Generate" → "Regenerate" once the answer field has text.
+- Tooltips: "Regenerate the answer with the current tone setting" — discoverable without reading docs.
+
+**3. Better toast** — now shows word count + read-aloud seconds: *"Answer written · 42 words · ~18s"*. Defensive error stringification handles the Pydantic 422 `detail` array case (same fix as Email Health page).
+
+**Tests (5/5 new pass)** in `tests/test_radio_studio_qa_tone.py`:
+- Each of `friendly` / `expert` / `trade` lands the correct directive marker in the LLM system prompt (`neighbour` / `senior tile-fitter` / `professional builders`). Catches future regressions where someone re-hardcodes `'expert'`.
+- Bogus tone (`"shouty"`) → 422 BEFORE LLM call (saves Claude credits).
+- `Answer: "..."` wrapping label + quotes from a stub LLM response → stripped server-side.
+
+**Session-wide regression**: 45/45 new tests pass across qa-tone + turn-reply + solo-preview + crossfade + loudnorm + tune-in + radio-off-air + uptime-debounce + cf-geo + test-email.
+
+**Files**:
+- `/app/frontend/src/pages/admin/RadioStudio.jsx` (`QaFields` — tone state + 3 pill selectors + inline regen pill + better toast/error path)
+- `/app/backend/tests/test_radio_studio_qa_tone.py` (NEW — 5 tests)
+
+
 ### [Feb 26, 2026 — Forked session] 🎙️ Trade Talk: in-place "AI reply" + "Insert turn below" controls
 
 **User intent (with screenshot)**: *"I am going through Trade Talk. If I have any question I want to add it among these dialogue boxes and AI needs to generate the answer. Then allow me to adjust the conversation."*
