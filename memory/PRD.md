@@ -9,6 +9,58 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Feb 26, 2026 — Forked session] 💾 Save-as-template + "Recently asked in showroom" picker
+
+**User intent**: *"Save as starter content — turn ANY Q&A or Trade Talk episode you've polished into a re-usable template. Paired with a 'Recently asked in showroom' quick-pick list pulled from live-chat history so admins can one-tap turn real customer questions into Q&A episodes → YES."*
+
+Two related features shipped together so the loop becomes *visitor asks a question on chat → admin sees it surfaced in Radio Studio → one tap to generate the Q&A → optionally save as a template for re-use*.
+
+**Backend — 4 new endpoints** in `/app/backend/routes/radio_studio.py`:
+
+1. `POST /admin/radio-studio/ads/{ad_id}/save-as-template` — promote a Q&A or Trade Talk ad to a re-usable template. Keeps editorial content (script / question / turns / topic / pronunciation_hints) and DROPS per-instance bits (voice IDs, audio_blob, generated_at). Plain `kind="ad"` items rejected with 400 (too voice-specific to template). Idempotent via upsert on `source_ad_id`.
+
+2. `GET /admin/radio-studio/templates?kind=qa|trade_talk` — list all saved templates (newest-first, 100 cap).
+
+3. `POST /admin/radio-studio/templates/{template_id}/apply` — deep-copy a template into a fresh ad doc with empty `voice_id` + null `audio_filename` so the admin picks voices and clicks Generate. Stamps `from_template_id` for audit.
+
+4. `GET /admin/radio-studio/recent-visitor-questions?limit=20` — pulls last ~200 visitor messages from `db.chat_messages`, filters to those that look like questions (end in `?` or start with `what/how/where/when/why/do you/can i/can you/is it/are/does/could/should`), de-duplicates against already-saved Q&A `name`s + `question`s, returns text + session_id + timestamp.
+
+5. `DELETE /admin/radio-studio/templates/{template_id}` — clean-up.
+
+**Frontend — `AdsTab` + new `RecentVisitorQuestionsPicker`**:
+
+- **📑 Save as template** button on every Q&A and Trade Talk ad card (indigo bookmark icon, between Sparkles regenerate and trash). Confirm dialog explains what's kept vs dropped. Idempotent on the server, so a double-click won't litter the template list.
+- **`RecentVisitorQuestionsPicker`** new collapsible card at the top of the Q&A form, fuchsia-accented `MessageCircleQuestion` icon. Lists 15 recent visitor questions. Click → fills the question + immediately fires `handleGenerate()` with the currently-selected tone. Refresh button. Empty-state with `Info` icon explaining "all already in your Q&A library".
+- All elements carry `data-testid`s.
+
+**Workflow this enables (full loop)**:
+1. Visitor types *"Can I tile onto plasterboard in a shower?"* in the live-chat widget
+2. Admin opens Radio Studio → Q&A → expands "Recently asked in showroom"
+3. Question appears in the list → clicks it → answer auto-generates in the configured tone
+4. Tweaks the answer if needed → 📑 Save as template
+5. Next admin clones the template, picks fresh voices, hits Generate → ready for playlist
+
+**Tests (7/7 new pass)** in `tests/test_radio_studio_templates.py`:
+- Save-as-template strips per-instance fields (audio, voice_id) but keeps script + question
+- Triple-save → exactly ONE template row (idempotency via `source_ad_id` upsert)
+- Plain `kind="ad"` → 400 (template only makes sense for Q&A / Trade Talk)
+- Apply template → fresh ad with `voice_id=""`, no audio, stamped `from_template_id`
+- Recent visitor questions filters: catches "?", catches question-word prefixes (no "?"), skips chatter
+- De-dupe: visitor question already saved as a Q&A is filtered OUT
+- Anonymous → 401/403
+
+**Mongo schema fix during dev**: initial `update_one(...$set+$setOnInsert)` conflicted on `created_at`. Moved `created_at` to `$setOnInsert` only so re-saves preserve the original create timestamp while updating `updated_at`.
+
+**Session-wide regression**: 52/52 new tests pass.
+
+**Live verified on preview**: picker rendered 4 real visitor questions ("Do you deliver to London?", "What showrooms do you have?", "Do you have any porcelain tiles in stock?", "Hello, what are your delivery costs?") pulled from the live-chat history — exactly the loop the user described.
+
+**Files**:
+- `/app/backend/routes/radio_studio.py` (4 new endpoints + `Dict, Any` typing import already there)
+- `/app/frontend/src/pages/admin/RadioStudio.jsx` (`handleSaveAsTemplate` in AdsTab, new bookmark button per card, new `RecentVisitorQuestionsPicker` component, mounted at top of QaFields)
+- `/app/backend/tests/test_radio_studio_templates.py` (NEW — 7 tests)
+
+
 ### [Feb 26, 2026 — Forked session] ✨ Q&A: tone selector + inline regenerate
 
 **User intent**: extend the same in-place AI-generate UX from Trade Talk to Q&A — *"Let admins paste a CUSTOMER question they keep getting in-store, click ✨ Generate answer, and Claude writes the showroom expert's answer in your house voice."*

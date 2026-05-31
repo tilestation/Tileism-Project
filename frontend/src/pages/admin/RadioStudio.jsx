@@ -23,6 +23,7 @@ import { toast } from 'sonner';
 import {
   Radio, Mic, Music, ListMusic, Play, Pause, Trash2, RefreshCw, Loader2,
   Plus, Save, Upload, Sparkles, GripVertical, Volume2, Globe, PoundSterling,
+  BookmarkPlus, MessageCircleQuestion, Info,
 } from 'lucide-react';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
@@ -412,6 +413,31 @@ function AdsTab({ voices, voicesLoading, onResyncVoices, ads, music, onAdsChange
       onAdsChange();
     } catch (e) {
       toast.error(`Delete failed: ${e?.response?.data?.detail || e.message}`);
+    }
+  };
+
+  // 31 May 2026 — promote a polished Q&A or Trade Talk ad into a
+  // re-usable template. Keeps the editorial content; drops voice +
+  // audio so each clone re-picks voices. Idempotent server-side.
+  const handleSaveAsTemplate = async (adId, name, kind) => {
+    const kindLabel = kind === 'qa' ? 'Q&A' : 'Trade Talk';
+    if (!window.confirm(
+      `Save "${name || 'this ' + kindLabel}" as a re-usable template?\n\n` +
+      `The script + ${kind === 'qa' ? 'question' : 'turns'} will be kept. ` +
+      `Voices + audio are dropped so each clone can pick its own.`,
+    )) return;
+    try {
+      const r = await axios.post(
+        `${API}/admin/radio-studio/ads/${adId}/save-as-template`,
+        {},
+        { headers: tokenHdr() },
+      );
+      toast.success(`Saved "${r.data.name}" as a ${kindLabel} template`, {
+        description: 'Use the Templates picker on a new ad to clone it.',
+      });
+    } catch (e) {
+      const detail = e?.response?.data?.detail;
+      toast.error(typeof detail === 'string' ? detail : `Save failed: ${e.message}`);
     }
   };
 
@@ -1013,6 +1039,16 @@ function AdsTab({ voices, voicesLoading, onResyncVoices, ads, music, onAdsChange
                   >
                     {generatingId === ad.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
                   </button>
+                  {(ad.kind === 'qa' || ad.kind === 'trade_talk') && (
+                    <button
+                      onClick={() => handleSaveAsTemplate(ad.id, ad.name, ad.kind)}
+                      data-testid={`radio-ad-save-template-${ad.id}`}
+                      className="p-1.5 text-indigo-400 hover:text-indigo-300 hover:bg-slate-800 rounded"
+                      title="Save as re-usable template (keeps the script; drops voice + audio so each clone can pick its own)"
+                    >
+                      <BookmarkPlus className="w-3.5 h-3.5" />
+                    </button>
+                  )}
                   <button
                     onClick={() => handleDelete(ad.id)}
                     className="p-1.5 text-red-400 hover:text-red-300 hover:bg-slate-800 rounded"
@@ -1059,6 +1095,99 @@ function AdsTab({ voices, voicesLoading, onResyncVoices, ads, music, onAdsChange
    picker, one "narrate question first" toggle, one "generate
    answer with Claude" button.
 ---------------------------------------------------------------- */
+function RecentVisitorQuestionsPicker({ onPick }) {
+  const [open, setOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [questions, setQuestions] = useState([]);
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const r = await axios.get(
+        `${API}/admin/radio-studio/recent-visitor-questions?limit=15`,
+        { headers: tokenHdr() },
+      );
+      setQuestions(r.data.questions || []);
+    } catch (e) {
+      toast.error(`Could not load recent questions: ${e.message}`);
+      setQuestions([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleToggle = () => {
+    const next = !open;
+    setOpen(next);
+    if (next && questions.length === 0) load();
+  };
+
+  return (
+    <div className="bg-slate-900/40 border border-slate-700/40 rounded-xl p-3" data-testid="radio-qa-recent-picker">
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <button
+          type="button"
+          onClick={handleToggle}
+          data-testid="radio-qa-recent-toggle"
+          className="text-[11px] uppercase tracking-wider font-bold flex items-center gap-1.5 text-fuchsia-300 hover:text-fuchsia-200"
+        >
+          <MessageCircleQuestion className="w-3.5 h-3.5" />
+          Recently asked in showroom
+          <span className={`text-slate-500 transition-transform ${open ? 'rotate-180' : ''}`}>▾</span>
+        </button>
+        {open && (
+          <button
+            type="button"
+            onClick={load}
+            disabled={loading}
+            data-testid="radio-qa-recent-refresh"
+            className="text-[10px] uppercase tracking-wider text-slate-400 hover:text-slate-200 flex items-center gap-1 disabled:opacity-40"
+          >
+            {loading ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
+            Refresh
+          </button>
+        )}
+      </div>
+      {open && (
+        <div className="mt-2">
+          {loading ? (
+            <div className="text-[11px] text-slate-500 py-3 text-center">Loading recent visitor questions…</div>
+          ) : questions.length === 0 ? (
+            <div className="text-[11px] text-slate-500 py-3 text-center flex items-center justify-center gap-1.5">
+              <Info className="w-3 h-3" />
+              No new questions in the chat history (or all of them are already in your Q&A library).
+            </div>
+          ) : (
+            <ul className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+              {questions.map((q, i) => (
+                <li key={`${q.session_id || 'sess'}-${i}`}>
+                  <button
+                    type="button"
+                    onClick={() => onPick(q.text)}
+                    data-testid={`radio-qa-recent-item-${i}`}
+                    title="Click to fill the question + auto-generate the answer in your current tone"
+                    className="w-full text-left px-2.5 py-1.5 bg-slate-800/60 hover:bg-fuchsia-500/15 hover:border-fuchsia-500/40 border border-slate-700/50 rounded-md text-xs text-slate-200 transition-colors flex items-center gap-2"
+                  >
+                    <Sparkles className="w-3 h-3 text-fuchsia-400 flex-shrink-0" />
+                    <span className="truncate">{q.text}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          {!loading && questions.length > 0 && (
+            <p className="text-[10px] text-slate-500 mt-2 leading-relaxed">
+              Pulled from your live-chat history. Already-saved Q&As are filtered out.
+              Click a question to fill the form + auto-generate the answer.
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+
 function QaFields({ form, setForm, voices, voicesLoading, onResyncVoices, groupedVoices }) {
   const [aiBusy, setAiBusy] = useState(false);
   // 31 May 2026 — tone selector. The backend already supports
@@ -1103,6 +1232,18 @@ function QaFields({ form, setForm, voices, voicesLoading, onResyncVoices, groupe
 
   return (
     <div className="space-y-3">
+      {/* "From customer chat" picker — pulls recent visitor questions
+          from the live-chat history that aren't already in the Q&A
+          library. One tap fills the question + immediately fires the
+          AI generator with the current tone. (31 May 2026.) */}
+      <RecentVisitorQuestionsPicker
+        onPick={(text) => {
+          setForm({ ...form, question: text });
+          // Tiny delay so React commits the question state before
+          // we read it inside handleGenerate.
+          setTimeout(() => handleGenerate(), 60);
+        }}
+      />
       <div>
         <label className="block text-xs uppercase tracking-wider text-slate-400 font-bold mb-1">
           Customer question

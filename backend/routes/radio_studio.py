@@ -1565,6 +1565,207 @@ _STARTER_TRADE_TALK_TOPICS: List[str] = [
 ]
 
 
+@router.post("/ads/{ad_id}/save-as-template")
+async def save_ad_as_template(ad_id: str, current_user: dict = Depends(get_current_user)):
+    """Promote an existing Q&A or Trade Talk ad doc into a re-usable
+    template. Drops the per-instance bits (audio, voice IDs,
+    generated_at, etc.) and keeps the editorial content (script,
+    question, turns) so the next admin can clone it without
+    re-renderng audio.
+
+    Templates live in `radio_studio_templates` so they're queryable
+    separately from the live ad pool, and a future "Apply template"
+    endpoint can deep-copy them back into ads.
+
+    Idempotency: re-saving the same ad as a template upserts on
+    `source_ad_id` so the templates list doesn't fill up with
+    duplicates from accidental double-clicks.
+    """
+    _require_admin(current_user)
+    db = get_db()
+    ad = await db.radio_studio_ads.find_one({"id": ad_id}, {"_id": 0})
+    if not ad:
+        raise HTTPException(status_code=404, detail="Ad not found")
+    kind = ad.get("kind") or "ad"
+    if kind not in ("qa", "trade_talk"):
+        raise HTTPException(
+            status_code=400,
+            detail="Only Q&A and Trade Talk items can be saved as templates.",
+        )
+    now_iso = datetime.now(timezone.utc).isoformat()
+    tpl = {
+        "id": uuid.uuid4().hex,
+        "source_ad_id": ad_id,
+        "kind": kind,
+        "name": ad.get("name") or "Untitled template",
+        # Editorial content kept verbatim
+        "script": ad.get("script") or "",
+        "question": ad.get("question"),
+        "narrate_question": bool(ad.get("narrate_question", True)),
+        "turns": ad.get("turns") or [],
+        "topic": ad.get("topic"),
+        "pronunciation_hints": ad.get("pronunciation_hints"),
+        # Per-instance bits intentionally OMITTED:
+        #   voice_id, host_voice_id, guest_voice_id, audio_filename,
+        #   audio_blob, duration_seconds, generated_at — each clone
+        #   picks its own voices + re-renders audio.
+        "updated_at": now_iso,
+        "created_by": (current_user or {}).get("email"),
+    }
+    # `created_at` lives ONLY in $setOnInsert so re-saving the same
+    # ad updates `updated_at` but preserves the original create time.
+    await db.radio_studio_templates.update_one(
+        {"source_ad_id": ad_id},
+        {"$set": tpl, "$setOnInsert": {"created_at": now_iso}},
+        upsert=True,
+    )
+    return {
+        "ok": True,
+        "template_id": tpl["id"],
+        "kind": kind,
+        "name": tpl["name"],
+    }
+
+
+@router.get("/templates")
+async def list_templates(
+    kind: Optional[str] = None,
+    current_user: dict = Depends(get_current_user),
+):
+    """Return all saved templates. Optional `?kind=qa` or
+    `?kind=trade_talk` filter. Used by the "Apply template" picker
+    in the Ads form."""
+    _require_admin(current_user)
+    db = get_db()
+    q: dict = {}
+    if kind in ("qa", "trade_talk"):
+        q["kind"] = kind
+    cursor = db.radio_studio_templates.find(q, {"_id": 0}).sort("created_at", -1).limit(100)
+    return [doc async for doc in cursor]
+
+
+@router.post("/templates/{template_id}/apply")
+async def apply_template(template_id: str, current_user: dict = Depends(get_current_user)):
+    """Deep-copy a saved template into a fresh ad doc. The new ad
+    inherits the editorial content but has NO voice/audio so the
+    admin can pick voices and click Generate."""
+    _require_admin(current_user)
+    db = get_db()
+    tpl = await db.radio_studio_templates.find_one({"id": template_id}, {"_id": 0})
+    if not tpl:
+        raise HTTPException(status_code=404, detail="Template not found")
+    now_iso = datetime.now(timezone.utc).isoformat()
+    ad = {
+        "id": uuid.uuid4().hex,
+        "name": tpl.get("name") or "Untitled",
+        "kind": tpl.get("kind") or "qa",
+        "script": tpl.get("script") or "",
+        "question": tpl.get("question"),
+        "narrate_question": bool(tpl.get("narrate_question", True)),
+        "turns": tpl.get("turns") or [],
+        "topic": tpl.get("topic"),
+        "pronunciation_hints": tpl.get("pronunciation_hints"),
+        "voice_id": "",
+        "voice_name": None,
+        "host_voice_id": None,
+        "host_voice_name": None,
+        "guest_voice_id": None,
+        "guest_voice_name": None,
+        "stability": 0.5,
+        "similarity_boost": 0.75,
+        "style": 0.0,
+        "model_id": "eleven_multilingual_v2",
+        "bed_music_id": None,
+        "bed_volume_pct": 18,
+        "audio_filename": None,
+        "duration_seconds": None,
+        "generated_at": None,
+        "created_at": now_iso,
+        "updated_at": now_iso,
+        "created_by": (current_user or {}).get("email"),
+        "from_template_id": template_id,
+    }
+    await db.radio_studio_ads.insert_one(ad)
+    ad.pop("_id", None)  # safety
+    return {"ok": True, "ad": ad}
+
+
+@router.delete("/templates/{template_id}")
+async def delete_template(template_id: str, current_user: dict = Depends(get_current_user)):
+    _require_admin(current_user)
+    db = get_db()
+    res = await db.radio_studio_templates.delete_one({"id": template_id})
+    if res.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Template not found")
+    return {"ok": True, "deleted_id": template_id}
+
+
+@router.get("/recent-visitor-questions")
+async def recent_visitor_questions(
+    limit: int = 20,
+    current_user: dict = Depends(get_current_user),
+):
+    """Pull recent visitor messages from the live-chat history that
+    look like questions (end in '?' or start with a question word)
+    AND aren't already represented in the Q&A library. Lets the
+    admin one-tap turn a real customer question into a Q&A episode.
+
+    Heuristics on the cheap end deliberately — false positives are
+    fine because the admin clicks through to confirm.
+    """
+    _require_admin(current_user)
+    db = get_db()
+    limit = max(1, min(50, int(limit)))
+    # Pull last ~200 visitor messages — we filter further in Python
+    # because Mongo regex on every message would be expensive.
+    cursor = db.chat_messages.find(
+        {"sender": "visitor"},
+        {"_id": 0, "message": 1, "session_id": 1, "timestamp": 1, "created_at": 1},
+    ).sort("created_at", -1).limit(200)
+    msgs = [m async for m in cursor]
+    # If `created_at` isn't on some rows, fall back to `timestamp`
+    QUESTION_WORDS = (
+        "what", "how", "where", "when", "why", "do you", "can i", "can you",
+        "is it", "are you", "are there", "does", "could", "should",
+    )
+    questions: List[dict] = []
+    seen_text: set = set()
+    # Already-saved Q&A names — used to filter out duplicates so the
+    # picker shows only NEW question candidates.
+    existing_names: set = set()
+    async for doc in db.radio_studio_ads.find(
+        {"kind": "qa"}, {"_id": 0, "name": 1, "question": 1},
+    ):
+        for k in ("name", "question"):
+            v = (doc.get(k) or "").strip().lower()
+            if v:
+                existing_names.add(v.rstrip("?"))
+    for m in msgs:
+        text = (m.get("message") or "").strip()
+        if len(text) < 8 or len(text) > 240:
+            continue
+        norm = text.lower().rstrip("?").strip()
+        if norm in seen_text:
+            continue
+        looks_like_q = text.endswith("?") or any(norm.startswith(w) for w in QUESTION_WORDS)
+        if not looks_like_q:
+            continue
+        if norm in existing_names:
+            continue
+        seen_text.add(norm)
+        questions.append({
+            "text": text,
+            "session_id": m.get("session_id"),
+            "at": m.get("created_at") or m.get("timestamp"),
+        })
+        if len(questions) >= limit:
+            break
+    return {
+        "questions": questions,
+        "count": len(questions),
+    }
+
+
 @router.post("/seed-starter-content")
 async def seed_starter_content(current_user: dict = Depends(get_current_user)):
     """Insert the curated starter library of Q&A pairs + Trade Talk
