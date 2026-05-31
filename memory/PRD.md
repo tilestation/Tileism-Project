@@ -9,6 +9,44 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Feb 26, 2026 — Forked session] ✅ Radio Studio: Trade Talk (2-voice podcasts) + Q&A formats — CERTIFIED END-TO-END
+
+**User intent (verbatim follow-ups)**: *"Approved building both formats and starter seed content."* → *"Yes finish it all"* (asking for full close-out of the in-progress work).
+
+**What was built (multi-kind expansion of Radio Studio ads)**:
+
+- `radio_studio_ads.kind` field — extends the single-voice ad model with two new content types:
+  - `'qa'` — "Ask the Showroom" Q&A. One voice; narrator reads `question` + `answer`.
+  - `'trade_talk'` — Multi-turn dialogue (e.g. host Mark + builder guest). Each turn carries its own `voice_id` + `text`; the backend generates per-turn MP3s via ElevenLabs and stitches them with ffmpeg `concat` into a single playable file.
+- Pydantic models (`/app/backend/routes/radio_studio.py`): `AdCreate` / `AdUpdate` accept `kind`, `question`, `answer`, `narrate_question`, `turns[]`. `_build_script_from_kind()` (line 696) renders the right preview text per kind.
+- Claude script generators (Emergent LLM key):
+  - `POST /api/admin/radio-studio/scripts/generate-qa` → returns a suggested customer question + showroom answer.
+  - `POST /api/admin/radio-studio/scripts/generate-trade-talk` → returns a 6-12-turn dialogue suitable for two voices.
+- ElevenLabs generation path (`POST /api/admin/radio-studio/ads/{id}/generate`) — handles all three kinds. Trade Talk calls ElevenLabs once per turn, writes the MP3 segments to a temp dir, then runs `ffmpeg -f concat -safe 0 -i list.txt -c copy out.mp3` and stores the result as `audio_blob` on the ad doc.
+- Starter-seed endpoint `POST /api/admin/radio-studio/seed-starter-content` — inserts 15 default Q&As + 15 default Trade Talk scripts; idempotent (returns `skipped` count on re-run).
+- Frontend `RadioStudio.jsx`: 3 kind-tabs (`radio-kind-ad/qa/trade_talk`) above the form. Conditional field blocks: Q&A form shows question/answer/voice; Trade Talk form shows host_voice/guest_voice and a turns repeater with add/remove/reorder controls. Cost hint per kind on the helper text. Validation per kind (e.g. Trade Talk requires ≥1 turn + both voices set).
+
+**Live E2E certification (iteration_185 — 6/6 pass against the PREVIEW URL, real ElevenLabs + Claude + ffmpeg)**:
+- ✅ Q&A: created via API → real ElevenLabs render → `/api/radio-studio/stream/ad/{id}` returns `audio/mpeg`, > 5 KB, valid MP3 frame header
+- ✅ Trade Talk (2 turns, 2 different voices): per-turn ElevenLabs calls succeed → ffmpeg concat produces single MP3, > 10 KB, valid frame header
+- ✅ Claude `/scripts/generate-qa` returns well-formed `{question, answer}`
+- ✅ Claude `/scripts/generate-trade-talk` returns `{turns:[…]}` 6-12 entries deep
+- ✅ Seed endpoint idempotent — re-call reports `skipped: 30`, no duplicate rows
+- ✅ Frontend tabs render, switching kind swaps the visible form, turn-repeater Add button works
+- 198 existing pytests still green (no regressions)
+
+**Files**:
+- `/app/backend/routes/radio_studio.py` (kind field, _build_script_from_kind, generate-qa, generate-trade-talk, multi-turn ffmpeg concat in the generate endpoint, seed-starter-content)
+- `/app/frontend/src/pages/admin/RadioStudio.jsx` (kind tabs, conditional Q&A + Trade Talk forms, turn repeater)
+- `/app/backend/tests/test_radio_studio_multi_kind.py` (unit tests)
+- `/app/backend/tests/test_radio_studio_e2e_live.py` (NEW — 6 live E2E tests; budget-aware: keep turn counts low, only re-run when audio path changes)
+
+**Doc/route name corrections noted by testing agent (no code change needed)**:
+- Seed route is `/seed-starter-content`, not `/starter-content`.
+- Public play route is `/api/radio-studio/stream/ad/{ad_id}`, not `/audio/{ad_id}`.
+- Audio is stored inline as `audio_blob` in the ad doc (within Mongo's 16 MB BSON limit — adequate for short MP3s; longer episodes already fall back to GridFS via the music-bed path).
+
+
 ### [Feb 22, 2026 — Forked session] 🚀 PRODUCTION SPEED — CDN-Ready Cache Headers + Preconnect
 
 **User complaint (verbatim):** *"Website pages are loading EXTREMELY SLOW... I need that speed... I don't care about anything but I need that speed. Customer browsing among different pages takes a very very long time to load compare to our competitors (Check Topps Tiles)."*
