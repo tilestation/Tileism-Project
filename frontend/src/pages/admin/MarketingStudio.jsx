@@ -336,14 +336,42 @@ const AssetCard = ({ asset, mobileVariantOptions, onPublish, onDelete, onUnpubli
               </select>
               {mobileVariantId && (
                 <div className="mt-1.5 flex items-center gap-2">
-                  <img
-                    src={(mobileVariantOptions || []).find((o) => o.id === mobileVariantId)?.preview_url}
-                    alt="Mobile variant preview"
-                    className="w-12 h-16 object-cover rounded border border-slate-300"
-                    data-testid={`marketing-asset-mobile-variant-preview-${asset.id}`}
-                  />
+                  {/* 31 May 2026 — Click-to-enlarge on the mobile
+                      variant preview. The 48×64 thumbnail was too
+                      small to verify which mobile asset would
+                      actually ship — admins were publishing the
+                      wrong one. Click opens the same full-screen
+                      lightbox used for landscape assets. */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const opt = (mobileVariantOptions || []).find((o) => o.id === mobileVariantId);
+                      if (!opt) return;
+                      // Synthesize an asset-shaped object for the lightbox so
+                      // we reuse AssetLightbox without further plumbing.
+                      onZoom?.({
+                        id: opt.id,
+                        image_url: opt.image_url || opt.preview_url,
+                        prompt: opt.label || 'Mobile variant',
+                      });
+                    }}
+                    data-testid={`marketing-asset-mobile-variant-zoom-${asset.id}`}
+                    title="Click to view at full size"
+                    className="relative group/mvp cursor-zoom-in rounded border border-slate-300 hover:border-amber-400 transition-colors"
+                  >
+                    <img
+                      src={(mobileVariantOptions || []).find((o) => o.id === mobileVariantId)?.preview_url}
+                      alt="Mobile variant preview"
+                      className="w-12 h-16 object-cover rounded"
+                      data-testid={`marketing-asset-mobile-variant-preview-${asset.id}`}
+                    />
+                    <span className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover/mvp:opacity-100 transition-opacity rounded">
+                      <Maximize2 className="w-4 h-4 text-white" />
+                    </span>
+                  </button>
                   <span className="text-[10px] text-slate-500 leading-snug">
                     Phones will see this image instead of the landscape banner.
+                    {' '}<span className="text-amber-600 font-semibold">Click to enlarge.</span>
                   </span>
                 </div>
               )}
