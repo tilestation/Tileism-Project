@@ -9,6 +9,40 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Feb 26, 2026 — Forked session] 🖐️ Price Tickets: drag-corner-to-resize + auto-tile
+
+**User intent (with screenshot)**: *"Allow me to drag one corner to adjust the size, and if a second, third or 4th ticket on a page adjusting, auto inline with first."*
+
+**What was shipped** (`/app/frontend/src/pages/admin/PriceTickets.js`):
+
+- **`ResizeHandle` component** — SE-corner amber drag-grip (12×12mm in design space) overlaid on the first `PriceTicket` in the inline preview. `pointerdown` captures the gesture; `pointermove` on the *window* (not the element, so the user can drag past the ticket) updates dimensions in real time. `pointerup` / `pointercancel` cleanly tears down.
+- **Pixel-to-mm conversion** that respects the 0.45× CSS transform on the preview: `deltaMm = deltaScreenPx / previewScale / (96/25.4)` — accurate at 96 dpi for an interactive preview that the admin can fine-tune via the inputs.
+- **Clamped to A4 portrait**: 50-210mm wide × 70-297mm tall. Can't accidentally generate a ticket bigger than the paper.
+- **Live tooltip** appears during drag below the handle: dark pill with monospaced "**195 × 257 mm**" so the admin sees what they're doing.
+- **`PriceTicket` gains `resizable`, `onResize`, `previewScale` props** — passed only to the FIRST ticket in the preview map (index===0). All other ticket copies on the page are pure render outputs of `customWidthMm/customHeightMm` so they auto-reflow.
+- **Parent `handleResizeFromHandle`** updates dims AND auto-tiles cols/rows: `cols = floor(210 / newW)`, `rows = floor(297 / newH)`. Shrink the ticket → more copies fill the A4 in a grid. The header subtitle ("Generate and print price tickets (195×257mm · 1 per A4 — A5 Tickets)") updates in real time.
+- `e.stopPropagation()` on `pointerdown` so the handle doesn't accidentally trigger the click-to-enlarge modal on the surrounding preview.
+
+**Live verified on preview**: dragged the handle 80 screen-px → tooltip showed `195 × 257 mm` during drag → header subtitle updated to "195×257mm · 1 per A4 — A5 Tickets" → other ticket copies (none in this case, but would reflow on a smaller size) all use the new dims.
+
+**Files**: `/app/frontend/src/pages/admin/PriceTickets.js` (new `ResizeHandle` component + 4 props on `PriceTicket` + `handleResizeFromHandle` in parent).
+
+
+### [Feb 26, 2026 — Forked session] 🔍 Marketing Studio: mobile-variant preview now click-to-enlarge
+
+**User intent (after the Price Tickets preview enlarge)**: *"Just do the marketing studio one."*
+
+The landscape banner asset card already had a fully-working `AssetLightbox` (cursor-zoom-in, Maximize2 hover icon, click → full-screen). The gap was the **48×64 px mobile-variant thumbnail** shown when an admin picks which portrait image phones will see — too small to verify before publishing, leading to wrong variants going live.
+
+**What was shipped** (`/app/frontend/src/pages/admin/MarketingStudio.jsx`):
+- Wrapped the mobile-variant `<img>` in a button: amber hover border, Maximize2 icon revealed on hover.
+- Click synthesizes an asset-shaped object (`{id, image_url, prompt}`) and passes it to the existing `onZoom` handler so the full-screen `AssetLightbox` opens with the mobile variant at full size.
+- Helper hint now ends with **"Click to enlarge."** in amber for discoverability.
+- `data-testid="marketing-asset-mobile-variant-zoom-{adId}"` for future regression coverage.
+
+**Files**: `/app/frontend/src/pages/admin/MarketingStudio.jsx` (mobile-variant thumb wrapper + onZoom dispatch).
+
+
 ### [Feb 26, 2026 — Forked session] 🔍 Price Tickets: click-to-enlarge preview modal
 
 **User report (with screenshot)**: *"Can you make this preview larger when clicking on it"* — the inline 0.45× preview was too small to read the prices/codes before printing, forcing admins to do test prints.

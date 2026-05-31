@@ -120,7 +120,7 @@ const COUNTRY_FLAGS = {
   }
 };
 
-const PriceTicket = ({ product, showOriginalPrice, showClearanceBadge, showThisWeekBadge, showBarcode, showQR, index, paperSize }) => {
+const PriceTicket = ({ product, showOriginalPrice, showClearanceBadge, showThisWeekBadge, showBarcode, showQR, index, paperSize, resizable, onResize, previewScale }) => {
   const hasDiscount = product.clearance_price && product.clearance_price < product.price;
   const displayPrice = hasDiscount ? product.clearance_price : product.price;
   const originalPrice = product.price;
@@ -449,9 +449,136 @@ const PriceTicket = ({ product, showOriginalPrice, showClearanceBadge, showThisW
         </div>
       )}
       </div>
+      {/* 31 May 2026 — drag-to-resize corner handle. Only rendered
+          on the FIRST ticket in the inline preview (`resizable`
+          prop). Updates the parent's customWidthMm/customHeightMm
+          via `onResize` — every other ticket on the page
+          auto-reflows because they all read the same dims. The
+          parent ALSO re-tiles cols/rows so a smaller ticket
+          auto-fills more copies into the A4 layout. */}
+      {resizable && onResize && (
+        <ResizeHandle
+          getDims={() => ({ widthMm, heightMm })}
+          previewScale={previewScale || 0.45}
+          onChange={onResize}
+        />
+      )}
     </div>
   );
 };
+
+/**
+ * SE-corner resize handle for the inline ticket preview. Captures
+ * mousedown then tracks pointer-move on the WINDOW (so the user
+ * can drag past the ticket bounds without losing the gesture).
+ * Converts pixel deltas to mm using the preview's CSS transform
+ * scale (default 0.45) and a 96 dpi assumption (3.7795 px/mm).
+ *
+ * Clamps to a sane range (50-210mm wide × 70-297mm tall — within
+ * an A4 portrait) so admins can't accidentally generate tickets
+ * bigger than the paper.
+ */
+const PX_PER_MM = 96 / 25.4;        // 3.7795...
+const MIN_TICKET_W_MM = 50;
+const MIN_TICKET_H_MM = 70;
+const MAX_TICKET_W_MM = 210;        // A4 portrait width
+const MAX_TICKET_H_MM = 297;        // A4 portrait height
+
+function ResizeHandle({ getDims, previewScale, onChange }) {
+  const dragStateRef = useRef(null);
+  const [dragging, setDragging] = useState(false);
+  const [livePreview, setLivePreview] = useState(null); // {w, h} during drag
+
+  const onPointerMove = (e) => {
+    const st = dragStateRef.current;
+    if (!st) return;
+    const dxPx = e.clientX - st.startX;
+    const dyPx = e.clientY - st.startY;
+    // Screen px → design px → mm
+    const dxMm = dxPx / previewScale / PX_PER_MM;
+    const dyMm = dyPx / previewScale / PX_PER_MM;
+    const newW = Math.round(Math.max(MIN_TICKET_W_MM, Math.min(MAX_TICKET_W_MM, st.startW + dxMm)));
+    const newH = Math.round(Math.max(MIN_TICKET_H_MM, Math.min(MAX_TICKET_H_MM, st.startH + dyMm)));
+    setLivePreview({ w: newW, h: newH });
+    onChange(newW, newH);
+  };
+
+  const endDrag = () => {
+    window.removeEventListener('pointermove', onPointerMove);
+    window.removeEventListener('pointerup', endDrag);
+    window.removeEventListener('pointercancel', endDrag);
+    dragStateRef.current = null;
+    setDragging(false);
+    setLivePreview(null);
+  };
+
+  const onPointerDown = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const { widthMm, heightMm } = getDims();
+    dragStateRef.current = {
+      startX: e.clientX,
+      startY: e.clientY,
+      startW: widthMm,
+      startH: heightMm,
+    };
+    setDragging(true);
+    setLivePreview({ w: widthMm, h: heightMm });
+    window.addEventListener('pointermove', onPointerMove);
+    window.addEventListener('pointerup', endDrag);
+    window.addEventListener('pointercancel', endDrag);
+  };
+
+  return (
+    <>
+      <div
+        role="slider"
+        aria-label="Drag to resize ticket"
+        data-testid="price-ticket-resize-handle"
+        onPointerDown={onPointerDown}
+        title="Drag to resize · the rest of the tickets reflow automatically"
+        style={{
+          position: 'absolute',
+          right: '-6mm',
+          bottom: '-6mm',
+          width: '12mm',
+          height: '12mm',
+          background: dragging
+            ? 'linear-gradient(135deg, transparent 50%, #f59e0b 50%)'
+            : 'linear-gradient(135deg, transparent 50%, #fbbf24 50%)',
+          cursor: 'nwse-resize',
+          touchAction: 'none',
+          zIndex: 50,
+          border: '1px solid rgba(0,0,0,0.15)',
+          borderTopLeftRadius: '0',
+          pointerEvents: 'auto',
+        }}
+      />
+      {dragging && livePreview && (
+        <div
+          data-testid="price-ticket-resize-tooltip"
+          style={{
+            position: 'absolute',
+            right: '0mm',
+            bottom: '-18mm',
+            background: 'rgba(15, 23, 42, 0.92)',
+            color: 'white',
+            fontSize: '8pt',
+            fontFamily: 'ui-monospace, monospace',
+            padding: '4px 8px',
+            borderRadius: '4px',
+            whiteSpace: 'nowrap',
+            pointerEvents: 'none',
+            zIndex: 60,
+            boxShadow: '0 4px 12px rgba(0,0,0,0.25)',
+          }}
+        >
+          {livePreview.w} × {livePreview.h} mm
+        </div>
+      )}
+    </>
+  );
+}
 
 export const PriceTickets = () => {
   const [products, setProducts] = useState([]);
@@ -497,6 +624,23 @@ export const PriceTickets = () => {
   // preview to open a near-full-screen 0.9× version so the admin
   // can actually read the prices/codes before printing.
   const [previewEnlarged, setPreviewEnlarged] = useState(false);
+
+  // 31 May 2026 — drag-to-resize: when the SE corner of the inline
+  // preview's first ticket is dragged, update the underlying mm
+  // dimensions AND auto-recompute cols/rows so the rest of the A4
+  // page re-tiles with the smaller/larger ticket.
+  //
+  // A4 portrait is 210×297mm. With a small 5mm gutter we want the
+  // tickets to fill the page nicely without overflowing, so we
+  // floor(210 / w) and floor(297 / h). Clamped to at least 1×1.
+  const handleResizeFromHandle = useCallback((newWmm, newHmm) => {
+    setCustomWidthMm(newWmm);
+    setCustomHeightMm(newHmm);
+    const cols = Math.max(1, Math.floor(210 / Math.max(1, newWmm)));
+    const rows = Math.max(1, Math.floor(297 / Math.max(1, newHmm)));
+    setCustomColsPerA4(cols);
+    setCustomRowsPerA4(rows);
+  }, []);
 
   // Esc closes the enlarged preview from anywhere on the page +
   // lock body scroll while open so the page behind doesn't jump
@@ -2081,6 +2225,12 @@ export const PriceTickets = () => {
                       showQR={showQR}
                       index={idx}
                       paperSize={currentPaperSize}
+                      // Resize handle only on the FIRST ticket of the
+                      // inline preview. All other copies reflow because
+                      // they read the same customWidthMm/customHeightMm.
+                      resizable={idx === 0}
+                      previewScale={0.45}
+                      onResize={idx === 0 ? handleResizeFromHandle : undefined}
                     />
                   ))}
                 </div>
