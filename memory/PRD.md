@@ -9,6 +9,47 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Feb 26, 2026 — Forked session] 📻 Radio: visible Up Next list + sync explainer + Solo preview from track #1
+
+**User report (with screenshots)**: *"Why doesn't the radio follow Saved Playlist?"* — diagnosis showed the radio WAS playing the saved playlist correctly; confusion was because wall-clock-modulo sync means you join mid-loop, not at track #1. Three-pronged fix shipped:
+
+**(a) Visible Up Next list + loop position on the public radio page**
+
+- Backend `/api/radio-studio/live/now-playing` now returns:
+  - `upcoming[]` — the next 3 items with `type`, `ref_id`, `name`, `duration_seconds`
+  - `current_index` — where in the playlist we are (0-indexed)
+  - `playlist.playlist_name` — friendly name for the UI
+- Public page renders a vertical "Up next" panel with amber/fuchsia dots per kind (ad/music), durations in mono font, plus a "Loop position: 5m 12s of 27m · Track 3 of 7" caption beneath the progress bar. The user can SEE the radio following the saved order.
+
+**(b) "Continuous radio (synced)" explainer banner**
+
+- Always-visible emerald banner on `/radio`: *"Continuous radio (synced). All 4 showrooms hear the same track at the same second. You join wherever the playlist loop currently is — like turning on FM radio mid-show, not at the start."*
+- Switches to fuchsia in solo mode with the appropriate message.
+
+**(c) Solo preview from track #1**
+
+- **New backend endpoint** `GET /api/radio-studio/live/playlist-preview` — returns the FULL resolved playlist in order with `mode: "solo"` (no wall-clock offset). Same JSON shape building blocks as `/live/now-playing` for code reuse.
+- **Public radio page** detects `?solo=1` query param:
+  - Fetches `/playlist-preview` once, caches the resolved item list
+  - Local `soloIdx` cursor advances on each `<audio>` `ended` event — pure client-side sequential playback
+  - Polls completely disabled in solo mode (no network chatter)
+  - SOLO PREVIEW badge in the topbar, fuchsia explainer banner clarifies "this device only, other showrooms unaffected"
+- **Admin button**: new "Solo preview from #1" in the Playlist tab toolbar — opens `/radio?solo=1` in a new tab with the standard fuchsia accent + tooltip. Sits next to the existing "Open in-store screen" link.
+
+**Tests (3/3 new pass)** in `tests/test_radio_studio_solo_preview.py`:
+- `/now-playing` exposes `upcoming` (next 3) + `current_index` + `playlist_name`
+- `/playlist-preview` returns full resolved list with `mode: "solo"` and per-item `audio_url`
+- Empty playlist → graceful `{playing: false, mode: "solo", reason: "..."}`
+
+**Session-wide regression**: 36/36 new tests pass across solo-preview + crossfade + loudnorm + tune-in + radio-off-air + uptime-debounce + CF-geo + test-email.
+
+**Files**:
+- `/app/backend/routes/radio_studio.py` (`live_now_playing` returns upcoming[]/current_index/playlist_name; NEW `live_playlist_preview` endpoint)
+- `/app/frontend/src/pages/public/PublicRadioPage.jsx` (solo-mode detection + cached resolved list, Up Next panel, loop position line, sync/solo banners, SOLO PREVIEW badge)
+- `/app/frontend/src/pages/admin/RadioStudio.jsx` (Solo preview button)
+- `/app/backend/tests/test_radio_studio_solo_preview.py` (NEW — 3 tests)
+
+
 ### [Feb 26, 2026 — Forked session] 🧹 P2 batch: tile-scale-print back-links, city pages seeded, Email Health page
 
 Bundled the three remaining P2 backlog items so the queue is down to BLOCKED-on-Google only.

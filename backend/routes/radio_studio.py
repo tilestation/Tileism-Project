@@ -3110,6 +3110,87 @@ async def _live_generator():
             item_offset = 0.0
 
 
+@public_router.get("/live/playlist-preview")
+async def live_playlist_preview():
+    """Return the resolved playlist in order, with audio URLs, for
+    SOLO/PREVIEW playback from track #1.
+
+    Used by the admin "Solo preview" button — same data as the
+    public /radio page would consume but flagged so the client knows
+    to play sequentially from index 0 rather than syncing to wall
+    clock. Multi-store sync is intentionally broken here so admins
+    can audition a fresh playlist without waiting for the live loop
+    to cycle around to track 1.
+
+    Returns the same `{playing, now, next, upcoming, playlist}`
+    shape as /live/now-playing so the same React components can
+    consume it — only difference is `mode: "solo"` and the cursor
+    is pinned at index 0.
+    """
+    db = get_db()
+    playlist = await db.radio_studio_playlists.find_one(
+        {"is_active": True}, {"_id": 0},
+    )
+    items = (playlist or {}).get("items") or []
+    if not playlist or not items:
+        return {
+            "playing": False,
+            "mode": "solo",
+            "reason": "Playlist is empty — go to Radio Studio → Playlist to add items.",
+        }
+    ad_ids = [it["ref_id"] for it in items if it.get("type") == "ad"]
+    music_ids = [it["ref_id"] for it in items if it.get("type") == "music"]
+    ads_by_id: dict = {}
+    music_by_id: dict = {}
+    if ad_ids:
+        async for d in db.radio_studio_ads.find(
+            {"id": {"$in": ad_ids}},
+            {"_id": 0, "id": 1, "name": 1, "voice_name": 1, "duration_seconds": 1, "audio_filename": 1, "bed_music_name": 1},
+        ):
+            ads_by_id[d["id"]] = d
+    if music_ids:
+        async for d in db.radio_studio_music.find(
+            {"id": {"$in": music_ids}},
+            {"_id": 0, "id": 1, "name": 1, "duration_seconds": 1, "audio_filename": 1},
+        ):
+            music_by_id[d["id"]] = d
+
+    resolved = []
+    for it in items:
+        ref = (ads_by_id if it.get("type") == "ad" else music_by_id).get(it.get("ref_id"))
+        if not ref or not ref.get("audio_filename"):
+            continue
+        d = float(ref.get("duration_seconds") or 0) or 30.0
+        resolved.append({
+            "type": it.get("type"),
+            "ref_id": it.get("ref_id"),
+            "name": ref.get("name"),
+            "voice_name": ref.get("voice_name"),
+            "bed_music_name": ref.get("bed_music_name"),
+            "duration_seconds": d,
+            "audio_url": (
+                f"/api/radio-studio/stream/{'ad' if it.get('type') == 'ad' else 'music'}/{it.get('ref_id')}"
+            ),
+        })
+    if not resolved:
+        return {
+            "playing": False,
+            "mode": "solo",
+            "reason": "Every item in the playlist is missing audio. Click Generate on each ad.",
+        }
+    return {
+        "playing": True,
+        "mode": "solo",
+        "items": resolved,
+        "playlist": {
+            "total_items": len(resolved),
+            "total_seconds": round(sum(r["duration_seconds"] for r in resolved), 1),
+            "crossfade_seconds": float(playlist.get("crossfade_seconds") or 0.0),
+            "playlist_name": playlist.get("name") or "Default Playlist",
+        },
+    }
+
+
 @public_router.get("/live")
 async def live_stream():
     """Endless synchronised in-store radio stream. Unauthenticated
@@ -3228,6 +3309,24 @@ async def live_now_playing():
     idx, item_offset = _locate(offset, durations)
     cur = resolved[idx]
     nxt_idx = (idx + 1) % len(resolved)
+    # 31 May 2026 — user feedback ("Why doesn't the radio follow Saved
+    # Playlist") was rooted in not being able to SEE the upcoming
+    # items — the loop was correctly playing the playlist but only
+    # one "Up next" was surfaced. Expose the next 3 items so the
+    # public page can render them as a mini-schedule and the user
+    # can verify the playlist order at a glance.
+    upcoming = []
+    for off in (1, 2, 3):
+        if off >= len(resolved):
+            break
+        u_idx = (idx + off) % len(resolved)
+        u_item = resolved[u_idx]
+        upcoming.append({
+            "type": u_item.get("type"),
+            "ref_id": u_item.get("ref_id"),
+            "name": u_item["ref"].get("name"),
+            "duration_seconds": u_item["duration_seconds"],
+        })
     # Audio URL points at the existing per-item streaming endpoint
     # (NOT /live), so a browser <audio> tag can consume it as a
     # normal finite MP3 — works through every proxy / corporate
@@ -3261,12 +3360,15 @@ async def live_now_playing():
             }
             if len(resolved) > 1 else None
         ),
+        "upcoming": upcoming,
+        "current_index": idx,
         "playlist": {
             "total_items": len(resolved),
             "total_seconds": round(total, 1),
             "loop_offset_seconds": round(offset, 1),
             "repeat": repeat,
             "crossfade_seconds": float(playlist.get("crossfade_seconds") or 0.0),
+            "playlist_name": playlist.get("name") or "Default Playlist",
         },
         # `server_time` lets a client extrapolate elapsed seconds
         # without re-polling — they can interpolate locally for

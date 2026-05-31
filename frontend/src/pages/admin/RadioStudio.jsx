@@ -2640,6 +2640,22 @@ function LiveStreamPanel({ hasItems }) {
             <Volume2 className="w-3.5 h-3.5" />
             Open in-store screen
           </a>
+          {/* 31 May 2026 — Solo preview opens /radio?solo=1 which
+              plays the saved playlist sequentially from track #1
+              on THIS device only. Doesn't affect the synced live
+              loop the showrooms are hearing. Useful for auditioning
+              a fresh playlist before going live. */}
+          <a
+            href={`${publicScreenUrl}?solo=1`}
+            target="_blank"
+            rel="noreferrer"
+            data-testid="radio-live-solo-preview"
+            title="Audition the saved playlist from track #1 on this device only. Does NOT affect what the showrooms are hearing."
+            className="px-3 py-1.5 bg-fuchsia-500/15 hover:bg-fuchsia-500/25 border border-fuchsia-500/40 text-fuchsia-200 text-xs font-bold rounded-lg flex items-center gap-1.5 transition-all"
+          >
+            <Play className="w-3.5 h-3.5" />
+            Solo preview from #1
+          </a>
         </div>
       </div>
 

@@ -26,7 +26,7 @@
  * connect to Bluetooth speaker, leave the tab open.
  */
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { Radio, Play, Pause, Music, Mic } from 'lucide-react';
+import { Radio, Play, Pause, Music, Mic, Info, ListMusic } from 'lucide-react';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${API_URL}/api`;
@@ -69,6 +69,16 @@ const setDeviceLabel = (v) => {
 };
 
 export default function PublicRadioPage() {
+  // 31 May 2026 — `?solo=1` query param switches to single-device
+  // preview mode (starts from track #1, no wall-clock sync, no
+  // multi-store coordination). Used by the admin "Solo preview"
+  // button so admins can audition a fresh playlist without waiting
+  // for the live loop to come around to track #1.
+  const soloMode = typeof window !== 'undefined'
+    && new URLSearchParams(window.location.search).get('solo') === '1';
+  const [soloIdx, setSoloIdx] = useState(0);
+  const [soloPlaylist, setSoloPlaylist] = useState(null); // {items, playlist}
+
   // 31 May 2026 — TWO audio elements so we can crossfade between
   // consecutive items. `activeRef` tracks which one is currently
   // foregrounded; the other is used to preload + ramp in the next
@@ -104,6 +114,69 @@ export default function PublicRadioPage() {
 
   const fetchNow = useCallback(async () => {
     try {
+      // In solo mode we fetch the preview endpoint ONCE per session,
+      // cache the resolved playlist, and shape it into the same
+      // {now, next, upcoming, playlist} contract as /live/now-playing
+      // so the render code path stays single-source-of-truth.
+      if (soloMode) {
+        if (!soloPlaylist) {
+          const r = await fetch(`${API}/radio-studio/live/playlist-preview`, { cache: 'no-store' });
+          const data = await r.json();
+          if (!data.playing) {
+            setNow(data);
+            return data;
+          }
+          setSoloPlaylist({ items: data.items, playlist: data.playlist });
+          // First render uses index 0; shape to mimic now-playing
+          const items = data.items;
+          const cur = items[0];
+          const upcoming = items.slice(1, 4).map((u) => ({
+            type: u.type,
+            ref_id: u.ref_id,
+            name: u.name,
+            duration_seconds: u.duration_seconds,
+          }));
+          const shaped = {
+            playing: true,
+            mode: 'solo',
+            now: { ...cur, elapsed_seconds: 0, remaining_seconds: cur.duration_seconds },
+            next: items[1] ? { ...items[1] } : null,
+            upcoming,
+            current_index: 0,
+            playlist: data.playlist,
+            server_time: Date.now() / 1000,
+          };
+          setNow(shaped);
+          return shaped;
+        }
+        // Subsequent polls in solo mode: re-shape from the cached
+        // list using the live `soloIdx` (advanced by `ended` handler).
+        const items = soloPlaylist.items;
+        const idx = Math.min(soloIdx, items.length - 1);
+        const cur = items[idx];
+        const upcoming = [];
+        for (let off = 1; off <= 3 && idx + off < items.length; off += 1) {
+          const u = items[idx + off];
+          upcoming.push({
+            type: u.type,
+            ref_id: u.ref_id,
+            name: u.name,
+            duration_seconds: u.duration_seconds,
+          });
+        }
+        const shaped = {
+          playing: true,
+          mode: 'solo',
+          now: { ...cur, elapsed_seconds: 0, remaining_seconds: cur.duration_seconds },
+          next: items[idx + 1] ? { ...items[idx + 1] } : null,
+          upcoming,
+          current_index: idx,
+          playlist: soloPlaylist.playlist,
+          server_time: Date.now() / 1000,
+        };
+        setNow(shaped);
+        return shaped;
+      }
       const r = await fetch(POLL_URL, { cache: 'no-store' });
       const data = await r.json();
       setNow(data);
@@ -111,17 +184,22 @@ export default function PublicRadioPage() {
     } catch (_e) {
       return null;
     }
-  }, []);
+  }, [soloMode, soloPlaylist, soloIdx]);
 
-  // Background polling. Cheap endpoint (no audio blobs).
+  // Background polling. Cheap endpoint (no audio blobs). In solo
+  // mode we skip the network poll entirely after the first fetch
+  // — local sequential playback is fully client-driven — but we DO
+  // re-shape `now` whenever soloIdx changes so the upcoming list
+  // and current_index update.
   useEffect(() => {
     let alive = true;
+    fetchNow();
+    if (soloMode) return undefined;
     const t = setInterval(() => {
       if (alive) fetchNow();
     }, 4000);
-    fetchNow();
     return () => { alive = false; clearInterval(t); };
-  }, [fetchNow]);
+  }, [fetchNow, soloMode, soloIdx]);
 
   // When the SERVER reports a different current item OR we just
   // tuned in, swap the active audio element's source and play it
@@ -258,6 +336,12 @@ export default function PublicRadioPage() {
     if (!a || !b) return;
     const onEnded = () => {
       if (fadeTimerRef.current) return; // crossfade is handling it
+      // In solo mode, advance the local index manually rather than
+      // re-polling the wall-clock endpoint.
+      if (soloMode) {
+        setSoloIdx((i) => i + 1);
+        return;
+      }
       currentRefRef.current = null;
       crossfadeFiredRef.current = false;
       fetchNow();
@@ -345,10 +429,20 @@ export default function PublicRadioPage() {
             Tile Station Radio
           </h1>
           <p className="text-xs sm:text-sm text-slate-400">
-            In-store live · 4 showrooms · synced playback
+            {soloMode
+              ? 'Solo preview · plays from track #1 · NOT synced with showrooms'
+              : 'In-store live · 4 showrooms · synced playback'}
           </p>
         </div>
         <div className="ml-auto flex items-center gap-2">
+          {soloMode && (
+            <span
+              className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-bold bg-fuchsia-500/20 text-fuchsia-300 ring-1 ring-fuchsia-500/40"
+              data-testid="public-radio-solo-badge"
+            >
+              SOLO PREVIEW
+            </span>
+          )}
           <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-bold ${
             playing
               ? 'bg-emerald-500/20 text-emerald-300 ring-1 ring-emerald-500/40'
@@ -357,6 +451,40 @@ export default function PublicRadioPage() {
             <span className={`w-1.5 h-1.5 rounded-full ${playing ? 'bg-emerald-400 animate-pulse' : 'bg-slate-500'}`} />
             {playing ? 'ON AIR' : 'TAP TO TUNE IN'}
           </span>
+        </div>
+      </div>
+
+      {/* Sync explainer banner — clears the recurring confusion
+          "Why doesn't this start at track #1?" The radio uses
+          wall-clock-modulo so all 4 stores hear the same item at
+          the same moment, exactly like FM radio. In solo mode this
+          banner switches to remind the admin that what they're
+          hearing is a PREVIEW and won't match what's in stores.
+          (31 May 2026.) */}
+      <div
+        className={`mx-6 sm:mx-10 mt-3 mb-1 px-3 py-2 rounded-lg border text-[11px] flex items-start gap-2 ${
+          soloMode
+            ? 'bg-fuchsia-500/5 border-fuchsia-500/30 text-fuchsia-100/80'
+            : 'bg-emerald-500/5 border-emerald-500/20 text-emerald-100/70'
+        }`}
+        data-testid="public-radio-sync-banner"
+      >
+        <Info className={`w-3.5 h-3.5 mt-0.5 flex-shrink-0 ${soloMode ? 'text-fuchsia-400' : 'text-emerald-400'}`} />
+        <div>
+          {soloMode ? (
+            <>
+              <span className="font-semibold text-fuchsia-200">Solo preview mode.</span>{' '}
+              Playing the saved playlist from track #1 on this device only.
+              Other showrooms will continue with their normal synced loop.
+              Close this tab when finished auditioning.
+            </>
+          ) : (
+            <>
+              <span className="font-semibold text-emerald-200">Continuous radio (synced).</span>{' '}
+              All 4 showrooms hear the same track at the same second.
+              You join wherever the playlist loop currently is — like turning on FM radio mid-show, not at the start.
+            </>
+          )}
         </div>
       </div>
 
@@ -414,9 +542,59 @@ export default function PublicRadioPage() {
                 </div>
               </div>
 
-              {now.next && (
-                <div className="text-xs text-slate-500 mt-2">
-                  Up next: <span className="text-slate-300 font-medium">{now.next.name}</span>
+              {/* Up next list — surfaces the next 3 items from the
+                  saved playlist so the user can SEE the radio is
+                  following the order they configured. Closes the
+                  "Why doesn't the radio follow Saved Playlist?"
+                  UX gap (31 May 2026). */}
+              {(now.upcoming?.length || now.next) && (
+                <div className="w-full max-w-md mt-2" data-testid="public-radio-upcoming">
+                  <div className="flex items-center gap-2 text-[10px] uppercase tracking-[0.25em] text-slate-500 font-bold mb-2">
+                    <ListMusic className="w-3 h-3" />
+                    Up next
+                  </div>
+                  <ol className="space-y-1 text-left">
+                    {(now.upcoming && now.upcoming.length
+                      ? now.upcoming
+                      : (now.next ? [now.next] : [])
+                    ).map((u, i) => (
+                      <li
+                        key={`${u.type}-${u.ref_id}-${i}`}
+                        className="flex items-center gap-2 bg-slate-800/40 border border-slate-700/40 rounded-lg px-3 py-2"
+                        data-testid={`public-radio-upcoming-${i}`}
+                      >
+                        <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
+                          u.type === 'ad' ? 'bg-amber-400' : 'bg-fuchsia-400'
+                        }`} />
+                        <span className="text-[10px] uppercase tracking-wider text-slate-500 font-bold w-10 flex-shrink-0">
+                          {u.type === 'ad' ? 'Ad' : 'Music'}
+                        </span>
+                        <span className="text-sm text-slate-200 truncate flex-1">{u.name}</span>
+                        {typeof u.duration_seconds === 'number' && u.duration_seconds > 0 && (
+                          <span className="text-[10px] text-slate-500 font-mono tabular-nums flex-shrink-0">
+                            {Math.floor(u.duration_seconds)}s
+                          </span>
+                        )}
+                      </li>
+                    ))}
+                  </ol>
+                </div>
+              )}
+
+              {/* Loop position — makes the wall-clock sync model
+                  visible. "You're 5 min 12 s into the 27 min loop"
+                  beats a silent mystery any day. */}
+              {now.playlist && typeof now.playlist.loop_offset_seconds === 'number' && (
+                <div className="mt-2 text-[10px] text-slate-600 font-mono" data-testid="public-radio-loop-pos">
+                  Loop position:{' '}
+                  {Math.floor(now.playlist.loop_offset_seconds / 60)}m{' '}
+                  {Math.floor(now.playlist.loop_offset_seconds % 60)}s{' '}
+                  of{' '}
+                  {Math.floor((now.playlist.total_seconds || 0) / 60)}m{' '}
+                  {Math.floor((now.playlist.total_seconds || 0) % 60)}s
+                  {typeof now.current_index === 'number' && now.playlist.total_items && (
+                    <> · Track {now.current_index + 1} of {now.playlist.total_items}</>
+                  )}
                 </div>
               )}
             </div>
