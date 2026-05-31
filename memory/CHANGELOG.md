@@ -1,3 +1,66 @@
+### [Feb 26, 2026 — Forked session] 🎙️ Trade Talk podcasts + Q&A segments
+
+**User request**: *"What else can you recommend to add on our radio... a two way conversational technical podcast or something pretending to be talking to a builder"* + *"YES"* to both Trade Talk + Q&A + edit capability + starter content.
+
+Built **two new content types** alongside the existing single-voice Ad — all three share the same playlist, storage, streaming, and cost-tracking infrastructure.
+
+### Architecture
+All three kinds (`ad`, `qa`, `trade_talk`) live in the existing `radio_studio_ads` collection with a `kind` discriminator. The playlist, stream endpoints, mongo storage, and cost tracker need ZERO changes — they treat all three as audio segments.
+
+| Kind | Voices | TTS calls | Storage |
+|---|---|---|---|
+| `ad` | 1 (`voice_id`) | 1 | Existing path |
+| `qa` | 1 (`voice_id`) | 1 (combines `question` + `answer` into one narration) | Existing path |
+| `trade_talk` | 2 (`host_voice_id`, `guest_voice_id`) | N (one per `turn`) | Concat'd with `ffmpeg` (1-second silence between turns) |
+
+### Backend (`routes/radio_studio.py`)
+- **Models**: `DialogueTurnIn` + extension fields on `AdCreate`/`AdUpdate`: `kind`, `question`, `narrate_question`, `host_voice_id`/`name`, `guest_voice_id`/`name`, `turns`.
+- **`_build_script_from_kind(doc)`** composes the narration for Q&A: `"Today's question — {question}, {answer}"` so ElevenLabs naturally pauses between Q and A.
+- **`_concat_audio_turns(chunks, gap_seconds=1.0)`** — new helper using ffmpeg concat demuxer with `-c copy` (no re-encoding) to stitch N speaker turns together with a cached 1-second silence file between each. Falls back to naive byte-concat if ffmpeg is missing.
+- **`generate_ad_audio`** now dispatches on `kind`: trade_talk loops over turns, calls ElevenLabs per turn with the right voice, then `_concat_audio_turns`. Q&A and Ad go through the existing single-call path.
+- **`test_ad_voice`** previews the FIRST turn of a Trade Talk with its speaker's voice; for Q&A it previews the composed `question+answer` script.
+- **`POST /scripts/generate-qa`** — Claude generates a UK-radio-style answer (75-130 words, expert tone, references your actual stocked brands like Mapei Keraflex Maxi S1, HardieBacker). Strips LLM defects (code fences, "Answer:" prefixes, surrounding quotes).
+- **`POST /scripts/generate-trade-talk`** — Claude writes a `target_turns`-turn dialogue between Mark (host) + Dave (guest). Parser tolerates `HOST:` / `GUEST:` / `Mark:` / `Dave:` line prefixes. Rejects too-short LLM responses (<4 turns) with a 502 so admins retry.
+- **`POST /seed-starter-content`** — idempotent. Inserts the 20 starter Q&A pairs + 10 Trade Talk topics from my earlier curated lists as drafts (no audio rendered). Skip-on-existing-name keeps it safe to re-run.
+
+### Frontend (`pages/admin/RadioStudio.jsx`)
+- **Segment type tabs** at the top of every Compose form: Ad / Q&A / Trade Talk. The "Compose new ad" title and below-fields adapt to which kind is selected.
+- **Q&A form**: Question input + "Narrate question first" checkbox + big fuchsia "Auto-generate answer with Claude" button + Answer textarea with live word count + narrator voice picker.
+- **Trade Talk form**:
+  - Purple gradient "Generate dialogue from a topic" panel with topic field + duration dropdown (2/3/4/6 min) + "Write dialogue" button
+  - Host + Guest voice pickers side-by-side
+  - **Fully editable turn list**: each turn is a row with a speaker pill (click to swap host ↔ guest), word count, up/down/delete buttons, and an auto-resizing textarea
+  - "Add turn" button auto-alternates the speaker from the last turn
+- **Segment library** now shows a kind badge on every card (AD / Q&A / TRADE TALK in colour-coded pills) so admins can scan their library at a glance.
+- **"Seed starter content"** button in the library header — confirms before running, shows success toast with counts inserted vs skipped.
+- All existing functionality (music bed, pronunciation hints, voice tuning, test voice, generate) works on all three kinds via the shared form sections at the bottom.
+
+### Starter content (curated, evergreen)
+- **20 Q&A pairs** covering tile shop's most common technical questions: plasterboard in showers, porcelain vs ceramic, slip ratings, adhesive selection, grouting troubles, sealing natural stone, movement joints, notched trowel sizing, etc. Each answer is ~75-130 words in the radio-narration style, references real products you'd stock.
+- **10 Trade Talk topics**: porcelain over UFH, slip ratings explainer, tile backer board vs greenboard, tiling over existing tiles, movement joints, mixing adhesive, herringbone setting-out, outdoor 20mm porcelain, sealing natural stone, troubleshooting installs.
+
+### Testing — 26 new tests, **198/198 radio-studio backend tests pass**
+`test_radio_studio_multi_kind.py` covers:
+- Pydantic model surface (kind enum, extras-mixin composition, dialogue turn speaker constraint, back-compat default)
+- Script composition (`_build_script_from_kind`) for all 3 kinds + the "skip question" toggle
+- Audio concatenation: real ffmpeg test that synthesises two 1-second sine waves, concats them with the silence helper, ffprobes the resulting MP3 and asserts duration is within tolerance; empty/single-chunk passthroughs; graceful fallback when ffmpeg is missing
+- Generate handler source-checks for kind dispatch + `_concat_audio_turns` call + `_build_script_from_kind` call
+- Q&A generator: returns question+answer, strips LLM defects (quotes + "Answer:" prefix), admin-only
+- Trade Talk generator: parses HOST/GUEST line format, parses Mark/Dave name aliases, rejects responses with <4 turns, admin-only
+- Seed endpoint: inserts 20+10 first time, skips all 30 on idempotent re-run, admin-only, library has expected counts and substantive content
+
+### Smoke verified
+- Backend up + healthy after model rebuild
+- Playwright check: all 3 kind tabs render, Q&A fields all present (question/answer/narrate-checkbox/generate-button/voice-picker), Trade Talk fields all present (topic/generate/add-turn/host/guest pickers), Seed starter button visible in library header
+- Both forms cleanly switch shown fields when the admin changes the kind tab
+
+**Files**:
+- `/app/backend/routes/radio_studio.py` (models, ffmpeg concat helper, multi-kind dispatch in generate/test-voice, Q&A + Trade Talk generators, seed endpoint, 20 Q&A pairs + 10 Trade Talk topics as module constants)
+- `/app/frontend/src/pages/admin/RadioStudio.jsx` (kind tab switcher, QaFields component, TradeTalkFields component, VoicePickerInline reusable picker, kind badge on cards, seed-starter button + handler, expanded form state + handleSave validation per kind)
+- `/app/backend/tests/test_radio_studio_multi_kind.py` (NEW — 26 tests)
+
+
+
 ### [Feb 26, 2026 — Forked session] 💷 ElevenLabs cost-tracking dashboard
 
 **User question**: *"every time I adjust the ad script and regenerate the new audio, does it cost me, if so how much, I need a clear breakdown on Radio Studio dashboard of total I am spending on these ad generations and then regenerations of the same ads after update"*

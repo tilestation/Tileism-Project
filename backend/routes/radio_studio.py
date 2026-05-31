@@ -513,13 +513,91 @@ def _mix_voice_with_bed(
 
 
 # ------------------------------------------------------------------
+# Multi-turn dialogue concatenation (31 May 2026)
+# ------------------------------------------------------------------
+#
+# For Trade Talk episodes we render each speaker turn as its own
+# ElevenLabs call (so we get the right voice per turn) then glue
+# them together with a 1-second silence between turns. The result
+# is one MP3 — same shape as a regular ad, plays through the same
+# streaming + playlist pipeline, gets logged to the cost dashboard
+# as a single call summing all turns.
+
+def _concat_audio_turns(audio_chunks: List[bytes], gap_seconds: float = 1.0) -> bytes:
+    """Concatenate MP3 audio chunks with `gap_seconds` of silence
+    between each. Uses ffmpeg's concat demuxer with `-c copy` so
+    no re-encoding happens (each chunk is already a 128 kbps
+    44.1 kHz MP3 from ElevenLabs and our cached silence file
+    matches — see `_get_silence_mp3`)."""
+    if not audio_chunks:
+        return b""
+    if len(audio_chunks) == 1:
+        return audio_chunks[0]
+    ffmpeg = _ffmpeg_bin()
+    if not ffmpeg:
+        # Graceful degradation — just concat the bytes directly.
+        # MP3 frames are self-synchronising so most players will
+        # still cope, just without the inter-turn gap.
+        logger.warning("ffmpeg missing — concatenating without gap")
+        return b"".join(audio_chunks)
+
+    silence = _get_silence_mp3()  # 1 sec of 128k @ 44.1 kHz
+    with tempfile.TemporaryDirectory(prefix="radio_concat_") as tmp:
+        # Write each turn to its own file + write the silence once,
+        # reference it from the concat list.
+        silence_path = os.path.join(tmp, "silence.mp3")
+        with open(silence_path, "wb") as f:
+            f.write(silence)
+        turn_paths: List[str] = []
+        for i, chunk in enumerate(audio_chunks):
+            p = os.path.join(tmp, f"turn_{i:03d}.mp3")
+            with open(p, "wb") as f:
+                f.write(chunk)
+            turn_paths.append(p)
+
+        # concat demuxer list. We add `gap_seconds` of silence by
+        # repeating the 1-sec silence file (1 line per second; we
+        # default to 1 sec so that's just one repetition).
+        gap_repeats = max(0, int(round(gap_seconds)))
+        list_path = os.path.join(tmp, "list.txt")
+        with open(list_path, "w") as f:
+            for i, p in enumerate(turn_paths):
+                f.write(f"file '{p}'\n")
+                if i != len(turn_paths) - 1:  # no trailing silence
+                    for _ in range(gap_repeats):
+                        f.write(f"file '{silence_path}'\n")
+
+        out_path = os.path.join(tmp, "out.mp3")
+        cmd = [
+            ffmpeg, "-hide_banner", "-loglevel", "error", "-y",
+            "-f", "concat", "-safe", "0",
+            "-i", list_path,
+            "-c", "copy",
+            out_path,
+        ]
+        proc = subprocess.run(cmd, capture_output=True, timeout=60)
+        if proc.returncode != 0:
+            err = (proc.stderr or b"").decode("utf-8", errors="replace")[:500]
+            logger.error("ffmpeg concat failed (rc=%s): %s", proc.returncode, err)
+            raise HTTPException(
+                status_code=502,
+                detail=f"Audio stitching failed: {err.strip() or 'ffmpeg error'}",
+            )
+        with open(out_path, "rb") as f:
+            return f.read()
+
+
+# ------------------------------------------------------------------
 # Models
 # ------------------------------------------------------------------
 
 class AdCreate(BaseModel):
     name: str = Field(min_length=1, max_length=120)
-    script: str = Field(min_length=1, max_length=4000)
-    voice_id: str = Field(min_length=1)
+    # Allowed empty for `kind='trade_talk'` (content lives in `turns`)
+    # and for `kind='qa'` when only the answer matters and the
+    # question carries the meaning. Single-voice ads still require it.
+    script: str = Field(default="", max_length=4000)
+    voice_id: str = Field(default="", max_length=200)
     voice_name: Optional[str] = None
     # Voice tuning knobs. ElevenLabs defaults are
     # stability=0.5, similarity_boost=0.75 — these produce a natural
@@ -560,6 +638,79 @@ class AdUpdate(BaseModel):
     bed_music_id: Optional[str] = None
     bed_volume_pct: Optional[int] = Field(default=None, ge=0, le=50)
     pronunciation_hints: Optional[str] = Field(default=None, max_length=4000)
+
+
+# ------------------------------------------------------------------
+# Multi-kind segment models (31 May 2026)
+# ------------------------------------------------------------------
+#
+# `kind` extends the existing single-voice ad with two new content
+# types — keeps everything in `radio_studio_ads` so the playlist,
+# stream endpoints, and cost tracker need no schema changes:
+#
+#   'ad'         — Existing: one script, one voice, one TTS call.
+#   'qa'         — "Ask the Showroom" Q&A. One voice; the script is
+#                  auto-built from `question` + `answer` (the
+#                  narrator reads both like a radio host).
+#   'trade_talk' — Multi-turn dialogue (e.g. host Mark + builder
+#                  Dave). Each turn is rendered with its own
+#                  voice_id, then stitched together with 1-sec
+#                  silence between speakers via ffmpeg concat.
+
+class DialogueTurnIn(BaseModel):
+    """One line of dialogue inside a Trade Talk episode."""
+    speaker: Literal["host", "guest"]
+    text: str = Field(min_length=1, max_length=2000)
+
+
+class AdCreateKindExtras(BaseModel):
+    """Extra optional fields for non-'ad' kinds. Kept as a separate
+    block so the existing ad form stays unchanged for callers that
+    don't supply them."""
+    kind: Literal["ad", "qa", "trade_talk"] = "ad"
+    # Q&A
+    question: Optional[str] = Field(default=None, max_length=600)
+    # When True (default for 'qa'), the narrator reads the question
+    # FIRST, then a comma pause, then the answer. False = answer only.
+    narrate_question: bool = True
+    # Trade Talk
+    host_voice_id: Optional[str] = None
+    host_voice_name: Optional[str] = None
+    guest_voice_id: Optional[str] = None
+    guest_voice_name: Optional[str] = None
+    turns: List[DialogueTurnIn] = Field(default_factory=list)
+
+
+# Compose AdCreate / AdUpdate with the new optional fields without
+# rewriting the whole class — same pattern as how Pydantic v2
+# encourages "extension models".
+for _fname, _finfo in AdCreateKindExtras.model_fields.items():
+    AdCreate.model_fields[_fname] = _finfo
+    # On AdUpdate, every field is optional; the kind/narrate_question
+    # have safe defaults so we just copy them over.
+    AdUpdate.model_fields[_fname] = _finfo
+AdCreate.model_rebuild(force=True)
+AdUpdate.model_rebuild(force=True)
+
+
+def _build_script_from_kind(doc: dict) -> str:
+    """Synthesise the narration text from a non-'ad' doc. For 'ad'
+    we just return `script` as-is. Used by both `_log_tts_usage`
+    char counting and the actual TTS calls."""
+    kind = doc.get("kind") or "ad"
+    if kind == "qa":
+        question = (doc.get("question") or "").strip()
+        answer = (doc.get("script") or "").strip()
+        narrate_q = doc.get("narrate_question", True)
+        if not narrate_q or not question:
+            return answer
+        # Comma pause so the voice clearly separates Q from A.
+        return f"Today's question — {question.rstrip('?')}, {answer}"
+    if kind == "trade_talk":
+        # Used for char-count logging only; actual rendering loops
+        # over turns individually.
+        return "\n".join(t.get("text", "") for t in (doc.get("turns") or []))
+    return doc.get("script") or ""
 
 
 class PlaylistItem(BaseModel):
@@ -782,6 +933,509 @@ async def generate_script(req: GenerateScriptReq, current_user: dict = Depends(g
 
 
 # ------------------------------------------------------------------
+# Q&A script generator (31 May 2026)
+# ------------------------------------------------------------------
+
+class GenerateQAReq(BaseModel):
+    """Ask-the-Showroom Q&A generator."""
+    question: str = Field(min_length=5, max_length=600,
+                          description="The customer/listener question to answer")
+    tone: Literal["friendly", "expert", "trade"] = "expert"
+
+
+@router.post("/scripts/generate-qa")
+async def generate_qa_script(req: GenerateQAReq, current_user: dict = Depends(get_current_user)):
+    """LLM-generate an Ask-the-Showroom Q&A answer. Returns
+    `{question, answer}` — the admin can edit either before saving.
+    Tone defaults to 'expert' (calm, technical, no jargon)."""
+    _require_admin(current_user)
+    api_key = os.environ.get("EMERGENT_LLM_KEY")
+    if not api_key:
+        raise HTTPException(status_code=500, detail="EMERGENT_LLM_KEY not set")
+
+    tone_directives = {
+        "friendly": "Conversational, warm, like a helpful neighbour. Avoid jargon.",
+        "expert": "Calm, technical but accessible, like a senior tile-fitter on a phone-in. Use precise terms (S1 adhesive, R10 slip rating) but explain them in 5 words.",
+        "trade": "Pitched at professional builders/fitters. Skip basic explanations — assume product knowledge.",
+    }
+    system = (
+        "You write Q&A answers for an in-store radio segment called "
+        "'Ask the Showroom' at Tile Station — a UK tile, bathroom and "
+        "flooring retailer. Answers are read aloud by an AI narrator "
+        "and overheard by customers + tradesmen in our 4 stores.\n\n"
+        "HARD RULES:\n"
+        "1. UK English spelling and units (metres, kilos, mil).\n"
+        "2. 75-130 words. Read-aloud length 30-60 seconds.\n"
+        "3. Authoritative, never salesy. Cite a specific product/brand we stock "
+        "when relevant (Mapei Keraflex Maxi S1, Ardex FS-DD, HardieBacker, etc).\n"
+        "4. Open with a natural radio-style first sentence — NOT 'The answer is' "
+        "or 'Great question'. Examples: 'Short answer: no.' / 'The trade rule "
+        "is...' / 'Two reasons:'.\n"
+        "5. End with a single concrete tip OR a 'we stock X' pointer. Don't say "
+        "'visit our website' or 'come to our showroom' — the listener is already in it.\n"
+        "6. Output ONLY the answer text, no preamble, no labels, no quotes.\n"
+        f"\nTONE: {tone_directives[req.tone]}\n"
+    )
+    user_msg = f"Question from a customer:\n{req.question.strip()}\n\nWrite the answer now."
+    try:
+        from emergentintegrations.llm.chat import LlmChat, UserMessage
+        chat = LlmChat(
+            api_key=api_key,
+            session_id=f"radio-qa-{os.urandom(4).hex()}",
+            system_message=system,
+        )
+        chat.with_model("anthropic", "claude-haiku-4-5-20251001")
+        out = await chat.send_message(UserMessage(text=user_msg))
+    except Exception as exc:
+        logger.exception("Q&A generation failed")
+        raise HTTPException(status_code=502, detail=f"Q&A generation failed: {str(exc)[:200]}") from exc
+
+    answer = (out or "").strip()
+    # Strip common LLM defects (same shape as the ad generator).
+    if answer.startswith("```"):
+        answer = answer.split("\n", 1)[-1]
+        if answer.endswith("```"):
+            answer = answer.rsplit("```", 1)[0]
+    for prefix in ("Answer:", "ANSWER:", "A:"):
+        if answer.startswith(prefix):
+            answer = answer[len(prefix):].strip()
+    # Strip wrapping quotes LAST so we catch quotes the model put
+    # around the actual answer text after a leading "Answer:".
+    if answer.startswith('"') and answer.endswith('"'):
+        answer = answer[1:-1]
+
+    suggested_name = req.question.strip().rstrip("?")[:80] or "Q&A"
+    return {
+        "question": req.question.strip(),
+        "answer": answer.strip(),
+        "suggested_name": suggested_name,
+        "approx_words": len(answer.split()),
+        "approx_seconds": round(len(answer.split()) / 2.3, 1),
+    }
+
+
+# ------------------------------------------------------------------
+# Trade Talk dialogue generator (31 May 2026)
+# ------------------------------------------------------------------
+
+class GenerateTradeTalkReq(BaseModel):
+    """Generate a multi-turn host/guest dialogue."""
+    topic: str = Field(min_length=5, max_length=400,
+                       description="The technical topic the episode covers")
+    target_duration_seconds: int = Field(default=240, ge=60, le=480,
+                                         description="Target read-aloud length (60-480s = 1-8 min)")
+    host_name: str = Field(default="Mark", max_length=40,
+                           description="Name of the Tile Station expert character")
+    guest_name: str = Field(default="Dave", max_length=40,
+                            description="Name of the calling-in builder character")
+
+
+@router.post("/scripts/generate-trade-talk")
+async def generate_trade_talk_script(req: GenerateTradeTalkReq, current_user: dict = Depends(get_current_user)):
+    """LLM-generate a Trade Talk podcast episode. Returns
+    `{title, turns: [{speaker, text}, ...]}` — admin can edit any
+    turn, add/remove/reorder, then save and generate audio."""
+    _require_admin(current_user)
+    api_key = os.environ.get("EMERGENT_LLM_KEY")
+    if not api_key:
+        raise HTTPException(status_code=500, detail="EMERGENT_LLM_KEY not set")
+
+    # Words-per-second budget for spoken dialogue. Slightly slower
+    # than monologue narration to allow for natural turn-taking.
+    target_words = max(120, min(900, int(req.target_duration_seconds * 2.1)))
+    target_turns = max(8, min(20, int(req.target_duration_seconds / 18)))  # ~18s per exchange
+
+    system = (
+        "You write scripted 'Trade Talk' radio podcast episodes for Tile Station — a UK "
+        "tile, bathroom and flooring retailer. The format is a phone-in: a builder calls "
+        f"in with a tiling/installation question, and our resident expert answers. The "
+        f"dialogue plays in our 4 showrooms; builders eavesdrop and learn.\n\n"
+        f"CHARACTERS:\n"
+        f"  HOST = {req.host_name} — Tile Station expert. Calm, technical, experienced. "
+        "Mid-40s UK English. Uses precise terminology but explains it.\n"
+        f"  GUEST = {req.guest_name} — a working builder calling in. Friendly, asks the "
+        "questions a real builder would. Sounds like he's on a job site.\n\n"
+        "HARD RULES:\n"
+        f"1. {target_turns} turns total. Roughly alternating HOST → GUEST → HOST.\n"
+        f"2. Aim for ~{target_words} total words across all turns.\n"
+        "3. UK English (metres, kilos, mil, square metres).\n"
+        "4. Open with HOST welcoming listeners back to 'Trade Talk on Tile Station Radio' "
+        f"and introducing {req.guest_name}'s question.\n"
+        "5. Close with HOST thanking the guest + a soft sign-off (e.g. 'Trade Talk is "
+        "back tomorrow').\n"
+        "6. Reference specific products/brands we stock when relevant (Mapei Keraflex "
+        "Maxi S1, Ardex FS-DD, HardieBacker, etc).\n"
+        "7. NEVER say 'visit our showroom' — the listener is already in it. NEVER say "
+        "'visit our website' inside dialogue (the sign-off CTA at the very end can "
+        "mention the website once).\n"
+        "8. Output STRICTLY in this format, one turn per line:\n"
+        "   HOST: Welcome back to Trade Talk...\n"
+        "   GUEST: Hi Mark, yeah — I've got a kitchen-diner...\n"
+        "   HOST: Right, so the key thing with...\n"
+        "9. No stage directions, no markdown, no episode title — JUST the dialogue lines."
+    )
+    user_msg = (
+        f"Episode topic: {req.topic.strip()}\n\n"
+        f"Write the {target_turns}-turn dialogue now."
+    )
+
+    try:
+        from emergentintegrations.llm.chat import LlmChat, UserMessage
+        chat = LlmChat(
+            api_key=api_key,
+            session_id=f"radio-talk-{os.urandom(4).hex()}",
+            system_message=system,
+        )
+        chat.with_model("anthropic", "claude-haiku-4-5-20251001")
+        out = await chat.send_message(UserMessage(text=user_msg))
+    except Exception as exc:
+        logger.exception("Trade Talk generation failed")
+        raise HTTPException(status_code=502, detail=f"Generation failed: {str(exc)[:200]}") from exc
+
+    # Parse `HOST: ...` / `GUEST: ...` lines. Tolerant of variation
+    # (sometimes the model adds "MARK:" / "DAVE:" or prepends labels
+    # in different cases — accept anything matching the pattern).
+    turns: List[dict] = []
+    for raw_line in (out or "").splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        # Strip leading markdown bullets / quotes the LLM occasionally adds.
+        line = line.lstrip("*-• ").strip()
+        # Match "HOST:" / "GUEST:" / "{host_name}:" / "{guest_name}:"
+        host_aliases = ("host:", f"{req.host_name.lower()}:")
+        guest_aliases = ("guest:", f"{req.guest_name.lower()}:")
+        lc = line.lower()
+        if any(lc.startswith(a) for a in host_aliases):
+            speaker = "host"
+            text = line.split(":", 1)[1].strip()
+        elif any(lc.startswith(a) for a in guest_aliases):
+            speaker = "guest"
+            text = line.split(":", 1)[1].strip()
+        else:
+            continue
+        # Strip surrounding quotes the model sometimes adds.
+        if text.startswith('"') and text.endswith('"'):
+            text = text[1:-1]
+        if text:
+            turns.append({"speaker": speaker, "text": text})
+
+    if len(turns) < 4:
+        raise HTTPException(
+            status_code=502,
+            detail="LLM returned too few dialogue turns — try again with a different topic phrasing.",
+        )
+
+    suggested_name = f"Trade Talk: {req.topic.strip()[:80]}"
+    total_words = sum(len(t["text"].split()) for t in turns)
+    return {
+        "title": suggested_name,
+        "suggested_name": suggested_name,
+        "turns": turns,
+        "approx_words": total_words,
+        "approx_seconds": round(total_words / 2.1, 1),
+    }
+
+
+# ------------------------------------------------------------------
+# Starter content seed (31 May 2026)
+# ------------------------------------------------------------------
+
+# 10 evergreen Trade Talk topics + 20 Q&A pairs covering the most
+# common tile-shop technical questions. Inserted as DRAFTS (no
+# audio_blob, no audio_filename) so admins can review, tweak, and
+# click Generate when they're happy.
+_STARTER_QA_PAIRS: List[Tuple[str, str]] = [
+    (
+        "How much extra should I order for cuts and breakage?",
+        "Great question — the trade rule is 10% on a straightforward rectangular room, 15% if "
+        "you've got diagonals or a herringbone pattern, and 20% if you're doing a mosaic or "
+        "hexagons. So a 30 square metre kitchen straight-laid means ordering 33 square metres. "
+        "We'd rather you have one box too many than have to wait a fortnight for a top-up "
+        "that's a different batch. Trade members get free pallet returns on unopened boxes "
+        "within 30 days, so over-ordering is risk-free.",
+    ),
+    (
+        "Can I tile straight onto plasterboard in a shower?",
+        "Short answer: no. Standard plasterboard goes soggy. You need either a tile backer "
+        "board like HardieBacker or Marmox, or moisture-resistant green-board with a tanking "
+        "membrane painted over it. The membrane is the bit most people skip and then call us "
+        "in tears six months later when the grout's gone black. Tank it. We sell Mapei "
+        "Mapegum WPS — one tub does an average shower.",
+    ),
+    (
+        "My porcelain looks different colour to the sample I picked — is it faulty?",
+        "Probably not — porcelain is fired with natural minerals so there's always some shade "
+        "and tone variation between batches. We grade it V1 to V4: V1 means almost identical "
+        "tile-to-tile, V4 means deliberately varied for a rustic look. Your sample was a single "
+        "tile so it doesn't show the full range. Before you start tiling, dry-lay tiles from "
+        "at least three different boxes mixed together — that's how the trade gets a natural "
+        "distribution. If you're still seeing extreme variation, bring a tile in and we'll "
+        "check the batch number.",
+    ),
+    (
+        "Do I need waterproofing under bathroom floor tiles?",
+        "Building regs only require it in wet rooms — meaning no shower tray, water hits the "
+        "floor directly. For a standard bathroom with a tray or bath, it's optional but smart. "
+        "A 50 quid tanking kit saves a £3,000 ceiling repair downstairs. We always recommend "
+        "it around the bath edge and the first metre out from the shower.",
+    ),
+    (
+        "What's the difference between rectified and non-rectified tiles?",
+        "Rectified means the edges have been machine-cut perfectly square after firing, so you "
+        "can lay them with a tiny 2-millimetre grout joint and it looks almost seamless. "
+        "Non-rectified — also called cushion-edge — has a slight bevel from the firing process, "
+        "and needs a 3 to 5 mil joint minimum. Rectified is more premium, costs more, and shows "
+        "off pattern-matched designs better. Cushion-edge is more forgiving if your substrate "
+        "isn't perfectly flat.",
+    ),
+    (
+        "Can I use floor tiles on a wall?",
+        "Almost always yes — they're stronger, they just weigh more. The thing to check is the "
+        "maximum weight your wall can take. Plasterboard rated for tiling handles around 32 "
+        "kilos per square metre — that's most 10 mil porcelain. Anything thicker than 12 mil "
+        "or natural stone, you want a tile backer board behind it. The other way round — wall "
+        "tiles on a floor — is a hard no. Wall tiles are softer and crack under foot traffic.",
+    ),
+    (
+        "Why does my grout look streaky after it dried?",
+        "Two reasons: either you wiped too late and let the grout haze dry on the tile face, or "
+        "you used too much water sponging it off. The fix while it's still happening: stop, "
+        "dampen a microfibre cloth and buff the haze off in circles. If it's been 24 hours, "
+        "you need a grout haze remover — citric-acid based. We stock Lithofin KF Cement Residue "
+        "Remover. Spray on, leave 5 minutes, scrub gently, rinse twice. Don't use vinegar on "
+        "natural stone or you'll dissolve the surface.",
+    ),
+    (
+        "How long should I wait before walking on a newly tiled floor?",
+        "With standard adhesive: 24 hours minimum, 48 if it's cold. Rapid-set adhesive: 3 to 4 "
+        "hours. Don't grout for 24 hours after tiling regardless of which adhesive — even rapid "
+        "set. And don't put heavy furniture back for 7 days. Most calls we get about lifted "
+        "tiles trace back to someone moving the fridge in on day 2.",
+    ),
+    (
+        "Which adhesive do I need for porcelain over underfloor heating?",
+        "You need a flexible S1-rated adhesive — that S1 grade gives you about 2.5 millimetres "
+        "of deflection, which is what porcelain over heated screed needs. Standard cement-based "
+        "adhesive will crack as the floor expands and contracts. We stock Mapei Keraflex Maxi S1 "
+        "— it's the trade pick most of our regulars use. Pair it with flexible grout — Ardex "
+        "FS-DD is bombproof. And commission the heating gradually 3 days before tiling, then "
+        "back down to ambient for tiling day.",
+    ),
+    (
+        "What slip rating do I need for a bathroom floor?",
+        "For inside a domestic bathroom, R10 is the minimum we'd recommend — that's slip "
+        "resistance suitable for a wet area. R9 is fine for kitchens and hallways but a bit "
+        "slippy when wet. For a wet room with no tray, go R11. Around an outdoor pool, R12. "
+        "Most of our porcelain ranges show the R rating on the box label.",
+    ),
+    (
+        "Can I tile over existing tiles?",
+        "Yes, in many cases — saves you a day of ripping out. Three checks first: are the "
+        "existing tiles firmly stuck (tap each one, listen for hollow sounds)? Is the surface "
+        "still flat (a 2-metre level on the diagonal)? Will the new floor height clear the "
+        "door? If all three are yes, scuff the existing tiles with 60-grit, prime with Mapei "
+        "Primer G, and tile with a flexible S1 adhesive. Don't try this in a wet area — we'd "
+        "rip out and tank from scratch.",
+    ),
+    (
+        "Why is there efflorescence — white powder — on my new natural stone?",
+        "Efflorescence is mineral salts being drawn up to the surface as moisture evaporates "
+        "from the adhesive bed. It's normal in the first 6 to 8 weeks of new natural stone. "
+        "Don't panic and don't wash it with water — that pushes the salts back in. Brush it "
+        "off dry with a soft brush, wait for the floor to fully cure, then re-seal with a "
+        "penetrating sealer. We stock Lithofin Stain-Stop — one bottle treats about 25 square "
+        "metres.",
+    ),
+    (
+        "Do I need movement joints in a small bathroom?",
+        "BS 5385 — the tiling regs — say you need a movement joint every 8 to 10 metres, around "
+        "the perimeter of any room over 40 square metres, and at every change of substrate or "
+        "external corner. Most domestic bathrooms are well under those limits, so internal "
+        "movement joints aren't needed. BUT — perimeter joints around the bath, shower tray "
+        "and walls are essential. Use a flexible silicone sealant there, never grout. Grout "
+        "will crack within a year as the bath flexes.",
+    ),
+    (
+        "What's the right notched trowel size for my tile?",
+        "Quick guide: 6 mil notch for mosaics and tiles under 200 mil; 8 mil for tiles between "
+        "200 and 400 mil; 10 to 12 mil for 600x600 and larger; 12 to 15 mil with a back-buttering "
+        "pass for porcelain slabs over 800 mil. The rule is you want at least 80% adhesive "
+        "coverage when you lift a tile back up. Lift one early in the job to check.",
+    ),
+    (
+        "Should I seal porcelain tiles before grouting?",
+        "Standard glazed porcelain — no, sealing isn't needed because the surface is "
+        "non-porous. Polished, satin or honed-finish porcelain — yes, seal it before grouting. "
+        "The micro-pores on the polished surface absorb pigment from coloured grout and you "
+        "end up with a permanent shadow. One coat of penetrating sealer 24 hours before "
+        "grouting solves it. We stock Lithofin KF Stain-Stop.",
+    ),
+    (
+        "How much does a 60x60 porcelain tile weigh per square metre?",
+        "Standard 10 mil thick porcelain is around 22 kilos per square metre. 12 mil is 27 "
+        "kilos. 20 mil outdoor porcelain is 45 kilos. That matters for wall installations — "
+        "plasterboard rated for tiling handles up to 32 kilos per square metre, so anything "
+        "over 10 mil porcelain on a wall needs a tile backer board behind it.",
+    ),
+    (
+        "What's the cheapest way to dramatically update an old kitchen?",
+        "Splashback tile change. £80 to £200 of tile, a day of labour, and you've got a "
+        "different-looking kitchen. Look at our Metro range — proper 7.5 by 15 centimetre "
+        "metro tiles in 12 colours, £14 a square metre. Or for a more premium look, our "
+        "fish-scale mosaics at £35 a square metre. Same kitchen carcases, completely new "
+        "feel.",
+    ),
+    (
+        "Can outdoor 20mm porcelain be laid loose on grass or gravel?",
+        "Yes — that's exactly what it's designed for. On a gravel sub-base you just need 30 "
+        "mil of compacted MOT type 1 then 30 mil of sharp sand, then drop the tiles in. On "
+        "grass over a soft sub-base, lay them on supportive pedestals to keep them level. "
+        "20mm porcelain takes a 1.2-tonne point load — no slab cracking. They lift back out "
+        "for cleaning underneath, which standard outdoor tiles don't allow.",
+    ),
+    (
+        "Should I use cement or rapid-set adhesive?",
+        "Rapid-set if you're working in a busy household — you can grout in 4 hours instead "
+        "of 24, and walk on it. Cement-based if you're doing a large area where you need a "
+        "long open time to lay tiles without rushing. Trade preference is usually rapid-set "
+        "in domestic, cement-based in commercial. We stock both ranges from Mapei and Ardex.",
+    ),
+    (
+        "Will my tiles fade in sunlight?",
+        "Porcelain and ceramic — no. They're fired at 1200 degrees so the colour is locked in "
+        "the body of the tile. Natural stone — slightly, over years, but usually unnoticeable "
+        "indoors. The thing that DOES fade is grout. Dark grouts in conservatories or south-"
+        "facing rooms go patchy over 5 years. Use epoxy grout in those rooms — Mapei Kerapoxy. "
+        "Costs 4 times more but lasts 20 years.",
+    ),
+]
+
+# 10 Trade Talk episode topics. Each is just the topic string — the
+# LLM generator fills in the dialogue when the admin clicks
+# Generate. We seed them as drafts so they appear in the library
+# immediately and the admin can pick which to render first.
+_STARTER_TRADE_TALK_TOPICS: List[str] = [
+    "Laying porcelain over electric underfloor heating in a 35 square metre kitchen-diner",
+    "Choosing slip ratings for bathrooms, kitchens and wet rooms — R9 vs R10 vs R11",
+    "When to use a tile backer board vs moisture-resistant plasterboard in a shower",
+    "Tiling over existing tiles — when it works, when to rip out and start again",
+    "Movement joints — what the regs actually require for a domestic install",
+    "Mixing adhesive properly — pot life, ratios, and the most common rookie mistake",
+    "Setting out a herringbone pattern in an awkwardly-shaped hallway",
+    "Outdoor 20mm porcelain — laying on pedestals vs bonded vs gravel sub-base",
+    "Sealing natural stone — when, what with, and how often to redo it",
+    "Diagnosing efflorescence, hairline cracks and shading variation on a new install",
+]
+
+
+@router.post("/seed-starter-content")
+async def seed_starter_content(current_user: dict = Depends(get_current_user)):
+    """Insert the curated starter library of Q&A pairs + Trade Talk
+    topics as DRAFT entries (no audio rendered yet). Idempotent —
+    skips items whose `name` already exists, so admins can re-run
+    safely. Returns counts of what was inserted vs skipped."""
+    _require_admin(current_user)
+    db = get_db()
+
+    inserted_qa = 0
+    inserted_talk = 0
+    skipped = 0
+    now_iso = datetime.now(timezone.utc).isoformat()
+    creator = (current_user or {}).get("email")
+
+    # Q&A pairs — single voice, narrate question + answer.
+    for idx, (question, answer) in enumerate(_STARTER_QA_PAIRS):
+        # Match by name to keep this idempotent (admin may have
+        # edited and re-saved one of the seeds; we won't overwrite
+        # their edits on re-seed).
+        name = question.rstrip("?")[:120]
+        if await db.radio_studio_ads.find_one({"name": name}, {"_id": 1}):
+            skipped += 1
+            continue
+        doc = {
+            "id": uuid.uuid4().hex,
+            "name": name,
+            "kind": "qa",
+            "script": answer,
+            "question": question,
+            "narrate_question": True,
+            "voice_id": "",  # admin picks a voice before generating
+            "voice_name": None,
+            "stability": 0.5,
+            "similarity_boost": 0.75,
+            "style": 0.0,
+            "model_id": "eleven_multilingual_v2",
+            "bed_music_id": None,
+            "bed_volume_pct": 18,
+            "pronunciation_hints": None,
+            "host_voice_id": None,
+            "host_voice_name": None,
+            "guest_voice_id": None,
+            "guest_voice_name": None,
+            "turns": [],
+            "audio_filename": None,
+            "duration_seconds": None,
+            "generated_at": None,
+            "created_at": now_iso,
+            "updated_at": now_iso,
+            "created_by": creator,
+            "is_starter_seed": True,
+        }
+        await db.radio_studio_ads.insert_one(doc)
+        inserted_qa += 1
+
+    # Trade Talk topics — empty turns list. Admin clicks "Generate
+    # dialogue" on each to populate the script via Claude.
+    for topic in _STARTER_TRADE_TALK_TOPICS:
+        name = f"Trade Talk: {topic[:80]}"
+        if await db.radio_studio_ads.find_one({"name": name}, {"_id": 1}):
+            skipped += 1
+            continue
+        doc = {
+            "id": uuid.uuid4().hex,
+            "name": name,
+            "kind": "trade_talk",
+            "script": "",
+            "question": None,
+            "narrate_question": True,
+            "voice_id": "",
+            "voice_name": None,
+            "stability": 0.5,
+            "similarity_boost": 0.75,
+            "style": 0.0,
+            "model_id": "eleven_multilingual_v2",
+            "bed_music_id": None,
+            "bed_volume_pct": 18,
+            "pronunciation_hints": None,
+            "host_voice_id": None,
+            "host_voice_name": None,
+            "guest_voice_id": None,
+            "guest_voice_name": None,
+            "turns": [],  # empty — admin clicks Generate dialogue to populate
+            "topic": topic,  # cached so the Generate button has the prompt
+            "audio_filename": None,
+            "duration_seconds": None,
+            "generated_at": None,
+            "created_at": now_iso,
+            "updated_at": now_iso,
+            "created_by": creator,
+            "is_starter_seed": True,
+        }
+        await db.radio_studio_ads.insert_one(doc)
+        inserted_talk += 1
+
+    return {
+        "success": True,
+        "inserted_qa": inserted_qa,
+        "inserted_trade_talk": inserted_talk,
+        "skipped": skipped,
+        "total_qa_available": len(_STARTER_QA_PAIRS),
+        "total_trade_talk_available": len(_STARTER_TRADE_TALK_TOPICS),
+    }
+
+
+# ------------------------------------------------------------------
 # Voices
 # ------------------------------------------------------------------
 
@@ -860,6 +1514,7 @@ async def create_ad(req: AdCreate, current_user: dict = Depends(get_current_user
     doc = {
         "id": ad_id,
         "name": req.name,
+        "kind": getattr(req, "kind", "ad"),
         "script": req.script,
         "voice_id": req.voice_id,
         "voice_name": req.voice_name,
@@ -870,6 +1525,15 @@ async def create_ad(req: AdCreate, current_user: dict = Depends(get_current_user
         "bed_music_id": req.bed_music_id,
         "bed_volume_pct": req.bed_volume_pct,
         "pronunciation_hints": req.pronunciation_hints,
+        # New kind-specific fields. Always written (even if null for
+        # plain ads) so list responses have a consistent shape.
+        "question": getattr(req, "question", None),
+        "narrate_question": getattr(req, "narrate_question", True),
+        "host_voice_id": getattr(req, "host_voice_id", None),
+        "host_voice_name": getattr(req, "host_voice_name", None),
+        "guest_voice_id": getattr(req, "guest_voice_id", None),
+        "guest_voice_name": getattr(req, "guest_voice_name", None),
+        "turns": [t.model_dump() for t in (getattr(req, "turns", []) or [])],
         "audio_filename": None,  # populated after first generation
         "duration_seconds": None,
         "generated_at": None,
@@ -950,15 +1614,45 @@ async def test_ad_voice(
     )
     if not ad:
         raise HTTPException(status_code=404, detail="Ad not found")
-    if not ad.get("script", "").strip():
-        raise HTTPException(status_code=400, detail="Ad has no script — write one first")
-    if not ad.get("voice_id"):
-        raise HTTPException(status_code=400, detail="Ad has no voice selected")
+
+    # Build the "source text" we'll preview from, depending on kind.
+    # For Trade Talk we preview the FIRST turn in the HOST voice;
+    # for Q&A we preview the question+answer narration; for an Ad
+    # we preview the script. (31 May 2026 multi-kind support.)
+    kind = ad.get("kind") or "ad"
+    if kind == "trade_talk":
+        turns = ad.get("turns") or []
+        if not turns:
+            raise HTTPException(status_code=400, detail="No turns yet — add at least one before previewing")
+        # Preview the first turn with its assigned speaker's voice.
+        first = turns[0]
+        source_text = first.get("text") or ""
+        speaker_voice = (
+            ad.get("host_voice_id") if first.get("speaker") == "host"
+            else ad.get("guest_voice_id")
+        )
+        if not speaker_voice:
+            raise HTTPException(status_code=400, detail="Pick host + guest voices before previewing")
+        preview_voice_id = speaker_voice
+        preview_voice_name = (
+            ad.get("host_voice_name") if first.get("speaker") == "host"
+            else ad.get("guest_voice_name")
+        )
+    else:
+        # ad or qa — same single-voice path. _build_script_from_kind
+        # composes "Today's question — ..., {answer}" for Q&A.
+        source_text = _build_script_from_kind(ad)
+        if not source_text.strip():
+            raise HTTPException(status_code=400, detail="Nothing to preview — fill in the script/question/answer first")
+        if not ad.get("voice_id"):
+            raise HTTPException(status_code=400, detail="Pick a voice before previewing")
+        preview_voice_id = ad["voice_id"]
+        preview_voice_name = ad.get("voice_name")
 
     # Apply per-ad pronunciation hints first (so they get a chance
     # to substitute words BEFORE £/URL normalisation runs), then
     # normalise £/URLs/m². Truncate the result to the test budget.
-    hinted = _apply_pronunciation_hints(ad["script"], ad.get("pronunciation_hints"))
+    hinted = _apply_pronunciation_hints(source_text, ad.get("pronunciation_hints"))
     normalised = _normalize_for_tts(hinted)
     preview = normalised[:_TEST_VOICE_CHAR_BUDGET]
     # Try to end at the last sentence/clause boundary inside budget.
@@ -978,7 +1672,7 @@ async def test_ad_voice(
     try:
         audio_iter = client.text_to_speech.convert(
             text=preview,
-            voice_id=ad["voice_id"],
+            voice_id=preview_voice_id,
             model_id=ad.get("model_id") or "eleven_multilingual_v2",
             voice_settings=voice_settings,
             output_format="mp3_44100_128",
@@ -999,8 +1693,8 @@ async def test_ad_voice(
         ad_name=ad.get("name"),
         endpoint="test_voice",
         chars=len(preview),
-        voice_id=ad.get("voice_id"),
-        voice_name=ad.get("voice_name"),
+        voice_id=preview_voice_id,
+        voice_name=preview_voice_name,
         model_id=ad.get("model_id"),
         triggered_by=(current_user or {}).get("email"),
     )
@@ -1038,26 +1732,72 @@ async def generate_ad_audio(
         style=float(ad.get("style", 0.0)),
         use_speaker_boost=True,
     )
+    model_id = ad.get("model_id") or "eleven_multilingual_v2"
 
+    kind = ad.get("kind") or "ad"
+    # Trade Talk = N TTS calls (one per turn, alternating voices) +
+    # ffmpeg concat with 1s silence between turns. Q&A + plain Ad =
+    # single TTS call. We accumulate `normalised_text` as the
+    # concatenation of all narrated text so the cost log captures
+    # the true character total. (31 May 2026 multi-kind support.)
     try:
-        # Pre-compute the normalised text so we can log the EXACT
-        # char count ElevenLabs will charge for.
-        normalised_text = _normalize_for_tts(
-            _apply_pronunciation_hints(
-                ad["script"], ad.get("pronunciation_hints"),
-            ),
-        )
-        audio_iter = client.text_to_speech.convert(
-            text=normalised_text,
-            voice_id=ad["voice_id"],
-            model_id=ad.get("model_id") or "eleven_multilingual_v2",
-            voice_settings=voice_settings,
-            output_format="mp3_44100_128",
-        )
-        audio_data = b""
-        for chunk in audio_iter:
-            if chunk:
-                audio_data += chunk
+        if kind == "trade_talk":
+            turns = ad.get("turns") or []
+            if not turns:
+                raise HTTPException(status_code=400, detail="No turns to render — add lines first")
+            host_voice = ad.get("host_voice_id")
+            guest_voice = ad.get("guest_voice_id")
+            if not host_voice or not guest_voice:
+                raise HTTPException(status_code=400, detail="Pick host + guest voices before generating")
+            turn_audio: List[bytes] = []
+            normalised_text = ""
+            for i, turn in enumerate(turns):
+                text = (turn.get("text") or "").strip()
+                if not text:
+                    continue
+                speaker_voice = host_voice if turn.get("speaker") == "host" else guest_voice
+                turn_text = _normalize_for_tts(
+                    _apply_pronunciation_hints(text, ad.get("pronunciation_hints")),
+                )
+                normalised_text += turn_text + "\n"
+                audio_iter = client.text_to_speech.convert(
+                    text=turn_text,
+                    voice_id=speaker_voice,
+                    model_id=model_id,
+                    voice_settings=voice_settings,
+                    output_format="mp3_44100_128",
+                )
+                bytes_for_turn = b"".join(chunk for chunk in audio_iter if chunk)
+                if not bytes_for_turn:
+                    raise HTTPException(status_code=502, detail=f"Turn {i+1} returned empty audio")
+                turn_audio.append(bytes_for_turn)
+            if not turn_audio:
+                raise HTTPException(status_code=400, detail="All turns are empty")
+            audio_data = _concat_audio_turns(turn_audio, gap_seconds=1.0)
+        else:
+            # ad or qa — single voice. For Q&A `_build_script_from_kind`
+            # composes "Today's question — ..., {answer}".
+            source_text = _build_script_from_kind(ad)
+            if not source_text.strip():
+                raise HTTPException(status_code=400, detail="Nothing to narrate — fill in script/question/answer")
+            if not ad.get("voice_id"):
+                raise HTTPException(status_code=400, detail="Pick a voice before generating")
+            normalised_text = _normalize_for_tts(
+                _apply_pronunciation_hints(source_text, ad.get("pronunciation_hints")),
+            )
+            audio_iter = client.text_to_speech.convert(
+                text=normalised_text,
+                voice_id=ad["voice_id"],
+                model_id=model_id,
+                voice_settings=voice_settings,
+                output_format="mp3_44100_128",
+            )
+            audio_data = b""
+            for chunk in audio_iter:
+                if chunk:
+                    audio_data += chunk
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception("ElevenLabs TTS failed for ad %s", ad_id)
         raise HTTPException(status_code=502, detail=f"ElevenLabs TTS error: {e}") from e

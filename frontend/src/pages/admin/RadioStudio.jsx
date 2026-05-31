@@ -170,16 +170,28 @@ function AdsTab({ voices, voicesLoading, onResyncVoices, ads, music, onAdsChange
   const [editingAd, setEditingAd] = useState(null);  // null = compose new
   const [form, setForm] = useState({
     name: '',
+    // 31 May 2026 — multi-kind segments. `kind` switches which
+    // form fields are shown and which backend path generates audio.
+    //   'ad'         → script + 1 voice (single ElevenLabs call)
+    //   'qa'         → question + answer + 1 voice
+    //   'trade_talk' → host + guest voices + N turns (concat)
+    kind: 'ad',
     script: '',
     voice_id: '',
     voice_name: '',
+    // Q&A
+    question: '',
+    narrate_question: true,
+    // Trade Talk
+    host_voice_id: '',
+    host_voice_name: '',
+    guest_voice_id: '',
+    guest_voice_name: '',
+    turns: [],
     stability: 0.5,
     similarity_boost: 0.75,
     style: 0,
     model_id: 'eleven_multilingual_v2',
-    // 26 May 2026 — Option A music bed. Empty string = no bed (voice
-    // only). When set, the backend mixes the voice over this track
-    // with sidechain ducking at `bed_volume_pct`% on generation.
     bed_music_id: '',
     bed_volume_pct: 18,
     pronunciation_hints: '',
@@ -189,6 +201,27 @@ function AdsTab({ voices, voicesLoading, onResyncVoices, ads, music, onAdsChange
   // 30 May 2026 — separate state from generatingId so the Test
   // Voice spinner can show while a different ad is mid-generate.
   const [testingId, setTestingId] = useState(null);
+  // 31 May 2026 — "Seed starter content" button state.
+  const [seeding, setSeeding] = useState(false);
+
+  const handleSeedStarter = async () => {
+    if (!window.confirm('Insert the starter library — 20 Q&A pairs + 10 Trade Talk topics — as drafts? Safe to re-run, won\'t overwrite anything you\'ve edited.')) return;
+    setSeeding(true);
+    try {
+      const r = await axios.post(`${API}/admin/radio-studio/seed-starter-content`, {}, { headers: tokenHdr() });
+      const { inserted_qa, inserted_trade_talk, skipped } = r.data;
+      if (inserted_qa + inserted_trade_talk > 0) {
+        toast.success(`Added ${inserted_qa} Q&As + ${inserted_trade_talk} Trade Talk drafts${skipped ? ` · ${skipped} already existed` : ''}`);
+        onAdsChange();
+      } else {
+        toast.info(`All ${skipped} starter items already in your library`);
+      }
+    } catch (e) {
+      toast.error(`Seed failed: ${e?.response?.data?.detail || e.message}`);
+    } finally {
+      setSeeding(false);
+    }
+  };
   // 24 May 2026 — AI auto-generate state. Open the panel, fill the
   // keywords + tone, click "Generate" — the LLM-written script lands
   // straight into the Script textarea where the admin can tweak it.
@@ -207,9 +240,17 @@ function AdsTab({ voices, voicesLoading, onResyncVoices, ads, music, onAdsChange
     setEditingAd(null);
     setForm({
       name: '',
+      kind: 'ad',
       script: '',
       voice_id: '',
       voice_name: '',
+      question: '',
+      narrate_question: true,
+      host_voice_id: '',
+      host_voice_name: '',
+      guest_voice_id: '',
+      guest_voice_name: '',
+      turns: [],
       stability: 0.5,
       similarity_boost: 0.75,
       style: 0,
@@ -224,9 +265,17 @@ function AdsTab({ voices, voicesLoading, onResyncVoices, ads, music, onAdsChange
     setEditingAd(ad);
     setForm({
       name: ad.name,
-      script: ad.script,
-      voice_id: ad.voice_id,
+      kind: ad.kind || 'ad',
+      script: ad.script || '',
+      voice_id: ad.voice_id || '',
       voice_name: ad.voice_name || '',
+      question: ad.question || '',
+      narrate_question: ad.narrate_question !== false,
+      host_voice_id: ad.host_voice_id || '',
+      host_voice_name: ad.host_voice_name || '',
+      guest_voice_id: ad.guest_voice_id || '',
+      guest_voice_name: ad.guest_voice_name || '',
+      turns: Array.isArray(ad.turns) ? ad.turns.map((t) => ({ ...t })) : [],
       stability: ad.stability ?? 0.5,
       similarity_boost: ad.similarity_boost ?? 0.75,
       style: ad.style ?? 0,
@@ -238,20 +287,61 @@ function AdsTab({ voices, voicesLoading, onResyncVoices, ads, music, onAdsChange
   };
 
   const handleSave = async () => {
-    if (!form.name.trim() || !form.script.trim() || !form.voice_id) {
-      toast.error('Name, script and voice are required');
+    // Validation differs by kind. 'ad' needs script+voice; 'qa' needs
+    // question+answer+voice; 'trade_talk' needs ≥1 turn + both voices.
+    if (!form.name.trim()) {
+      toast.error('Name is required');
       return;
+    }
+    if (form.kind === 'ad') {
+      if (!form.script.trim() || !form.voice_id) {
+        toast.error('Script and voice are required for an ad');
+        return;
+      }
+    } else if (form.kind === 'qa') {
+      if (!form.question.trim()) {
+        toast.error('Q&A needs a question');
+        return;
+      }
+      if (!form.script.trim()) {
+        toast.error('Q&A needs an answer');
+        return;
+      }
+      if (!form.voice_id) {
+        toast.error('Pick a voice for the narrator');
+        return;
+      }
+    } else if (form.kind === 'trade_talk') {
+      if (!form.turns || form.turns.length === 0) {
+        toast.error('Add at least one dialogue turn');
+        return;
+      }
+      if (!form.host_voice_id || !form.guest_voice_id) {
+        toast.error('Pick host AND guest voices');
+        return;
+      }
+      if (form.turns.some((t) => !t.text || !t.text.trim())) {
+        toast.error('Every turn needs some text — remove empty turns first');
+        return;
+      }
     }
     setSaving(true);
     try {
       const selectedVoice = voices.find((v) => v.voice_id === form.voice_id);
-      const body = { ...form, voice_name: selectedVoice?.name || form.voice_name };
+      const selectedHost = voices.find((v) => v.voice_id === form.host_voice_id);
+      const selectedGuest = voices.find((v) => v.voice_id === form.guest_voice_id);
+      const body = {
+        ...form,
+        voice_name: selectedVoice?.name || form.voice_name,
+        host_voice_name: selectedHost?.name || form.host_voice_name,
+        guest_voice_name: selectedGuest?.name || form.guest_voice_name,
+      };
       if (editingAd) {
         await axios.put(`${API}/admin/radio-studio/ads/${editingAd.id}`, body, { headers: tokenHdr() });
-        toast.success('Ad updated');
+        toast.success('Segment updated');
       } else {
         await axios.post(`${API}/admin/radio-studio/ads`, body, { headers: tokenHdr() });
-        toast.success('Ad saved');
+        toast.success('Segment saved');
       }
       resetForm();
       onAdsChange();
@@ -419,12 +509,56 @@ function AdsTab({ voices, voicesLoading, onResyncVoices, ads, music, onAdsChange
             />
           </div>
 
+          {/* Kind switcher — 3 pill tabs at the top of the form
+              determining which fields are shown below. (31 May 2026
+              user request: Trade Talk + Q&A segments.) */}
+          <div>
+            <label className="block text-xs uppercase tracking-wider text-slate-400 font-bold mb-1">
+              Segment type
+            </label>
+            <div className="flex gap-1 p-1 bg-slate-900/60 border border-slate-700 rounded-lg w-fit" data-testid="radio-kind-tabs">
+              {[
+                { key: 'ad', label: 'Ad', icon: Mic, hint: 'Single-voice promo or announcement' },
+                { key: 'qa', label: 'Q&A', icon: Volume2, hint: 'Ask the Showroom — customer question, narrated answer' },
+                { key: 'trade_talk', label: 'Trade Talk', icon: Radio, hint: 'Multi-turn dialogue between expert + builder' },
+              ].map((opt) => {
+                const Icon = opt.icon;
+                const active = form.kind === opt.key;
+                return (
+                  <button
+                    key={opt.key}
+                    type="button"
+                    onClick={() => setForm({ ...form, kind: opt.key })}
+                    data-testid={`radio-kind-${opt.key}`}
+                    title={opt.hint}
+                    className={`px-3 py-1.5 rounded-md text-xs font-bold flex items-center gap-1.5 transition-all ${
+                      active
+                        ? 'bg-amber-500 text-slate-900 shadow'
+                        : 'text-slate-300 hover:bg-slate-800/70'
+                    }`}
+                  >
+                    <Icon className="w-3.5 h-3.5" />
+                    {opt.label}
+                  </button>
+                );
+              })}
+            </div>
+            <p className="text-[10px] text-slate-500 mt-1">
+              {form.kind === 'ad' && 'Standard 15-45 second promo. One voice. One ElevenLabs call per generate.'}
+              {form.kind === 'qa' && 'A customer-style question + your narrated answer. Costs ~£0.05 per generate.'}
+              {form.kind === 'trade_talk' && 'Phone-in style dialogue. Each turn renders in its own voice — 8-15 turns typical. Costs ~£0.20-0.40 per episode.'}
+            </p>
+          </div>
+
           {/* 24 May 2026 — AI auto-generate panel. Collapsed by
               default so manual scripting (the existing UX) stays the
               primary path. Click to expand → fill keywords → click
               Generate. The LLM's text lands in the Script textarea
               below, ready to edit. Voice selection is independent —
-              the admin still picks the voice + tuning separately. */}
+              the admin still picks the voice + tuning separately.
+              (31 May 2026 — only shows for 'ad' kind; Q&A and
+              Trade Talk have their own generators below.) */}
+          {form.kind === 'ad' && (
           <div className="bg-gradient-to-br from-purple-900/40 to-fuchsia-900/30 border border-purple-500/30 rounded-lg overflow-hidden">
             <button
               type="button"
@@ -548,7 +682,13 @@ function AdsTab({ voices, voicesLoading, onResyncVoices, ads, music, onAdsChange
               </div>
             )}
           </div>
+          )}
 
+          {/* SCRIPT + VOICE — only for kind=ad. Q&A reuses these
+              fields under different labels below; Trade Talk has
+              its own turn editor. */}
+          {form.kind === 'ad' && (
+          <>
           <div>
             <label className="block text-xs uppercase tracking-wider text-slate-400 font-bold mb-1">
               Script
@@ -623,6 +763,37 @@ function AdsTab({ voices, voicesLoading, onResyncVoices, ads, music, onAdsChange
               ) : null;
             })()}
           </div>
+          </>
+          )}
+
+          {/* Q&A FORM — kind='qa'. The narrator reads the question
+              first (with a comma pause), then the answer. Same voice
+              picker as 'ad' below, but the "script" field is split
+              into Question + Answer for clarity. (31 May 2026.) */}
+          {form.kind === 'qa' && (
+            <QaFields
+              form={form}
+              setForm={setForm}
+              voices={voices}
+              voicesLoading={voicesLoading}
+              onResyncVoices={onResyncVoices}
+              groupedVoices={groupedVoices}
+            />
+          )}
+
+          {/* TRADE TALK FORM — kind='trade_talk'. Host + Guest voices
+              + N editable turns + Generate-from-prompt button.
+              (31 May 2026.) */}
+          {form.kind === 'trade_talk' && (
+            <TradeTalkFields
+              form={form}
+              setForm={setForm}
+              voices={voices}
+              voicesLoading={voicesLoading}
+              onResyncVoices={onResyncVoices}
+              groupedVoices={groupedVoices}
+            />
+          )}
 
           {/* Music bed — optional background track mixed under the
               voice with sidechain ducking. Defaults to none = clean
@@ -766,20 +937,51 @@ function AdsTab({ voices, voicesLoading, onResyncVoices, ads, music, onAdsChange
       <div className="bg-slate-800/60 backdrop-blur border border-slate-700/50 rounded-2xl p-4 sm:p-5 shadow-xl">
         <h2 className="text-lg font-bold mb-3 flex items-center gap-2">
           <ListMusic className="w-5 h-5 text-amber-400" />
-          Ad library
+          Segment library
           <span className="text-xs text-slate-400 font-normal">({ads.length})</span>
+          <button
+            type="button"
+            onClick={handleSeedStarter}
+            disabled={seeding}
+            data-testid="radio-seed-starter"
+            title="Insert 20 Q&A pairs + 10 Trade Talk topics as drafts. Safe to re-run — won't overwrite your edits."
+            className="ml-auto px-2 py-1 bg-purple-600 hover:bg-purple-500 disabled:opacity-50 disabled:cursor-wait text-white text-[10px] font-bold rounded flex items-center gap-1"
+          >
+            {seeding ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
+            Seed starter content
+          </button>
         </h2>
         {ads.length === 0 && (
-          <p className="text-sm text-slate-400 py-8 text-center">No ads yet. Write your first script on the left.</p>
+          <p className="text-sm text-slate-400 py-8 text-center">
+            No segments yet. Write one on the left, or click <span className="text-fuchsia-300 font-bold">Seed starter content</span> above for 30 ready-made Q&As and Trade Talk topics.
+          </p>
         )}
         <div className="space-y-2 max-h-[600px] overflow-y-auto pr-1">
           {ads.map((ad) => (
             <div key={ad.id} className="bg-slate-900/60 border border-slate-700/50 rounded-lg p-3" data-testid={`radio-ad-card-${ad.id}`}>
               <div className="flex items-start justify-between gap-2 mb-1">
                 <div className="min-w-0 flex-1">
-                  <div className="font-semibold text-sm truncate">{ad.name}</div>
+                  <div className="flex items-center gap-1.5 mb-0.5">
+                    {/* Kind badge — at-a-glance type indicator. */}
+                    {(() => {
+                      const k = ad.kind || 'ad';
+                      const meta = {
+                        ad: { label: 'AD', cls: 'bg-emerald-500/20 text-emerald-300' },
+                        qa: { label: 'Q&A', cls: 'bg-amber-500/20 text-amber-300' },
+                        trade_talk: { label: 'TRADE TALK', cls: 'bg-fuchsia-500/20 text-fuchsia-300' },
+                      }[k] || { label: k.toUpperCase(), cls: 'bg-slate-700 text-slate-300' };
+                      return (
+                        <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider ${meta.cls}`}>
+                          {meta.label}
+                        </span>
+                      );
+                    })()}
+                    <div className="font-semibold text-sm truncate">{ad.name}</div>
+                  </div>
                   <div className="text-[11px] text-slate-400 truncate">
-                    {ad.voice_name || ad.voice_id}
+                    {ad.kind === 'trade_talk'
+                      ? `${(ad.turns || []).length} turn${(ad.turns || []).length === 1 ? '' : 's'}`
+                      : (ad.voice_name || ad.voice_id || '— no voice picked —')}
                     {ad.duration_seconds ? ` · ${ad.duration_seconds}s` : ''}
                   </div>
                 </div>
@@ -849,6 +1051,423 @@ function AdsTab({ voices, voicesLoading, onResyncVoices, ads, music, onAdsChange
    (26 May 2026, user request: "allow me to upload multiple tracks
    at the same time" + "add a drag and drop feature")
 ---------------------------------------------------------------- */
+
+
+/* ----------------------------------------------------------------
+   Q&A form fields (kind='qa') — Ask the Showroom segment.
+   31 May 2026. Two text inputs (Question + Answer), one voice
+   picker, one "narrate question first" toggle, one "generate
+   answer with Claude" button.
+---------------------------------------------------------------- */
+function QaFields({ form, setForm, voices, voicesLoading, onResyncVoices, groupedVoices }) {
+  const [aiBusy, setAiBusy] = useState(false);
+
+  const handleGenerate = async () => {
+    if (!form.question.trim()) {
+      toast.error('Type a question first — the LLM needs something to answer');
+      return;
+    }
+    setAiBusy(true);
+    try {
+      const r = await axios.post(
+        `${API}/admin/radio-studio/scripts/generate-qa`,
+        { question: form.question.trim(), tone: 'expert' },
+        { headers: tokenHdr() },
+      );
+      setForm({
+        ...form,
+        script: r.data.answer,
+        name: form.name || r.data.suggested_name,
+      });
+      toast.success(`Answer written (~${r.data.approx_seconds}s)`);
+    } catch (e) {
+      toast.error(`Generation failed: ${e?.response?.data?.detail || e.message}`);
+    } finally {
+      setAiBusy(false);
+    }
+  };
+
+  return (
+    <div className="space-y-3">
+      <div>
+        <label className="block text-xs uppercase tracking-wider text-slate-400 font-bold mb-1">
+          Customer question
+        </label>
+        <input
+          type="text"
+          value={form.question}
+          onChange={(e) => setForm({ ...form, question: e.target.value })}
+          placeholder="e.g. Can I tile straight onto plasterboard in a shower?"
+          data-testid="radio-qa-question"
+          maxLength={600}
+          className="w-full px-3 py-2 bg-slate-900 border border-slate-600 rounded-lg text-sm text-slate-100 placeholder-slate-500 focus:border-amber-500 focus:outline-none"
+        />
+        <label className="inline-flex items-center gap-2 mt-2 text-[11px] text-slate-400 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={form.narrate_question}
+            onChange={(e) => setForm({ ...form, narrate_question: e.target.checked })}
+            data-testid="radio-qa-narrate-question"
+            className="w-3.5 h-3.5 accent-amber-500"
+          />
+          Narrate the question out loud before the answer
+        </label>
+      </div>
+
+      <button
+        type="button"
+        onClick={handleGenerate}
+        disabled={aiBusy || !form.question.trim()}
+        data-testid="radio-qa-generate"
+        className="w-full py-2 bg-gradient-to-r from-fuchsia-500 to-purple-500 hover:from-fuchsia-400 hover:to-purple-400 text-white font-bold rounded-lg disabled:opacity-50 disabled:cursor-wait transition-all flex items-center justify-center gap-2 text-sm"
+      >
+        {aiBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+        {aiBusy ? 'Writing the answer…' : 'Auto-generate answer with Claude'}
+      </button>
+
+      <div>
+        <label className="block text-xs uppercase tracking-wider text-slate-400 font-bold mb-1">
+          Answer
+        </label>
+        <textarea
+          value={form.script}
+          onChange={(e) => setForm({ ...form, script: e.target.value })}
+          placeholder="Type the answer here, or click 'Auto-generate' above. Edit freely after."
+          data-testid="radio-qa-answer"
+          rows={8}
+          maxLength={4000}
+          className="w-full px-3 py-2 bg-slate-900 border border-slate-600 rounded-lg text-sm text-slate-100 placeholder-slate-500 focus:border-amber-500 focus:outline-none resize-y leading-relaxed"
+        />
+        <p className="text-[10px] text-slate-500 mt-0.5">
+          {form.script.split(/\s+/).filter(Boolean).length} words · ~{Math.round(form.script.split(/\s+/).filter(Boolean).length / 2.3)}s read-aloud
+        </p>
+      </div>
+
+      <VoicePickerInline
+        form={form}
+        setForm={setForm}
+        voices={voices}
+        voicesLoading={voicesLoading}
+        onResyncVoices={onResyncVoices}
+        groupedVoices={groupedVoices}
+        fieldKey="voice_id"
+        fieldNameKey="voice_name"
+        label="Narrator voice"
+      />
+    </div>
+  );
+}
+
+
+/* ----------------------------------------------------------------
+   Trade Talk form fields (kind='trade_talk') — host/guest dialogue.
+   31 May 2026.
+     • Host + Guest voice pickers
+     • Editable turn list (add / remove / reorder / edit text / swap speaker)
+     • Generate dialogue with Claude from a topic prompt
+---------------------------------------------------------------- */
+function TradeTalkFields({ form, setForm, voices, voicesLoading, onResyncVoices, groupedVoices }) {
+  const [aiTopic, setAiTopic] = useState('');
+  const [aiBusy, setAiBusy] = useState(false);
+  const [duration, setDuration] = useState(240);
+
+  useEffect(() => {
+    if (form.topic && !aiTopic) {
+      setAiTopic(form.topic);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.topic]);
+
+  const handleGenerate = async () => {
+    if (!aiTopic.trim()) {
+      toast.error('Type a topic first');
+      return;
+    }
+    setAiBusy(true);
+    try {
+      const r = await axios.post(
+        `${API}/admin/radio-studio/scripts/generate-trade-talk`,
+        {
+          topic: aiTopic.trim(),
+          target_duration_seconds: duration,
+        },
+        { headers: tokenHdr() },
+      );
+      setForm({
+        ...form,
+        turns: r.data.turns,
+        name: form.name || r.data.suggested_name,
+      });
+      toast.success(`Dialogue written — ${r.data.turns.length} turns, ~${r.data.approx_seconds}s`);
+    } catch (e) {
+      toast.error(`Generation failed: ${e?.response?.data?.detail || e.message}`);
+    } finally {
+      setAiBusy(false);
+    }
+  };
+
+  const updateTurn = (idx, patch) => {
+    setForm({
+      ...form,
+      turns: form.turns.map((t, i) => (i === idx ? { ...t, ...patch } : t)),
+    });
+  };
+
+  const removeTurn = (idx) => {
+    setForm({ ...form, turns: form.turns.filter((_, i) => i !== idx) });
+  };
+
+  const addTurn = (speaker) => {
+    const last = form.turns[form.turns.length - 1];
+    const defaultSpeaker = last ? (last.speaker === 'host' ? 'guest' : 'host') : 'host';
+    setForm({
+      ...form,
+      turns: [...form.turns, { speaker: speaker || defaultSpeaker, text: '' }],
+    });
+  };
+
+  const moveTurn = (from, to) => {
+    if (to < 0 || to >= form.turns.length) return;
+    const next = [...form.turns];
+    const [moved] = next.splice(from, 1);
+    next.splice(to, 0, moved);
+    setForm({ ...form, turns: next });
+  };
+
+  const totalWords = form.turns.reduce(
+    (sum, t) => sum + (t.text || '').split(/\s+/).filter(Boolean).length, 0,
+  );
+
+  return (
+    <div className="space-y-3">
+      {/* Claude generator for dialogue */}
+      <div className="bg-gradient-to-br from-purple-900/40 to-fuchsia-900/30 border border-purple-500/30 rounded-lg p-3 space-y-2">
+        <div className="flex items-center gap-2 text-xs font-bold text-fuchsia-300">
+          <Sparkles className="w-4 h-4" />
+          Generate dialogue from a topic
+        </div>
+        <input
+          type="text"
+          value={aiTopic}
+          onChange={(e) => setAiTopic(e.target.value)}
+          placeholder="e.g. Laying porcelain over electric underfloor heating in a 35 m² kitchen"
+          data-testid="radio-talk-topic"
+          maxLength={400}
+          className="w-full px-3 py-2 bg-slate-900 border border-slate-600 rounded-lg text-sm text-slate-100 placeholder-slate-500 focus:border-fuchsia-500 focus:outline-none"
+        />
+        <div className="flex flex-wrap items-center gap-2">
+          <label className="text-[11px] text-slate-400 flex items-center gap-1.5">
+            Target length:
+            <select
+              value={duration}
+              onChange={(e) => setDuration(parseInt(e.target.value, 10))}
+              data-testid="radio-talk-duration"
+              className="px-2 py-1 bg-slate-900 border border-slate-600 rounded text-xs"
+            >
+              <option value={120}>2 min · ~8 turns</option>
+              <option value={180}>3 min · ~10 turns</option>
+              <option value={240}>4 min · ~12 turns</option>
+              <option value={360}>6 min · ~16 turns</option>
+            </select>
+          </label>
+          <button
+            type="button"
+            onClick={handleGenerate}
+            disabled={aiBusy || !aiTopic.trim()}
+            data-testid="radio-talk-generate"
+            className="ml-auto px-4 py-1.5 bg-fuchsia-500 hover:bg-fuchsia-400 disabled:opacity-50 disabled:cursor-wait text-white font-bold rounded-lg text-xs flex items-center gap-1.5"
+          >
+            {aiBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
+            {aiBusy ? 'Writing…' : 'Write dialogue'}
+          </button>
+        </div>
+        <p className="text-[10px] text-fuchsia-300/60 leading-snug">
+          ✓ Claude writes the whole conversation · ✓ Every turn editable below · ✓ Doesn&apos;t cost ElevenLabs credits until you click Generate Audio
+        </p>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <VoicePickerInline
+          form={form}
+          setForm={setForm}
+          voices={voices}
+          voicesLoading={voicesLoading}
+          onResyncVoices={onResyncVoices}
+          groupedVoices={groupedVoices}
+          fieldKey="host_voice_id"
+          fieldNameKey="host_voice_name"
+          label="Host voice (the expert)"
+          colour="amber"
+        />
+        <VoicePickerInline
+          form={form}
+          setForm={setForm}
+          voices={voices}
+          voicesLoading={voicesLoading}
+          onResyncVoices={onResyncVoices}
+          groupedVoices={groupedVoices}
+          fieldKey="guest_voice_id"
+          fieldNameKey="guest_voice_name"
+          label="Guest voice (the builder)"
+          colour="fuchsia"
+        />
+      </div>
+
+      <div>
+        <label className="flex items-center justify-between text-xs uppercase tracking-wider text-slate-400 font-bold mb-2">
+          <span>
+            Dialogue · {form.turns.length} turn{form.turns.length === 1 ? '' : 's'}
+            <span className="text-slate-600 normal-case text-[10px] font-normal ml-2">
+              ({totalWords} words · ~{Math.round(totalWords / 2.1)}s)
+            </span>
+          </span>
+          <button
+            type="button"
+            onClick={() => addTurn()}
+            data-testid="radio-talk-add-turn"
+            className="px-2 py-1 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded text-[11px] font-bold flex items-center gap-1"
+          >
+            <Plus className="w-3 h-3" /> Add turn
+          </button>
+        </label>
+        {form.turns.length === 0 ? (
+          <div className="text-xs text-slate-500 bg-slate-900/40 border border-dashed border-slate-700 rounded-lg p-4 text-center">
+            No turns yet. Click <span className="text-fuchsia-300 font-bold">Write dialogue</span> above to auto-generate, or <span className="text-amber-300 font-bold">Add turn</span> to write manually.
+          </div>
+        ) : (
+          <div className="space-y-2" data-testid="radio-talk-turns">
+            {form.turns.map((turn, idx) => (
+              <div
+                key={idx}
+                data-testid={`radio-talk-turn-${idx}`}
+                className={`bg-slate-900/40 border rounded-lg p-2.5 space-y-1.5 ${
+                  turn.speaker === 'host' ? 'border-amber-500/30' : 'border-fuchsia-500/30'
+                }`}
+              >
+                <div className="flex items-center gap-2 text-xs">
+                  <button
+                    type="button"
+                    onClick={() => updateTurn(idx, { speaker: turn.speaker === 'host' ? 'guest' : 'host' })}
+                    data-testid={`radio-talk-speaker-${idx}`}
+                    className={`px-2 py-0.5 rounded-md font-bold uppercase tracking-wider text-[10px] cursor-pointer transition-colors ${
+                      turn.speaker === 'host'
+                        ? 'bg-amber-500/20 text-amber-300 hover:bg-amber-500/30'
+                        : 'bg-fuchsia-500/20 text-fuchsia-300 hover:bg-fuchsia-500/30'
+                    }`}
+                    title="Click to swap host ↔ guest"
+                  >
+                    {turn.speaker}
+                  </button>
+                  <span className="text-[10px] text-slate-500">
+                    {(turn.text || '').split(/\s+/).filter(Boolean).length} words
+                  </span>
+                  <div className="ml-auto flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => moveTurn(idx, idx - 1)}
+                      disabled={idx === 0}
+                      className="p-1 text-slate-500 hover:text-slate-200 disabled:opacity-30 rounded"
+                      title="Move up"
+                    >
+                      ▲
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => moveTurn(idx, idx + 1)}
+                      disabled={idx === form.turns.length - 1}
+                      className="p-1 text-slate-500 hover:text-slate-200 disabled:opacity-30 rounded"
+                      title="Move down"
+                    >
+                      ▼
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => removeTurn(idx)}
+                      data-testid={`radio-talk-remove-${idx}`}
+                      className="p-1 text-slate-500 hover:text-red-400 rounded"
+                      title="Remove turn"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                    </button>
+                  </div>
+                </div>
+                <textarea
+                  value={turn.text}
+                  onChange={(e) => updateTurn(idx, { text: e.target.value })}
+                  rows={Math.max(2, Math.ceil((turn.text || '').length / 80))}
+                  maxLength={2000}
+                  placeholder={turn.speaker === 'host'
+                    ? "What does the expert say here?"
+                    : "What does the builder ask here?"}
+                  data-testid={`radio-talk-text-${idx}`}
+                  className="w-full px-2 py-1.5 bg-slate-950/60 border border-slate-700/50 rounded text-sm text-slate-100 placeholder-slate-600 focus:border-amber-500 focus:outline-none resize-y leading-snug"
+                />
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+
+/* ----------------------------------------------------------------
+   Inline voice picker — reusable for Q&A narrator + Trade Talk
+   host/guest. Same UX as the full voice picker in the 'ad' form
+   but parameterised by which form field it writes to.
+---------------------------------------------------------------- */
+function VoicePickerInline({
+  form, setForm, voices, voicesLoading, onResyncVoices,
+  groupedVoices, fieldKey, fieldNameKey, label, colour = 'amber',
+}) {
+  const accent = colour === 'fuchsia' ? 'text-fuchsia-400' : 'text-amber-400';
+  const focus = colour === 'fuchsia' ? 'focus:border-fuchsia-500' : 'focus:border-amber-500';
+  return (
+    <div>
+      <label className="flex items-center justify-between text-xs uppercase tracking-wider text-slate-400 font-bold mb-1">
+        <span>{label}</span>
+        <button
+          type="button"
+          onClick={onResyncVoices}
+          disabled={voicesLoading}
+          className={`text-[11px] ${accent} hover:underline flex items-center gap-1`}
+        >
+          {voicesLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
+          Resync
+        </button>
+      </label>
+      <select
+        value={form[fieldKey] || ''}
+        onChange={(e) => {
+          const v = voices.find((x) => x.voice_id === e.target.value);
+          setForm({ ...form, [fieldKey]: e.target.value, [fieldNameKey]: v?.name || '' });
+        }}
+        data-testid={`radio-${fieldKey.replace(/_/g, '-')}`}
+        className={`w-full px-3 py-2 bg-slate-900 border border-slate-600 rounded-lg text-sm text-slate-100 ${focus} focus:outline-none`}
+      >
+        <option value="">— Pick a voice —</option>
+        {groupedVoices.map(([groupName, groupVoices]) => (
+          <optgroup key={groupName} label={groupName}>
+            {groupVoices.map((v) => (
+              <option key={v.voice_id} value={v.voice_id}>
+                {v.name}{v.labels?.gender ? ` · ${v.labels.gender}` : ''}{v.labels?.accent ? ` · ${v.labels.accent}` : ''}
+              </option>
+            ))}
+          </optgroup>
+        ))}
+      </select>
+      {form[fieldKey] && (() => {
+        const v = voices.find((x) => x.voice_id === form[fieldKey]);
+        return v?.preview_url ? (
+          <audio controls src={v.preview_url} className="w-full h-7 mt-1.5" />
+        ) : null;
+      })()}
+    </div>
+  );
+}
+
+
 function MusicTab({ music, onMusicChange }) {
   // Each queue entry: { id, source: 'file'|'url', file?, url?, name, status, error }
   //   status: 'pending' | 'uploading' | 'done' | 'error'
