@@ -47,6 +47,26 @@ DEFAULT_BASE_URL = "https://tilestation.co.uk"
 HTTP_TIMEOUT_S = 10.0
 LATENCY_BUDGET_S = 4.0
 
+# 31 May 2026 — false-positive de-bouncer.
+#
+# Railway's free tier reboots the container every ~24h and during
+# the 30-60s of rolling deploy the prod URL briefly 502s. The
+# previous behaviour was: any single failed check → instant Telegram
+# 🚨 "Tile Station DOWN" — and 30 s later → instant ✅ recovery ping.
+# The team learned to ignore the alerts, which defeats the entire
+# purpose of having them.
+#
+# Fix: require N consecutive failed checks (each 5 min apart) before
+# we declare the site DOWN. With the default 2 that's a ~5-minute
+# minimum confirmed outage before paging Telegram — long enough to
+# survive any single rolling restart, short enough to still page
+# fast on a real incident.
+#
+# Tunable via env var so we can dial it up to 3 in production if 2
+# still produces false positives. Floor at 1 (the legacy behaviour)
+# in case anyone explicitly opts back in.
+FAILURES_BEFORE_ALERT = max(1, int(os.environ.get("MONITOR_FAILURES_BEFORE_ALERT", "2")))
+
 
 def _base_url() -> str:
     return os.environ.get("MONITOR_PUBLIC_URL", DEFAULT_BASE_URL).rstrip("/")
@@ -225,49 +245,85 @@ async def _run_check(client: httpx.AsyncClient, chk: Dict[str, Any]) -> Dict[str
 
 async def _alert_on_transition(db, result: Dict[str, Any]) -> Optional[str]:
     """Compare against the last persisted state and fire a Telegram
-    alert only on UP→DOWN or DOWN→UP transitions. Returns the alert
-    string sent (or None if nothing was sent).
+    alert only on confirmed UP→DOWN or DOWN→UP transitions.
 
-    Slow-but-OK transitions are tracked separately and DON'T cause an
-    alert to avoid noise — they show up in the dashboard only."""
+    "Confirmed DOWN" = `FAILURES_BEFORE_ALERT` consecutive failed
+    observations (default 2 × 5-min ticks = ≥5 min real outage).
+    Recovery is still fired on the FIRST successful observation
+    after a confirmed-down state — a false "back up" is harmless
+    noise, but missing a real recovery would leave the admin in
+    the dark.
+
+    `consecutive_failures` is tracked even while we're still in the
+    grace window, so the admin dashboard can show "currently
+    flapping: 1 failed check so far".
+    """
     check_id = result["id"]
     is_ok = bool(result["ok"])
-    prev = await db.uptime_check_state.find_one({"_id": check_id}, {"_id": 1, "ok": 1, "failed_since": 1})
+    prev = await db.uptime_check_state.find_one(
+        {"_id": check_id},
+        {"_id": 1, "ok": 1, "failed_since": 1, "consecutive_failures": 1},
+    )
+    prev_consec = int((prev or {}).get("consecutive_failures") or 0)
 
     msg: Optional[str] = None
-    if prev is None:
-        # First-ever run — only alert if it's already down. Avoids a
-        # spurious "site is up!" on cold start.
-        if not is_ok:
+    new_consec = prev_consec
+    new_state_ok = bool((prev or {}).get("ok", True))
+
+    if is_ok:
+        # Healthy observation: reset counter; recovery alert if we
+        # were previously in a confirmed-down state.
+        new_consec = 0
+        if prev is not None and not prev.get("ok"):
+            # DOWN → UP (confirmed recovery)
+            failed_since = prev.get("failed_since")
+            downtime = ""
+            if failed_since:
+                try:
+                    started = datetime.fromisoformat(failed_since)
+                    mins = int((datetime.now(timezone.utc) - started).total_seconds() // 60)
+                    downtime = f" (was down for ~{mins} min{'s' if mins != 1 else ''})"
+                except Exception:
+                    pass
             msg = (
-                f"🚨 <b>Tile Station — first-run DOWN</b>\n"
-                f"<b>{result['label']}</b> failed: {result['error']}\n"
-                f"URL: {result['url']}"
+                f"✅ <b>Tile Station RECOVERED</b>\n"
+                f"<b>{result['label']}</b> is back online{downtime}\n"
+                f"Latency: {result.get('latency_ms')}ms"
             )
-    elif prev.get("ok") and not is_ok:
-        # UP → DOWN
-        msg = (
-            f"🚨 <b>Tile Station DOWN</b>\n"
-            f"<b>{result['label']}</b>: {result['error']}\n"
-            f"URL: {result['url']}\n"
-            f"Latency: {result.get('latency_ms')}ms"
-        )
-    elif (not prev.get("ok")) and is_ok:
-        # DOWN → UP
-        failed_since = prev.get("failed_since")
-        downtime = ""
-        if failed_since:
-            try:
-                started = datetime.fromisoformat(failed_since)
-                mins = int((datetime.now(timezone.utc) - started).total_seconds() // 60)
-                downtime = f" (was down for ~{mins} min{'s' if mins != 1 else ''})"
-            except Exception:
-                pass
-        msg = (
-            f"✅ <b>Tile Station RECOVERED</b>\n"
-            f"<b>{result['label']}</b> is back online{downtime}\n"
-            f"Latency: {result.get('latency_ms')}ms"
-        )
+        new_state_ok = True
+    else:
+        # Failed observation: bump the consecutive counter and only
+        # alert once we cross the threshold.
+        new_consec = prev_consec + 1
+        if prev is None:
+            # First-ever run AND failing → DON'T alert immediately.
+            # Could be a cold-start race. Mark state as down so the
+            # next tick (5 min later) will trigger the alert if it's
+            # still down — exactly the de-bounce behaviour the
+            # user asked for.
+            new_state_ok = False
+        elif prev.get("ok") and new_consec >= FAILURES_BEFORE_ALERT:
+            # UP → DOWN confirmed (Nth consecutive failure)
+            grace_note = (
+                f" (confirmed over {new_consec} consecutive 5-min checks)"
+                if FAILURES_BEFORE_ALERT > 1
+                else ""
+            )
+            msg = (
+                f"🚨 <b>Tile Station DOWN</b>{grace_note}\n"
+                f"<b>{result['label']}</b>: {result['error']}\n"
+                f"URL: {result['url']}\n"
+                f"Latency: {result.get('latency_ms')}ms"
+            )
+            new_state_ok = False
+        elif prev.get("ok"):
+            # Failing but still inside the grace window — DON'T alert.
+            # State stays "ok" so a recovery in the next tick is a
+            # silent reset rather than a needless DOWN/UP pair.
+            new_state_ok = True
+        else:
+            # Already in confirmed-down state — no re-alert.
+            new_state_ok = False
 
     if msg and os.environ.get("MONITOR_DISABLE_ALERTS") != "1":
         try:
@@ -280,16 +336,18 @@ async def _alert_on_transition(db, result: Dict[str, Any]) -> Optional[str]:
         "_id": check_id,
         "label": result["label"],
         "url": result["url"],
-        "ok": is_ok,
+        "ok": new_state_ok,
+        "last_observation_ok": is_ok,
+        "consecutive_failures": new_consec,
         "last_status_code": result["status_code"],
         "last_latency_ms": result["latency_ms"],
         "last_error": result["error"],
         "last_checked_at": result["checked_at"],
     }
-    if not is_ok and (prev is None or prev.get("ok")):
-        # Just transitioned to down — record when
+    if not new_state_ok and (prev is None or prev.get("ok")):
+        # Just transitioned to confirmed-down — record when
         state_doc["failed_since"] = result["checked_at"]
-    elif not is_ok and prev and prev.get("failed_since"):
+    elif not new_state_ok and prev and prev.get("failed_since"):
         # Still down — keep the original failed_since
         state_doc["failed_since"] = prev["failed_since"]
 

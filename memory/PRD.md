@@ -9,6 +9,37 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Feb 26, 2026 — Forked session] 🔕 Uptime monitor: 2-consecutive-failure de-bouncer (false-positive fix)
+
+**Recurring user complaint (3rd occurrence)**: Railway's 30-60 s rolling reboots were firing a false `🚨 Tile Station DOWN` Telegram and then 30 s later a `✅ RECOVERED` ping. The team learned to ignore the alerts, defeating the purpose.
+
+**Root cause**: `_alert_on_transition` fired on the FIRST observed UP→DOWN transition. Any single failed check (even a transient 502 during deploy) instantly paged Telegram.
+
+**Fix** (`/app/backend/services/uptime_monitor.py`):
+- New module-level constant `FAILURES_BEFORE_ALERT` (default **2**, configurable via env `MONITOR_FAILURES_BEFORE_ALERT`).
+- New `consecutive_failures` counter persisted in `uptime_check_state` per check.
+- New `last_observation_ok` field separates "what we just observed" from "what state we're alerting on" (the public-facing `ok` field). During the grace window the state stays `ok=True` so a recovery in the next tick is a silent reset rather than a DOWN/UP pair.
+- Logic:
+  - Failed observation → `consecutive_failures += 1`. Alert ONLY when crossing the threshold AND state was previously up.
+  - Successful observation → reset counter to 0. Alert ONLY if state was previously confirmed-down.
+  - First-ever observation while failing → silent (cold-start race protection); 2nd failure fires.
+  - Already-down state + further failures → no re-alert (existing behaviour preserved).
+- Alert text now includes `(confirmed over N consecutive 5-min checks)` so the admin sees the de-bouncer worked.
+
+**At default threshold=2 with 5-min ticks**: minimum confirmed-outage duration before paging Telegram = ~5 minutes. Long enough to ride out every Railway reboot the user reported; short enough to still page fast on a real incident.
+
+**Tests (6/6 pass)** in `tests/test_uptime_monitor_debounce.py`:
+- Single failure → no alert
+- Two consecutive failures → exactly one alert (and a third stays silent)
+- Recovery after confirmed-down → fires "RECOVERED" once + clears counter
+- **Railway-reboot scenario**: fail → success in 2 ticks → ZERO Telegrams ✓
+- First-run-while-failing → silent (cold-start guard)
+- `MONITOR_FAILURES_BEFORE_ALERT=3` env override respected
+- Telegram itself mocked via `AsyncMock` so no real messages fire.
+
+**Files**: `/app/backend/services/uptime_monitor.py` (de-bouncer logic + state fields), `/app/backend/tests/test_uptime_monitor_debounce.py` (NEW — 6 tests).
+
+
 ### [Feb 26, 2026 — Forked session] 📱 Proactive Telegram alerts when a showroom radio drops off-air
 
 **User intent**: *"Add proactive Telegram alerts when a store drops off-air during opening hours → YES."*
