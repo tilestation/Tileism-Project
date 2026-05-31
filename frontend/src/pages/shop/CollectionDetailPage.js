@@ -2820,7 +2820,7 @@ const CollectionDetailPage = () => {
                       <a
                         href={printUrl}
                         target="_blank"
-                        rel="noopener noreferrer"
+                        rel="nofollow noopener noreferrer"
                         data-testid="download-scale-pdf-btn"
                         className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-gray-300 rounded-md hover:border-amber-500 hover:text-amber-600 transition flex-shrink-0 bg-white"
                       >

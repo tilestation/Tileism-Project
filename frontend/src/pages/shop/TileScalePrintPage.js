@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { useParams, useSearchParams } from 'react-router-dom';
+import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { parseSizeToMm } from '../../utils/sizePill';
 
 /**
@@ -202,6 +202,17 @@ const TileScalePrintPage = () => {
       <div style={{ padding: 40, fontFamily: 'Inter, Arial, sans-serif' }}>
         <h1>Cannot print this size</h1>
         <p>Size "{rawSize}" could not be parsed. Expected format like "30x60cm" or "300x600mm".</p>
+        {/* Always render a back-link — even on the error page — so
+            Ahrefs never flags this URL as "no outgoing links". */}
+        <p style={{ marginTop: 16, fontSize: 14 }}>
+          <Link
+            to={series ? `/shop/series/${encodeURIComponent(series)}` : '/shop'}
+            style={{ color: '#0E5C99', textDecoration: 'underline' }}
+            data-testid="scale-print-back-link"
+          >
+            ← Back to {series ? `${series}${color ? ` · ${color}` : ''}` : 'shop'}
+          </Link>
+        </p>
       </div>
     );
   }
@@ -229,6 +240,19 @@ const TileScalePrintPage = () => {
       <PrintStyles />
       <div className="controls no-print" data-testid="scale-print-controls">
         <h3>Print at 100% scale</h3>
+        {/* 31 May 2026 — back-link added to clear Ahrefs "no outgoing
+            links" warning on the 17 indexed /shop/tile-scale-print
+            URLs. The series link is the obvious natural target;
+            falls back to the main shop if `series` is missing. */}
+        <div style={{ marginBottom: 10, fontSize: 12 }} data-testid="scale-print-back-link-wrap">
+          <Link
+            to={series ? `/shop/series/${encodeURIComponent(series)}` : '/shop'}
+            style={{ color: '#0E5C99', textDecoration: 'underline' }}
+            data-testid="scale-print-back-link"
+          >
+            ← Back to {series ? `${series}${color ? ` · ${color}` : ''}` : 'shop'}
+          </Link>
+        </div>
         <p>1. Click <strong>Print</strong> below.</p>
         <p>2. Set <strong>Scale: 100%</strong> (or <strong>Default</strong>) — <strong>NOT</strong> "Fit to page".</p>
         <p>3. Choose <strong>"Save as PDF"</strong> as the destination.</p>

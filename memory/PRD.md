@@ -9,6 +9,41 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Feb 26, 2026 — Forked session] 🧹 P2 batch: tile-scale-print back-links, city pages seeded, Email Health page
+
+Bundled the three remaining P2 backlog items so the queue is down to BLOCKED-on-Google only.
+
+**1. Issue 3 (Ahrefs): tile-scale-print URLs flagged "no outgoing links" — FIXED**
+- `/app/frontend/src/pages/shop/TileScalePrintPage.js` — added a "← Back to {series} · {color}" link rendered in BOTH the success path (top of the print controls panel) AND the error path ("size could not be parsed" view), so every one of the 17 indexed URLs now has a natural outgoing link to its series page.
+- `/app/frontend/src/pages/shop/CollectionDetailPage.js` — the "Download to-scale PDF" button now carries `rel="nofollow noopener noreferrer"` so we don't waste PageRank on transient print URLs.
+- Verified live on preview: error-page and valid-size paths both render `data-testid="scale-print-back-link"` with the correct `/shop/series/{series}` href.
+
+**2. Task 3 (City landing pages): seeded — IN PROGRESS via autogen**
+- Hit `POST /api/admin/seo/city-pages/seed` against preview: 168 city × product-category pending rows ready in the queue (`{ok:true, created:0, skipped:168}` — preview was already seeded from a prior run; production has the same button on `/admin/seo`).
+- No code change needed — the existing `services/city_pages_autogen.py` apscheduler job will drain the queue with Claude over the next few hours. Admin can monitor progress via the existing dashboard on `/admin/seo`.
+- **For production**: same one-click "Seed" button on `/admin/seo` triggers the same flow.
+
+**3. Email Health page — NEW**
+- New page `/admin/email-health` (`EmailHealthPage.jsx`) + route in App.js + tile in `SettingsHub.js` (top-left, blue Mail icon).
+- **Status card** — auto-probes Resend on mount with a safe `healthcheck@example.invalid` recipient. Outcomes:
+  - 200 → green "Resend API key configured · ready to send" + shows configured sender (`SENDER_EMAIL`).
+  - 422 (Pydantic address rejection) → neutral "Send a test below to confirm setup".
+  - 500 with key-missing message → red "Resend not configured" + actionable instructions pointing to resend.com/api-keys.
+  - Defensive error stringification (Pydantic `detail` arrays of objects are flattened) so the page can never crash on a backend 422 — the bug I hit during the first render and fixed.
+- **Send-test card** — prefilled with the logged-in admin's email (read from localStorage `user`). Click-through validation. Shows "Last sent" timestamp on success.
+- **3 new pytests pass** (`tests/test_admin_test_email.py`): auth required, address-format validation, success-path returns sender. Resend stubbed via `MagicMock` so no real mail leaves the box.
+
+**Cumulative this session**: 33/33 new pytests pass across CF geo + uptime debounce + radio off-air alerts + tune-in heartbeats + crossfade + loudness normalisation + test-email.
+
+**Files**:
+- `/app/frontend/src/pages/admin/EmailHealthPage.jsx` (NEW)
+- `/app/frontend/src/pages/admin/SettingsHub.js` (Email Health tile added)
+- `/app/frontend/src/App.js` (route + lazy import)
+- `/app/frontend/src/pages/shop/TileScalePrintPage.js` (back-link in both paths + `Link` import)
+- `/app/frontend/src/pages/shop/CollectionDetailPage.js` (rel="nofollow" on print link)
+- `/app/backend/tests/test_admin_test_email.py` (NEW — 3 tests)
+
+
 ### [Feb 26, 2026 — Forked session] 🌍 Analytics geolocation: Cloudflare CF-IPCity preferred over ip-api (mobile Manchester fix)
 
 **User-reported P1 bug**: *"Analytics Location tracking always shows 'Manchester' for mobile users"* — recurring issue, root cause is mobile carrier NAT. Every EE / Vodafone / Three handset breaks out through a Manchester GGSN, so ip-api.com geolocates the carrier's NAT IP to Manchester for ALL mobile traffic. Result: the city distribution chart was useless on mobile.

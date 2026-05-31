@@ -123,6 +123,7 @@ const CommunicationHub = React.lazy(() => import('./pages/admin/CommunicationHub
 const DocumentStorage = React.lazy(() => import('./pages/admin/DocumentStorage'));
 const ReportsHub = React.lazy(() => import('./pages/admin/ReportsHub'));
 const SettingsHub = React.lazy(() => import('./pages/admin/SettingsHub'));
+const EmailHealthPage = React.lazy(() => import('./pages/admin/EmailHealthPage'));
 const PermissionsAdmin = React.lazy(() => import('./pages/admin/PermissionsAdmin'));
 const NotificationAuthorizations = React.lazy(() => import('./pages/admin/NotificationAuthorizations'));
 const MySubscriptions = React.lazy(() => import('./pages/admin/MySubscriptions'));
@@ -575,6 +576,7 @@ function App() {
             <Route path="documents" element={<DocumentStorage />} />
             <Route path="reports-hub" element={<ReportsHub />} />
             <Route path="settings-hub" element={<SettingsHub />} />
+            <Route path="email-health" element={<EmailHealthPage />} />
             <Route path="pricing-settings" element={<PricingSettings />} />
             <Route path="website-hub" element={<WebsiteHub />} />
             <Route path="image-migration" element={<ImageMigration />} />

@@ -2,11 +2,19 @@ import React from 'react';
 import HubPage from '../../components/HubPage';
 import { 
   Settings, Building2, Shield, KeyRound, Link2, 
-  Trash2, Cog, Database, Lock, Percent, ShieldCheck
+  Trash2, Cog, Database, Lock, Percent, ShieldCheck, Mail
 } from 'lucide-react';
 
 export default function SettingsHub() {
   const cards = [
+    {
+      title: 'Email Health',
+      description: 'Verify Resend + send a test email',
+      icon: Mail,
+      link: '/admin/email-health',
+      color: 'bg-blue-500',
+      permission: 'showrooms', legacyPermission: 'showrooms',
+    },
     {
       title: 'Pricing Settings',
       description: 'Configure markup % and update prices',
