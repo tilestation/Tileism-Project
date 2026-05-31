@@ -90,6 +90,13 @@ def _default_config() -> dict:
             # (24 May 2026 — user reported "I don't get any messages
             # on telegram which is annoying as customer waits".)
             "new_chat_message": True,
+            # 📻 Radio off-air — fires when a labelled showroom device
+            # stops pinging for 5+ min during opening hours (and again
+            # when it resumes). Powered by the radio_offair_alerts
+            # service + the per-device heartbeat layer. (31 May 2026
+            # — user asked for proactive alerts so the team doesn't
+            # have to keep tab on the topbar pill all day.)
+            "radio_offair": True,
         },
         "abandoned_basket_threshold_gbp": 100,
     }

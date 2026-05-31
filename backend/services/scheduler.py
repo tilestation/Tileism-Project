@@ -1229,6 +1229,34 @@ async def initialize_scheduler():
         except Exception as um_err:  # noqa: BLE001
             logger.warning(f"Could not add uptime-monitor job: {um_err}")
 
+        # Radio off-air alerts — every 60 s, pages super-admin via
+        # Telegram if a labelled showroom device hasn't pinged in
+        # 5+ minutes during opening hours. Cheap (one Mongo find,
+        # zero HTTP). See services/radio_offair_alerts.py.
+        try:
+            from services.radio_offair_alerts import run_radio_offair_tick
+
+            async def _radio_offair_tick():
+                try:
+                    res = await run_radio_offair_tick()
+                    if res.get("fired") or res.get("recovered"):
+                        logger.info(f"radio off-air tick: {res}")
+                except Exception as e:  # noqa: BLE001
+                    logger.warning(f"radio off-air tick failed: {e}")
+
+            sched.add_job(
+                _radio_offair_tick,
+                trigger=IntervalTrigger(minutes=1),
+                id="radio_offair_alerts_1min",
+                name="Radio off-air Telegram alerts (every 1 min)",
+                replace_existing=True,
+                misfire_grace_time=60,
+                next_run_time=datetime.now(timezone.utc) + timedelta(seconds=180),
+            )
+            logger.info("Added radio off-air alert job (every 1 min)")
+        except Exception as ro_err:  # noqa: BLE001
+            logger.warning(f"Could not add radio off-air alert job: {ro_err}")
+
         # Daily Ahrefs snapshot — pulls fresh competitor DR + your domain
         # metrics every morning so the SEO Command Centre always renders
         # instantly without a cold-cache hit. Cheap (~50-100 units/day,

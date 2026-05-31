@@ -9,6 +9,55 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Feb 26, 2026 — Forked session] 📱 Proactive Telegram alerts when a showroom radio drops off-air
+
+**User intent**: *"Add proactive Telegram alerts when a store drops off-air during opening hours → YES."*
+
+**State machine** (per labelled device):
+
+```
+  on-air ─(5 min no heartbeat during opening hours)─→ off-air ─→ 📱 Telegram
+                                                          │
+                                                  (heartbeat seen)
+                                                          ↓
+                                                      on-air ─→ 📱 Telegram "back on-air"
+```
+
+**Backend** (`/app/backend/services/radio_offair_alerts.py` — NEW):
+- `run_radio_offair_tick()` — runs every 1 minute via apscheduler.
+- Skips entirely outside opening hours (default 09:00-18:00 **Europe/London** via `zoneinfo` so it auto-tracks BST/GMT).
+- For each device with a `device_label` set, checks `last_seen_at`:
+  - **Off-air branch** — last seen 5-60 min ago AND no existing alert row → send Telegram, record marker in new `radio_offair_alerts` collection.
+  - **Recovery branch** — last seen < 5 min ago AND a marker exists → send "back on-air" Telegram, delete marker.
+- **Idempotency** — second tick on the same dropout is a no-op (marker collection is the source of truth).
+- **Filters out noise**: skips unlabelled UUIDs (would render as "abc12345... dropped off-air" which is useless), skips long-silent devices (>1h — treated as "not in use today" rather than "just dropped off-air").
+- All Telegram sends go through `notify_event("radio_offair", ...)` so they honour the existing per-event toggle + dedupe window.
+
+**Scheduler** (`services/scheduler.py`):
+- New job `radio_offair_alerts_1min` — `IntervalTrigger(minutes=1)`, first run +3 min after boot to avoid cold-start collisions, `misfire_grace_time=60`.
+
+**Telegram config** (`services/telegram_notify.py`):
+- New event toggle `"radio_offair": True` (on by default). Auto-merged into existing configs via `_merge_defaults` so live deployments pick it up without a migration.
+
+**Tests (7/7 pass)** in `tests/test_radio_offair_alerts.py`:
+- Outside opening hours → no-op
+- Labelled device dropout → one Telegram fired + marker row inserted
+- Second tick same dropout → no re-alert (idempotency)
+- Recovery → "back on-air" Telegram fired + marker row cleared
+- Unlabelled UUID device → silently skipped (no useless noise)
+- Long-silent device (3h+) → silently skipped (closed-laptop guard)
+- Actively-pinging device with no prior alert → pure no-op
+- Telegram itself is mocked via `unittest.mock.AsyncMock` so tests don't fire real messages.
+
+**Live verified**: Scheduler tick registered cleanly on boot, ffmpeg reinstalled for audio normalisation, full radio-studio suite green (19/19 across tune-in + off-air + crossfade + loudnorm).
+
+**Files**:
+- `/app/backend/services/radio_offair_alerts.py` (NEW)
+- `/app/backend/services/scheduler.py` (job registration)
+- `/app/backend/services/telegram_notify.py` (new `radio_offair` event toggle)
+- `/app/backend/tests/test_radio_offair_alerts.py` (NEW — 7 tests)
+
+
 ### [Feb 26, 2026 — Forked session] 🟢 Radio Studio: Tune-in heartbeats + topbar status pill
 
 **User intent**: *"Radio status pill in the admin topbar — green ON AIR with 'Now playing: {track}' or red OFF AIR — so super-admins can monitor at a glance whether stores actually have the radio running, without having to call each one → YES."*
