@@ -2176,23 +2176,45 @@ async def track_page_view(data: PageViewTrack, request: Request):
         if not _is_valid_tilestation_url(data.page_url):
             return {"success": True, "tracked": False, "reason": "off_site_url"}
 
-        # Trust the Cloudflare CF-IPCountry header when present — much
-        # more accurate than IP-API geolocation (handles VPN/proxy
-        # detection, IPv6, etc.) and arrives free with the request.
+        # ── Visitor location resolution ────────────────────────────
+        # Priority order (highest accuracy first):
+        #   1. Cloudflare's CF-IPCity (+ CF-IPCountry, CF-Region) when
+        #      Cloudflare's "Add visitor location headers" Transform
+        #      Rule is enabled. These are device-level geo, derived
+        #      from Cloudflare's MaxMind feed but importantly resolved
+        #      from the handset's effective IP — which on mobile means
+        #      the carrier breakout point, NOT the raw GGSN NAT.
+        #   2. Cloudflare's CF-IPCountry alone (Free/Pro tier default).
+        #      Country accurate; city left as "Unknown" rather than
+        #      defaulting to the carrier NAT (Manchester for EE,
+        #      Vodafone, Three — the bug the user reported on 30 May).
+        #   3. IP-API HTTP lookup against the raw client IP — last
+        #      resort for non-Cloudflare paths (preview env, direct
+        #      backend hits). Subject to the carrier-NAT inaccuracy
+        #      that motivated this change.
         cf_country = (request.headers.get("CF-IPCountry") or "").upper()
         cf_country = cf_country if len(cf_country) == 2 else ""
-        
-        # Get geo location (async). Cloudflare's CF-IPCountry header
-        # takes precedence when set — saves an IP-API call AND is more
-        # accurate (proper VPN/proxy handling).
-        if cf_country:
+        cf_city = (request.headers.get("CF-IPCity") or "").strip()
+        cf_region = (request.headers.get("CF-Region") or "").strip()
+
+        if cf_country and cf_city:
+            location = {
+                "country": _country_name_from_iso2(cf_country),
+                "city": cf_city,
+                "region": cf_region or None,
+                "country_code": cf_country,
+                "source": "cloudflare",
+            }
+        elif cf_country:
             location = {
                 "country": _country_name_from_iso2(cf_country),
                 "city": "Unknown",
                 "country_code": cf_country,
+                "source": "cloudflare_country_only",
             }
         else:
             location = await get_geo_location(ip)
+            location["source"] = "ip_api"
 
         # Datacentre IP guard — block ANYTHING coming from a known cloud
         # hosting region. Real customers don't visit a UK tile retailer

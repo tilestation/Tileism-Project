@@ -9,6 +9,37 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Feb 26, 2026 — Forked session] 🌍 Analytics geolocation: Cloudflare CF-IPCity preferred over ip-api (mobile Manchester fix)
+
+**User-reported P1 bug**: *"Analytics Location tracking always shows 'Manchester' for mobile users"* — recurring issue, root cause is mobile carrier NAT. Every EE / Vodafone / Three handset breaks out through a Manchester GGSN, so ip-api.com geolocates the carrier's NAT IP to Manchester for ALL mobile traffic. Result: the city distribution chart was useless on mobile.
+
+**Fix shipped — priority order for location resolution**:
+
+1. **Cloudflare `CF-IPCity` + `CF-IPCountry` + `CF-Region`** when present (set by Cloudflare's "Add visitor location headers" Transform Rule). These are device-level geo, derived from Cloudflare's MaxMind feed but resolved using the carrier breakout point rather than the raw GGSN NAT — much closer to the actual handset location.
+2. **`CF-IPCountry` alone** (Free CF tier default) — country accurate; city stays `"Unknown"` rather than defaulting to ip-api (which would re-introduce the Manchester bug).
+3. **ip-api HTTP lookup** — last resort for non-Cloudflare paths (preview env, direct backend probes, future non-CF integrations).
+
+**Where applied**:
+- `/app/backend/routes/analytics.py` → `track_page_view` (replaces the prior CF-IPCountry-only branch around line 2179)
+- `/app/backend/routes/live_chat.py` → `get_visitor_location(ip, request=request)` now optional-Request aware; new chat sessions auto-pick up the CF headers when present
+
+Each stored location dict now carries a `source: "cloudflare" | "cloudflare_country_only" | "ip_api"` field so the admin dashboard can audit which path was hit if a row looks wrong.
+
+**Configuration note for the user**: For this fix to actually engage in production, Cloudflare's **"Add visitor location headers" Transform Rule** must be enabled in the CF dashboard (Settings → Network → "Add visitor location headers"). Without that toggle, CF-IPCity isn't set and we fall through to the country-only path. CF-IPCountry is on by default — that's already working.
+
+**Tests (5/5 pass)** in `tests/test_cf_geolocation.py`:
+- CF-IPCity present → wins; ip-api NEVER called
+- CF-IPCountry only → city stays "Unknown" (no ip-api fallback that would Manchester-ify mobile traffic)
+- No CF headers at all → falls back to ip-api
+- Localhost/private IPs → instant "Local" short-circuit
+- Bogus 4-char CF-IPCountry → ignored, falls back to ip-api
+
+**Files**:
+- `/app/backend/routes/analytics.py` (track_page_view CF-IPCity branch + `source` field)
+- `/app/backend/routes/live_chat.py` (get_visitor_location now accepts Request)
+- `/app/backend/tests/test_cf_geolocation.py` (NEW — 5 tests)
+
+
 ### [Feb 26, 2026 — Forked session] 🔕 Uptime monitor: 2-consecutive-failure de-bouncer (false-positive fix)
 
 **Recurring user complaint (3rd occurrence)**: Railway's 30-60 s rolling reboots were firing a false `🚨 Tile Station DOWN` Telegram and then 30 s later a `✅ RECOVERED` ping. The team learned to ignore the alerts, defeating the purpose.

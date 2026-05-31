@@ -79,14 +79,46 @@ def generate_session_id(ip: str, user_agent: str) -> str:
     return hashlib.sha256(combined.encode()).hexdigest()[:16]
 
 
-async def get_visitor_location(ip: str) -> dict:
-    """Get visitor location from IP address using free IP-API service"""
+async def get_visitor_location(ip: str, request: Optional["Request"] = None) -> dict:
+    """Get visitor location.
+
+    Priority order (most accurate first):
+      1. Cloudflare `CF-IPCity` + `CF-IPCountry` headers — set by the
+         "Add visitor location headers" Transform Rule. Avoids the
+         mobile-carrier-NAT inaccuracy where every EE/Vodafone/Three
+         visitor resolves to Manchester (30 May 2026 bug).
+      2. `CF-IPCountry` alone (Free CF tier default) — country only,
+         city left blank rather than falling back to IP-API which
+         mangles mobile traffic.
+      3. IP-API HTTP lookup — last resort, only used when no CF
+         headers are present (preview env, direct backend hits).
+    """
     import httpx
-    
+
     # Skip for local/private IPs
     if ip in ["127.0.0.1", "localhost", "unknown"] or ip.startswith("192.168.") or ip.startswith("10."):
         return {"country": "Local", "city": "Local", "country_code": "LC"}
-    
+
+    if request is not None:
+        cf_country = (request.headers.get("CF-IPCountry") or "").upper()
+        cf_country = cf_country if len(cf_country) == 2 else ""
+        cf_city = (request.headers.get("CF-IPCity") or "").strip()
+        cf_region = (request.headers.get("CF-Region") or "").strip()
+        if cf_country and cf_city:
+            return {
+                "country": cf_country,  # ISO2; chat UI tolerates code or name
+                "city": cf_city,
+                "region": cf_region,
+                "country_code": cf_country,
+            }
+        if cf_country:
+            return {
+                "country": cf_country,
+                "city": "Unknown",
+                "region": cf_region,
+                "country_code": cf_country,
+            }
+
     try:
         async with httpx.AsyncClient(timeout=3.0) as client:
             response = await client.get(f"http://ip-api.com/json/{ip}?fields=country,city,countryCode,regionName")
@@ -423,7 +455,7 @@ async def start_chat_session(request: Request):
         }
     
     # Get visitor location
-    location = await get_visitor_location(ip)
+    location = await get_visitor_location(ip, request=request)
     
     # Create new session
     session = {
