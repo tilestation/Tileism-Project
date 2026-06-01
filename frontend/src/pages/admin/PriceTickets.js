@@ -120,15 +120,39 @@ const COUNTRY_FLAGS = {
   }
 };
 
-const PriceTicket = ({ product, showOriginalPrice, showClearanceBadge, showThisWeekBadge, showBarcode, showQR, index, paperSize, resizable, onResize, previewScale, textScale, cornerBanner }) => {
+const PriceTicket = ({ product, showOriginalPrice, showClearanceBadge, showThisWeekBadge, showBarcode, showQR, index, paperSize, resizable, onResize, previewScale, textScale, cornerBanner, vatMode = 'incl', tradeSpecial = false }) => {
   const hasDiscount = product.clearance_price && product.clearance_price < product.price;
-  const displayPrice = hasDiscount ? product.clearance_price : product.price;
-  const originalPrice = product.price;
+  // VAT adjustment — our DB stores VAT-inclusive £; divide by 1.20
+  // to get the ex-VAT figure when admin toggles "excl. VAT".
+  const vatDivisor = vatMode === 'excl' ? 1.2 : 1.0;
+  const rawDisplayPrice = hasDiscount ? product.clearance_price : product.price;
+  const displayPrice = rawDisplayPrice / vatDivisor;
+  const originalPrice = product.price / vatDivisor;
   const isClearance = hasDiscount && showClearanceBadge;
-  
-  // Calculate savings
+
+  // Calculate savings (always in the same VAT mode as displayed)
   const savingsAmount = hasDiscount ? (originalPrice - displayPrice) : 0;
   const savingsPercent = hasDiscount ? Math.round((savingsAmount / originalPrice) * 100) : 0;
+
+  // 1 Jun 2026 — Auxiliary "Price m²" line for per-piece items.
+  // When the product is priced per piece (priceUnit === 'qty') AND we can
+  // derive the tile area from the first listed size (e.g. "60x120cm" → 0.72 m²),
+  // show a small "Price m²: £x.xx" line under Material so trade customers
+  // can compare against per-m² priced items. Mirrors the photo reference.
+  const _parseSizeToM2 = (sizeStr) => {
+    if (!sizeStr) return null;
+    const m = String(sizeStr).replace(/cm/gi, '').match(/(\d+(?:\.\d+)?)\s*[x×]\s*(\d+(?:\.\d+)?)/i);
+    if (!m) return null;
+    const w = parseFloat(m[1]);
+    const h = parseFloat(m[2]);
+    if (!w || !h) return null;
+    // sizes are stored in cm in our catalogue → convert to m².
+    return (w / 100) * (h / 100);
+  };
+  const primarySizeM2 = product.tile_m2_per_piece
+    || (Array.isArray(product.sizes) && product.sizes.length > 0 ? _parseSizeToM2(product.sizes[0]) : null);
+  const showAuxM2Price = product.priceUnit === 'qty' && primarySizeM2 && primarySizeM2 > 0;
+  const auxM2Price = showAuxM2Price ? (displayPrice / primarySizeM2) : null;
 
   // QR SVG — async generated, cached. Triggers a one-shot regen on
   // (product, showQR) change. Stored as `state` so the component
@@ -293,99 +317,91 @@ const PriceTicket = ({ product, showOriginalPrice, showClearanceBadge, showThisW
         )}
       </div>
 
-      {/* Price Section - LARGER */}
-      <div style={{ 
-        textAlign: 'center',
-        backgroundColor: '#fff8f8',
-        border: '2px solid #dc2626',
-        borderRadius: '4px',
-        padding: '5mm',
-        marginBottom: '4mm'
+      {/* Price Section — side-by-side WAS / NOW layout matching the
+          physical reference tickets (1 Jun 2026). When tradeSpecial
+          is on AND the product is on sale, the WAS line is replaced
+          by a "TRADE SPECIAL" badge. Unit suffix prints INLINE next
+          to the price (£36.99 each / £44.99 m²). A small VAT tag
+          underneath disambiguates incl./excl. */}
+      <div style={{
+        textAlign: 'left',
+        marginBottom: '4mm',
       }}>
-        {/* WAS price — only shown when ON SALE (hasDiscount). When
-            not on sale we hide this line entirely so the ticket
-            shows a single clean "Price" instead of RRP/Price both
-            being the same number. (31 May 2026 — user feedback.) */}
-        {hasDiscount && showOriginalPrice && (
-          <div style={{ 
-            fontSize: '14pt', 
-            color: '#666',
-            marginBottom: '2mm',
-            fontWeight: '600',
+        <div style={{
+          display: 'flex',
+          alignItems: 'baseline',
+          flexWrap: 'wrap',
+          gap: '3mm',
+          marginBottom: '1mm',
+        }}>
+          {hasDiscount && (tradeSpecial ? (
+            <div style={{
+              backgroundColor: '#dc2626',
+              color: '#ffffff',
+              padding: '1mm 3mm',
+              fontSize: '11pt',
+              fontWeight: 800,
+              textTransform: 'uppercase',
+              letterSpacing: '0.08em',
+              borderRadius: '2px',
+              fontFamily: '"Bahnschrift SemiBold", "Bahnschrift", "Segoe UI", sans-serif',
+              alignSelf: 'center',
+            }}>
+              TRADE SPECIAL
+            </div>
+          ) : (showOriginalPrice && (
+            <div style={{
+              fontSize: '22pt',
+              color: '#1a1a1a',
+              fontWeight: 600,
+              textDecoration: 'line-through',
+              textDecorationThickness: '0.4mm',
+              fontFamily: '"Bahnschrift SemiBold", "Bahnschrift", "Segoe UI", sans-serif',
+              lineHeight: '1',
+            }}>
+              £{originalPrice.toFixed(2)}
+            </div>
+          )))}
+          <div style={{
+            fontSize: '38pt',
+            color: hasDiscount ? '#dc2626' : '#1a1a1a',
+            fontWeight: 700,
+            fontFamily: '"Bahnschrift SemiBold", "Bahnschrift", "Segoe UI", sans-serif',
+            lineHeight: '1',
+            display: 'flex',
+            alignItems: 'baseline',
           }}>
-            <span style={{ textDecoration: 'line-through' }}>
-              WAS £{originalPrice.toFixed(2)}
+            £{displayPrice.toFixed(2)}
+            <span style={{
+              fontSize: '12pt',
+              fontWeight: 600,
+              marginLeft: '1mm',
+              color: hasDiscount ? '#dc2626' : '#1a1a1a',
+            }}>
+              {product.priceUnit === 'qty' ? 'each' : product.priceUnit === 'box' ? '/box' : 'm²'}
             </span>
           </div>
-        )}
-        {/* Main price — labelled "NOW" when on sale, "Price" when not.
-            Bigger label-then-amount layout when on sale so the
-            customer's eye lands on the new price first. */}
-        {hasDiscount ? (
-          <>
-            <div style={{
-              fontSize: '11pt',
-              color: '#dc2626',
-              fontWeight: '700',
-              marginBottom: '0.5mm',
-              letterSpacing: '0.1em',
-              textTransform: 'uppercase',
-            }}>
-              Now
-            </div>
-            <div style={{
-              fontSize: '42pt',
-              fontWeight: '600',
-              color: '#dc2626',
-              fontFamily: '"Bahnschrift SemiBold", "Bahnschrift", "Segoe UI", sans-serif',
-              lineHeight: '1'
-            }}>
-              £{displayPrice.toFixed(2)}
-            </div>
-          </>
-        ) : (
-          <>
-            <div style={{
-              fontSize: '11pt',
-              color: '#333',
-              fontWeight: '600',
-              marginBottom: '0.5mm',
-              letterSpacing: '0.1em',
-              textTransform: 'uppercase',
-            }}>
-              Price
-            </div>
-            <div style={{
-              fontSize: '42pt',
-              fontWeight: '600',
-              color: '#1a1a1a',
-              fontFamily: '"Bahnschrift SemiBold", "Bahnschrift", "Segoe UI", sans-serif',
-              lineHeight: '1'
-            }}>
-              £{displayPrice.toFixed(2)}
-            </div>
-          </>
-        )}
-        <div style={{
-          fontSize: '12pt',
-          color: hasDiscount ? '#dc2626' : '#333',
-          fontWeight: '600',
-          marginTop: '1mm'
-        }}>
-          {product.priceUnit === 'qty' ? 'per piece' : product.priceUnit === 'box' ? 'per box' : 'per m²'}
         </div>
-        
-        {/* Savings Display */}
-        {hasDiscount && (
+        {/* VAT tag */}
+        <div style={{
+          fontSize: '8pt',
+          color: '#666',
+          fontWeight: 600,
+          letterSpacing: '0.05em',
+        }}>
+          {vatMode === 'excl' ? 'excl. VAT' : 'incl. VAT'}
+        </div>
+        {/* Savings pill — kept from the previous design, only on sale */}
+        {hasDiscount && !tradeSpecial && (
           <div style={{
-            marginTop: '3mm',
-            padding: '3mm 6mm',
+            marginTop: '2mm',
+            padding: '1.5mm 3mm',
             backgroundColor: '#374151',
             color: '#fbbf24',
-            borderRadius: '3px',
+            borderRadius: '2px',
             display: 'inline-block'
           }}>
-            <span style={{ fontSize: '13pt', fontWeight: '700' }}>
+            <span style={{ fontSize: '10pt', fontWeight: 700 }}>
               SAVE £{savingsAmount.toFixed(2)} ({savingsPercent}% OFF)
             </span>
           </div>
@@ -412,6 +428,15 @@ const PriceTicket = ({ product, showOriginalPrice, showClearanceBadge, showThisW
         {product.material && (
           <div style={{ marginBottom: '1mm' }}>
             <strong>Material:</strong> {product.material}
+          </div>
+        )}
+        {/* Auxiliary per-m² price for per-piece-priced tiles — matches
+            the printed reference ("Price m²: £51.38" line). Computed
+            from the first listed size when tile_m2_per_piece is absent.
+            Honours the same VAT mode as the main price. */}
+        {showAuxM2Price && (
+          <div style={{ marginBottom: '1mm' }} data-testid={`price-ticket-aux-m2-${index}`}>
+            <strong>Price m²:</strong> £{auxM2Price.toFixed(2)}
           </div>
         )}
       </div>
@@ -853,6 +878,28 @@ export const PriceTickets = () => {
   useEffect(() => {
     try { localStorage.setItem('price_ticket_corner_banner_v1', cornerBanner); } catch (_e) { /* quota */ }
   }, [cornerBanner]);
+  // 1 Jun 2026 — VAT mode. 'incl' (default) shows prices as stored
+  // (the input £ values ARE VAT-inclusive in our schema). 'excl'
+  // divides by 1.20 so the ticket prints the ex-VAT figure for
+  // trade customers. A small "incl. VAT" / "excl. VAT" tag is
+  // printed under the price either way so there's no ambiguity.
+  const [vatMode, setVatMode] = useState(() => {
+    try { return localStorage.getItem('price_ticket_vat_mode_v1') || 'incl'; } catch (_e) { return 'incl'; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem('price_ticket_vat_mode_v1', vatMode); } catch (_e) { /* quota */ }
+  }, [vatMode]);
+  // 1 Jun 2026 — Trade Special toggle. When ON and a product is on
+  // sale, the WAS-price line is REPLACED by a red "TRADE SPECIAL"
+  // badge — telling trade customers "this is your special price"
+  // without disclosing the RRP. Per-batch (every ticket on the
+  // sheet shares the flag).
+  const [tradeSpecial, setTradeSpecial] = useState(() => {
+    try { return localStorage.getItem('price_ticket_trade_special_v1') === '1'; } catch (_e) { return false; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem('price_ticket_trade_special_v1', tradeSpecial ? '1' : '0'); } catch (_e) { /* quota */ }
+  }, [tradeSpecial]);
   // Manual product form — for tickets when the product isn't in the catalogue
   // (one-off price tickets, in-store-only items, samples, etc.). Adds a
   // virtual product (no `id`) to selectedProducts. Save Settings is hidden
@@ -1374,13 +1421,37 @@ export const PriceTickets = () => {
     }
     
     // Generate ticket HTML for each product (with copies)
+    // Helper: parse "60x120" / "60x120cm" → m² for the auxiliary Price m²
+    // line. Mirrors the same logic in the on-screen PriceTicket.
+    const _parseSizeToM2 = (sizeStr) => {
+      if (!sizeStr) return null;
+      const m = String(sizeStr).replace(/cm/gi, '').match(/(\d+(?:\.\d+)?)\s*[x×]\s*(\d+(?:\.\d+)?)/i);
+      if (!m) return null;
+      const w = parseFloat(m[1]);
+      const h = parseFloat(m[2]);
+      if (!w || !h) return null;
+      return (w / 100) * (h / 100);
+    };
+    const vatDivisor = vatMode === 'excl' ? 1.2 : 1.0;
+    const vatTagText = vatMode === 'excl' ? 'excl. VAT' : 'incl. VAT';
+
     const ticketHTML = ticketsToRender.map((product, idx) => {
       const hasDiscount = product.clearance_price && product.clearance_price < product.price;
       const isClearance = hasDiscount && showClearanceBadge;
       const showWeekBadge = showThisWeekBadge && !isClearance;
       const hasBadge = isClearance || showWeekBadge;
-      const savingsAmount = hasDiscount ? (product.price - product.clearance_price) : 0;
-      const savingsPercent = hasDiscount ? Math.round((savingsAmount / product.price) * 100) : 0;
+      // VAT-adjusted figures (always positive numbers in £).
+      const _rawDisp = hasDiscount ? product.clearance_price : product.price;
+      const _disp = _rawDisp / vatDivisor;
+      const _orig = product.price / vatDivisor;
+      const savingsAmount = hasDiscount ? (_orig - _disp) : 0;
+      const savingsPercent = hasDiscount ? Math.round((savingsAmount / _orig) * 100) : 0;
+      // Auxiliary per-m² price for per-piece-priced items.
+      const _primarySizeM2 = product.tile_m2_per_piece
+        || (Array.isArray(product.sizes) && product.sizes.length > 0 ? _parseSizeToM2(product.sizes[0]) : null);
+      const _showAuxM2 = product.priceUnit === 'qty' && _primarySizeM2 && _primarySizeM2 > 0;
+      const _auxM2 = _showAuxM2 ? (_disp / _primarySizeM2) : null;
+      const unitSuffix = product.priceUnit === 'qty' ? 'each' : product.priceUnit === 'box' ? '/box' : 'm²';
       // Barcode (Code128) of SKU / product_code / manual barcode entry
       const barcodeValue = showBarcode
         ? (product.sku || product.product_code || product.barcode || '').toString().trim()
@@ -1410,17 +1481,18 @@ export const PriceTickets = () => {
           ${product.product_code ? `<div class="product-code">Code: ${product.product_code}</div>` : ''}
         </div>
 
-        <!-- Price Box — WAS/NOW when on sale, single Price otherwise. -->
+        <!-- Price Box — Side-by-side WAS/NOW (or Trade Special / NOW) -->
         <div class="price-box">
-          ${hasDiscount && showOriginalPrice ? `
-            <div class="rrp-price has-discount">
-              WAS £${product.price.toFixed(2)}
-            </div>
-          ` : ''}
-          <div class="price-label ${hasDiscount ? 'on-sale' : ''}">${hasDiscount ? 'NOW' : 'Price'}</div>
-          <div class="main-price ${hasDiscount ? '' : 'price-not-sale'}">£${(product.clearance_price || product.price || 0).toFixed(2)}</div>
-          <div class="price-unit ${hasDiscount ? '' : 'price-unit-not-sale'}">${product.priceUnit === 'qty' ? 'per piece' : product.priceUnit === 'box' ? 'per box' : 'per m²'}</div>
-          ${hasDiscount ? `
+          <div class="price-row">
+            ${hasDiscount && tradeSpecial ? `
+              <span class="trade-special-badge">TRADE SPECIAL</span>
+            ` : (hasDiscount && showOriginalPrice ? `
+              <span class="rrp-price has-discount">£${_orig.toFixed(2)}</span>
+            ` : '')}
+            <span class="main-price ${hasDiscount ? '' : 'price-not-sale'}">£${_disp.toFixed(2)}<span class="price-unit-inline ${hasDiscount ? '' : 'price-unit-not-sale'}">${unitSuffix}</span></span>
+          </div>
+          <div class="vat-tag">${vatTagText}</div>
+          ${hasDiscount && !tradeSpecial ? `
             <div class="savings-badge">
               SAVE £${savingsAmount.toFixed(2)} (${savingsPercent}% OFF)
             </div>
@@ -1432,6 +1504,7 @@ export const PriceTickets = () => {
           ${product.suitability ? `<div><strong>Suitability:</strong> ${product.suitability}</div>` : ''}
           ${product.finish ? `<div><strong>Finish:</strong> ${product.finish}</div>` : ''}
           ${product.material ? `<div><strong>Material:</strong> ${product.material}</div>` : ''}
+          ${_showAuxM2 ? `<div><strong>Price m²:</strong> £${_auxM2.toFixed(2)}</div>` : ''}
         </div>
 
         <!-- Sizes -->
@@ -1604,66 +1677,88 @@ export const PriceTickets = () => {
             }
             
             .price-box {
-              text-align: center;
-              background-color: #fff8f8;
-              border: 2px solid #dc2626;
-              border-radius: 3px;
-              padding: 5mm;
+              text-align: left;
               margin-bottom: 4mm;
+            }
+
+            /* Side-by-side WAS / NOW row, baseline aligned. */
+            .price-row {
+              display: flex;
+              align-items: baseline;
+              flex-wrap: wrap;
+              gap: 3mm;
+              margin-bottom: 1mm;
             }
             
             .rrp-price {
-              font-size: 14pt;
-              color: #666;
+              font-size: 22pt;
+              color: #1a1a1a;
               font-weight: 600;
-              margin-bottom: 2mm;
+              font-family: "Bahnschrift SemiBold", "Bahnschrift", "Segoe UI", sans-serif;
+              line-height: 1;
             }
             
             .rrp-price.has-discount {
               text-decoration: line-through;
+              text-decoration-thickness: 0.4mm;
             }
-            
-            .price-label {
+
+            /* "TRADE SPECIAL" badge — replaces the WAS price on sale items
+               when the Trade Special toggle is on. */
+            .trade-special-badge {
+              background-color: #dc2626;
+              color: #ffffff;
+              padding: 1mm 3mm;
               font-size: 11pt;
-              color: #333;
-              font-weight: 600;
-              letter-spacing: 0.1em;
+              font-weight: 800;
               text-transform: uppercase;
-              margin-bottom: 0.5mm;
-            }
-            .price-label.on-sale {
-              color: #dc2626;
+              letter-spacing: 0.08em;
+              border-radius: 2px;
+              font-family: "Bahnschrift SemiBold", "Bahnschrift", "Segoe UI", sans-serif;
+              line-height: 1.2;
             }
             
             .main-price {
               font-size: 38pt;
-              font-weight: 600;
+              font-weight: 700;
               color: #dc2626;
               font-family: "Bahnschrift SemiBold", "Bahnschrift", "Segoe UI", sans-serif;
               line-height: 1;
+              display: inline-flex;
+              align-items: baseline;
             }
             .main-price.price-not-sale {
               color: #1a1a1a;
             }
             
-            .price-unit {
+            /* Unit suffix prints INLINE next to the price (£36.99 each). */
+            .price-unit-inline {
               font-size: 12pt;
-              color: #dc2626;
               font-weight: 600;
-              margin-top: 1mm;
+              margin-left: 1mm;
+              color: #dc2626;
             }
-            .price-unit.price-unit-not-sale {
-              color: #333;
+            .price-unit-inline.price-unit-not-sale {
+              color: #1a1a1a;
+            }
+
+            /* incl/excl VAT clarifier under the price. */
+            .vat-tag {
+              font-size: 8pt;
+              color: #666;
+              font-weight: 600;
+              letter-spacing: 0.05em;
+              margin-top: 0.5mm;
             }
             
             .savings-badge {
-              margin-top: 3mm;
-              padding: 3mm 6mm;
+              margin-top: 2mm;
+              padding: 1.5mm 3mm;
               background-color: #374151;
               color: #fbbf24;
-              border-radius: 3px;
+              border-radius: 2px;
               display: inline-block;
-              font-size: 13pt;
+              font-size: 10pt;
               font-weight: 700;
             }
             
@@ -2548,6 +2643,63 @@ export const PriceTickets = () => {
                   Show QR code (links to PDP — scan with phone to browse)
                 </label>
               </div>
+
+              {/* ── VAT mode toggle ────────────────────────────────────
+                  Pill switch: incl. VAT (default — prices as stored) /
+                  excl. VAT (divides displayed price by 1.20). The
+                  printed ticket carries the chosen tag underneath the
+                  price so there's never any ambiguity. */}
+              <div className="pt-2 mt-1 border-t" data-testid="vat-mode-group">
+                <p className="text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1.5">
+                  VAT display
+                </p>
+                <div className="inline-flex rounded-md border bg-white p-0.5">
+                  <button
+                    type="button"
+                    onClick={() => setVatMode('incl')}
+                    className={`px-3 py-1 text-xs font-medium rounded transition-colors ${
+                      vatMode === 'incl' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'
+                    }`}
+                    data-testid="vat-mode-incl-btn"
+                  >
+                    incl. VAT
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setVatMode('excl')}
+                    className={`px-3 py-1 text-xs font-medium rounded transition-colors ${
+                      vatMode === 'excl' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'
+                    }`}
+                    data-testid="vat-mode-excl-btn"
+                  >
+                    excl. VAT
+                  </button>
+                </div>
+                <p className="text-[10px] text-slate-500 mt-1 leading-snug">
+                  Stored prices are VAT-inclusive. Switching to excl. divides
+                  the printed figure by 1.20 — handy for trade-only batches.
+                </p>
+              </div>
+
+              {/* ── Trade Special toggle ───────────────────────────────
+                  When ON, the WAS-price line is replaced by a red
+                  "TRADE SPECIAL" badge — communicates "this is your
+                  special price" without disclosing the RRP. Only has
+                  visible effect on sale items (where WAS > NOW). */}
+              <div className="flex items-start gap-2 pt-1" data-testid="trade-special-row">
+                <input
+                  type="checkbox"
+                  id="tradeSpecial"
+                  checked={tradeSpecial}
+                  onChange={(e) => setTradeSpecial(e.target.checked)}
+                  className="rounded mt-0.5"
+                  data-testid="trade-special-checkbox"
+                />
+                <label htmlFor="tradeSpecial" className="text-sm leading-snug">
+                  <span className="font-medium">Trade Special</span> — replace the WAS price with a red
+                  &ldquo;TRADE SPECIAL&rdquo; badge on sale items
+                </label>
+              </div>
             </div>
           </Card>
         </div>
@@ -2772,6 +2924,8 @@ export const PriceTickets = () => {
                       paperSize={currentPaperSize}
                       textScale={textScale}
                       cornerBanner={cornerBanner}
+                      vatMode={vatMode}
+                      tradeSpecial={tradeSpecial}
                       // Resize handle only on the FIRST ticket of the
                       // inline preview. All other copies reflow because
                       // they read the same customWidthMm/customHeightMm.
@@ -2852,6 +3006,8 @@ export const PriceTickets = () => {
                   paperSize={currentPaperSize}
                   textScale={textScale}
                   cornerBanner={cornerBanner}
+                  vatMode={vatMode}
+                  tradeSpecial={tradeSpecial}
                 />
               ))}
             </div>

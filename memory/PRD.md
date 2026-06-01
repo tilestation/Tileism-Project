@@ -9,6 +9,54 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Feb 26, 2026 — Forked session] 🏷️ Price Tickets: format match + VAT toggle + Trade Special toggle
+
+**User request (with 2 reference photos)**:
+1. *"On the ticket print feature I need exactly this format and the form needs to have all these fields"*
+2. *"I also need the include or ex vat toggle"*
+3. *"I also need Trade Special toggle on and off which needs to replace WAS price"*
+
+**Reference layout** (photos of physical Moonstone Carbon + Rivertine Cream tickets): WAS price (struck-through black) and NOW price (large red) on the SAME ROW baseline-aligned, with the unit suffix (`each` / `m²` / `/box`) inline next to NOW. A small "incl. VAT" / "excl. VAT" tag underneath. For per-piece-priced products, an extra "Price m²: £X.XX" line under the Material row.
+
+**What was shipped** (`/app/frontend/src/pages/admin/PriceTickets.js`):
+
+1. **Layout match** — JSX `PriceTicket` component AND the print HTML generator both rewritten:
+   - WAS / NOW now side-by-side in a flex row, baseline-aligned (previously stacked vertically with a "NOW" label).
+   - Unit suffix inline next to the main price (`£36.99 each`, `£44.99 m²`) instead of a separate line.
+   - Background red box dropped — clean white background matches the reference.
+   - Savings pill kept (only on sale items, NOT in Trade Special mode).
+
+2. **VAT mode toggle** — new `vatMode` state (`'incl'` | `'excl'`, default `'incl'`, persisted in `localStorage`):
+   - Pill switch in Settings panel: `incl. VAT` ⇄ `excl. VAT` (active = black background).
+   - When `excl`, both WAS and NOW prices divided by 1.20 before render. Helper copy: *"Stored prices are VAT-inclusive. Switching to excl. divides the printed figure by 1.20 — handy for trade-only batches."*
+   - The chosen tag (`incl. VAT` / `excl. VAT`) is printed underneath the price on every ticket so there's no ambiguity.
+
+3. **Trade Special toggle** — new `tradeSpecial` state (boolean, persisted in `localStorage`):
+   - Checkbox in Settings panel: *"Trade Special — replace the WAS price with a red 'TRADE SPECIAL' badge on sale items"*.
+   - When ON AND a line item is on sale, the strike-through WAS price is REPLACED by a flat-red `TRADE SPECIAL` badge (white text, uppercase, 0.08em letter-spacing). The savings pill is suppressed in this mode so customers don't see the implied discount %.
+   - When OFF or item not on sale: behaves exactly as before.
+
+4. **Auxiliary "Price m²" line** — for per-piece-priced products (`priceUnit === 'qty'`):
+   - Computes m² either from `tile_m2_per_piece` field OR by parsing the first listed size (e.g. `60x120` → 0.72 m²).
+   - Renders as `Price m²: £X.XX` inside the Product Details block — matches the photo reference exactly. `data-testid="price-ticket-aux-m2-{idx}"`.
+   - Honours the same VAT mode as the main price.
+
+5. **Print HTML / CSS** — mirror updates so the printed sheet matches the on-screen preview pixel-for-pixel:
+   - `.price-row` flex baseline row.
+   - `.trade-special-badge` red pill.
+   - `.vat-tag` small grey clarifier.
+   - `.price-unit-inline` inline unit suffix.
+
+**Live-verified** on preview:
+- Manual product "Moonstone Carbon" £44.99 → £36.99 → renders £44.99 (strike) · £36.99 (big red) m² inline, "incl. VAT" tag, "SAVE £8.00 (18% OFF)" pill.
+- Manual product "Rivertine Cream" £59.99 → £44.99 → with Trade Special ON → red `TRADE SPECIAL` badge replaces WAS, savings pill suppressed.
+- Settings panel: `data-testid="vat-mode-incl-btn"`, `vat-mode-excl-btn`, `trade-special-checkbox` all wire correctly. localStorage persists choice across reloads.
+
+**Files**:
+- `/app/frontend/src/pages/admin/PriceTickets.js` — PriceTicket component, print-HTML generator, print-CSS, Settings panel UI, 2 new state vars + persistence effects.
+
+
+
 ### [Feb 26, 2026 — Forked session] 🧹 Hide Return column from Quotation / Cash Quotation forms
 
 **User report (with screenshot)**: *"Why does a quotation form has return box. It should only be for Invoices?"*
