@@ -720,6 +720,78 @@ export const PriceTickets = () => {
     setCustomRowsPerA4(rows);
   }, []);
 
+  // 31 May 2026 — Recent custom sizes (localStorage). Records the
+  // last 5 NON-preset W×H combos so admins who regularly print
+  // unusual sizes (e.g. 97×56mm for a particular shelf insert) can
+  // jump back to them in one click.
+  //
+  // We only record sizes that DON'T match either a PAPER_PRESETS
+  // entry or a SNAP_PRESETS entry — those are already one click
+  // away via the dropdown / snap. Per-browser, not per-account
+  // (localStorage is the simplest persistence that survives reloads
+  // without a new server-side surface).
+  const RECENT_SIZES_KEY = 'price_ticket_recent_sizes_v1';
+  const [recentSizes, setRecentSizes] = useState([]);
+
+  // Load on mount
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(RECENT_SIZES_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) setRecentSizes(parsed.slice(0, 5));
+      }
+    } catch (_e) { /* corrupted localStorage; ignore */ }
+  }, []);
+
+  const isPresetSize = useCallback((w, h) => {
+    // PAPER_PRESETS values
+    const inPaperPresets = Object.values(PAPER_PRESETS).some(
+      (p) => p.width_mm === w && p.height_mm === h,
+    );
+    // SNAP_PRESETS (the snap list defined near ResizeHandle)
+    const inSnapPresets = (typeof SNAP_PRESETS !== 'undefined') && SNAP_PRESETS.some(
+      (p) => (p.w === w && p.h === h) || (p.h === w && p.w === h),
+    );
+    return inPaperPresets || inSnapPresets;
+  }, []);
+
+  // Debounced commit: after the user stops adjusting W/H for 1.2s,
+  // commit the current dims to the recent list if they're not a
+  // preset. Avoids littering the list with every intermediate
+  // value while dragging the corner handle.
+  useEffect(() => {
+    if (!customWidthMm || !customHeightMm) return undefined;
+    if (isPresetSize(customWidthMm, customHeightMm)) return undefined;
+    const t = setTimeout(() => {
+      setRecentSizes((prev) => {
+        // Dedupe + move-to-front
+        const filtered = prev.filter((s) => !(s.w === customWidthMm && s.h === customHeightMm));
+        const next = [{ w: customWidthMm, h: customHeightMm, ts: Date.now() }, ...filtered].slice(0, 5);
+        try { localStorage.setItem(RECENT_SIZES_KEY, JSON.stringify(next)); } catch (_e) { /* quota */ }
+        return next;
+      });
+    }, 1200);
+    return () => clearTimeout(t);
+  }, [customWidthMm, customHeightMm, isPresetSize]);
+
+  const applyRecentSize = (s) => {
+    setCustomWidthMm(s.w);
+    setCustomHeightMm(s.h);
+    const cols = Math.max(1, Math.floor(210 / Math.max(1, s.w)));
+    const rows = Math.max(1, Math.floor(297 / Math.max(1, s.h)));
+    setCustomColsPerA4(cols);
+    setCustomRowsPerA4(rows);
+  };
+
+  const removeRecentSize = (w, h) => {
+    setRecentSizes((prev) => {
+      const next = prev.filter((s) => !(s.w === w && s.h === h));
+      try { localStorage.setItem(RECENT_SIZES_KEY, JSON.stringify(next)); } catch (_e) { /* quota */ }
+      return next;
+    });
+  };
+
   // Esc closes the enlarged preview from anywhere on the page +
   // lock body scroll while open so the page behind doesn't jump
   // around when the user scrolls inside the modal.
@@ -1998,6 +2070,51 @@ export const PriceTickets = () => {
                   {' · '}
                   <span className="italic">Tip: Save Settings on a product to remember this size for its next print.</span>
                 </p>
+                {/* 31 May 2026 — Recent custom (non-preset) sizes
+                    chip row. Persisted in localStorage per browser
+                    so admins who regularly print unusual ticket
+                    sizes (e.g. 97×56mm shelf inserts) stay one
+                    click away from them. Hidden when empty. */}
+                {recentSizes.length > 0 && (
+                  <div className="mt-2 flex items-center gap-2 flex-wrap" data-testid="price-ticket-recent-sizes">
+                    <span className="text-[10px] uppercase tracking-wider text-amber-700 font-bold whitespace-nowrap">
+                      Recent custom:
+                    </span>
+                    {recentSizes.map((s) => {
+                      const isActive = s.w === customWidthMm && s.h === customHeightMm;
+                      return (
+                        <span
+                          key={`${s.w}x${s.h}`}
+                          className={`inline-flex items-center gap-1 text-[11px] font-mono px-2 py-0.5 rounded-full border transition-colors ${
+                            isActive
+                              ? 'bg-amber-500/20 border-amber-500 text-amber-900 font-bold'
+                              : 'bg-white/70 border-amber-200 text-amber-800 hover:bg-amber-100 hover:border-amber-400'
+                          }`}
+                        >
+                          <button
+                            type="button"
+                            onClick={() => applyRecentSize(s)}
+                            data-testid={`price-ticket-recent-${s.w}x${s.h}`}
+                            title="Click to apply this size"
+                            className="focus:outline-none"
+                          >
+                            {s.w}×{s.h}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); removeRecentSize(s.w, s.h); }}
+                            data-testid={`price-ticket-recent-remove-${s.w}x${s.h}`}
+                            title="Remove from recent sizes"
+                            aria-label={`Remove ${s.w}×${s.h}mm from recent sizes`}
+                            className="text-amber-400 hover:text-rose-500 leading-none -mr-0.5"
+                          >
+                            ×
+                          </button>
+                        </span>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
               
               <div>

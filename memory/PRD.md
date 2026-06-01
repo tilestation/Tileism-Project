@@ -9,6 +9,31 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Feb 26, 2026 — Forked session] 📌 Price Tickets: "Recent custom sizes" chip row
+
+**User intent**: *"Recent custom sizes chip row below the W/H inputs. Stores the last 5 non-preset sizes the admin has used (per-account in localStorage) so e.g. 97×56mm stays one click away → YES."*
+
+**What was shipped** (`/app/frontend/src/pages/admin/PriceTickets.js`):
+
+- **`localStorage` persistence** keyed `price_ticket_recent_sizes_v1` — array of `{w, h, ts}` objects, max 5.
+- **Debounced commit** — after the user has stopped adjusting W/H for **1.2 s**, the current size is committed to the recent list. Avoids flooding with intermediate drag values.
+- **Preset filter** — only saves sizes that DON'T already exist in `PAPER_PRESETS` (A4 / A5 / Mini / etc.) AND aren't in `SNAP_PRESETS` (the new snap-to-preset list). Standard sizes are already one click away from the dropdown / snap, so duplicating them in "Recent" would be noise.
+- **Chip row UI** below the W/H/Cols/Rows panel:
+  - "RECENT CUSTOM:" label
+  - 1-5 amber chips showing `97×56` / `120×170` etc. in mono font
+  - **Active chip is highlighted** (bold + filled bg) so the user sees their current selection at a glance
+  - Click → applies the size AND auto-recomputes `cols × rows` (same logic as the corner drag-handle)
+  - **Tiny `×` remove button** on each chip to delete from history
+- Empty-state: row is **hidden entirely** when no recent customs exist — no UI noise when the admin only uses standard sizes.
+
+**Verified live**:
+- Seeded 3 recent sizes via localStorage → all 3 chips rendered.
+- Clicked `97×56` → W input = 97, H input = 56, cols = 2, rows = 5, hint text live-updated to "**97×56mm — 10 tickets per A4**", preview footer to "**1 A4 page(s) · 97×56mm**".
+- Active chip got the bold amber-fill highlight.
+
+**Files**: `/app/frontend/src/pages/admin/PriceTickets.js` (new `recentSizes` state + load/save useEffects + `applyRecentSize` / `removeRecentSize` handlers + chip row JSX after the W/H inputs).
+
+
 ### [Feb 26, 2026 — Forked session] 🧲 Price Tickets: snap-to-presets while dragging
 
 **User intent**: *"Visual snap-lines at A6 (105×148), A5 (148×210), A4 (210×297), Avery L7163 (99×38) etc., with a subtle magnetic pull as you near them → YES."*
