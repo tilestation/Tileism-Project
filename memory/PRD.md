@@ -9,6 +9,36 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Feb 26, 2026 — Forked session] 🔎 Price Tickets: discoverability polish — "Save as template" + history banner
+
+**User intent**: *"Save current as named template. Also tickets need to be saved in history, so if staff need to make any changes they can simply search for ticket and make changes."*
+
+**Reality check during investigation**: BOTH features already existed in the codebase!
+
+- **`saveTemplate()`** (PriceTickets.js line 865) — localStorage-backed, joins the paper-size dropdown as a permanent option per browser.
+- **Saved Batches** — full system already wired: auto-save on every print (content-hash dedupe), search by name/product, click to load, edit in place, delete. Backend collection + endpoints already live, full CRUD.
+
+The actual gap was **discoverability**: the "Save" template button was a tiny unlabelled pill; the Saved Batches search/load flow had no signposting so staff didn't realise printed tickets were already being saved.
+
+**Polish shipped** (`/app/frontend/src/pages/admin/PriceTickets.js`):
+
+1. **"Save as template" button** — renamed from `Save` → **`📑 Save as template`** (BookmarkPlus icon + label).
+   - Smarter prompt: suggests current template name if it's already custom, else `"Custom 105×148"`. Explains exactly what the action does: *"Save the current size + settings as a named template. It will be permanently added to the dropdown above so you can pick it again next time."*
+   - `title` tooltip so hover users see the explanation too.
+
+2. **Info banner above Saved Batches**: *"**Every printed batch auto-saves here.** Search by product or batch name to load an old print → make changes → Save batch will update it in place."*
+   - Blue info pill with Info icon, sits between the panel header and the search box.
+   - `data-testid="saved-batches-info-banner"` for regression coverage.
+
+**Verified live**:
+- "Save as template" button shows with BookmarkPlus icon + label.
+- Info banner renders correctly at the top of the Saved Batches card.
+- 2 existing batches ("Manual one-off", "Clearance Run A") visible with Load + delete.
+- Existing search box, save-batch header button, and Print Tickets all still functional.
+
+**Files**: `/app/frontend/src/pages/admin/PriceTickets.js` (better-labelled `save-template-btn` + smarter prompt copy + new `saved-batches-info-banner`; added `BookmarkPlus, Info` to lucide imports).
+
+
 ### [Feb 26, 2026 — Forked session] 📌 Price Tickets: "Recent custom sizes" chip row
 
 **User intent**: *"Recent custom sizes chip row below the W/H inputs. Stores the last 5 non-preset sizes the admin has used (per-account in localStorage) so e.g. 97×56mm stays one click away → YES."*

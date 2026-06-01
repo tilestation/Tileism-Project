@@ -5,7 +5,7 @@ import { api } from '../../lib/api';
 import { toast } from 'sonner';
 import { 
   Printer, Search, Trash2, RefreshCw, 
-  Tag, Package, Check, Settings, Grid, Save, History, Edit, Maximize2, X
+  Tag, Package, Check, Settings, Grid, Save, History, Edit, Maximize2, X, BookmarkPlus, Info
 } from 'lucide-react';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
@@ -1753,6 +1753,21 @@ export const PriceTickets = () => {
                 {sendingDigest ? 'Sending…' : '📊 Send digest now'}
               </button>
             </div>
+            {/* 31 May 2026 — Discoverability banner. Both auto-save-
+                on-print and the search/load/edit flow already exist,
+                but the user reported "tickets need to be saved in
+                history" — meaning they hadn't realised. One short
+                sentence here makes the workflow obvious without
+                cluttering the UI. */}
+            <div
+              className="flex items-start gap-2 text-[11px] text-blue-700 bg-blue-50 border border-blue-200 rounded-md px-2.5 py-2 mb-3 leading-snug"
+              data-testid="saved-batches-info-banner"
+            >
+              <Info className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
+              <span>
+                <strong>Every printed batch auto-saves here.</strong> Search by product or batch name to load an old print → make changes → Save batch will update it in place.
+              </span>
+            </div>
             <div className="relative mb-3">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
@@ -2005,13 +2020,24 @@ export const PriceTickets = () => {
                   </select>
                   <button
                     onClick={() => {
-                      const name = prompt('Save template as:', currentTemplateName);
+                      const suggestion = (!PAPER_PRESETS[currentTemplateName] && currentTemplateName)
+                        ? currentTemplateName
+                        : `Custom ${customWidthMm}×${customHeightMm}`;
+                      const name = prompt(
+                        'Save the current size + settings as a named template.\n\n' +
+                        'It will be permanently added to the dropdown above so you can ' +
+                        'pick it again next time.\n\n' +
+                        'Template name:',
+                        suggestion,
+                      );
                       if (name) saveTemplate(name);
                     }}
-                    className="px-3 py-1 bg-amber-600 text-white text-sm rounded hover:bg-amber-700"
+                    className="px-3 py-1 bg-amber-600 text-white text-sm rounded hover:bg-amber-700 flex items-center gap-1.5 whitespace-nowrap"
+                    title="Save the current paper size + display settings as a re-usable named template. Permanently joins the dropdown above."
                     data-testid="save-template-btn"
                   >
-                    Save
+                    <BookmarkPlus className="w-3.5 h-3.5" />
+                    Save as template
                   </button>
                 </div>
                 {/* Editable paper dimensions */}
