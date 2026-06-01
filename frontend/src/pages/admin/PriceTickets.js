@@ -101,21 +101,25 @@ const COUNTRY_FLAGS = {
   italy: {
     name: 'Italy',
     label: 'Made in Italy',
+    dial: '+39',
     svg: `<svg viewBox="0 0 60 40" width="30" height="20"><rect width="20" height="40" fill="#009246"/><rect x="20" width="20" height="40" fill="#fff"/><rect x="40" width="20" height="40" fill="#ce2b37"/></svg>`
   },
   spain: {
     name: 'Spain', 
     label: 'Made in Spain',
+    dial: '+34',
     svg: `<svg viewBox="0 0 60 40" width="30" height="20"><rect width="60" height="10" fill="#c60b1e"/><rect y="10" width="60" height="20" fill="#ffc400"/><rect y="30" width="60" height="10" fill="#c60b1e"/></svg>`
   },
   india: {
     name: 'India',
     label: 'Made in India', 
+    dial: '+91',
     svg: `<svg viewBox="0 0 60 40" width="30" height="20"><rect width="60" height="13.3" fill="#ff9933"/><rect y="13.3" width="60" height="13.4" fill="#fff"/><rect y="26.7" width="60" height="13.3" fill="#138808"/><circle cx="30" cy="20" r="4" fill="#000080"/></svg>`
   },
   turkey: {
     name: 'Turkey',
     label: 'Made in Turkey',
+    dial: '+90',
     svg: `<svg viewBox="0 0 60 40" width="30" height="20"><rect width="60" height="40" fill="#e30a17"/><circle cx="22" cy="20" r="10" fill="#fff"/><circle cx="25" cy="20" r="8" fill="#e30a17"/><polygon points="32,20 36,22 34,18 38,16 34,16 32,12 30,16 26,16 30,18 28,22" fill="#fff"/></svg>`
   }
 };
@@ -288,29 +292,30 @@ const PriceTicket = ({ product, showOriginalPrice, showClearanceBadge, showThisW
         </div>
       )}
 
-      {/* Product Name - LARGER */}
+      {/* Product Name — large, left-aligned, dominant (matches the
+          reference physical tickets: name is the biggest single
+          element on the ticket, takes ~1/8 of the height). */}
       <div style={{ 
-        textAlign: 'center',
-        marginBottom: '4mm',
+        textAlign: 'left',
+        marginBottom: '5mm',
         marginTop: (isClearance || showThisWeekBadge) ? '8mm' : '0'
       }}>
         <h2 style={{ 
-          fontSize: '18pt',
-          fontWeight: '600',
+          fontSize: '28pt',
+          fontWeight: 700,
           color: '#1a1a1a',
           margin: 0,
-          lineHeight: '1.2',
+          lineHeight: '1.05',
           fontFamily: '"Bahnschrift SemiBold", "Bahnschrift", "Segoe UI", sans-serif',
-          textTransform: 'uppercase',
-          letterSpacing: '0.5px'
+          letterSpacing: '-0.005em'
         }}>
           {product.name}
         </h2>
         {product.product_code && (
           <div style={{ 
-            fontSize: '9pt', 
+            fontSize: '10pt', 
             color: '#666',
-            marginTop: '2mm'
+            marginTop: '1.5mm'
           }}>
             Code: {product.product_code}
           </div>
@@ -325,21 +330,21 @@ const PriceTicket = ({ product, showOriginalPrice, showClearanceBadge, showThisW
           underneath disambiguates incl./excl. */}
       <div style={{
         textAlign: 'left',
-        marginBottom: '4mm',
+        marginBottom: '5mm',
       }}>
         <div style={{
           display: 'flex',
           alignItems: 'baseline',
           flexWrap: 'wrap',
-          gap: '3mm',
-          marginBottom: '1mm',
+          gap: '4mm',
+          marginBottom: '1.5mm',
         }}>
           {hasDiscount && (tradeSpecial ? (
             <div style={{
               backgroundColor: '#dc2626',
               color: '#ffffff',
-              padding: '1mm 3mm',
-              fontSize: '11pt',
+              padding: '1.5mm 3.5mm',
+              fontSize: '13pt',
               fontWeight: 800,
               textTransform: 'uppercase',
               letterSpacing: '0.08em',
@@ -351,11 +356,11 @@ const PriceTicket = ({ product, showOriginalPrice, showClearanceBadge, showThisW
             </div>
           ) : (showOriginalPrice && (
             <div style={{
-              fontSize: '22pt',
+              fontSize: '32pt',
               color: '#1a1a1a',
               fontWeight: 600,
               textDecoration: 'line-through',
-              textDecorationThickness: '0.4mm',
+              textDecorationThickness: '0.6mm',
               fontFamily: '"Bahnschrift SemiBold", "Bahnschrift", "Segoe UI", sans-serif',
               lineHeight: '1',
             }}>
@@ -363,7 +368,7 @@ const PriceTicket = ({ product, showOriginalPrice, showClearanceBadge, showThisW
             </div>
           )))}
           <div style={{
-            fontSize: '38pt',
+            fontSize: '52pt',
             color: hasDiscount ? '#dc2626' : '#1a1a1a',
             fontWeight: 700,
             fontFamily: '"Bahnschrift SemiBold", "Bahnschrift", "Segoe UI", sans-serif',
@@ -373,7 +378,7 @@ const PriceTicket = ({ product, showOriginalPrice, showClearanceBadge, showThisW
           }}>
             £{displayPrice.toFixed(2)}
             <span style={{
-              fontSize: '12pt',
+              fontSize: '18pt',
               fontWeight: 600,
               marginLeft: '1mm',
               color: hasDiscount ? '#dc2626' : '#1a1a1a',
@@ -384,7 +389,7 @@ const PriceTicket = ({ product, showOriginalPrice, showClearanceBadge, showThisW
         </div>
         {/* VAT tag */}
         <div style={{
-          fontSize: '8pt',
+          fontSize: '9pt',
           color: '#666',
           fontWeight: 600,
           letterSpacing: '0.05em',
@@ -394,40 +399,52 @@ const PriceTicket = ({ product, showOriginalPrice, showClearanceBadge, showThisW
         {/* Savings pill — kept from the previous design, only on sale */}
         {hasDiscount && !tradeSpecial && (
           <div style={{
-            marginTop: '2mm',
+            marginTop: '2.5mm',
             padding: '1.5mm 3mm',
             backgroundColor: '#374151',
             color: '#fbbf24',
             borderRadius: '2px',
             display: 'inline-block'
           }}>
-            <span style={{ fontSize: '10pt', fontWeight: 700 }}>
+            <span style={{ fontSize: '11pt', fontWeight: 700 }}>
               SAVE £{savingsAmount.toFixed(2)} ({savingsPercent}% OFF)
             </span>
           </div>
         )}
       </div>
 
-      {/* Product Details */}
+      {/* Product Details — large rows, one per line, with bold labels.
+          Matches the reference where every detail row has a clear "Label:
+          Value" structure at ~14pt. A small "(+39)" superscript appears
+          after Material when the country has a dial code, mirroring the
+          printed reference. */}
       <div style={{ 
         flex: 1,
-        fontSize: '9pt',
+        fontSize: '13pt',
         lineHeight: '1.6',
-        color: '#333'
+        color: '#1a1a1a'
       }}>
         {product.suitability && (
-          <div style={{ marginBottom: '1mm' }}>
-            <strong>Suitability:</strong> {product.suitability}
+          <div style={{ marginBottom: '2.5mm' }}>
+            <strong style={{ fontWeight: 700 }}>Suitability:</strong> {product.suitability}
           </div>
         )}
         {product.finish && (
-          <div style={{ marginBottom: '1mm' }}>
-            <strong>Finish:</strong> {product.finish}
+          <div style={{ marginBottom: '2.5mm' }}>
+            <strong style={{ fontWeight: 700 }}>Finish:</strong> {product.finish}
           </div>
         )}
         {product.material && (
-          <div style={{ marginBottom: '1mm' }}>
-            <strong>Material:</strong> {product.material}
+          <div style={{ marginBottom: '2.5mm' }}>
+            <strong style={{ fontWeight: 700 }}>Material:</strong> {product.material}
+            {/* Country dial-code superscript (e.g. Italy → (+39)). Matches
+                the printed reference where a small "(+39)" annotates the
+                material when the tile is made in that country. */}
+            {product.countryOfOrigin && COUNTRY_FLAGS[product.countryOfOrigin] && COUNTRY_FLAGS[product.countryOfOrigin].dial && (
+              <sup style={{ fontSize: '0.55em', fontWeight: 600, marginLeft: '0.5mm', color: '#444' }}>
+                ({COUNTRY_FLAGS[product.countryOfOrigin].dial})
+              </sup>
+            )}
           </div>
         )}
         {/* Auxiliary per-m² price for per-piece-priced tiles — matches
@@ -435,42 +452,44 @@ const PriceTicket = ({ product, showOriginalPrice, showClearanceBadge, showThisW
             from the first listed size when tile_m2_per_piece is absent.
             Honours the same VAT mode as the main price. */}
         {showAuxM2Price && (
-          <div style={{ marginBottom: '1mm' }} data-testid={`price-ticket-aux-m2-${index}`}>
-            <strong>Price m²:</strong> £{auxM2Price.toFixed(2)}
+          <div style={{ marginBottom: '2.5mm' }} data-testid={`price-ticket-aux-m2-${index}`}>
+            <strong style={{ fontWeight: 700 }}>Price m²:</strong> £{auxM2Price.toFixed(2)}
           </div>
         )}
       </div>
 
-      {/* Sizes Section */}
+      {/* Sizes Section — boxed numbers, larger to match the printed
+          reference (size boxes are a prominent visual block). */}
       {product.sizes && product.sizes.length > 0 && (
         <div style={{ 
           borderTop: '1px solid #ddd',
-          paddingTop: '3mm',
+          paddingTop: '4mm',
           marginTop: 'auto'
         }}>
           <div style={{ 
-            fontSize: '8pt', 
-            color: '#666',
-            marginBottom: '2mm',
-            fontWeight: '600'
+            fontSize: '12pt', 
+            color: '#1a1a1a',
+            marginBottom: '3mm',
+            fontWeight: 700
           }}>
-            SIZES AVAILABLE (cm):
+            Sizes Available (cm):
           </div>
           <div style={{ 
             display: 'flex', 
             flexWrap: 'wrap', 
-            gap: '2mm' 
+            gap: '3mm' 
           }}>
             {product.sizes.map((size, idx) => (
               <div 
                 key={idx}
                 style={{
-                  border: '1px solid #333',
-                  backgroundColor: '#f5f5f5',
-                  padding: '1mm 3mm',
-                  fontSize: '8pt',
-                  fontWeight: '700',
-                  textAlign: 'center'
+                  border: '1.5px solid #1a1a1a',
+                  backgroundColor: '#ffffff',
+                  padding: '3mm 5mm',
+                  fontSize: '16pt',
+                  fontWeight: 700,
+                  textAlign: 'center',
+                  minWidth: '20mm',
                 }}
               >
                 {size}
@@ -534,25 +553,33 @@ const PriceTicket = ({ product, showOriginalPrice, showClearanceBadge, showThisW
         );
       })()}
 
-      {/* Country of Origin with Flag */}
+      {/* Country of Origin — flag + label, justified to the right
+          matching the printed reference where "Made in Italy" sits at
+          the bottom-right corner. Flag is enlarged (60×40 vs 30×20). */}
       {product.countryOfOrigin && COUNTRY_FLAGS[product.countryOfOrigin] && (
         <div style={{
-          borderTop: '1px solid #ddd',
-          paddingTop: '3mm',
-          marginTop: '3mm',
+          marginTop: '4mm',
           display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          gap: '2mm'
+          flexDirection: 'column',
+          alignItems: 'flex-end',
+          gap: '0.5mm'
         }}>
           <span 
-            dangerouslySetInnerHTML={{ __html: COUNTRY_FLAGS[product.countryOfOrigin].svg }}
-            style={{ display: 'inline-block', verticalAlign: 'middle' }}
+            dangerouslySetInnerHTML={{
+              // Strip the hard-coded width/height on the svg so we can
+              // override below for a bigger printed flag.
+              __html: COUNTRY_FLAGS[product.countryOfOrigin].svg
+                .replace(/width="\d+"/, 'width="48"')
+                .replace(/height="\d+"/, 'height="32"')
+            }}
+            style={{ display: 'inline-block' }}
           />
           <span style={{
-            fontSize: '9pt',
-            fontWeight: '600',
-            color: '#333'
+            fontSize: '8pt',
+            fontWeight: 700,
+            color: '#1a1a1a',
+            letterSpacing: '0.05em',
+            textTransform: 'uppercase'
           }}>
             {COUNTRY_FLAGS[product.countryOfOrigin].label}
           </span>
@@ -1503,14 +1530,18 @@ export const PriceTickets = () => {
         <div class="details">
           ${product.suitability ? `<div><strong>Suitability:</strong> ${product.suitability}</div>` : ''}
           ${product.finish ? `<div><strong>Finish:</strong> ${product.finish}</div>` : ''}
-          ${product.material ? `<div><strong>Material:</strong> ${product.material}</div>` : ''}
+          ${product.material ? `<div><strong>Material:</strong> ${product.material}${
+            product.countryOfOrigin && COUNTRY_FLAGS[product.countryOfOrigin] && COUNTRY_FLAGS[product.countryOfOrigin].dial
+              ? `<sup class="material-dial">(${COUNTRY_FLAGS[product.countryOfOrigin].dial})</sup>`
+              : ''
+          }</div>` : ''}
           ${_showAuxM2 ? `<div><strong>Price m²:</strong> £${_auxM2.toFixed(2)}</div>` : ''}
         </div>
 
         <!-- Sizes -->
         ${product.sizes && product.sizes.length > 0 ? `
           <div class="sizes-section">
-            <div class="sizes-label">SIZES AVAILABLE (cm):</div>
+            <div class="sizes-label">Sizes Available (cm):</div>
             <div class="sizes-container">
               ${product.sizes.map(size => `<div class="size-box">${size}</div>`).join('')}
             </div>
@@ -1530,10 +1561,12 @@ export const PriceTickets = () => {
           </div>
         ` : ''}
 
-        <!-- Country of Origin -->
+        <!-- Country of Origin — enlarged flag, bottom-right column. -->
         ${product.countryOfOrigin && COUNTRY_FLAGS[product.countryOfOrigin] ? `
           <div class="country-section">
-            ${COUNTRY_FLAGS[product.countryOfOrigin].svg}
+            ${COUNTRY_FLAGS[product.countryOfOrigin].svg
+              .replace(/width="\d+"/, 'width="48"')
+              .replace(/height="\d+"/, 'height="32"')}
             <span class="country-label">${COUNTRY_FLAGS[product.countryOfOrigin].label}</span>
           </div>
         ` : ''}
@@ -1651,8 +1684,8 @@ export const PriceTickets = () => {
             }
             
             .product-name-section {
-              text-align: center;
-              margin-bottom: 4mm;
+              text-align: left;
+              margin-bottom: 5mm;
             }
             
             .product-name-section.with-badge {
@@ -1660,25 +1693,24 @@ export const PriceTickets = () => {
             }
             
             .product-name {
-              font-size: 16pt;
-              font-weight: 600;
+              font-size: 28pt;
+              font-weight: 700;
               color: #1a1a1a;
-              line-height: 1.2;
+              line-height: 1.05;
               font-family: "Bahnschrift SemiBold", "Bahnschrift", "Segoe UI", sans-serif;
-              text-transform: uppercase;
-              letter-spacing: 0.5px;
+              letter-spacing: -0.005em;
               margin: 0;
             }
             
             .product-code {
-              font-size: 9pt;
+              font-size: 10pt;
               color: #666;
-              margin-top: 2mm;
+              margin-top: 1.5mm;
             }
             
             .price-box {
               text-align: left;
-              margin-bottom: 4mm;
+              margin-bottom: 5mm;
             }
 
             /* Side-by-side WAS / NOW row, baseline aligned. */
@@ -1686,12 +1718,12 @@ export const PriceTickets = () => {
               display: flex;
               align-items: baseline;
               flex-wrap: wrap;
-              gap: 3mm;
-              margin-bottom: 1mm;
+              gap: 4mm;
+              margin-bottom: 1.5mm;
             }
             
             .rrp-price {
-              font-size: 22pt;
+              font-size: 32pt;
               color: #1a1a1a;
               font-weight: 600;
               font-family: "Bahnschrift SemiBold", "Bahnschrift", "Segoe UI", sans-serif;
@@ -1700,7 +1732,7 @@ export const PriceTickets = () => {
             
             .rrp-price.has-discount {
               text-decoration: line-through;
-              text-decoration-thickness: 0.4mm;
+              text-decoration-thickness: 0.6mm;
             }
 
             /* "TRADE SPECIAL" badge — replaces the WAS price on sale items
@@ -1708,8 +1740,8 @@ export const PriceTickets = () => {
             .trade-special-badge {
               background-color: #dc2626;
               color: #ffffff;
-              padding: 1mm 3mm;
-              font-size: 11pt;
+              padding: 1.5mm 3.5mm;
+              font-size: 13pt;
               font-weight: 800;
               text-transform: uppercase;
               letter-spacing: 0.08em;
@@ -1719,7 +1751,7 @@ export const PriceTickets = () => {
             }
             
             .main-price {
-              font-size: 38pt;
+              font-size: 52pt;
               font-weight: 700;
               color: #dc2626;
               font-family: "Bahnschrift SemiBold", "Bahnschrift", "Segoe UI", sans-serif;
@@ -1733,7 +1765,7 @@ export const PriceTickets = () => {
             
             /* Unit suffix prints INLINE next to the price (£36.99 each). */
             .price-unit-inline {
-              font-size: 12pt;
+              font-size: 18pt;
               font-weight: 600;
               margin-left: 1mm;
               color: #dc2626;
@@ -1744,7 +1776,7 @@ export const PriceTickets = () => {
 
             /* incl/excl VAT clarifier under the price. */
             .vat-tag {
-              font-size: 8pt;
+              font-size: 9pt;
               color: #666;
               font-weight: 600;
               letter-spacing: 0.05em;
@@ -1752,67 +1784,75 @@ export const PriceTickets = () => {
             }
             
             .savings-badge {
-              margin-top: 2mm;
+              margin-top: 2.5mm;
               padding: 1.5mm 3mm;
               background-color: #374151;
               color: #fbbf24;
               border-radius: 2px;
               display: inline-block;
-              font-size: 10pt;
+              font-size: 11pt;
               font-weight: 700;
             }
             
             .details {
               flex: 1;
-              font-size: 9pt;
-              line-height: 1.5;
-              color: #333;
+              font-size: 13pt;
+              line-height: 1.6;
+              color: #1a1a1a;
             }
             
             .details div {
-              margin-bottom: 1mm;
+              margin-bottom: 2.5mm;
             }
             
             .details strong {
+              font-weight: 700;
+            }
+
+            /* Country dial-code superscript next to Material. */
+            .material-dial {
+              font-size: 0.55em;
               font-weight: 600;
+              color: #444;
+              margin-left: 0.5mm;
+              vertical-align: super;
             }
             
             .sizes-section {
+              padding-top: 4mm;
               border-top: 1px solid #ddd;
-              padding-top: 3mm;
               margin-top: auto;
             }
             
             .sizes-label {
-              font-size: 7pt;
-              color: #666;
-              font-weight: 600;
-              margin-bottom: 2mm;
+              font-size: 12pt;
+              color: #1a1a1a;
+              font-weight: 700;
+              margin-bottom: 3mm;
             }
             
             .sizes-container {
               display: flex;
               flex-wrap: wrap;
-              gap: 2mm;
+              gap: 3mm;
             }
             
             .size-box {
-              border: 1px solid #333;
-              background: #f5f5f5;
-              padding: 1mm 3mm;
-              font-size: 8pt;
+              border: 1.5px solid #1a1a1a;
+              background: #ffffff;
+              padding: 3mm 5mm;
+              font-size: 16pt;
               font-weight: 700;
               text-align: center;
+              min-width: 20mm;
             }
             
             .country-section {
-              border-top: 1px solid #ddd;
-              padding-top: 3mm;
-              margin-top: 3mm;
+              margin-top: 4mm;
               display: flex;
-              align-items: center;
-              justify-content: center;
-              gap: 2mm;
+              flex-direction: column;
+              align-items: flex-end;
+              gap: 0.5mm;
             }
 
             .scan-strip {
@@ -1858,15 +1898,17 @@ export const PriceTickets = () => {
             }
             
             .country-section svg {
-              width: 30px;
-              height: 20px;
+              width: 48px;
+              height: 32px;
               border: 1px solid #ccc;
             }
             
             .country-label {
-              font-size: 9pt;
-              font-weight: 600;
-              color: #333;
+              font-size: 8pt;
+              font-weight: 700;
+              color: #1a1a1a;
+              letter-spacing: 0.05em;
+              text-transform: uppercase;
             }
             
             @media print {

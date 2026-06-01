@@ -9,6 +9,45 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Feb 26, 2026 — Forked session] 🏷️ Price Tickets v2: matched reference physical-ticket layout
+
+**User feedback**: *"Tell me a clear difference in what I sent you and what you designed? Where are all the fields and layout?"* (with reference photos of Rivertine Cream + Moonstone Carbon physical tickets)
+
+**What was missing in v1**:
+- Typography was way too small relative to the reference (the reference's product name dominates the ticket; my v1 was the same size as the body text).
+- No `(+39)` country dial-code superscript after the Material name.
+- The Made in Italy flag was tiny (30×20px) and centred under a separator — the reference has it at the bottom-right with bigger flag, with `MADE IN ITALY` in bold caps under.
+- Sizes boxes were small grey pills — reference uses big bordered white boxes with large bold numbers.
+- Sizes label was `SIZES AVAILABLE (cm):` in caps small grey — reference is `Sizes Available (cm):` in title case bold black.
+
+**v2 fixes** (`/app/frontend/src/pages/admin/PriceTickets.js`):
+
+1. **Massive typography uplift** — both the on-screen `<PriceTicket>` JSX AND the print HTML/CSS rewritten:
+   - Product name: `18pt` → `28pt` bold, left-aligned, no more uppercase transform.
+   - Price (NOW): `38pt` → `52pt`, side-by-side WAS/NOW preserved.
+   - WAS (strike-through): `22pt` → `32pt`.
+   - Unit suffix (`each` / `m²` / `/box`): `12pt` → `18pt` inline next to NOW.
+   - VAT tag: `8pt` → `9pt`.
+   - Detail rows (Suitability/Finish/Material): `9pt` → `13pt` with `lineHeight: 1.6` and `marginBottom: 2.5mm` per row.
+   - Auxiliary `Price m²: £X.XX` row: `9pt` → `13pt` (same as the other detail rows).
+   - Sizes label: `7-8pt SIZES AVAILABLE (cm):` → `12pt Sizes Available (cm):` bold black.
+   - Size boxes: `8pt` content in grey 1px box → `16pt` in white 1.5px black box with `minWidth: 20mm`.
+
+2. **Country dial-code superscript** — new `dial` field added to `COUNTRY_FLAGS`:
+   - `italy: '+39'`, `spain: '+34'`, `india: '+91'`, `turkey: '+90'`.
+   - Rendered as `<sup>` after Material text — e.g. `Material: Porcelain ⁽⁺³⁹⁾`. Matches the printed reference exactly.
+
+3. **Country flag enlarged + repositioned** — bottom-right column, flag SVG resized to `48×32` (vs `30×20`), label in bold UPPERCASE under the flag (`MADE IN ITALY`). The `borderTop: 1px solid #ddd` separator dropped so it sits cleanly in the corner like the reference.
+
+4. **All applied to both the inline preview AND the print HTML** so what you see on screen = what comes out of the printer.
+
+**Live-verified** at `/admin/price-tickets` with manual product "Moonstone Carbon" @ £44.99 → £36.99 + Italy:
+- Inline thumbnail: huge bold "MOONSTONE CARBON", side-by-side WAS/NOW prices, `Porcelain⁽⁺³⁹⁾` superscript clearly visible, large size boxes, italian flag at bottom-right.
+
+**Files**: `/app/frontend/src/pages/admin/PriceTickets.js` (PriceTicket JSX + COUNTRY_FLAGS dial codes + print HTML + print CSS).
+
+
+
 ### [Feb 26, 2026 — Forked session] 🏷️ Price Tickets: format match + VAT toggle + Trade Special toggle
 
 **User request (with 2 reference photos)**:
