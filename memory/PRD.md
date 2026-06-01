@@ -9,6 +9,44 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Feb 26, 2026 — Forked session] 🏷️ Price Tickets: "Duplicate × N" colour-range presets
+
+**User intent**: *"Duplicate × N quick action — type a number and one click clones the ticket N times with auto-suffix (White) / (Grey) / (Beige) / (Black)? Could come from a small saved 'colour-range presets' dropdown so showroom managers can stamp out a full range in one keypress."*
+
+**Backend** (`/app/backend/routes/ticket_batches.py`):
+- New collection `ticket_colour_presets` seeded with 5 default presets on first call:
+  - **Classic 4-pack** — White / Grey / Beige / Black
+  - **Stone Naturals** — Cream / Sand / Stone / Slate
+  - **Warm Naturals** — Ivory / Sand / Terracotta / Mocha
+  - **Greys & Charcoals** — Light Grey / Grey / Anthracite / Charcoal
+  - **Marble Look** — Statuario / Calacatta / Carrara / Emperador
+- **`GET /api/admin/colour-range-presets`** → returns shared preset list (defaults at top, newest custom presets below).
+- **`POST /api/admin/colour-range-presets`** → save a new custom preset. Case-insensitive uniqueness — saving the same name twice silently returns the existing row (better UX than 409). Stamped with `created_by` for audit.
+- **`DELETE /api/admin/colour-range-presets/{id}`** → delete a custom preset. Built-in defaults are protected (400 "can't be deleted").
+
+**Frontend** (`/app/frontend/src/pages/admin/PriceTickets.js`):
+- New `<RangePopover>` sub-component (~150 LOC) rendered next to the blue Copy button on every product card:
+  - Purple `Range` button with `Layers` lucide icon and "Range" label.
+  - Click → shadcn `Popover` opens, anchored bottom-end.
+  - **Saved presets section**: scrollable list of all server-side presets. Each row clickable → applies. Custom presets show a tiny trash icon (defaults are protected). Each row shows `name × N` + the colour list.
+  - **Custom colours input**: comma-separated text field with live-parsed chip preview underneath. Bottom helper: *"→ N tickets"*.
+  - **Save-as-preset row**: input + Save button that appears only after the user has typed something. Saves to backend → reloads dropdown → ready to apply on the next product.
+- **`duplicateWithColours(productId, colours)` handler**:
+  - Strips any existing parenthetical suffix from the source name (so re-running doesn't compound `White (White)`).
+  - **Renames the source itself to the first colour**, then inserts clones for colours 2..N immediately after (keeps the variants grouped on the printed sheet).
+  - Deep-copies `sizes` + `finishPremiums` so each colour can be edited independently.
+  - Marks each clone `_manual` + `_duplicatedFrom` for traceability.
+  - Toast: *"Created N tickets: White · Grey · Beige · Black"*.
+- All elements carry `data-testid`s (`range-popover-trigger-{id}`, `range-preset-apply-{presetId}`, `range-preset-delete-{presetId}`, `range-custom-input-{id}`, `range-apply-custom-{id}`, `range-save-name-{id}`, `range-save-btn-{id}`).
+
+**Verified live**: Floor Tile Grey 600x600 + click `Range` → click "Classic 4-pack" → toast *"Created 4 tickets: White · Grey · Beige · Black"*. Header counter live-updates to `Print Tickets (4)`. A4 print preview shows 4 tickets, each titled `Floor Tile Grey 600x600 (White)` / `(Grey)` / `(Beige)` / `(Black)` — fully editable, each with its own price/finish.
+
+**Files**:
+- `/app/backend/routes/ticket_batches.py` — 3 endpoints + auto-seed + `ColourRangePreset` model.
+- `/app/frontend/src/pages/admin/PriceTickets.js` — `RangePopover` component, `duplicateWithColours`, preset CRUD handlers, state, fetch on mount, mounted next to Duplicate button.
+
+
+
 ### [Feb 26, 2026 — Forked session] 🏷️ Price Tickets: "Duplicate ticket" for colour variants
 
 **User intent**: *"Once one ticket is done, allow me to copy the same ticket here and make it editable, for example, Ardesia Slate has White colour and then copying it for the other colours in the same range, grey, beige, black etc, so staff can copy easily and just change the colour and the next ticket is done."*

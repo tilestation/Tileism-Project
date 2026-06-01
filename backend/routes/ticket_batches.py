@@ -356,3 +356,106 @@ async def send_ticket_digest_now(
     from services.ticket_digest import run_ticket_digest_tick
 
     return await run_ticket_digest_tick(force=True)
+
+
+# ============================================================================
+# Colour-Range Presets — Feb 26, 2026
+#
+# Showroom managers stamp out the same colour range (e.g. "White / Grey /
+# Beige / Black") over and over for different tile families. Storing those
+# presets server-side means every staff member at every showroom picks
+# from the same shared list — no diverging local copies.
+# ============================================================================
+DEFAULT_COLOUR_PRESETS = [
+    {"name": "Classic 4-pack", "colours": ["White", "Grey", "Beige", "Black"]},
+    {"name": "Stone Naturals", "colours": ["Cream", "Sand", "Stone", "Slate"]},
+    {"name": "Warm Naturals", "colours": ["Ivory", "Sand", "Terracotta", "Mocha"]},
+    {"name": "Greys & Charcoals", "colours": ["Light Grey", "Grey", "Anthracite", "Charcoal"]},
+    {"name": "Marble Look", "colours": ["Statuario", "Calacatta", "Carrara", "Emperador"]},
+]
+
+
+class ColourRangePreset(BaseModel):
+    name: str = Field(..., min_length=1, max_length=60)
+    colours: List[str] = Field(..., min_items=1, max_items=20)
+
+
+async def _ensure_default_presets(db) -> None:
+    """First-call seeding — populate the collection if empty so the
+    dropdown has something useful out of the box."""
+    count = await db.ticket_colour_presets.count_documents({})
+    if count == 0:
+        now = datetime.now(timezone.utc).isoformat()
+        await db.ticket_colour_presets.insert_many([
+            {
+                "id": str(uuid.uuid4()),
+                "name": p["name"],
+                "colours": p["colours"],
+                "is_default": True,
+                "created_at": now,
+            }
+            for p in DEFAULT_COLOUR_PRESETS
+        ])
+
+
+@router.get("/colour-range-presets")
+async def list_colour_range_presets(current_user: dict = Depends(get_current_user)):
+    """All saved presets — shared across all admin users."""
+    db = get_db()
+    await _ensure_default_presets(db)
+    items = await db.ticket_colour_presets.find(
+        {},
+        {"_id": 0, "id": 1, "name": 1, "colours": 1, "is_default": 1, "created_at": 1},
+    ).to_list(500)
+    # Newest first for custom presets, defaults at the top.
+    items.sort(key=lambda x: (not x.get("is_default"), x.get("created_at", "")))
+    return {"items": items}
+
+
+@router.post("/colour-range-presets")
+async def create_colour_range_preset(
+    payload: ColourRangePreset,
+    current_user: dict = Depends(get_current_user),
+):
+    """Save a custom preset. Names must be unique (case-insensitive)."""
+    db = get_db()
+    clean_colours = [c.strip() for c in payload.colours if c and c.strip()]
+    if not clean_colours:
+        raise HTTPException(status_code=400, detail="At least one non-empty colour required")
+    # Case-insensitive uniqueness — staff often Save twice without
+    # realising; we silently 200 with the existing one rather than
+    # forcing them to handle a 409.
+    existing = await db.ticket_colour_presets.find_one(
+        {"name": {"$regex": f"^{payload.name.strip()}$", "$options": "i"}},
+        {"_id": 0, "id": 1, "name": 1, "colours": 1, "is_default": 1, "created_at": 1},
+    )
+    if existing:
+        return existing
+    doc = {
+        "id": str(uuid.uuid4()),
+        "name": payload.name.strip(),
+        "colours": clean_colours,
+        "is_default": False,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "created_by": current_user.get("email", ""),
+    }
+    await db.ticket_colour_presets.insert_one(doc)
+    # Strip mutating _id before returning.
+    return {k: v for k, v in doc.items() if k != "_id"}
+
+
+@router.delete("/colour-range-presets/{preset_id}")
+async def delete_colour_range_preset(
+    preset_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """Delete a custom preset. Built-in defaults can't be deleted to keep
+    the seed-list stable across reboots; we 400 with a friendly hint."""
+    db = get_db()
+    existing = await db.ticket_colour_presets.find_one({"id": preset_id}, {"_id": 0})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Preset not found")
+    if existing.get("is_default"):
+        raise HTTPException(status_code=400, detail="Built-in defaults can't be deleted")
+    await db.ticket_colour_presets.delete_one({"id": preset_id})
+    return {"deleted": preset_id}

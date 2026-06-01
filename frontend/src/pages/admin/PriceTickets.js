@@ -5,11 +5,12 @@ import { api } from '../../lib/api';
 import { toast } from 'sonner';
 import { 
   Printer, Search, Trash2, RefreshCw, 
-  Tag, Package, Check, Settings, Grid, Save, History, Edit, Maximize2, X, BookmarkPlus, Info, Copy
+  Tag, Package, Check, Settings, Grid, Save, History, Edit, Maximize2, X, BookmarkPlus, Info, Copy, Layers, Trash, Plus
 } from 'lucide-react';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
 import { Card } from '../../components/ui/card';
+import { Popover, PopoverTrigger, PopoverContent } from '../../components/ui/popover';
 
 // Public storefront URL for the QR-code deep-link to the PDP. Hardcoded
 // because frontend env doesn't carry it and this never changes between
@@ -123,6 +124,173 @@ const COUNTRY_FLAGS = {
     svg: `<svg viewBox="0 0 60 40" width="30" height="20"><rect width="60" height="40" fill="#e30a17"/><circle cx="22" cy="20" r="10" fill="#fff"/><circle cx="25" cy="20" r="8" fill="#e30a17"/><polygon points="32,20 36,22 34,18 38,16 34,16 32,12 30,16 26,16 30,18 28,22" fill="#fff"/></svg>`
   }
 };
+// ============================================================================
+// RangePopover — Feb 26, 2026
+//
+// Renders the "▾ Range" button on each product card. Clicking opens a small
+// popover that lets the user:
+//   • Pick a saved colour-range preset → instant N-tile stamp out
+//   • Type a comma-separated list of custom colours → same outcome ad-hoc
+//   • Save the typed list as a new preset (shared across all admins)
+//   • Delete a custom preset (built-in defaults are protected server-side)
+// ============================================================================
+const RangePopover = ({ product, presets, onApply, onSavePreset, onDeletePreset }) => {
+  const [open, setOpen] = React.useState(false);
+  const [customText, setCustomText] = React.useState('');
+  const [presetName, setPresetName] = React.useState('');
+
+  // Parse "White, Grey,Beige" → ["White","Grey","Beige"]
+  const parseCustom = (s) => (s || '')
+    .split(/[,;\n]/)
+    .map(x => x.trim())
+    .filter(Boolean);
+
+  const customColours = parseCustom(customText);
+
+  const handleApplyPreset = (preset) => {
+    if (!preset?.colours?.length) return;
+    onApply(product.id, preset.colours);
+    setOpen(false);
+  };
+
+  const handleApplyCustom = () => {
+    if (customColours.length === 0) return;
+    onApply(product.id, customColours);
+    setOpen(false);
+    setCustomText('');
+  };
+
+  const handleSavePreset = async () => {
+    if (!presetName.trim() || customColours.length === 0) return;
+    const saved = await onSavePreset(presetName.trim(), customColours);
+    if (saved) setPresetName('');
+  };
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          variant="outline"
+          size="sm"
+          className="text-purple-600 hover:text-purple-700 hover:bg-purple-50 gap-1 px-2"
+          title="Duplicate × N — clone for a whole colour range in one click"
+          data-testid={`range-popover-trigger-${product.id}`}
+        >
+          <Layers className="h-4 w-4" />
+          <span className="text-xs font-medium">Range</span>
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="end"
+        className="w-80 space-y-3"
+        data-testid={`range-popover-${product.id}`}
+      >
+        <div>
+          <p className="text-sm font-semibold mb-0.5">Duplicate as colour range</p>
+          <p className="text-[11px] text-muted-foreground leading-snug">
+            Pick a saved preset OR type your own colours. Source becomes the first
+            colour; new tickets are inserted right after it on the print sheet.
+          </p>
+        </div>
+
+        {presets.length > 0 && (
+          <div className="space-y-1.5">
+            <p className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">Saved presets</p>
+            <div className="space-y-1 max-h-44 overflow-y-auto pr-0.5" data-testid={`range-presets-list-${product.id}`}>
+              {presets.map((p) => (
+                <div
+                  key={p.id}
+                  className="flex items-center justify-between gap-2 px-2 py-1.5 rounded border border-slate-200 bg-white hover:bg-slate-50"
+                  data-testid={`range-preset-row-${p.id}`}
+                >
+                  <button
+                    type="button"
+                    onClick={() => handleApplyPreset(p)}
+                    className="text-left min-w-0 flex-1"
+                    title={p.colours.join(' · ')}
+                    data-testid={`range-preset-apply-${p.id}`}
+                  >
+                    <p className="text-sm font-medium truncate flex items-center gap-1.5">
+                      {p.name}
+                      <span className="text-[10px] text-slate-500 font-normal">× {p.colours.length}</span>
+                    </p>
+                    <p className="text-[10px] text-slate-500 truncate">{p.colours.join(' · ')}</p>
+                  </button>
+                  {!p.is_default && (
+                    <button
+                      type="button"
+                      onClick={() => onDeletePreset(p.id, p.name)}
+                      className="text-rose-500 hover:text-rose-700 p-1"
+                      title="Delete custom preset"
+                      data-testid={`range-preset-delete-${p.id}`}
+                    >
+                      <Trash className="h-3 w-3" />
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div className="space-y-1.5 pt-2 border-t">
+          <p className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">
+            Or type your own (comma-separated)
+          </p>
+          <Input
+            value={customText}
+            onChange={(e) => setCustomText(e.target.value)}
+            placeholder="White, Grey, Beige, Black"
+            className="h-8 text-sm"
+            data-testid={`range-custom-input-${product.id}`}
+          />
+          {customColours.length > 0 && (
+            <div className="flex flex-wrap gap-1">
+              {customColours.map((c, i) => (
+                <span key={i} className="px-1.5 py-0.5 text-[10px] bg-slate-100 rounded">{c}</span>
+              ))}
+              <span className="text-[10px] text-slate-500 self-center ml-1">
+                → {customColours.length} ticket{customColours.length === 1 ? '' : 's'}
+              </span>
+            </div>
+          )}
+          <Button
+            size="sm"
+            onClick={handleApplyCustom}
+            disabled={customColours.length === 0}
+            className="w-full h-8 bg-purple-600 hover:bg-purple-700 text-white"
+            data-testid={`range-apply-custom-${product.id}`}
+          >
+            <Copy className="h-3 w-3 mr-1" /> Apply
+          </Button>
+          {customColours.length > 0 && (
+            <div className="flex gap-1.5 pt-1">
+              <Input
+                value={presetName}
+                onChange={(e) => setPresetName(e.target.value)}
+                placeholder="Save as… (e.g. Ardesia)"
+                className="h-7 text-xs flex-1"
+                data-testid={`range-save-name-${product.id}`}
+              />
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={handleSavePreset}
+                disabled={!presetName.trim()}
+                className="h-7 text-xs"
+                data-testid={`range-save-btn-${product.id}`}
+              >
+                <Plus className="h-3 w-3 mr-1" /> Save
+              </Button>
+            </div>
+          )}
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+};
+
+
 
 const PriceTicket = ({ product, showOriginalPrice, showClearanceBadge, showThisWeekBadge, showBarcode, showQR, index, paperSize, resizable, onResize, previewScale, textScale, cornerBanner, vatMode = 'incl', tradeSpecial = false }) => {
   const hasDiscount = product.clearance_price && product.clearance_price < product.price;
@@ -958,6 +1126,44 @@ export const PriceTickets = () => {
       .catch(() => { /* offline → degrade gracefully (free-text input still works) */ });
     return () => { cancelled = true; };
   }, []);
+  // 1 Jun 2026 — Colour-range presets shared across all admins.
+  // Loaded once on mount; refetched after the user saves a new one
+  // so it appears in the dropdown immediately.
+  const [colourPresets, setColourPresets] = useState([]);
+  const reloadColourPresets = () => {
+    api.get('/admin/colour-range-presets')
+      .then(res => setColourPresets(Array.isArray(res.data?.items) ? res.data.items : []))
+      .catch(() => { /* keep what we had */ });
+  };
+  useEffect(() => { reloadColourPresets(); }, []);
+  const saveColourPreset = async (name, colours) => {
+    const cleaned = (colours || []).map(c => (c || '').trim()).filter(Boolean);
+    if (!name?.trim() || cleaned.length === 0) {
+      toast.error('Preset needs a name + at least one colour');
+      return null;
+    }
+    try {
+      const res = await api.post('/admin/colour-range-presets', {
+        name: name.trim(),
+        colours: cleaned,
+      });
+      toast.success(`Saved preset "${res.data?.name || name}"`);
+      reloadColourPresets();
+      return res.data;
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || 'Could not save preset');
+      return null;
+    }
+  };
+  const deleteColourPreset = async (presetId, presetName) => {
+    try {
+      await api.delete(`/admin/colour-range-presets/${presetId}`);
+      toast.success(`Deleted preset "${presetName}"`);
+      reloadColourPresets();
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || 'Could not delete preset');
+    }
+  };
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [showOriginalPrice, setShowOriginalPrice] = useState(true);
@@ -1507,24 +1713,24 @@ export const PriceTickets = () => {
   // back to the source product's DB row (each colour usually has its own
   // SKU, so we treat the duplicate as a manual entry). Name gets " (copy)"
   // suffix so it's obvious which one to rename.
+  const _stripParenSuffix = (name) => (name || '').replace(/\s*\([^)]*\)\s*$/, '').trim();
+  const _cloneBase = (source) => ({
+    ...source,
+    sizes: Array.isArray(source.sizes) ? [...source.sizes] : [],
+    finishPremiums: { ...(source.finishPremiums || {}) },
+    productId: '',
+    sku: '',
+    product_code: '',
+    _manual: true,
+    _duplicatedFrom: source.id,
+  });
   const duplicateProduct = (productId) => {
     const idx = selectedProducts.findIndex(p => p.id === productId);
     if (idx < 0) return;
     const source = selectedProducts[idx];
     const clone = {
-      ...source,
-      // Deep-copy nested arrays/objects so editing the clone doesn't
-      // mutate the source.
-      sizes: Array.isArray(source.sizes) ? [...source.sizes] : [],
-      finishPremiums: { ...(source.finishPremiums || {}) },
-      // Fresh client-only id so the React keys stay unique. We prefix
-      // with the source id so it's traceable.
+      ..._cloneBase(source),
       id: `dup-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-      productId: '', // no longer linked to the original DB product
-      sku: '',
-      product_code: '',
-      _manual: true,
-      _duplicatedFrom: source.id,
       name: `${source.name || 'Untitled'} (copy)`,
     };
     const next = [...selectedProducts];
@@ -1533,6 +1739,43 @@ export const PriceTickets = () => {
     toast.success(`Duplicated "${source.name || 'ticket'}" — rename the colour and you're done`, {
       duration: 4000,
     });
+  };
+
+  // ── Duplicate × Colour-Range (Feb 26, 2026) ──────────────────────────
+  // Given a list of colour names, clones the source ticket once per
+  // colour and stamps each one with " ({Colour})". Strips any existing
+  // parenthetical suffix on the source first so re-running doesn't
+  // produce "White (White)". Source itself gets renamed to the FIRST
+  // colour in the list (so a single-product → 4-ticket range fits the
+  // sheet without an unnamed original).
+  const duplicateWithColours = (productId, colours) => {
+    const cleaned = (colours || [])
+      .map(c => (c || '').trim())
+      .filter(Boolean);
+    if (cleaned.length === 0) {
+      toast.error('Enter at least one colour or pick a preset');
+      return;
+    }
+    const idx = selectedProducts.findIndex(p => p.id === productId);
+    if (idx < 0) return;
+    const source = selectedProducts[idx];
+    const baseName = _stripParenSuffix(source.name);
+    const next = [...selectedProducts];
+    // Rename source → first colour. Mutating in place keeps the source
+    // row referenced by id, finishPremiums, etc.
+    next[idx] = { ...source, name: `${baseName} (${cleaned[0]})` };
+    // Insert remaining clones immediately after.
+    const clones = cleaned.slice(1).map((colour, n) => ({
+      ..._cloneBase(source),
+      id: `dup-${Date.now()}-${n}-${Math.random().toString(36).slice(2, 6)}`,
+      name: `${baseName} (${colour})`,
+    }));
+    next.splice(idx + 1, 0, ...clones);
+    setSelectedProducts(next);
+    toast.success(
+      `Created ${cleaned.length} tickets: ${cleaned.join(' · ')}`,
+      { duration: 4500 }
+    );
   };
 
   const updateProductField = (productId, field, value) => {
@@ -3000,6 +3243,16 @@ export const PriceTickets = () => {
                         >
                           <Copy className="h-4 w-4" />
                         </Button>
+                        {/* Duplicate × N (Range popover) — clone for a whole
+                            colour range in one click. Presets are shared
+                            across all admins (server-side collection). */}
+                        <RangePopover
+                          product={product}
+                          presets={colourPresets}
+                          onApply={duplicateWithColours}
+                          onSavePreset={saveColourPreset}
+                          onDeletePreset={deleteColourPreset}
+                        />
                         <Button
                           variant="ghost"
                           size="sm"
