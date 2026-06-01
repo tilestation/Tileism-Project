@@ -120,7 +120,7 @@ const COUNTRY_FLAGS = {
   }
 };
 
-const PriceTicket = ({ product, showOriginalPrice, showClearanceBadge, showThisWeekBadge, showBarcode, showQR, index, paperSize, resizable, onResize, previewScale, textScale }) => {
+const PriceTicket = ({ product, showOriginalPrice, showClearanceBadge, showThisWeekBadge, showBarcode, showQR, index, paperSize, resizable, onResize, previewScale, textScale, cornerBanner }) => {
   const hasDiscount = product.clearance_price && product.clearance_price < product.price;
   const displayPrice = hasDiscount ? product.clearance_price : product.price;
   const originalPrice = product.price;
@@ -179,6 +179,41 @@ const PriceTicket = ({ product, showOriginalPrice, showClearanceBadge, showThisW
         position: 'relative'
       }}
     >
+      {/* 31 May 2026 — Diagonal corner banner (SALE / CLEARANCE /
+          NEW IN). Eye-catching from across the showroom. The
+          banner is a red square positioned half-off the top-right
+          corner of the ticket then rotated 45° around its centre,
+          so its two outer triangle corners stick out neatly forming
+          a flag. `overflow: hidden` on the parent clips the half
+          that falls outside the ticket bounds. Sizes scale with the
+          ticket. Hidden when prop is empty. */}
+      {cornerBanner && (
+        <div
+          data-testid="price-ticket-corner-banner"
+          style={{
+            position: 'absolute',
+            top: `${4 * scale}mm`,
+            right: `-${22 * scale}mm`,
+            width: `${70 * scale}mm`,
+            transform: 'rotate(45deg)',
+            transformOrigin: 'center center',
+            background: 'linear-gradient(135deg, #dc2626, #b91c1c)',
+            color: '#ffffff',
+            textAlign: 'center',
+            padding: `${1.5 * scale}mm 0`,
+            fontSize: `${10 * scale}pt`,
+            fontWeight: 800,
+            letterSpacing: '0.18em',
+            textTransform: 'uppercase',
+            boxShadow: '0 1px 3px rgba(0,0,0,0.35)',
+            zIndex: 5,
+            fontFamily: '"Bahnschrift SemiBold", "Bahnschrift", "Segoe UI", Arial, sans-serif',
+            pointerEvents: 'none',
+          }}
+        >
+          {cornerBanner}
+        </div>
+      )}
       <div style={{
         width: `${REF_W}mm`,
         height: `${REF_H}mm`,
@@ -808,6 +843,16 @@ export const PriceTickets = () => {
   useEffect(() => {
     try { localStorage.setItem('price_ticket_locked_v1', isLocked ? '1' : '0'); } catch (_e) { /* quota */ }
   }, [isLocked]);
+  // 31 May 2026 — Diagonal corner banner. One of: '' (off), 'SALE',
+  // 'CLEARANCE', 'NEW IN'. Per-batch (not per-product) — every
+  // ticket on the current sheet gets the same flag. Persisted in
+  // localStorage so the choice survives a reload.
+  const [cornerBanner, setCornerBanner] = useState(() => {
+    try { return localStorage.getItem('price_ticket_corner_banner_v1') || ''; } catch (_e) { return ''; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem('price_ticket_corner_banner_v1', cornerBanner); } catch (_e) { /* quota */ }
+  }, [cornerBanner]);
   // Manual product form — for tickets when the product isn't in the catalogue
   // (one-off price tickets, in-store-only items, samples, etc.). Adds a
   // virtual product (no `id`) to selectedProducts. Save Settings is hidden
@@ -1347,6 +1392,7 @@ export const PriceTickets = () => {
       
       return `
       <div class="price-ticket">
+        ${cornerBanner ? `<div class="corner-banner">${cornerBanner}</div>` : ''}
         <div class="price-ticket-inner">
         <!-- Clearance Badge -->
         ${isClearance ? `
@@ -1463,6 +1509,31 @@ export const PriceTickets = () => {
               page-break-inside: avoid;
               break-inside: avoid;
               position: relative;
+            }
+
+            /* Diagonal corner banner — same maths as the screen
+               version. ${printScale} matches the inner content
+               scale so the banner grows/shrinks with the ticket. */
+            .corner-banner {
+              position: absolute;
+              top: ${4 * printScale}mm;
+              right: -${22 * printScale}mm;
+              width: ${70 * printScale}mm;
+              transform: rotate(45deg);
+              transform-origin: center center;
+              background: linear-gradient(135deg, #dc2626, #b91c1c);
+              color: #ffffff;
+              text-align: center;
+              padding: ${1.5 * printScale}mm 0;
+              font-size: ${10 * printScale}pt;
+              font-weight: 800;
+              letter-spacing: 0.18em;
+              text-transform: uppercase;
+              box-shadow: 0 1px 3px rgba(0,0,0,0.35);
+              z-index: 5;
+              font-family: "Bahnschrift SemiBold", "Bahnschrift", "Segoe UI", sans-serif;
+              -webkit-print-color-adjust: exact;
+              print-color-adjust: exact;
             }
 
             /* Inner content laid out at A6 reference, scaled uniformly */
@@ -2306,6 +2377,44 @@ export const PriceTickets = () => {
                   </button>
                 </div>
 
+                {/* 31 May 2026 — Diagonal corner banner picker.
+                    Per-batch flag that paints a red rotated banner
+                    across the top-right of every ticket on the
+                    current sheet. Eye-catching from across the
+                    showroom. Toggle off via "None". */}
+                <div className="pt-2 border-t border-amber-200">
+                  <div className="text-xs text-amber-800 font-semibold mb-1.5">
+                    Corner banner
+                  </div>
+                  <div className="grid grid-cols-4 gap-1" data-testid="corner-banner-picker">
+                    {[
+                      { val: '',          label: 'None'     },
+                      { val: 'SALE',      label: 'SALE'     },
+                      { val: 'CLEARANCE', label: 'CLEAR.'   },
+                      { val: 'NEW IN',    label: 'NEW IN'   },
+                    ].map((opt) => {
+                      const active = cornerBanner === opt.val;
+                      return (
+                        <button
+                          key={opt.val || 'none'}
+                          type="button"
+                          onClick={() => setCornerBanner(opt.val)}
+                          disabled={isLocked}
+                          data-testid={`corner-banner-${opt.val || 'none'}`}
+                          title={opt.val ? `Paint a red "${opt.val}" flag across the top-right of every ticket` : 'No corner banner'}
+                          className={`text-[10px] font-bold uppercase tracking-wider py-1 rounded border transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+                            active
+                              ? 'bg-rose-600 text-white border-rose-700'
+                              : 'bg-white text-slate-700 border-slate-300 hover:border-rose-400 hover:bg-rose-50'
+                          }`}
+                        >
+                          {opt.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
                 <p className="text-xs text-amber-700">
                   {customWidthMm}×{customHeightMm}mm — {customColsPerA4 * customRowsPerA4} tickets per A4
                   {' · '}
@@ -2662,6 +2771,7 @@ export const PriceTickets = () => {
                       index={idx}
                       paperSize={currentPaperSize}
                       textScale={textScale}
+                      cornerBanner={cornerBanner}
                       // Resize handle only on the FIRST ticket of the
                       // inline preview. All other copies reflow because
                       // they read the same customWidthMm/customHeightMm.
@@ -2741,6 +2851,7 @@ export const PriceTickets = () => {
                   index={idx}
                   paperSize={currentPaperSize}
                   textScale={textScale}
+                  cornerBanner={cornerBanner}
                 />
               ))}
             </div>

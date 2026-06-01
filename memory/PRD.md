@@ -9,6 +9,23 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Feb 26, 2026 — Forked session] 🎯 Price Tickets: SALE / CLEARANCE / NEW IN diagonal corner banner
+
+**User request**: *"SALE / CLEARANCE / NEW IN diagonal corner banner option for sale tickets. A red triangle in the top-right of the ticket with a single bold word, super eye-catching from across the showroom → YES."*
+
+**What was shipped** (`/app/frontend/src/pages/admin/PriceTickets.js`):
+
+- **Picker UI** in Ticket Settings → 4-col grid: **NONE / SALE / CLEAR. / NEW IN**. Active pill turns red. Locks out when the ticket-size lock is on.
+- **`cornerBanner` prop** on `PriceTicket` — when set, renders a rotated diagonal flag in the top-right corner: red `linear-gradient(135deg, #dc2626, #b91c1c)` background, white bold uppercase text, letter-spacing `0.18em`, drop shadow, sized via the existing `scale` factor so it grows with the ticket.
+- Math: a `70mm × auto` rectangle positioned at `top: 4mm, right: -22mm`, rotated 45° around its centre — the two outer corners stick out as a triangle banner, while `overflow: hidden` on the parent ticket clips the rest. Works at any ticket size.
+- **localStorage persistence** (`price_ticket_corner_banner_v1`) so the choice survives reloads. Per-batch (not per-product).
+- **Wired into all 3 surfaces**: inline preview, enlarged-modal preview, print HTML (with `-webkit-print-color-adjust: exact` + `print-color-adjust: exact` so the colour doesn't drop out on cheap office printers).
+
+**Verified live**: Set SALE on Adhesive 20kg → red triangular flag spanning top-right corner of the ticket, bold white "SALE" rotated 45° — exactly what the screenshot mockup looked like. Switching between SALE / CLEARANCE / NEW IN works instantly; NONE removes it.
+
+**Files**: `/app/frontend/src/pages/admin/PriceTickets.js` (`cornerBanner` state + persistence + picker UI + JSX banner block in `PriceTicket` + `.corner-banner` print CSS + injected into the print HTML template).
+
+
 ### [Feb 26, 2026 — Forked session] 🎨 Price Tickets: 4-in-1 polish — edge handles, text size, lock, WAS/NOW
 
 **User request (with 2 screenshots)**:
