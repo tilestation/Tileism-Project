@@ -9,6 +9,33 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Feb 26, 2026 — Forked session] 🏷️ Price Tickets v4: optional per-finish pricing
+
+**User intent**: *"finish-specific pricing? Many trade catalogues price the Polish variant 10-15% above the Matt of the same SKU. A small +£N per m² input next to each finish chip would let you print one ticket showing both finishes with their respective prices… YES But make it optional. If staff choses then good"*
+
+**What was shipped** (`/app/frontend/src/pages/admin/PriceTickets.js`):
+
+1. **Optional premium-£ input per finish chip** — every selected finish in the chips picker now carries an inline `premium: +£ [____] /m²` number input alongside the chip and the `×` remove button. Defaults to blank (=no premium). `data-testid="finish-premium-input-{productId}-{finishName}"`.
+
+2. **Premium storage** — saved on the product as `finishPremiums: { Polish: 5.0 }`. Removing a finish chip also drops its premium so we never carry an orphaned value. Stored in localStorage with the rest of the manual-product state; round-trips through saved batches.
+
+3. **Ticket display logic** — the existing `Finish: Polish, Matt` line dynamically switches:
+   - **No premiums set** → keeps the original single-line `Finish: Polish, Matt` (zero visual change).
+   - **At least one premium > 0** → renders a `Finish prices:` block with each finish on its own row showing `{name} (+£{adj}) ........ £{final} m²`. Base finish (no premium) shows at the base price; premium finishes show the computed final price. VAT-adjusted using the same `vatMode` divisor as the main price.
+
+4. **Mirror in print HTML** — same render logic emitted in the printed sheet so the breakdown shows up on the actual paper exactly as in the on-screen preview.
+
+5. **Helper copy** under the finishes picker: *"Premium is optional. Leave blank if both finishes share the same price. When set, the ticket shows a 'Finish prices' block with each finish + its final per-m² price."*
+
+**Verified live** with Floor Tile Grey 600x600:
+- Polish premium set to `5.00` → preview switches from `Finish: Matt, Polish` to `Finish prices:` block showing `Matt £35.99 m²` / `Polish (+£5.00) £40.99 m²`. Toast confirms each chip toggle.
+- Clearing the premium → reverts to single-line `Finish:` row automatically.
+- All `data-testid`s present so this is testable from playwright/jest.
+
+**Files**: `/app/frontend/src/pages/admin/PriceTickets.js` — finishes picker (premium input + drop-on-untick logic), PriceTicket JSX (finish-pricing block), print HTML (mirrored block).
+
+
+
 ### [Feb 26, 2026 — Forked session] 🏷️ Price Tickets v3: multi-finish chips + proportional size boxes + explicit price fields
 
 **User feedback (3 separate asks)**:

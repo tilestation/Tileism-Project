@@ -429,11 +429,59 @@ const PriceTicket = ({ product, showOriginalPrice, showClearanceBadge, showThisW
             <strong style={{ fontWeight: 700 }}>Suitability:</strong> {product.suitability}
           </div>
         )}
-        {product.finish && (
-          <div style={{ marginBottom: '2.5mm' }}>
-            <strong style={{ fontWeight: 700 }}>Finish:</strong> {product.finish}
-          </div>
-        )}
+        {product.finish && (() => {
+          // Per-finish pricing — when finishPremiums has a positive value
+          // for at least one finish, render a small breakdown instead of
+          // the flat "Finish: A, B" line. The base finish (no premium)
+          // sits at the listed price; premium finishes show their
+          // computed price and the +£N adder. VAT-adjusted to match
+          // the rest of the ticket.
+          const finishList = (product.finish || '').split(',').map(s => s.trim()).filter(Boolean);
+          const premiums = product.finishPremiums || {};
+          const anyPremium = finishList.some(f => Number(premiums[f]) > 0);
+          if (!anyPremium) {
+            return (
+              <div style={{ marginBottom: '2.5mm' }}>
+                <strong style={{ fontWeight: 700 }}>Finish:</strong> {product.finish}
+              </div>
+            );
+          }
+          return (
+            <div style={{ marginBottom: '2.5mm' }} data-testid={`price-ticket-finish-pricing-${index}`}>
+              <strong style={{ fontWeight: 700 }}>Finish prices:</strong>
+              <div style={{ marginTop: '1mm' }}>
+                {finishList.map((f) => {
+                  const prem = Number(premiums[f]) || 0;
+                  const adjustedPrem = prem / vatDivisor;
+                  const finalPrice = displayPrice + adjustedPrem;
+                  return (
+                    <div
+                      key={f}
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        gap: '3mm',
+                        fontSize: '12pt',
+                        marginBottom: '1mm',
+                        fontWeight: prem > 0 ? 600 : 500,
+                      }}
+                    >
+                      <span>
+                        {f}
+                        {prem > 0 && (
+                          <span style={{ fontSize: '10pt', color: '#666', marginLeft: '1.5mm' }}>
+                            (+£{adjustedPrem.toFixed(2)})
+                          </span>
+                        )}
+                      </span>
+                      <span style={{ fontWeight: 700 }}>£{finalPrice.toFixed(2)} m²</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })()}
         {product.material && (
           <div style={{ marginBottom: '2.5mm' }}>
             <strong style={{ fontWeight: 700 }}>Material:</strong> {product.material}
@@ -1563,7 +1611,32 @@ export const PriceTickets = () => {
         <!-- Details -->
         <div class="details">
           ${product.suitability ? `<div><strong>Suitability:</strong> ${product.suitability}</div>` : ''}
-          ${product.finish ? `<div><strong>Finish:</strong> ${product.finish}</div>` : ''}
+          ${(() => {
+            // Per-finish pricing — see the matching block in the JSX
+            // PriceTicket component above for full rationale. When at
+            // least one selected finish has a +£ premium, render a
+            // breakdown block instead of the flat "Finish: A, B" line.
+            const finishList = (product.finish || '').split(',').map(s => s.trim()).filter(Boolean);
+            if (finishList.length === 0) return '';
+            const premiums = product.finishPremiums || {};
+            const anyPremium = finishList.some(f => Number(premiums[f]) > 0);
+            if (!anyPremium) {
+              return `<div><strong>Finish:</strong> ${product.finish}</div>`;
+            }
+            const rows = finishList.map(f => {
+              const prem = Number(premiums[f]) || 0;
+              const adjustedPrem = prem / vatDivisor;
+              const finalPrice = _disp + adjustedPrem;
+              const premHtml = prem > 0
+                ? `<span style="font-size:10pt;color:#666;margin-left:1.5mm;">(+£${adjustedPrem.toFixed(2)})</span>`
+                : '';
+              return `<div style="display:flex;justify-content:space-between;gap:3mm;font-size:12pt;margin-bottom:1mm;font-weight:${prem > 0 ? 600 : 500};">
+                <span>${f}${premHtml}</span>
+                <span style="font-weight:700;">£${finalPrice.toFixed(2)} m²</span>
+              </div>`;
+            }).join('');
+            return `<div><strong>Finish prices:</strong><div style="margin-top:1mm;">${rows}</div></div>`;
+          })()}
           ${product.material ? `<div><strong>Material:</strong> ${product.material}${
             product.countryOfOrigin && COUNTRY_FLAGS[product.countryOfOrigin] && COUNTRY_FLAGS[product.countryOfOrigin].dial
               ? `<sup class="material-dial">(${COUNTRY_FLAGS[product.countryOfOrigin].dial})</sup>`
@@ -2910,42 +2983,82 @@ export const PriceTickets = () => {
                             AND Matt (or other combos). Stored as a comma-
                             separated string for backwards-compat with the
                             existing product schema; rendered as chips here so
-                            the user can add/remove individual finishes. */}
+                            the user can add/remove individual finishes.
+                            OPTIONAL premium-per-finish — staff who want one
+                            ticket showing both finishes at different prices
+                            (e.g. Polish +£5/m² over Matt) can type a value
+                            next to the chip; leaving blank keeps a single
+                            shared price.  */}
                         {(() => {
                           const finishOptions = ['Polish', 'Matt', 'High Polish', 'Semi Polish (Sugar)', 'Carved Matt', 'Glazed', 'Satin', 'Lappato', 'Structured'];
                           const current = (product.finish || '')
                             .split(',')
                             .map(s => s.trim())
                             .filter(Boolean);
+                          const premiums = product.finishPremiums || {};
                           const toggle = (name) => {
                             const has = current.includes(name);
                             const next = has ? current.filter(s => s !== name) : [...current, name];
                             updateProductField(product.id, 'finish', next.join(', '));
+                            // Removing a finish also drops its premium so the
+                            // form stays consistent and we never display an
+                            // orphaned premium for an unselected finish.
+                            if (has && premiums[name] !== undefined) {
+                              const cleanedPremiums = { ...premiums };
+                              delete cleanedPremiums[name];
+                              updateProductField(product.id, 'finishPremiums', cleanedPremiums);
+                            }
+                          };
+                          const setPremium = (name, raw) => {
+                            const v = raw === '' ? 0 : parseFloat(raw);
+                            const safe = Number.isFinite(v) && v > 0 ? v : 0;
+                            const next = { ...premiums };
+                            if (safe > 0) next[name] = safe; else delete next[name];
+                            updateProductField(product.id, 'finishPremiums', next);
                           };
                           return (
                             <div className="p-2 border rounded-md bg-white space-y-2" data-testid={`finishes-picker-${product.id}`}>
-                              {/* Chosen finishes — show as removable chips */}
+                              {/* Chosen finishes — removable chip + optional
+                                  per-finish premium-£ input alongside. */}
                               {current.length > 0 && (
-                                <div className="flex flex-wrap gap-1.5">
+                                <div className="space-y-1.5">
                                   {current.map((f) => (
-                                    <span
+                                    <div
                                       key={f}
-                                      className="inline-flex items-center gap-1 px-2 py-0.5 text-xs bg-slate-900 text-white rounded-full"
+                                      className="flex items-center gap-1.5 flex-wrap"
                                       data-testid={`finish-chip-${product.id}-${f}`}
                                     >
-                                      {f}
-                                      <button
-                                        type="button"
-                                        onClick={() => toggle(f)}
-                                        className="hover:text-red-300 font-bold leading-none"
-                                        aria-label={`Remove ${f}`}
-                                      >×</button>
-                                    </span>
+                                      <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs bg-slate-900 text-white rounded-full">
+                                        {f}
+                                        <button
+                                          type="button"
+                                          onClick={() => toggle(f)}
+                                          className="hover:text-red-300 font-bold leading-none"
+                                          aria-label={`Remove ${f}`}
+                                        >×</button>
+                                      </span>
+                                      <span className="text-[10px] text-slate-500 ml-1">premium:</span>
+                                      <span className="inline-flex items-center text-[11px]">
+                                        <span className="text-slate-500">+£</span>
+                                        <input
+                                          type="number"
+                                          step="0.01"
+                                          min="0"
+                                          value={premiums[f] || ''}
+                                          onChange={(e) => setPremium(f, e.target.value)}
+                                          placeholder="0.00"
+                                          className="w-16 h-6 px-1.5 text-[11px] border rounded ml-0.5"
+                                          title={`Optional surcharge per m² for ${f} finish (leave blank for same price as base)`}
+                                          data-testid={`finish-premium-input-${product.id}-${f}`}
+                                        />
+                                        <span className="text-slate-500 ml-1">/m²</span>
+                                      </span>
+                                    </div>
                                   ))}
                                 </div>
                               )}
                               {/* Pickable options — click adds, click-again removes */}
-                              <div className="flex flex-wrap gap-1">
+                              <div className="flex flex-wrap gap-1 pt-1 border-t border-slate-100">
                                 {finishOptions.map((f) => {
                                   const active = current.includes(f);
                                   return (
@@ -2964,6 +3077,10 @@ export const PriceTickets = () => {
                                   );
                                 })}
                               </div>
+                              <p className="text-[10px] text-slate-400 leading-snug pt-1">
+                                Premium is optional. Leave blank if both finishes share the same price.
+                                When set, the ticket shows a "Finish prices" block with each finish + its final per-m² price.
+                              </p>
                             </div>
                           );
                         })()}
