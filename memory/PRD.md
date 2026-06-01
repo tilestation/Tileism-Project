@@ -9,6 +9,28 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Feb 26, 2026 — Forked session] 🏷️ Price Tickets: "Duplicate ticket" for colour variants
+
+**User intent**: *"Once one ticket is done, allow me to copy the same ticket here and make it editable, for example, Ardesia Slate has White colour and then copying it for the other colours in the same range, grey, beige, black etc, so staff can copy easily and just change the colour and the next ticket is done."*
+
+**What was shipped** (`/app/frontend/src/pages/admin/PriceTickets.js`):
+
+- **Duplicate button** (blue `Copy` lucide icon) added between the Save and Trash icons in every product card header inside Edit Ticket Details. Tooltip: *"Duplicate this ticket — handy for colour variants of the same range"*. `data-testid="duplicate-product-{id}"`.
+
+- **`duplicateProduct(productId)` handler**:
+  - Inserts the clone **directly after** the source in `selectedProducts` (not at the end) so the colour variants stay grouped on the printed sheet.
+  - **Deep-clones** nested data (`sizes`, `finishPremiums`) so editing the copy doesn't mutate the original.
+  - Generates a fresh client-side `id` (`dup-{timestamp}-{rand}`) so React keys stay unique.
+  - Clears `productId`, `sku`, `product_code` and marks the clone `_manual: true` + `_duplicatedFrom: source.id` — each colour variant has its own SKU, so we treat the copy as a manual entry rather than risk saving the wrong settings back to the source product's DB row.
+  - Appends `" (copy)"` to the name so it's obvious which one to rename.
+  - Toast: *"Duplicated 'Floor Tile Grey 600x600' — rename the colour and you're done"*.
+
+- **Result**: clicking Duplicate 3× on Floor Tile Grey 600x600 instantly produces 4 fully-editable tickets on the print preview — staff rename `(copy)` to "Beige" / "Black" / "Charcoal" and they have the full range printed in 30 seconds instead of re-selecting from the catalogue 4 times.
+
+**Files**: `/app/frontend/src/pages/admin/PriceTickets.js` — `duplicateProduct()` handler, Duplicate button in card header, `Copy` lucide icon added to imports.
+
+
+
 ### [Feb 26, 2026 — Forked session] 🧭 Sidebar "Last activity" snippets under select items
 
 **User intent**: *"Last batch printed: 4 tickets · 2 hr ago"* snippet under the Price Tickets sidebar label so staff can see at a glance whether today's ticket run was done. Same trick on **Reorder Suggestions** and **Stocktake Report**.

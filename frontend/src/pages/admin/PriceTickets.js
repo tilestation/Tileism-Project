@@ -5,7 +5,7 @@ import { api } from '../../lib/api';
 import { toast } from 'sonner';
 import { 
   Printer, Search, Trash2, RefreshCw, 
-  Tag, Package, Check, Settings, Grid, Save, History, Edit, Maximize2, X, BookmarkPlus, Info
+  Tag, Package, Check, Settings, Grid, Save, History, Edit, Maximize2, X, BookmarkPlus, Info, Copy
 } from 'lucide-react';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
@@ -1499,6 +1499,42 @@ export const PriceTickets = () => {
     setSelectedProducts(selectedProducts.filter(p => p.id !== productId));
   };
 
+  // ── Duplicate ticket (Feb 26, 2026) ─────────────────────────────────
+  // Inserts a clone of the product directly after the source — so staff
+  // can quickly stamp out colour variants of the same tile (Ardesia White
+  // → Grey → Beige → Black) without having to re-find the product in the
+  // catalogue. The clone is flagged `_manual` so it won't try to save
+  // back to the source product's DB row (each colour usually has its own
+  // SKU, so we treat the duplicate as a manual entry). Name gets " (copy)"
+  // suffix so it's obvious which one to rename.
+  const duplicateProduct = (productId) => {
+    const idx = selectedProducts.findIndex(p => p.id === productId);
+    if (idx < 0) return;
+    const source = selectedProducts[idx];
+    const clone = {
+      ...source,
+      // Deep-copy nested arrays/objects so editing the clone doesn't
+      // mutate the source.
+      sizes: Array.isArray(source.sizes) ? [...source.sizes] : [],
+      finishPremiums: { ...(source.finishPremiums || {}) },
+      // Fresh client-only id so the React keys stay unique. We prefix
+      // with the source id so it's traceable.
+      id: `dup-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      productId: '', // no longer linked to the original DB product
+      sku: '',
+      product_code: '',
+      _manual: true,
+      _duplicatedFrom: source.id,
+      name: `${source.name || 'Untitled'} (copy)`,
+    };
+    const next = [...selectedProducts];
+    next.splice(idx + 1, 0, clone);
+    setSelectedProducts(next);
+    toast.success(`Duplicated "${source.name || 'ticket'}" — rename the colour and you're done`, {
+      duration: 4000,
+    });
+  };
+
   const updateProductField = (productId, field, value) => {
     setSelectedProducts(selectedProducts.map(p => 
       p.id === productId ? { ...p, [field]: value } : p
@@ -2951,6 +2987,19 @@ export const PriceTickets = () => {
                             Manual
                           </span>
                         )}
+                        {/* Duplicate — clone this ticket so staff can quickly
+                            stamp out colour variants (Ardesia White → Grey →
+                            Beige) without re-finding the product. */}
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                          onClick={() => duplicateProduct(product.id)}
+                          title="Duplicate this ticket — handy for colour variants of the same range"
+                          data-testid={`duplicate-product-${product.id}`}
+                        >
+                          <Copy className="h-4 w-4" />
+                        </Button>
                         <Button
                           variant="ghost"
                           size="sm"
