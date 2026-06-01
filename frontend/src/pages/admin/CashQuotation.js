@@ -952,6 +952,7 @@ export const CashQuotation = () => {
                 getBoxInfo={getBoxInfo}
                 totals={totals}
                 showVat={false}
+                showReturnColumn={false}
               />
             </CardContent>
           </Card>

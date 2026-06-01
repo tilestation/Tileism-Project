@@ -934,6 +934,7 @@ export const Quotation = () => {
                 isDiscountExceeded={() => false}
                 getBoxInfo={getBoxInfo}
                 totals={totals}
+                showReturnColumn={false}
               />
             </CardContent>
           </Card>

@@ -209,6 +209,11 @@ export const InvoiceLineItemsTable = ({
   // the link in one shot.
   onRequestReturnLink = null,
   onClearReturnLink = null,
+  // Whether to render the Return column at all. Defaults to true so
+  // invoice-style flows (Invoice, ShowroomEpos) work unchanged. Quote
+  // and cash-quotation flows pass `false` — you can't "return" against
+  // a piece of paper that hasn't been paid for yet.
+  showReturnColumn = true,
 }) => {
   // Filter products based on search - supports word-by-word matching in any order
   // e.g., "chrome tin" matches "Tin Chrome Edge Finish"
@@ -279,7 +284,9 @@ export const InvoiceLineItemsTable = ({
               <th className="border px-3 py-2 text-center text-sm w-20">m²</th>
               <th className="border px-3 py-2 text-right text-sm w-24">Price (£)</th>
               <th className="border px-3 py-2 text-right text-sm w-28">Due Price (£)</th>
-              <th className="border px-3 py-2 text-center text-sm w-20">Return</th>
+              {showReturnColumn && (
+                <th className="border px-3 py-2 text-center text-sm w-20">Return</th>
+              )}
               <th className="border px-3 py-2 text-right text-sm w-24">Total Due</th>
               <th className="border px-3 py-2 text-right text-sm w-24">Savings</th>
               <th className="border px-3 py-2 text-center text-sm w-16">Action</th>
@@ -527,7 +534,10 @@ export const InvoiceLineItemsTable = ({
                     )}
                   </td>
                   
-                  {/* Return/Refund Toggle Column */}
+                  {/* Return/Refund Toggle Column — hidden for non-invoice
+                      flows (Quotation, CashQuotation) where returns make
+                      no sense. */}
+                  {showReturnColumn && (
                   <td className="border px-2 py-2 text-center">
                     <div className="flex flex-col items-center gap-1" onClick={(e) => e.stopPropagation()}>
                       <Checkbox
@@ -595,6 +605,7 @@ export const InvoiceLineItemsTable = ({
                       )}
                     </div>
                   </td>
+                  )}
                   
                   {/* Total Due Column */}
                   <td className="border px-3 py-2 text-right text-sm font-medium">
@@ -632,12 +643,12 @@ export const InvoiceLineItemsTable = ({
           </tbody>
           <tfoot>
             <tr className="bg-muted font-semibold">
-              <td colSpan={8} className="border px-3 py-2 text-right">Subtotal:</td>
+              <td colSpan={showReturnColumn ? 8 : 7} className="border px-3 py-2 text-right">Subtotal:</td>
               <td className="border px-3 py-2 text-right">£{totals.totalDue.toFixed(2)}</td>
               <td className="border px-3 py-2 text-right text-green-600">£{totals.totalSavings.toFixed(2)}</td>
               <td className="border"></td>
             </tr>
-            {totals.totalReturns > 0 && (
+            {showReturnColumn && totals.totalReturns > 0 && (
               <tr className="font-semibold text-red-600" data-testid="returns-summary-row">
                 <td colSpan={8} className="border px-3 py-2 text-right">Returns/Credits:</td>
                 <td className="border px-3 py-2 text-right">−£{totals.totalReturns.toFixed(2)}</td>
@@ -647,14 +658,14 @@ export const InvoiceLineItemsTable = ({
             )}
             {showVat && (
               <tr className="font-semibold">
-                <td colSpan={8} className="border px-3 py-2 text-right">VAT (20%):</td>
+                <td colSpan={showReturnColumn ? 8 : 7} className="border px-3 py-2 text-right">VAT (20%):</td>
                 <td className="border px-3 py-2 text-right">£{totals.vat.toFixed(2)}</td>
                 <td className="border"></td>
                 <td className="border"></td>
               </tr>
             )}
             <tr className="bg-accent/10 font-bold text-lg">
-              <td colSpan={8} className="border px-3 py-2 text-right">Gross Total:</td>
+              <td colSpan={showReturnColumn ? 8 : 7} className="border px-3 py-2 text-right">Gross Total:</td>
               <td className="border px-3 py-2 text-right">£{totals.grossTotal.toFixed(2)}</td>
               <td className="border"></td>
               <td className="border"></td>
@@ -663,7 +674,7 @@ export const InvoiceLineItemsTable = ({
             {Number(creditRedeemedAmount) > 0 && (
               <>
                 <tr className="text-emerald-700">
-                  <td colSpan={8} className="border px-3 py-2 text-right">
+                  <td colSpan={showReturnColumn ? 8 : 7} className="border px-3 py-2 text-right">
                     Trade credit redeemed
                     {creditRedeemedAccount ? (
                       <span className="font-mono text-xs ml-1">({creditRedeemedAccount})</span>
@@ -674,7 +685,7 @@ export const InvoiceLineItemsTable = ({
                   <td className="border"></td>
                 </tr>
                 <tr className="bg-emerald-50 font-bold">
-                  <td colSpan={8} className="border px-3 py-2 text-right">Cash / card due:</td>
+                  <td colSpan={showReturnColumn ? 8 : 7} className="border px-3 py-2 text-right">Cash / card due:</td>
                   <td className="border px-3 py-2 text-right tabular-nums">
                     £{Math.max(0, totals.grossTotal - Number(creditRedeemedAmount)).toFixed(2)}
                   </td>

@@ -9,6 +9,26 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Feb 26, 2026 — Forked session] 🧹 Hide Return column from Quotation / Cash Quotation forms
+
+**User report (with screenshot)**: *"Why does a quotation form has return box. It should only be for Invoices?"*
+
+**Root cause**: `InvoiceLineItemsTable` is shared across Invoice, ShowroomEpos, Quotation and CashQuotation. The Return column was rendered unconditionally — meaningless on a quote (you can't "return" a piece of paper that hasn't been paid for yet) and visually clutters a customer-facing pricing screen.
+
+**Fix shipped** (`/app/frontend/src/components/invoice/InvoiceLineItemsTable.js`):
+- New `showReturnColumn` prop, defaults to `true` so invoice flows stay unchanged.
+- Conditionals around (a) the column `<th>`, (b) the per-row Return `<td>`, (c) the footer `Returns/Credits:` totals row, (d) the `colSpan` on all 4 footer summary rows (8→7 when hidden) and the credit-redemption rows.
+- `Quotation.js` + `CashQuotation.js` now pass `showReturnColumn={false}`. Invoice + ShowroomEpos left at the default (true).
+
+**Verified live**:
+- `[QUOTATION]   Return <th>: 0, return-checkbox-0: 0` ✓
+- `[CASH QUOTATION] Return <th>: 0, return-checkbox-0: 0` ✓
+- `[INVOICE]    Return <th>: 1, return-checkbox-0: 1` ✓ (return-link dialog still works)
+
+**Files**: `/app/frontend/src/components/invoice/InvoiceLineItemsTable.js`, `/app/frontend/src/pages/admin/Quotation.js`, `/app/frontend/src/pages/admin/CashQuotation.js`.
+
+
+
 ### [Feb 26, 2026 — Forked session] 🔥 Dashboard: Return Heatmap tile (which products + suppliers drive refunds)
 
 **User intent (verbatim after the return-link feature)**: *"Now that returns are linked to their source sale at the line-item level, would you like a 'Return Heatmap' tile on the Dashboard showing which products + suppliers generate the most returns over the last 30 days? That data is now fully traceable thanks to today's change — one query and you'd know whether a specific tile or fitter is driving refunds. YES"*
