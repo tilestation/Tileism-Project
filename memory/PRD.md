@@ -9,6 +9,43 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Feb 26, 2026 — Forked session] 🏷️ Price Tickets v5: discoverable CLEARANCE toggle + bigger size boxes + editable supplier badge
+
+**User feedback (3 separate asks, with annotated screenshot)**:
+1. *"Where do I remove CLEARANCE tag?"*
+2. *"There's issue with size boxes"* (single size renders too small to read on the printed sheet)
+3. *"(+39) is a supplier, that needs to be editable, or create a dropdown menu with suppliers list to be mentioned there but only initials (first 2 or 3 letters in very small print)"*
+
+**Fixes** (`/app/frontend/src/pages/admin/PriceTickets.js`):
+
+1. **CLEARANCE / THIS WEEK ONLY toggles surfaced at the top of the Settings panel** — wrapped in a rose-bordered "TOP-RIGHT BADGES" block right under the Copies field (was buried below Show RRP / Show Barcode rows where staff couldn't find them). Strong typography on the badge names (`<strong>CLEARANCE</strong>` in red, `<strong>THIS WEEK ONLY</strong>` in amber) so the toggle visually matches the badge it controls. Removed the duplicate lower-down checkboxes to prevent confusion.
+
+2. **Size-box scale uplift** — `SCALE` bumped from `0.32` → `0.5` mm/cm, minimum side from `14` → `18`mm, minimum font from `8` → `10`pt (clamp range now `10-14pt`). Result:
+   - 30×60 → 18×30mm (was 14×19mm)
+   - 60×60 → 30×30mm (was 19×19mm)
+   - 60×120 → 30×60mm (was 19×38mm)
+   - 80×80 → 40×40mm, 120×120 → 60×60mm
+   - Text always 10pt+ — readable on print and clearly visible in the inline thumbnail.
+   - Mirrored in the print HTML inline styles.
+
+3. **Editable supplier badge** — replaces the country-dial-code superscript entirely:
+   - New form field "Supplier badge (shown as small caps on ticket)" with **two paired inputs**:
+     - `<select>` dropdown auto-populated from `GET /api/suppliers` (active only) — picking one sets `supplier_id` + `supplier_name` on the product AND clears any manual override so the new supplier's initials show through.
+     - Free-text override `<input>` (max 4 chars, monospace uppercase, centered) — placeholder shows the auto-derived first-3-letters initials (e.g. supplier "KERAMIK ITALIA" → placeholder `KER`). User can override with any short code.
+   - **Ticket render logic**: `(override || autoFromSupplierName).slice(0,3).toUpperCase()`. Empty → no badge prints. Rendered as `<sup>` superscript next to the Material text, same small-caps styling as the previous dial-code (so existing tickets keep the same visual language).
+   - Mirrored in print HTML.
+   - `data-testid="supplier-select-{id}"`, `data-testid="supplier-badge-input-{id}"`, `data-testid="supplier-badge-{idx}"` on the rendered superscript.
+
+4. **Removed country dial-code logic** — the `dial: '+39'` field still exists on `COUNTRY_FLAGS` for backwards-compat with the data (used elsewhere) but is no longer rendered on the ticket. The "Made in Italy" flag bottom-right is unchanged.
+
+**Verified live**:
+- Wall Tile White 300x600 catalogue product: CLEARANCE toggle visible at top of Settings panel; supplier dropdown shows live suppliers (`Canopy`, `Splendour`); size boxes 60x60 and 60x120 render at visibly different proportions in the inline preview.
+- Floor Tile Grey 600x600 + Sale price 28.50: CLEARANCE banner renders; ticking off the new toggle hides it instantly.
+
+**Files**: `/app/frontend/src/pages/admin/PriceTickets.js` — Settings panel reorg (badge-toggles block at top, duplicate removed), supplier-badge form field (dropdown + override input), supplier list fetch on mount, PriceTicket JSX (Material superscript logic), print HTML (Material superscript logic), size-box SCALE/MIN/font bumps in JSX AND print HTML.
+
+
+
 ### [Feb 26, 2026 — Forked session] 🏷️ Price Tickets v4: optional per-finish pricing
 
 **User intent**: *"finish-specific pricing? Many trade catalogues price the Polish variant 10-15% above the Matt of the same SKU. A small +£N per m² input next to each finish chip would let you print one ticket showing both finishes with their respective prices… YES But make it optional. If staff choses then good"*

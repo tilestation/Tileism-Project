@@ -485,14 +485,24 @@ const PriceTicket = ({ product, showOriginalPrice, showClearanceBadge, showThisW
         {product.material && (
           <div style={{ marginBottom: '2.5mm' }}>
             <strong style={{ fontWeight: 700 }}>Material:</strong> {product.material}
-            {/* Country dial-code superscript (e.g. Italy → (+39)). Matches
-                the printed reference where a small "(+39)" annotates the
-                material when the tile is made in that country. */}
-            {product.countryOfOrigin && COUNTRY_FLAGS[product.countryOfOrigin] && COUNTRY_FLAGS[product.countryOfOrigin].dial && (
-              <sup style={{ fontSize: '0.55em', fontWeight: 600, marginLeft: '0.5mm', color: '#444' }}>
-                ({COUNTRY_FLAGS[product.countryOfOrigin].dial})
-              </sup>
-            )}
+            {/* Supplier badge — short 2-3 letter code (e.g. "(ITC)" or
+                "(KER)" for KERAMIK) printed in small caps as a
+                superscript next to the Material text. Source order:
+                1) explicit `supplierBadge` override on the product
+                2) auto-derived from supplier_name (first 3 letters,
+                   uppercased) when no override is set.
+                Leaving both blank prints no badge at all. */}
+            {(() => {
+              const override = (product.supplierBadge || '').trim();
+              const auto = (product.supplier_name || '').replace(/[^A-Za-z]/g, '').slice(0, 3).toUpperCase();
+              const badge = override || auto;
+              if (!badge) return null;
+              return (
+                <sup style={{ fontSize: '0.55em', fontWeight: 700, marginLeft: '0.8mm', color: '#444', letterSpacing: '0.04em' }} data-testid={`supplier-badge-${index}`}>
+                  ({badge})
+                </sup>
+              );
+            })()}
           </div>
         )}
         {/* Auxiliary per-m² price for per-piece-priced tiles — matches
@@ -521,10 +531,12 @@ const PriceTicket = ({ product, showOriginalPrice, showClearanceBadge, showThisW
           if (!w || !h) return null;
           return { w, h };
         };
-        // Scale = 0.32mm per cm → 30cm box is 9.6mm wide, 120cm box is 38.4mm.
-        // Min 14mm so even 30cm side stays readable with the size label inside.
-        const SCALE = 0.32;
-        const MIN_SIDE_MM = 14;
+        // Scale = 0.5mm per cm → 30cm box is 15mm wide, 60cm is 30mm, 120cm is 60mm.
+        // Larger than the v1 scale so a SINGLE-size product still draws a clearly
+        // visible box (a 60×120 product otherwise rendered at 19×38mm with text
+        // too small to read on the printed sheet).
+        const SCALE = 0.5;
+        const MIN_SIDE_MM = 18;
         const renderBoxStyle = (sz) => {
           if (!sz) return { width: '20mm', height: '12mm' };
           const wMm = Math.max(MIN_SIDE_MM, sz.w * SCALE);
@@ -563,9 +575,11 @@ const PriceTicket = ({ product, showOriginalPrice, showClearanceBadge, showThisW
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
-                      // Long-side text size: shrink when the box is small so
-                      // "120x120" still fits inside a 38mm box.
-                      fontSize: sz ? `${Math.min(13, Math.max(8, sz.w * 0.11))}pt` : '11pt',
+                      // Long-side text size: scale with box but with
+                      // a higher floor (10pt) so the size label is
+                      // always readable on print, even on the smallest
+                      // 30cm box.
+                      fontSize: sz ? `${Math.min(14, Math.max(10, sz.w * 0.15))}pt` : '12pt',
                       fontWeight: 700,
                       textAlign: 'center',
                       ...boxStyle,
@@ -932,6 +946,18 @@ function ResizeHandle({ getDims, previewScale, onChange }) {
 export const PriceTickets = () => {
   const [products, setProducts] = useState([]);
   const [selectedProducts, setSelectedProducts] = useState([]);
+  // 1 Jun 2026 — Suppliers list for the supplier-badge dropdown
+  // on each selected product (so admins can stamp a short
+  // 2-3 letter supplier initials onto the ticket without
+  // typing them by hand).
+  const [suppliers, setSuppliers] = useState([]);
+  useEffect(() => {
+    let cancelled = false;
+    api.getSuppliers(true)
+      .then(res => { if (!cancelled) setSuppliers(Array.isArray(res.data) ? res.data : []); })
+      .catch(() => { /* offline → degrade gracefully (free-text input still works) */ });
+    return () => { cancelled = true; };
+  }, []);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [showOriginalPrice, setShowOriginalPrice] = useState(true);
@@ -1637,11 +1663,18 @@ export const PriceTickets = () => {
             }).join('');
             return `<div><strong>Finish prices:</strong><div style="margin-top:1mm;">${rows}</div></div>`;
           })()}
-          ${product.material ? `<div><strong>Material:</strong> ${product.material}${
-            product.countryOfOrigin && COUNTRY_FLAGS[product.countryOfOrigin] && COUNTRY_FLAGS[product.countryOfOrigin].dial
-              ? `<sup class="material-dial">(${COUNTRY_FLAGS[product.countryOfOrigin].dial})</sup>`
-              : ''
-          }</div>` : ''}
+          ${product.material ? (() => {
+            // Supplier badge — see matching block in JSX PriceTicket
+            // for rationale. Manual override first, then auto-derived
+            // 3-letter initials from supplier_name; blank → no badge.
+            const override = (product.supplierBadge || '').trim();
+            const auto = (product.supplier_name || '').replace(/[^A-Za-z]/g, '').slice(0, 3).toUpperCase();
+            const badge = override || auto;
+            const sup = badge
+              ? `<sup class="material-dial">(${badge})</sup>`
+              : '';
+            return `<div><strong>Material:</strong> ${product.material}${sup}</div>`;
+          })() : ''}
           ${_showAuxM2 ? `<div><strong>Price m²:</strong> £${_auxM2.toFixed(2)}</div>` : ''}
         </div>
 
@@ -1657,10 +1690,10 @@ export const PriceTickets = () => {
                   return `<div class="size-box" style="width:20mm;height:12mm;font-size:11pt;">${size}</div>`;
                 }
                 const w = parseFloat(m[1]); const h = parseFloat(m[2]);
-                const SCALE = 0.32;
-                const wMm = Math.max(14, w * SCALE);
-                const hMm = Math.max(14 * 0.7, h * SCALE);
-                const fontPt = Math.min(13, Math.max(8, w * 0.11));
+                const SCALE = 0.5;
+                const wMm = Math.max(18, w * SCALE);
+                const hMm = Math.max(18 * 0.7, h * SCALE);
+                const fontPt = Math.min(14, Math.max(10, w * 0.15));
                 return `<div class="size-box" style="width:${wMm}mm;height:${hMm}mm;font-size:${fontPt}pt;">${size}</div>`;
               }).join('')}
             </div>
@@ -2737,7 +2770,43 @@ export const PriceTickets = () => {
                   data-testid="copies-input"
                 />
               </div>
-              
+
+              {/* 1 Jun 2026 — Badge toggles surfaced at the top of the
+                  settings panel so the user can find the CLEARANCE /
+                  THIS WEEK ONLY hide-toggles without scrolling.
+                  Highlighted block with red bar to draw the eye. */}
+              <div className="border-l-4 border-rose-500 bg-rose-50 px-3 py-2 rounded-r-md space-y-1.5" data-testid="ticket-badge-toggles">
+                <p className="text-[11px] uppercase tracking-wider text-rose-900 font-bold">
+                  Top-right badges
+                </p>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id="showClearance"
+                    checked={showClearanceBadge}
+                    onChange={(e) => setShowClearanceBadge(e.target.checked)}
+                    className="rounded"
+                    data-testid="show-clearance-checkbox"
+                  />
+                  <label htmlFor="showClearance" className="text-sm">
+                    Show <strong className="text-rose-700">CLEARANCE</strong> badge on discounted items
+                  </label>
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id="showThisWeek"
+                    checked={showThisWeekBadge}
+                    onChange={(e) => setShowThisWeekBadge(e.target.checked)}
+                    className="rounded"
+                    data-testid="show-thisweek-checkbox"
+                  />
+                  <label htmlFor="showThisWeek" className="text-sm">
+                    Show <strong className="text-amber-600">THIS WEEK ONLY</strong> badge on every ticket
+                  </label>
+                </div>
+              </div>
+
               <div className="flex items-center gap-2">
                 <input
                   type="checkbox"
@@ -2749,34 +2818,6 @@ export const PriceTickets = () => {
                 />
                 <label htmlFor="showOriginal" className="text-sm">
                   Show RRP price (crossed out)
-                </label>
-              </div>
-              
-              <div className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  id="showClearance"
-                  checked={showClearanceBadge}
-                  onChange={(e) => setShowClearanceBadge(e.target.checked)}
-                  className="rounded"
-                  data-testid="show-clearance-checkbox"
-                />
-                <label htmlFor="showClearance" className="text-sm">
-                  Show clearance badge (for discounted items)
-                </label>
-              </div>
-              
-              <div className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  id="showThisWeek"
-                  checked={showThisWeekBadge}
-                  onChange={(e) => setShowThisWeekBadge(e.target.checked)}
-                  className="rounded"
-                  data-testid="show-thisweek-checkbox"
-                />
-                <label htmlFor="showThisWeek" className="text-sm">
-                  Show &ldquo;This Week Only&rdquo; badge
                 </label>
               </div>
 
@@ -3093,6 +3134,51 @@ export const PriceTickets = () => {
                           placeholder="Porcelain"
                           className="h-8 text-sm"
                         />
+                      </div>
+                      {/* 1 Jun 2026 — Supplier badge (small initials shown
+                          as a superscript next to Material on the ticket,
+                          e.g. "Porcelain ⁽ITC⁾"). Dropdown auto-fills
+                          from the suppliers catalogue; the free-text input
+                          to its right lets the user override with any
+                          short code (KER, ITAL, NWB, etc.). Leaving both
+                          blank prints no badge. */}
+                      <div>
+                        <label className="text-xs text-muted-foreground">
+                          Supplier badge <span className="text-[10px] text-slate-400">(shown as small caps on ticket)</span>
+                        </label>
+                        <div className="grid grid-cols-[1fr_70px] gap-1">
+                          <select
+                            value={product.supplier_id || ''}
+                            onChange={(e) => {
+                              const sid = e.target.value;
+                              const supplier = suppliers.find(s => s.id === sid);
+                              updateProductField(product.id, 'supplier_id', sid);
+                              updateProductField(product.id, 'supplier_name', supplier?.name || '');
+                              // Auto-clear any old override so the new
+                              // supplier's initials show through.
+                              if (sid) updateProductField(product.id, 'supplierBadge', '');
+                            }}
+                            className="h-8 px-2 border rounded-md text-sm bg-white"
+                            data-testid={`supplier-select-${product.id}`}
+                          >
+                            <option value="">— Choose supplier —</option>
+                            {suppliers.map((s) => (
+                              <option key={s.id} value={s.id}>{s.name}</option>
+                            ))}
+                          </select>
+                          <Input
+                            value={
+                              product.supplierBadge ??
+                              (product.supplier_name || '').replace(/[^A-Za-z]/g, '').slice(0, 3).toUpperCase()
+                            }
+                            onChange={(e) => updateProductField(product.id, 'supplierBadge', e.target.value.toUpperCase().slice(0, 4))}
+                            placeholder="ITC"
+                            maxLength={4}
+                            className="h-8 text-sm text-center font-mono uppercase"
+                            title="Override the auto-derived supplier initials. Up to 4 characters."
+                            data-testid={`supplier-badge-input-${product.id}`}
+                          />
+                        </div>
                       </div>
                       <div>
                         <label className="text-xs text-muted-foreground">Price Unit</label>
