@@ -9,6 +9,46 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Feb 26, 2026 — Forked session] 🎨 Price Tickets: 4-in-1 polish — edge handles, text size, lock, WAS/NOW
+
+**User request (with 2 screenshots)**:
+> 1. Drag flow only adjusts up/down — need left/right too
+> 2. Adjustable text size
+> 3. Lock button for finalized tickets
+> 4. Replace "RRP" with "Price". Show one price normally; if ON SALE show WAS + NOW
+
+**All four shipped in one pass** (`/app/frontend/src/pages/admin/PriceTickets.js`):
+
+**(1) Edge handles in addition to SE corner** — `ResizeHandle` now exposes THREE grab points:
+- `data-testid="price-ticket-resize-handle"` — SE corner, both axes (legacy behaviour preserved)
+- `data-testid="price-ticket-resize-handle-e"` — right edge strip, **W only** (cursor: `ew-resize`)
+- `data-testid="price-ticket-resize-handle-s"` — bottom edge strip, **H only** (cursor: `ns-resize`)
+The `makePointerDown(axis)` factory passes the axis down to `onPointerMove` which zeros-out the orthogonal delta. Snap, clamp, magnetic-pull tooltip, and preset-name detection all still work — just per axis. Solves the user's *"adjusts only up or down"* complaint by letting them grab the side they care about.
+
+**(2) Text-size slider** — new range slider (`0.7 - 1.5`, step `0.05`) in the Ticket Settings panel. Multiplies the existing `scale` in `PriceTicket` so EVERY font + padding grows/shrinks together. Persisted in `localStorage['price_ticket_text_scale_v1']`. Has a "smaller / reset / bigger" label row + percentage readout. Applied to BOTH the inline preview, the enlarged modal, AND the print HTML (via `printScale * textScale`).
+
+**(3) Lock toggle** — emerald "🔓 Lock this ticket size" → rose "🔒 LOCKED · Tap to unlock". Persisted in `localStorage['price_ticket_locked_v1']`. When locked, the following all become read-only / disabled:
+- W / H / Cols / Rows inputs
+- Paper template dropdown
+- "Save as template" button
+- Text-size slider + reset link
+- SE / E / S resize handles entirely UNMOUNTED (not just disabled — the `resizable` prop is forced false)
+Staff can still print and select products; only the layout is frozen.
+
+**(4) RRP → Price · WAS/NOW for sale items** — both the inline `PriceTicket` JSX and the print-HTML generator now branch on `hasDiscount`:
+- **Not on sale**: single block reading `PRICE · £12.99 · per m²` in solid black/`#1a1a1a`. The RRP line that previously echoed the same price as `RRP £12.99` is GONE.
+- **On sale**: `WAS £45.99` (strikethrough, controlled by the existing "Show RRP price" toggle which is now actually meaningful) then `NOW · £42.99 · per m²` all in red. SAVE pill still appears below.
+Print CSS adds `.price-label`, `.price-label.on-sale`, `.main-price.price-not-sale`, `.price-unit.price-unit-not-sale` so paper output matches.
+
+**Verified live**:
+- Preview shows `PRICE / £12.99 / per m²` in black for the non-sale Adhesive 20kg.
+- Text slider readout updates live (100% → 180% in one test).
+- Lock toggle flips emerald ↔ rose; W input goes `disabled=true` on lock (programmatic check).
+- All 3 resize handles render on an unlocked first ticket (`E handle: 1, S handle: 1, SE corner: 1`).
+
+**Files**: `/app/frontend/src/pages/admin/PriceTickets.js` (ResizeHandle multi-axis; PriceTicket textScale prop + WAS/NOW branch; print HTML + CSS; parent textScale/isLocked state + persistence; disabled props on all size controls).
+
+
 ### [Feb 26, 2026 — Forked session] 🔎 Price Tickets: discoverability polish — "Save as template" + history banner
 
 **User intent**: *"Save current as named template. Also tickets need to be saved in history, so if staff need to make any changes they can simply search for ticket and make changes."*

@@ -120,7 +120,7 @@ const COUNTRY_FLAGS = {
   }
 };
 
-const PriceTicket = ({ product, showOriginalPrice, showClearanceBadge, showThisWeekBadge, showBarcode, showQR, index, paperSize, resizable, onResize, previewScale }) => {
+const PriceTicket = ({ product, showOriginalPrice, showClearanceBadge, showThisWeekBadge, showBarcode, showQR, index, paperSize, resizable, onResize, previewScale, textScale }) => {
   const hasDiscount = product.clearance_price && product.clearance_price < product.price;
   const displayPrice = hasDiscount ? product.clearance_price : product.price;
   const originalPrice = product.price;
@@ -156,7 +156,12 @@ const PriceTicket = ({ product, showOriginalPrice, showClearanceBadge, showThisW
   // and aspect-ratio is preserved.
   const REF_W = 105;
   const REF_H = 148;
-  const scale = Math.min(widthMm / REF_W, heightMm / REF_H);
+  // 31 May 2026 — outer scale fits the content into the chosen
+  // paper, then `textScale` (admin-controlled slider, default 1.0)
+  // multiplies it so admins can pump every font/padding bigger or
+  // smaller without changing the paper. Range 0.7-1.5 clamped at
+  // the parent.
+  const scale = Math.min(widthMm / REF_W, heightMm / REF_H) * (textScale || 1);
 
   return (
     <div 
@@ -262,28 +267,73 @@ const PriceTicket = ({ product, showOriginalPrice, showClearanceBadge, showThisW
         padding: '5mm',
         marginBottom: '4mm'
       }}>
-        {/* RRP Original Price */}
-        <div style={{ 
-          fontSize: '12pt', 
-          color: '#666',
-          marginBottom: '2mm'
-        }}>
-          <span style={{ textDecoration: hasDiscount ? 'line-through' : 'none' }}>
-            RRP £{originalPrice.toFixed(2)}
-          </span>
-        </div>
-        <div style={{
-          fontSize: '42pt',
-          fontWeight: '600',
-          color: '#dc2626',
-          fontFamily: '"Bahnschrift SemiBold", "Bahnschrift", "Segoe UI", sans-serif',
-          lineHeight: '1'
-        }}>
-          £{displayPrice.toFixed(2)}
-        </div>
+        {/* WAS price — only shown when ON SALE (hasDiscount). When
+            not on sale we hide this line entirely so the ticket
+            shows a single clean "Price" instead of RRP/Price both
+            being the same number. (31 May 2026 — user feedback.) */}
+        {hasDiscount && showOriginalPrice && (
+          <div style={{ 
+            fontSize: '14pt', 
+            color: '#666',
+            marginBottom: '2mm',
+            fontWeight: '600',
+          }}>
+            <span style={{ textDecoration: 'line-through' }}>
+              WAS £{originalPrice.toFixed(2)}
+            </span>
+          </div>
+        )}
+        {/* Main price — labelled "NOW" when on sale, "Price" when not.
+            Bigger label-then-amount layout when on sale so the
+            customer's eye lands on the new price first. */}
+        {hasDiscount ? (
+          <>
+            <div style={{
+              fontSize: '11pt',
+              color: '#dc2626',
+              fontWeight: '700',
+              marginBottom: '0.5mm',
+              letterSpacing: '0.1em',
+              textTransform: 'uppercase',
+            }}>
+              Now
+            </div>
+            <div style={{
+              fontSize: '42pt',
+              fontWeight: '600',
+              color: '#dc2626',
+              fontFamily: '"Bahnschrift SemiBold", "Bahnschrift", "Segoe UI", sans-serif',
+              lineHeight: '1'
+            }}>
+              £{displayPrice.toFixed(2)}
+            </div>
+          </>
+        ) : (
+          <>
+            <div style={{
+              fontSize: '11pt',
+              color: '#333',
+              fontWeight: '600',
+              marginBottom: '0.5mm',
+              letterSpacing: '0.1em',
+              textTransform: 'uppercase',
+            }}>
+              Price
+            </div>
+            <div style={{
+              fontSize: '42pt',
+              fontWeight: '600',
+              color: '#1a1a1a',
+              fontFamily: '"Bahnschrift SemiBold", "Bahnschrift", "Segoe UI", sans-serif',
+              lineHeight: '1'
+            }}>
+              £{displayPrice.toFixed(2)}
+            </div>
+          </>
+        )}
         <div style={{
           fontSize: '12pt',
-          color: '#dc2626',
+          color: hasDiscount ? '#dc2626' : '#333',
           fontWeight: '600',
           marginTop: '1mm'
         }}>
@@ -540,19 +590,25 @@ function ResizeHandle({ getDims, previewScale, onChange }) {
   // {w, h, presetName?, snappedW?, snappedH?} during drag
   const [livePreview, setLivePreview] = useState(null);
 
+  // 31 May 2026 — `axis` lets the same handler power 3 grab points:
+  //   'se'  = bottom-right corner   → resizes BOTH W and H
+  //   'e'   = right edge            → resizes W only
+  //   's'   = bottom edge           → resizes H only
+  // (Previously only `se` existed, and the user reported the drag
+  // "adjusts only up or down" because pulling the corner orthogonally
+  // is awkward — dedicated edge handles let them fine-tune one axis
+  // at a time.)
   const onPointerMove = (e) => {
     const st = dragStateRef.current;
     if (!st) return;
     const dxPx = e.clientX - st.startX;
     const dyPx = e.clientY - st.startY;
-    // Screen px → design px → mm
     const dxMm = dxPx / previewScale / PX_PER_MM;
     const dyMm = dyPx / previewScale / PX_PER_MM;
-    const rawW = Math.max(MIN_TICKET_W_MM, Math.min(MAX_TICKET_W_MM, st.startW + dxMm));
-    const rawH = Math.max(MIN_TICKET_H_MM, Math.min(MAX_TICKET_H_MM, st.startH + dyMm));
-    // Snap each axis independently to the preset list. Magnetic
-    // pull within SNAP_TOLERANCE_MM; otherwise the raw value passes
-    // through (just rounded to whole mm for tidy state).
+    const wantW = st.axis === 's' ? st.startW : st.startW + dxMm;
+    const wantH = st.axis === 'e' ? st.startH : st.startH + dyMm;
+    const rawW = Math.max(MIN_TICKET_W_MM, Math.min(MAX_TICKET_W_MM, wantW));
+    const rawH = Math.max(MIN_TICKET_H_MM, Math.min(MAX_TICKET_H_MM, wantH));
     const snapW = applySnap(rawW);
     const snapH = applySnap(rawH);
     const newW = Math.round(snapW.value);
@@ -564,6 +620,7 @@ function ResizeHandle({ getDims, previewScale, onChange }) {
       presetName,
       snappedW: snapW.snapped,
       snappedH: snapH.snapped,
+      axis: st.axis,
     });
     onChange(newW, newH);
   };
@@ -577,7 +634,7 @@ function ResizeHandle({ getDims, previewScale, onChange }) {
     setLivePreview(null);
   };
 
-  const onPointerDown = (e) => {
+  const makePointerDown = (axis) => (e) => {
     e.preventDefault();
     e.stopPropagation();
     const { widthMm, heightMm } = getDims();
@@ -586,22 +643,68 @@ function ResizeHandle({ getDims, previewScale, onChange }) {
       startY: e.clientY,
       startW: widthMm,
       startH: heightMm,
+      axis,
     };
     setDragging(true);
-    setLivePreview({ w: widthMm, h: heightMm });
+    setLivePreview({ w: widthMm, h: heightMm, axis });
     window.addEventListener('pointermove', onPointerMove);
     window.addEventListener('pointerup', endDrag);
     window.addEventListener('pointercancel', endDrag);
   };
 
+  // Common handle style — overridden per-position below.
+  const baseHandle = {
+    position: 'absolute',
+    background: 'rgba(251, 191, 36, 0.65)',
+    border: '1px solid rgba(0,0,0,0.15)',
+    zIndex: 50,
+    touchAction: 'none',
+    pointerEvents: 'auto',
+  };
+
   return (
     <>
+      {/* E edge handle — right side, vertical strip, W-only resize */}
       <div
         role="slider"
-        aria-label="Drag to resize ticket"
+        aria-label="Drag right to adjust width"
+        data-testid="price-ticket-resize-handle-e"
+        onPointerDown={makePointerDown('e')}
+        title="Drag right ↔ left to adjust WIDTH only"
+        style={{
+          ...baseHandle,
+          right: '-4mm',
+          top: '30%',
+          width: '6mm',
+          height: '40%',
+          cursor: 'ew-resize',
+          borderRadius: '2px 6px 6px 2px',
+        }}
+      />
+      {/* S edge handle — bottom side, horizontal strip, H-only resize */}
+      <div
+        role="slider"
+        aria-label="Drag down to adjust height"
+        data-testid="price-ticket-resize-handle-s"
+        onPointerDown={makePointerDown('s')}
+        title="Drag up ↕ down to adjust HEIGHT only"
+        style={{
+          ...baseHandle,
+          bottom: '-4mm',
+          left: '30%',
+          height: '6mm',
+          width: '40%',
+          cursor: 'ns-resize',
+          borderRadius: '2px 2px 6px 6px',
+        }}
+      />
+      {/* SE corner — both axes */}
+      <div
+        role="slider"
+        aria-label="Drag corner to resize ticket"
         data-testid="price-ticket-resize-handle"
-        onPointerDown={onPointerDown}
-        title="Drag to resize · the rest of the tickets reflow automatically"
+        onPointerDown={makePointerDown('se')}
+        title="Drag diagonally to resize BOTH width and height. Use the edge handles for one axis at a time."
         style={{
           position: 'absolute',
           right: '-6mm',
@@ -615,7 +718,6 @@ function ResizeHandle({ getDims, previewScale, onChange }) {
           touchAction: 'none',
           zIndex: 50,
           border: '1px solid rgba(0,0,0,0.15)',
-          borderTopLeftRadius: '0',
           pointerEvents: 'auto',
         }}
       />
@@ -683,6 +785,29 @@ export const PriceTickets = () => {
   const [customHeightMm, setCustomHeightMm] = useState(PAPER_PRESETS[DEFAULT_TEMPLATE_NAME].height_mm);
   const [customColsPerA4, setCustomColsPerA4] = useState(PAPER_PRESETS[DEFAULT_TEMPLATE_NAME].per_a4_cols);
   const [customRowsPerA4, setCustomRowsPerA4] = useState(PAPER_PRESETS[DEFAULT_TEMPLATE_NAME].per_a4_rows);
+  // 31 May 2026 — Text size multiplier. Multiplies every font/
+  // padding on the ticket so admins can pump everything bigger
+  // (default 1.0, range 0.7-1.5). Persisted in localStorage so it
+  // sticks across reloads.
+  const [textScale, setTextScale] = useState(() => {
+    try {
+      const raw = localStorage.getItem('price_ticket_text_scale_v1');
+      const n = raw ? parseFloat(raw) : 1.0;
+      return Number.isFinite(n) ? Math.max(0.7, Math.min(1.5, n)) : 1.0;
+    } catch (_e) { return 1.0; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem('price_ticket_text_scale_v1', String(textScale)); } catch (_e) { /* quota */ }
+  }, [textScale]);
+  // 31 May 2026 — Lock toggle. When locked, size + template
+  // controls become read-only so staff can't accidentally change
+  // a finalized ticket layout. Persisted in localStorage.
+  const [isLocked, setIsLocked] = useState(() => {
+    try { return localStorage.getItem('price_ticket_locked_v1') === '1'; } catch (_e) { return false; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem('price_ticket_locked_v1', isLocked ? '1' : '0'); } catch (_e) { /* quota */ }
+  }, [isLocked]);
   // Manual product form — for tickets when the product isn't in the catalogue
   // (one-off price tickets, in-store-only items, samples, etc.). Adds a
   // virtual product (no `id`) to selectedProducts. Save Settings is hidden
@@ -1187,7 +1312,9 @@ export const PriceTickets = () => {
     // Mini tickets and stops it looking lost on A4 / A5 tickets.
     const PRINT_REF_W = 105;
     const PRINT_REF_H = 148;
-    const printScale = Math.min(customWidthMm / PRINT_REF_W, customHeightMm / PRINT_REF_H);
+    // textScale multiplies the final print scale so the slider has
+    // the SAME effect on paper as it does on screen.
+    const printScale = Math.min(customWidthMm / PRINT_REF_W, customHeightMm / PRINT_REF_H) * (textScale || 1);
 
     // Pre-generate QR SVGs (async) for every ticket so the print HTML
     // can embed them synchronously below.
@@ -1237,13 +1364,16 @@ export const PriceTickets = () => {
           ${product.product_code ? `<div class="product-code">Code: ${product.product_code}</div>` : ''}
         </div>
 
-        <!-- Price Box -->
+        <!-- Price Box — WAS/NOW when on sale, single Price otherwise. -->
         <div class="price-box">
-          <div class="rrp-price ${hasDiscount ? 'has-discount' : ''}">
-            RRP £${product.price.toFixed(2)}
-          </div>
-          <div class="main-price">£${(product.clearance_price || product.price || 0).toFixed(2)}</div>
-          <div class="price-unit">${product.priceUnit === 'qty' ? 'per piece' : product.priceUnit === 'box' ? 'per box' : 'per m²'}</div>
+          ${hasDiscount && showOriginalPrice ? `
+            <div class="rrp-price has-discount">
+              WAS £${product.price.toFixed(2)}
+            </div>
+          ` : ''}
+          <div class="price-label ${hasDiscount ? 'on-sale' : ''}">${hasDiscount ? 'NOW' : 'Price'}</div>
+          <div class="main-price ${hasDiscount ? '' : 'price-not-sale'}">£${(product.clearance_price || product.price || 0).toFixed(2)}</div>
+          <div class="price-unit ${hasDiscount ? '' : 'price-unit-not-sale'}">${product.priceUnit === 'qty' ? 'per piece' : product.priceUnit === 'box' ? 'per box' : 'per m²'}</div>
           ${hasDiscount ? `
             <div class="savings-badge">
               SAVE £${savingsAmount.toFixed(2)} (${savingsPercent}% OFF)
@@ -1412,13 +1542,26 @@ export const PriceTickets = () => {
             }
             
             .rrp-price {
-              font-size: 12pt;
+              font-size: 14pt;
               color: #666;
+              font-weight: 600;
               margin-bottom: 2mm;
             }
             
             .rrp-price.has-discount {
               text-decoration: line-through;
+            }
+            
+            .price-label {
+              font-size: 11pt;
+              color: #333;
+              font-weight: 600;
+              letter-spacing: 0.1em;
+              text-transform: uppercase;
+              margin-bottom: 0.5mm;
+            }
+            .price-label.on-sale {
+              color: #dc2626;
             }
             
             .main-price {
@@ -1428,12 +1571,18 @@ export const PriceTickets = () => {
               font-family: "Bahnschrift SemiBold", "Bahnschrift", "Segoe UI", sans-serif;
               line-height: 1;
             }
+            .main-price.price-not-sale {
+              color: #1a1a1a;
+            }
             
             .price-unit {
               font-size: 12pt;
               color: #dc2626;
               font-weight: 600;
               margin-top: 1mm;
+            }
+            .price-unit.price-unit-not-sale {
+              color: #333;
             }
             
             .savings-badge {
@@ -2000,6 +2149,7 @@ export const PriceTickets = () => {
                       }
                     }}
                     data-testid="paper-template-select"
+                    disabled={isLocked}
                   >
                     {/* Built-in presets group */}
                     <optgroup label="Built-in presets">
@@ -2032,9 +2182,10 @@ export const PriceTickets = () => {
                       );
                       if (name) saveTemplate(name);
                     }}
-                    className="px-3 py-1 bg-amber-600 text-white text-sm rounded hover:bg-amber-700 flex items-center gap-1.5 whitespace-nowrap"
+                    className="px-3 py-1 bg-amber-600 text-white text-sm rounded hover:bg-amber-700 flex items-center gap-1.5 whitespace-nowrap disabled:opacity-40 disabled:cursor-not-allowed"
                     title="Save the current paper size + display settings as a re-usable named template. Permanently joins the dropdown above."
                     data-testid="save-template-btn"
+                    disabled={isLocked}
                   >
                     <BookmarkPlus className="w-3.5 h-3.5" />
                     Save as template
@@ -2051,6 +2202,7 @@ export const PriceTickets = () => {
                       value={customWidthMm}
                       onChange={(e) => setCustomWidthMm(Math.max(20, parseFloat(e.target.value) || 0))}
                       className="h-8"
+                      disabled={isLocked}
                       data-testid="paper-width-input"
                     />
                   </div>
@@ -2063,6 +2215,7 @@ export const PriceTickets = () => {
                       value={customHeightMm}
                       onChange={(e) => setCustomHeightMm(Math.max(20, parseFloat(e.target.value) || 0))}
                       className="h-8"
+                      disabled={isLocked}
                       data-testid="paper-height-input"
                     />
                   </div>
@@ -2075,6 +2228,7 @@ export const PriceTickets = () => {
                       value={customColsPerA4}
                       onChange={(e) => setCustomColsPerA4(Math.max(1, parseInt(e.target.value) || 1))}
                       className="h-8"
+                      disabled={isLocked}
                       data-testid="paper-cols-input"
                     />
                   </div>
@@ -2087,10 +2241,71 @@ export const PriceTickets = () => {
                       value={customRowsPerA4}
                       onChange={(e) => setCustomRowsPerA4(Math.max(1, parseInt(e.target.value) || 1))}
                       className="h-8"
+                      disabled={isLocked}
                       data-testid="paper-rows-input"
                     />
                   </div>
                 </div>
+
+                {/* 31 May 2026 — Text-size multiplier + Lock toggle.
+                    Slider multiplies every font/padding inside the
+                    ticket so admins can pump everything bigger/
+                    smaller without changing the paper. Lock makes
+                    the whole size panel + resize handle read-only
+                    so a finalized layout can't be nudged accidentally. */}
+                <div className="pt-2 border-t border-amber-200 space-y-2">
+                  <div>
+                    <div className="flex items-center justify-between mb-0.5">
+                      <label className="text-xs text-amber-800 font-semibold">
+                        Text size
+                      </label>
+                      <span className="text-[10px] text-amber-700 font-mono tabular-nums">
+                        {Math.round(textScale * 100)}%
+                      </span>
+                    </div>
+                    <input
+                      type="range"
+                      min="0.7"
+                      max="1.5"
+                      step="0.05"
+                      value={textScale}
+                      onChange={(e) => setTextScale(parseFloat(e.target.value))}
+                      disabled={isLocked}
+                      data-testid="text-scale-slider"
+                      className="w-full accent-amber-600 disabled:opacity-40"
+                    />
+                    <div className="flex justify-between text-[9px] text-amber-700/70 mt-0.5 px-0.5">
+                      <span>smaller</span>
+                      <button
+                        type="button"
+                        onClick={() => setTextScale(1.0)}
+                        disabled={isLocked}
+                        className="underline hover:text-amber-900 disabled:opacity-40"
+                        title="Reset to 100%"
+                        data-testid="text-scale-reset"
+                      >
+                        reset
+                      </button>
+                      <span>bigger</span>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setIsLocked((v) => !v)}
+                    data-testid="lock-toggle"
+                    className={`w-full px-3 py-1.5 rounded-md text-xs font-bold flex items-center justify-center gap-1.5 transition-colors ${
+                      isLocked
+                        ? 'bg-rose-600 text-white hover:bg-rose-700'
+                        : 'bg-emerald-100 text-emerald-800 hover:bg-emerald-200 border border-emerald-300'
+                    }`}
+                    title={isLocked
+                      ? 'Tap to unlock — size + template controls become editable again'
+                      : 'Tap to lock — size + template controls become read-only so they can\'t be nudged accidentally'}
+                  >
+                    {isLocked ? '🔒 LOCKED · Tap to unlock' : '🔓 Lock this ticket size'}
+                  </button>
+                </div>
+
                 <p className="text-xs text-amber-700">
                   {customWidthMm}×{customHeightMm}mm — {customColsPerA4 * customRowsPerA4} tickets per A4
                   {' · '}
@@ -2446,12 +2661,14 @@ export const PriceTickets = () => {
                       showQR={showQR}
                       index={idx}
                       paperSize={currentPaperSize}
+                      textScale={textScale}
                       // Resize handle only on the FIRST ticket of the
                       // inline preview. All other copies reflow because
                       // they read the same customWidthMm/customHeightMm.
-                      resizable={idx === 0}
+                      // Locked tickets disable the handle entirely.
+                      resizable={idx === 0 && !isLocked}
                       previewScale={0.45}
-                      onResize={idx === 0 ? handleResizeFromHandle : undefined}
+                      onResize={idx === 0 && !isLocked ? handleResizeFromHandle : undefined}
                     />
                   ))}
                 </div>
@@ -2523,6 +2740,7 @@ export const PriceTickets = () => {
                   showQR={showQR}
                   index={idx}
                   paperSize={currentPaperSize}
+                  textScale={textScale}
                 />
               ))}
             </div>
