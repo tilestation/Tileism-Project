@@ -699,17 +699,20 @@ const PriceTicket = ({ product, showOriginalPrice, showClearanceBadge, showThisW
           if (!w || !h) return null;
           return { w, h };
         };
-        // Scale = 0.5mm per cm → 30cm box is 15mm wide, 60cm is 30mm, 120cm is 60mm.
-        // Larger than the v1 scale so a SINGLE-size product still draws a clearly
-        // visible box (a 60×120 product otherwise rendered at 19×38mm with text
-        // too small to read on the printed sheet).
-        const SCALE = 0.5;
-        const MIN_SIDE_MM = 18;
+        // ALL boxes render as LANDSCAPE rectangles (width > height) at a
+        // fixed compact height so the size-row never dominates the ticket.
+        // Width varies subtly with the total of both dimensions so 30×60
+        // looks smaller than 60×60 looks smaller than 60×120 — but every
+        // box is the same readable height. Matches the user's reference
+        // photo of the Rivertine Cream physical ticket (1 Jun 2026).
+        const FIXED_HEIGHT_MM = 13;
         const renderBoxStyle = (sz) => {
-          if (!sz) return { width: '20mm', height: '12mm' };
-          const wMm = Math.max(MIN_SIDE_MM, sz.w * SCALE);
-          const hMm = Math.max(MIN_SIDE_MM * 0.7, sz.h * SCALE);
-          return { width: `${wMm}mm`, height: `${hMm}mm` };
+          if (!sz) return { width: '22mm', height: `${FIXED_HEIGHT_MM}mm` };
+          const sumDim = sz.w + sz.h;
+          // Width scales with sumDim: 30×60 (sum=90) → ~27mm, 60×60 (sum=120) → ~30mm,
+          // 60×120 (sum=180) → ~38mm, 120×120 (sum=240) → ~42mm (capped).
+          const widthMm = Math.max(22, Math.min(42, 16 + sumDim * 0.12));
+          return { width: `${widthMm}mm`, height: `${FIXED_HEIGHT_MM}mm` };
         };
         return (
           <div style={{
@@ -743,11 +746,11 @@ const PriceTicket = ({ product, showOriginalPrice, showClearanceBadge, showThisW
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
-                      // Long-side text size: scale with box but with
-                      // a higher floor (10pt) so the size label is
-                      // always readable on print, even on the smallest
-                      // 30cm box.
-                      fontSize: sz ? `${Math.min(14, Math.max(10, sz.w * 0.15))}pt` : '12pt',
+                      // Compact font now that all boxes share a single
+                      // landscape shape (~13mm tall). 9pt is the floor
+                      // so even "120x120" still reads on the printed
+                      // sheet; clamps up to 11pt for the biggest boxes.
+                      fontSize: sz ? `${Math.min(11, Math.max(9, (sz.w + sz.h) * 0.04 + 5))}pt` : '10pt',
                       fontWeight: 700,
                       textAlign: 'center',
                       ...boxStyle,
@@ -1969,10 +1972,12 @@ export const PriceTickets = () => {
                   return `<div class="size-box" style="width:20mm;height:12mm;font-size:11pt;">${size}</div>`;
                 }
                 const w = parseFloat(m[1]); const h = parseFloat(m[2]);
-                const SCALE = 0.5;
-                const wMm = Math.max(18, w * SCALE);
-                const hMm = Math.max(18 * 0.7, h * SCALE);
-                const fontPt = Math.min(14, Math.max(10, w * 0.15));
+                // All-landscape compact boxes — see matching block in the
+                // JSX PriceTicket for rationale.
+                const sumDim = w + h;
+                const wMm = Math.max(22, Math.min(42, 16 + sumDim * 0.12));
+                const hMm = 13;
+                const fontPt = Math.min(11, Math.max(9, sumDim * 0.04 + 5));
                 return `<div class="size-box" style="width:${wMm}mm;height:${hMm}mm;font-size:${fontPt}pt;">${size}</div>`;
               }).join('')}
             </div>

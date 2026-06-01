@@ -9,6 +9,27 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Feb 26, 2026 — Forked session] 🏷️ Price Tickets: compact all-landscape size boxes
+
+**User feedback (with reference photo + current screenshot)**: *"Size boxes are taking a lot of space which is causing tickets to go bigger than the sizes expected, can you make the all sizes to be in rectangular shape rather than a tall (vertical shape (for example 60x120), like I have attached old ticket template. They don't need to be massive, just slight difference in box sizes."*
+
+**Root cause**: v3 rendered boxes at the true tile aspect-ratio (so 60×120 drew as a 30×60mm portrait rectangle that ate half the ticket's vertical space).
+
+**Fix** (`/app/frontend/src/pages/admin/PriceTickets.js`):
+- **All boxes now landscape with a fixed 13mm height** (`FIXED_HEIGHT_MM = 13`).
+- Width scales subtly with the **sum** of both dimensions: `Math.max(22, Math.min(42, 16 + (w + h) × 0.12))` mm. Result:
+  - 30×60 → 26.8mm × 13mm (smallest)
+  - 60×60 → 30.4mm × 13mm (slightly bigger)
+  - 60×120 → 37.6mm × 13mm (longest, same height)
+  - 80×80 → 35.2mm × 13mm
+  - 120×120 → 42mm × 13mm (capped, biggest)
+- Font scales 9-11pt with `sumDim × 0.04 + 5` so the labels stay readable.
+- Mirrored byte-for-byte in the print HTML so the PDF/printed sheet matches the on-screen preview.
+
+**Verified live**: Test Multi Size product with all 5 dimensions — all boxes now render as compact landscape rectangles in 2 rows, takes ~30% of the vertical space the v3 boxes did. Matches the user's reference photo.
+
+
+
 ### [Feb 26, 2026 — Forked session] 🏷️ Price Tickets: "Duplicate × N" colour-range presets
 
 **User intent**: *"Duplicate × N quick action — type a number and one click clones the ticket N times with auto-suffix (White) / (Grey) / (Beige) / (Black)? Could come from a small saved 'colour-range presets' dropdown so showroom managers can stamp out a full range in one keypress."*
