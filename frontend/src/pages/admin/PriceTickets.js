@@ -484,10 +484,61 @@ const MIN_TICKET_H_MM = 70;
 const MAX_TICKET_W_MM = 210;        // A4 portrait width
 const MAX_TICKET_H_MM = 297;        // A4 portrait height
 
+// 31 May 2026 — snap-to-presets while dragging. The X / Y arrays
+// are independent: dragging into the A4-height range snaps to 297
+// regardless of width. The user gets magnetic feel + matching
+// preset-name in the tooltip ("✓ A6 Tickets") so they know they've
+// hit a standard size. Also includes Avery L7163 / L7163 land which
+// are common shelf-edge label sheets.
+//
+// `name` is shown in the live tooltip when BOTH axes match a preset
+// — single-axis matches just snap silently. Tolerance = 4mm at
+// design scale (~9px on screen at 0.45 preview scale), tight enough
+// to feel intentional, loose enough to be easy to hit.
+const SNAP_TOLERANCE_MM = 4;
+const SNAP_PRESETS = [
+  { w: 52,  h: 74,  name: 'Mini (52×74mm)' },
+  { w: 74,  h: 105, name: 'A7 / Small Shelf' },
+  { w: 99,  h: 38,  name: 'Avery L7163' },           // Royal Mail address labels (14/sheet)
+  { w: 105, h: 148, name: 'A6' },
+  { w: 148, h: 210, name: 'A5' },
+  { w: 210, h: 297, name: 'A4' },
+];
+const UNIQUE_W_VALUES = Array.from(new Set(SNAP_PRESETS.flatMap((p) => [p.w, p.h]))).sort((a, b) => a - b);
+const UNIQUE_H_VALUES = UNIQUE_W_VALUES;             // same set — snap is dimension-agnostic
+
+/**
+ * Returns {value, snapped} for a given target mm + snap candidates.
+ * If `target` is within SNAP_TOLERANCE_MM of any candidate, returns
+ * that candidate (magnetic pull). Otherwise returns the raw target.
+ */
+function applySnap(target) {
+  let best = null;
+  let bestDist = Infinity;
+  for (const candidate of UNIQUE_W_VALUES) {
+    const d = Math.abs(target - candidate);
+    if (d < bestDist && d <= SNAP_TOLERANCE_MM) {
+      best = candidate;
+      bestDist = d;
+    }
+  }
+  return best !== null ? { value: best, snapped: true } : { value: target, snapped: false };
+}
+
+function findMatchingPresetName(w, h) {
+  const exact = SNAP_PRESETS.find((p) => p.w === w && p.h === h);
+  if (exact) return exact.name;
+  // Also accept rotated (h×w) match for cases where the user is
+  // dragging to a landscape orientation of a portrait preset.
+  const rotated = SNAP_PRESETS.find((p) => p.h === w && p.w === h);
+  return rotated ? `${rotated.name} (landscape)` : null;
+}
+
 function ResizeHandle({ getDims, previewScale, onChange }) {
   const dragStateRef = useRef(null);
   const [dragging, setDragging] = useState(false);
-  const [livePreview, setLivePreview] = useState(null); // {w, h} during drag
+  // {w, h, presetName?, snappedW?, snappedH?} during drag
+  const [livePreview, setLivePreview] = useState(null);
 
   const onPointerMove = (e) => {
     const st = dragStateRef.current;
@@ -497,9 +548,23 @@ function ResizeHandle({ getDims, previewScale, onChange }) {
     // Screen px → design px → mm
     const dxMm = dxPx / previewScale / PX_PER_MM;
     const dyMm = dyPx / previewScale / PX_PER_MM;
-    const newW = Math.round(Math.max(MIN_TICKET_W_MM, Math.min(MAX_TICKET_W_MM, st.startW + dxMm)));
-    const newH = Math.round(Math.max(MIN_TICKET_H_MM, Math.min(MAX_TICKET_H_MM, st.startH + dyMm)));
-    setLivePreview({ w: newW, h: newH });
+    const rawW = Math.max(MIN_TICKET_W_MM, Math.min(MAX_TICKET_W_MM, st.startW + dxMm));
+    const rawH = Math.max(MIN_TICKET_H_MM, Math.min(MAX_TICKET_H_MM, st.startH + dyMm));
+    // Snap each axis independently to the preset list. Magnetic
+    // pull within SNAP_TOLERANCE_MM; otherwise the raw value passes
+    // through (just rounded to whole mm for tidy state).
+    const snapW = applySnap(rawW);
+    const snapH = applySnap(rawH);
+    const newW = Math.round(snapW.value);
+    const newH = Math.round(snapH.value);
+    const presetName = findMatchingPresetName(newW, newH);
+    setLivePreview({
+      w: newW,
+      h: newH,
+      presetName,
+      snappedW: snapW.snapped,
+      snappedH: snapH.snapped,
+    });
     onChange(newW, newH);
   };
 
@@ -560,8 +625,10 @@ function ResizeHandle({ getDims, previewScale, onChange }) {
           style={{
             position: 'absolute',
             right: '0mm',
-            bottom: '-18mm',
-            background: 'rgba(15, 23, 42, 0.92)',
+            bottom: '-22mm',
+            background: livePreview.presetName
+              ? 'linear-gradient(135deg, rgba(5, 150, 105, 0.95), rgba(15, 23, 42, 0.95))'
+              : 'rgba(15, 23, 42, 0.92)',
             color: 'white',
             fontSize: '8pt',
             fontFamily: 'ui-monospace, monospace',
@@ -570,10 +637,21 @@ function ResizeHandle({ getDims, previewScale, onChange }) {
             whiteSpace: 'nowrap',
             pointerEvents: 'none',
             zIndex: 60,
-            boxShadow: '0 4px 12px rgba(0,0,0,0.25)',
+            boxShadow: livePreview.presetName
+              ? '0 4px 16px rgba(16, 185, 129, 0.4)'
+              : '0 4px 12px rgba(0,0,0,0.25)',
+            transition: 'background 0.12s ease, box-shadow 0.12s ease',
           }}
         >
-          {livePreview.w} × {livePreview.h} mm
+          <span style={{ fontWeight: livePreview.snappedW ? '700' : '400' }}>{livePreview.w}</span>
+          {' × '}
+          <span style={{ fontWeight: livePreview.snappedH ? '700' : '400' }}>{livePreview.h}</span>
+          {' mm'}
+          {livePreview.presetName && (
+            <span data-testid="price-ticket-resize-snap-name" style={{ marginLeft: 6, fontWeight: 700 }}>
+              ✓ {livePreview.presetName}
+            </span>
+          )}
         </div>
       )}
     </>

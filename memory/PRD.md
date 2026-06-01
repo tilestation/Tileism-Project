@@ -9,6 +9,23 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Feb 26, 2026 — Forked session] 🧲 Price Tickets: snap-to-presets while dragging
+
+**User intent**: *"Visual snap-lines at A6 (105×148), A5 (148×210), A4 (210×297), Avery L7163 (99×38) etc., with a subtle magnetic pull as you near them → YES."*
+
+**What was shipped** (`/app/frontend/src/pages/admin/PriceTickets.js`, in the `ResizeHandle` component):
+
+- **`SNAP_PRESETS`** — A4, A5, A6, A7, Mini (52×74), Avery L7163 (Royal Mail 14-up address label). Unique dimension values extracted so each axis snaps independently (drag wider → snaps to a preset W; drag taller → snaps to a preset H).
+- **`SNAP_TOLERANCE_MM = 4`** — about 9 px on screen at the 0.45× preview scale. Tight enough to feel intentional, loose enough to hit by feel.
+- **Magnetic pull**: `applySnap(target)` finds the nearest candidate within tolerance and returns its exact value. Outside tolerance, the raw mm passes through.
+- **Tooltip evolves on snap**: when EITHER axis snaps, that number is **bolded** in the live `W × H mm` readout. When BOTH axes match a known preset (e.g. exactly 105×148), the tooltip glows green and appends **"✓ A6"** (or whichever preset matched). Also handles rotated matches → labels them "(landscape)".
+- Pure CSS transitions on the tooltip styling (background + box-shadow at 120ms) so the snap-confirmation feels physical, not glitchy.
+
+**Verified live**: dragged the corner from the default A5 (148×210) up-and-left by ~73×105 screen pixels → tooltip locked onto **"105 × 148 mm ✓ A6"** with green glow → header subtitle live-updated to **"Generate and print price tickets (105×148mm · 4 per A4 — A5 Tickets)"**, proving the parent's auto-tile recomputed 2×2 = 4 copies on the A4 page.
+
+**Files**: `/app/frontend/src/pages/admin/PriceTickets.js` (SNAP_PRESETS + applySnap + findMatchingPresetName + onPointerMove snap integration + tooltip-with-preset-name).
+
+
 ### [Feb 26, 2026 — Forked session] 🖐️ Price Tickets: drag-corner-to-resize + auto-tile
 
 **User intent (with screenshot)**: *"Allow me to drag one corner to adjust the size, and if a second, third or 4th ticket on a page adjusting, auto inline with first."*
