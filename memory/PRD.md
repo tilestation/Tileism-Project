@@ -9,6 +9,57 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Feb 26, 2026 — Forked session] 🔥 Dashboard: Return Heatmap tile (which products + suppliers drive refunds)
+
+**User intent (verbatim after the return-link feature)**: *"Now that returns are linked to their source sale at the line-item level, would you like a 'Return Heatmap' tile on the Dashboard showing which products + suppliers generate the most returns over the last 30 days? That data is now fully traceable thanks to today's change — one query and you'd know whether a specific tile or fitter is driving refunds. YES"*
+
+**What was shipped**:
+
+**Backend** (`/app/backend/routes/analytics.py`):
+- New endpoint **`GET /api/analytics/return-heatmap?days=30&limit_products=8&limit_suppliers=5`**.
+- Aggregates from **TWO sources** in one pass so the tile reflects the full refund picture, not just one path:
+  1. `invoices.line_items[*]` where `is_return=True` — per-line returns inside invoices (the EPOS Return checkbox flow shipped earlier today).
+  2. `refunds.line_items[*]` — standalone refunds from the Refund page.
+- Each return row joined to the products catalogue (sku → product_id → name fallback) to pull `supplier_name`.
+- Computes per-product **return RATE %** = units_returned ÷ units_sold over the same window (so a tile that sells 1000 and returns 5 is clearly distinguishable from one that sells 8 and returns 5).
+- Output: `{window_days, start, end, totals:{events,units,value}, top_products:[…], top_suppliers:[…]}` — ranked by £ value returned (worst offender first).
+- Showroom-scoped for non-super-admin users (managers see only their own store's refund pattern).
+- Clamps `days` to 1-365 so a runaway client can't pull 10 years.
+
+**Frontend** (`/app/frontend/src/components/dashboard/ReturnHeatmapCard.jsx` — NEW):
+- Rose-tinted card with `RotateCcw` icon — visually paired with the Marketing Funnel above it but signalling pain (rose) vs growth (amber).
+- **Window selector**: 7d / 30d / 90d pills, fuchsia-red active state, live re-fetch on change.
+- **Totals strip**: Returns count · Units · £ value, big bold numbers in 3 white cards.
+- **Two-column body**:
+  - **Top products** (left, Package icon): up to 6 rows. Each row has a horizontal background bar tinted to its severity (rose ≥66% of worst, amber 33-66%, slate <33%), product name + SKU + supplier on left, £value + units + return-rate % on right. Rate gets coloured red ≥10%, amber 3-10%, slate <3%.
+  - **Top suppliers** (right, Truck icon): up to 4 rows. £value + event count.
+- **Empty state**: emerald "🎉 No returns in the last N days. Customers are keeping what they buy."
+- **Loading / error states** with `Loader2` spinner and `AlertTriangle` icon.
+- Helper note at the bottom: *"Includes per-line returns inside invoices and standalone refunds. Return % is units returned ÷ units sold in the same window."*
+- All elements carry `data-testid`s (`dashboard-return-heatmap-card`, `return-heatmap-window-{days}`, `return-heatmap-product-{sku}`, `return-heatmap-supplier-{name}`, `return-heatmap-total-events`).
+
+**Mounted** in `/app/frontend/src/pages/admin/Dashboard.js` directly after the Marketing Funnel and before the bottom stat-cards row. Available to anyone with dashboard permission (super_admin, admin, manager) — store managers benefit from seeing their own showroom's refund pattern.
+
+**Backend tests (5/5 pass)** in `tests/test_return_heatmap.py`:
+- Aggregates BOTH invoice-line returns AND refund-line returns into one row per product (5 units returned = 2 invoice + 3 refund); £value correct; events count correct (= 2).
+- Supplier roll-up sums correctly across both paths.
+- Out-of-window data (a 400-day-old invoice with quantity=999) is excluded.
+- `days=10000` clamps to 365 instead of crashing.
+- Anonymous → 401/403.
+
+**Live verified on preview**:
+- 90d window: shows **35 returns · 35 units · £350 value** with 3 top products and 1 supplier row, all with relative-pain bars (Approval Test Item the worst offender).
+- 7d window: empty-state ("🎉 No returns in the last 7 days") because test data is older.
+- Toggle re-fetches and re-renders in <1 s.
+
+**Files**:
+- `/app/backend/routes/analytics.py` (new endpoint `analytics/return-heatmap`, ~150 LOC)
+- `/app/frontend/src/components/dashboard/ReturnHeatmapCard.jsx` (NEW, ~220 LOC)
+- `/app/frontend/src/pages/admin/Dashboard.js` (import + mount between MarketingFunnel and stat cards)
+- `/app/backend/tests/test_return_heatmap.py` (NEW — 5 tests)
+
+
+
 ### [Feb 26, 2026 — Forked session] 🧾 EPOS Invoice: Return checkbox now PROMPTS for original invoice number
 
 **User report (with screenshot)**: *"When doing a return/exchange within an invoice it doesn't ask for original invoice number to be linked. It needs to ask for original invoice number as soon as that return box checked in."*

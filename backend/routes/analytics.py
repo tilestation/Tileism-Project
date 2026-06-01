@@ -344,6 +344,223 @@ async def get_best_selling_products(
     return response
 
 
+# ============================================================================
+# Return Heatmap — Feb 26, 2026
+#
+# Aggregates the last N days of return activity from TWO sources so the
+# Dashboard widget reflects the FULL refund picture, not just one path:
+#
+#   1. `invoices.line_items[*]` where is_return=True
+#      → Per-line returns done inside an invoice (the EPOS Return checkbox
+#        flow introduced today). These now carry original_invoice_no for
+#        audit but each return line is itself just a flagged invoice row.
+#
+#   2. `refunds.line_items[*]`
+#      → Refunds processed via the dedicated Refund page (existing flow).
+#        These already had structured refund_price/quantity data.
+#
+# Each return is enriched with supplier info via the `products` collection
+# (joined on sku, fallback to product_id, fallback to product_name) so the
+# tile can also show top-returning SUPPLIERS, not just products.
+#
+# Bonus output: per-product return RATE % = units_returned / units_sold
+# over the same period (so a tile that sells 1000 units and returns 5 is
+# clearly distinguishable from a tile that sells 8 and returns 5).
+# ============================================================================
+@router.get("/analytics/return-heatmap")
+async def get_return_heatmap(
+    days: int = 30,
+    limit_products: int = 8,
+    limit_suppliers: int = 5,
+    current_user: dict = Depends(get_current_user)
+):
+    """Top returning products + suppliers over the last `days` window."""
+    if not can_access_dashboard(current_user):
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    # Clamp to reasonable bounds so a runaway client can't pull 10 years.
+    days = max(1, min(int(days or 30), 365))
+    limit_products = max(1, min(int(limit_products or 8), 50))
+    limit_suppliers = max(1, min(int(limit_suppliers or 5), 50))
+
+    db = get_db()
+    now = datetime.now(timezone.utc)
+    start = now - timedelta(days=days)
+
+    # Showroom scoping — non-super-admin sees only their own store.
+    showroom_filter = {}
+    if current_user.get("role") != "super_admin" and current_user.get("showroom_id"):
+        showroom_filter["showroom_id"] = current_user["showroom_id"]
+
+    # ── Load the product catalogue ONCE to enrich return rows with supplier
+    #    + canonical name. Index lookups twice (sku → prod, id → prod) so the
+    #    join hits regardless of which key the line item carries.
+    products = await db.products.find(
+        {},
+        {"_id": 0, "id": 1, "sku": 1, "name": 1, "supplier_id": 1, "supplier_name": 1}
+    ).to_list(100000)
+    by_sku = {p.get("sku"): p for p in products if p.get("sku")}
+    by_id = {p.get("id"): p for p in products if p.get("id")}
+
+    def _resolve_product(li: dict) -> dict:
+        sku = li.get("sku")
+        pid = li.get("product_id")
+        if sku and sku in by_sku:
+            return by_sku[sku]
+        if pid and pid in by_id:
+            return by_id[pid]
+        return {"name": li.get("product_name") or "Unknown", "sku": sku or "", "supplier_name": None}
+
+    # ── Accumulators ─────────────────────────────────────────────────────
+    # Keyed by sku-or-name so a manually-typed product still aggregates
+    # rather than fragmenting per typo. Suppliers keyed by supplier_name.
+    by_product: dict = {}
+    by_supplier: dict = {}
+    total_returned_units = 0.0
+    total_returned_value = 0.0
+    return_event_count = 0  # distinct refund/invoice-line events
+
+    def _bump_product(key: str, qty: float, value: float, name: str, sku: str, supplier: str | None):
+        row = by_product.setdefault(key, {
+            "key": key, "product_name": name, "sku": sku or "",
+            "supplier_name": supplier or "—",
+            "units_returned": 0.0, "value_returned": 0.0,
+            "units_sold": 0.0, "events": 0,
+        })
+        row["units_returned"] += float(qty or 0)
+        row["value_returned"] += float(value or 0)
+        row["events"] += 1
+
+    def _bump_supplier(supplier: str | None, qty: float, value: float):
+        key = supplier or "— (no supplier)"
+        row = by_supplier.setdefault(key, {
+            "supplier_name": key,
+            "units_returned": 0.0, "value_returned": 0.0,
+            "events": 0,
+        })
+        row["units_returned"] += float(qty or 0)
+        row["value_returned"] += float(value or 0)
+        row["events"] += 1
+
+    # ── Source 1: invoices.line_items where is_return=True ───────────────
+    # Use date string DD/MM/YYYY parsing via the shared helper to stay
+    # consistent with the rest of the analytics module.
+    inv_query = {**showroom_filter, "deleted_at": {"$exists": False}}
+    invoices = await db.invoices.find(
+        inv_query,
+        {"_id": 0, "date": 1, "line_items": 1}
+    ).to_list(100000)
+
+    for inv in invoices:
+        if not is_date_in_range(inv.get("date", ""), start, now):
+            continue
+        for li in inv.get("line_items") or []:
+            qty = float(li.get("quantity") or 0)
+            if qty <= 0:
+                continue
+            # Sold-units denominator: every non-return line in the window.
+            if not li.get("is_return"):
+                prod = _resolve_product(li)
+                key = (li.get("sku") or prod.get("sku") or li.get("product_name") or "unknown").lower()
+                row = by_product.setdefault(key, {
+                    "key": key,
+                    "product_name": prod.get("name") or li.get("product_name") or "Unknown",
+                    "sku": (li.get("sku") or prod.get("sku") or ""),
+                    "supplier_name": prod.get("supplier_name") or "—",
+                    "units_returned": 0.0, "value_returned": 0.0,
+                    "units_sold": 0.0, "events": 0,
+                })
+                row["units_sold"] += qty
+                continue
+            # Return line — count it.
+            prod = _resolve_product(li)
+            unit_price = float(li.get("due_price") if li.get("due_price") is not None else li.get("price") or 0)
+            value = abs(unit_price * qty)
+            sku = li.get("sku") or prod.get("sku") or ""
+            key = (sku or li.get("product_name") or "unknown").lower()
+            _bump_product(
+                key=key, qty=qty, value=value,
+                name=prod.get("name") or li.get("product_name") or "Unknown",
+                sku=sku, supplier=prod.get("supplier_name"),
+            )
+            _bump_supplier(prod.get("supplier_name"), qty, value)
+            total_returned_units += qty
+            total_returned_value += value
+            return_event_count += 1
+
+    # ── Source 2: refunds.line_items ─────────────────────────────────────
+    # Refunds have refund_price (per unit) — separate from invoice line shape.
+    refunds = await db.refunds.find(
+        showroom_filter,
+        {"_id": 0, "date": 1, "line_items": 1}
+    ).to_list(100000)
+
+    for rf in refunds:
+        if not is_date_in_range(rf.get("date", ""), start, now):
+            continue
+        for li in rf.get("line_items") or []:
+            qty = float(li.get("quantity") or 0)
+            if qty <= 0:
+                continue
+            prod = _resolve_product(li)
+            unit_price = float(li.get("refund_price") if li.get("refund_price") is not None else li.get("original_price") or 0)
+            value = abs(unit_price * qty)
+            sku = li.get("sku") or prod.get("sku") or ""
+            key = (sku or li.get("product_name") or "unknown").lower()
+            _bump_product(
+                key=key, qty=qty, value=value,
+                name=prod.get("name") or li.get("product_name") or "Unknown",
+                sku=sku, supplier=prod.get("supplier_name"),
+            )
+            _bump_supplier(prod.get("supplier_name"), qty, value)
+            total_returned_units += qty
+            total_returned_value += value
+            return_event_count += 1
+
+    # ── Compute return rate per product, then rank ───────────────────────
+    products_list = []
+    for row in by_product.values():
+        if row["units_returned"] <= 0:
+            continue  # Skip products that only contributed to the denominator
+        rate = (row["units_returned"] / row["units_sold"] * 100.0) if row["units_sold"] > 0 else None
+        products_list.append({
+            "product_name": row["product_name"],
+            "sku": row["sku"],
+            "supplier_name": row["supplier_name"],
+            "units_returned": round(row["units_returned"], 2),
+            "value_returned": round(row["value_returned"], 2),
+            "units_sold": round(row["units_sold"], 2),
+            "return_rate_pct": round(rate, 1) if rate is not None else None,
+            "events": row["events"],
+        })
+    products_list.sort(key=lambda r: (r["value_returned"], r["units_returned"]), reverse=True)
+    top_products = products_list[:limit_products]
+
+    suppliers_list = []
+    for row in by_supplier.values():
+        suppliers_list.append({
+            "supplier_name": row["supplier_name"],
+            "units_returned": round(row["units_returned"], 2),
+            "value_returned": round(row["value_returned"], 2),
+            "events": row["events"],
+        })
+    suppliers_list.sort(key=lambda r: r["value_returned"], reverse=True)
+    top_suppliers = suppliers_list[:limit_suppliers]
+
+    return {
+        "window_days": days,
+        "start": start.strftime("%Y-%m-%d"),
+        "end": now.strftime("%Y-%m-%d"),
+        "totals": {
+            "events": return_event_count,
+            "units": round(total_returned_units, 2),
+            "value": round(total_returned_value, 2),
+        },
+        "top_products": top_products,
+        "top_suppliers": top_suppliers,
+    }
+
+
 @router.get("/analytics/showrooms")
 async def get_showroom_analytics(
     period: str = "month",

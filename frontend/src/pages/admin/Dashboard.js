@@ -12,6 +12,7 @@ import { SalesComparison } from '../../components/dashboard/SalesComparison';
 import QuoteConversionWidget from '../../components/dashboard/QuoteConversionWidget';
 import AbandonedCartRecoveryCard from '../../components/dashboard/AbandonedCartRecoveryCard';
 import MarketingFunnelCard from '../../components/dashboard/MarketingFunnelCard';
+import ReturnHeatmapCard from '../../components/dashboard/ReturnHeatmapCard';
 import ConversionFunnelCard from './ConversionFunnelCard';
 import { normaliseImageUrl } from '../../utils/safeStr';
 
@@ -2994,6 +2995,11 @@ export const AdminDashboard = () => {
 
       {/* Marketing Funnel — last 7/30 days lead capture & recovery snapshot */}
       {isSuperAdmin && <MarketingFunnelCard />}
+
+      {/* Return Heatmap — which products / suppliers drive refunds. Available
+          to anyone who can see the dashboard (showroom managers benefit from
+          knowing their own store's refund pattern too). */}
+      <ReturnHeatmapCard />
 
       {/* Stat Cards - At Bottom of Page */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
