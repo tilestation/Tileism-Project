@@ -9,6 +9,25 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Feb 26, 2026 — Forked session] 🧭 Price Tickets promoted to top-level sidebar item
+
+**User request**: *"Move the Price Tickets feature to Side Bar menu under Supplier products section, right now it's not very visible in and sitting inside supplier products section"*
+
+**Fix** (`/app/frontend/src/components/Layout.js`): Added a new sidebar entry under the `Products & Suppliers` group (line 253), right after `Products`:
+
+```js
+{ to: '/admin/price-tickets', icon: Tag, label: 'Price Tickets', 
+  permission: 'supplier_products', legacyPermission: 'products' },
+```
+
+- Uses the existing `Tag` lucide icon (already imported elsewhere for Promo Codes).
+- Same permission scope as the parent `Products` item so anyone who can edit products can also access the ticket printer.
+- The route `/admin/price-tickets` was already registered in `App.js` (line 527) — only the sidebar entry was missing.
+
+**Verified live**: Logged in as super_admin → sidebar now shows `🏷️ Price Tickets` as the 2nd item under Products & Suppliers (after Products). Clicking it navigates to `/admin/price-tickets` and highlights the row in orange.
+
+
+
 ### [Feb 26, 2026 — Forked session] 🏷️ Price Tickets v5: discoverable CLEARANCE toggle + bigger size boxes + editable supplier badge
 
 **User feedback (3 separate asks, with annotated screenshot)**:

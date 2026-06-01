@@ -250,6 +250,7 @@ export const Layout = () => {
       hubLink: '/admin/products-hub',
       items: [
         { to: '/admin/supplier-products', icon: Package, label: 'Products', permission: 'supplier_products', legacyPermission: 'products' },
+        { to: '/admin/price-tickets', icon: Tag, label: 'Price Tickets', permission: 'supplier_products', legacyPermission: 'products' },
         { to: '/admin/supplier-health', icon: Activity, label: 'Supplier Health', permission: 'supplier_health', legacyPermission: 'products' },
         { to: '/admin/sync-hub', icon: RefreshCw, label: 'Sync Hub', permission: 'sync_hub', legacyPermission: 'products' },
         { to: '/admin/suppliers', icon: Building2, label: 'Supplier Contacts', permission: 'suppliers', legacyPermission: 'products' },
