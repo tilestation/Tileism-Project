@@ -531,6 +531,14 @@ class LineItemBase(BaseModel):
     due_price: Optional[float] = None
     total: float
     cost_price: Optional[float] = None  # Cost price for profit calculation
+    # Per-line return/exchange — when True this line is treated as a credit
+    # against an EARLIER invoice. The original invoice number/id is captured
+    # at the moment the Return checkbox is ticked in the EPOS line table so
+    # the return is permanently linked back to the source sale for audit and
+    # trade-credit reversal.
+    is_return: Optional[bool] = False
+    original_invoice_no: Optional[str] = None
+    original_invoice_id: Optional[str] = None
 
 class DepositBase(BaseModel):
     date: str

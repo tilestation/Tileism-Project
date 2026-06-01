@@ -9,6 +9,52 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Feb 26, 2026 — Forked session] 🧾 EPOS Invoice: Return checkbox now PROMPTS for original invoice number
+
+**User report (with screenshot)**: *"When doing a return/exchange within an invoice it doesn't ask for original invoice number to be linked. It needs to ask for original invoice number as soon as that return box checked in."*
+
+**Root cause**: The Return checkbox on each line item (`/admin/epos?tab=invoice` → Line Items table) flipped the row to RETURNED locally but (a) was never persisted to the backend at all, and (b) carried zero context about WHICH invoice the return tied back to — making refund audit + trade-credit reversal impossible to trace.
+
+**What was shipped**:
+
+**Backend** (`/app/backend/routes/invoices.py` `LineItemBase`):
+- 3 new optional fields on every line item: `is_return: bool=False`, `original_invoice_no: Optional[str]`, `original_invoice_id: Optional[str]`. Default-false keeps every existing flow unchanged; the upgrade is purely additive.
+
+**Frontend** (`/app/frontend/src/pages/admin/Invoice.js`):
+- New `emptyLineItem` fields: `isReturn`, `originalInvoiceNo`, `originalInvoiceId` so every freshly-added line carries the return slots from the start.
+- New dialog state + 3 handlers (`openLinkReturnDialog` / `clearReturnLink` / `confirmLinkReturn` / `cancelLinkReturn`).
+- New shadcn `Dialog` rendered next to the email/refund dialogs — title "Link return to original invoice", input prefilled to either empty or the existing link, RotateCcw red icon.
+- **Debounced live search** (300 ms after typing) against `GET /api/invoices?search=<typed>&limit=8` so the staff sees real recent invoices to pick from: each suggestion row shows invoice number (mono font), customer name, date, gross total. Click → fills both input + picked-id.
+- **Cancel rolls the checkbox back** — the line stays UNTICKED unless the staff member explicitly confirms with a non-empty number.
+- Save payload now sends `is_return`, `original_invoice_no`, `original_invoice_id` for every line; loader maps them back when editing an existing invoice.
+- **Print preview** (`InvoicePrintPreview.js`) — RETURNED rows now show `— linked to INV-326878` next to the strikethrough product name, so the paper invoice carries the audit trail.
+
+**Frontend** (`/app/frontend/src/components/invoice/InvoiceLineItemsTable.js`):
+- New props `onRequestReturnLink(index, prefillNo, prefillId)` and `onClearReturnLink(index)`. Checkbox's `onCheckedChange` routes through them; defensive fallback to the legacy `onUpdateLineItem` keeps the existing Quotation / CashQuotation usages of this table working without modification.
+- Below the RETURNED pill, a dotted-underlined monospace pill showing the linked `INV-XXXXXX` — clicking re-opens the dialog so staff can change the link. If somehow missing (e.g. an older invoice loaded for edit), an amber "Link invoice…" CTA shows instead.
+
+**Verified live on preview** (Playwright):
+1. ✅ Tick `data-testid="return-checkbox-0"` → dialog opens immediately, checkbox stays unticked.
+2. ✅ Typing "INV" → 4 real invoices appear in the suggestions panel within ~600 ms (INV-REV-DFDC94, INV-RFN-0F7C07, INV-TEST-D52EBF, INV-HIST-EPOS).
+3. ✅ Click first suggestion → input + picked-id auto-fill, "Mark as RETURN" button enables.
+4. ✅ Confirm → row goes red-tinted, `RETURNED` pill + dotted-underlined `INV-REV-DFDC94` link below the checkbox, Total Due flips to `−£0.00`, toast `"Return linked to INV-REV-DFDC94"`.
+
+**Backend tests (3/3 pass)** in `tests/test_invoice_return_link.py`:
+- Round-trip: `is_return + original_invoice_no + original_invoice_id` persisted through POST `/api/invoices` and recovered intact via GET `/api/invoices/{id}`.
+- Default-false guard: normal invoices have no rows with `is_return=true`.
+- Backwards-compat: a return line POSTed WITHOUT an original-invoice link (e.g. legacy data) still persists — the dialog enforces the link in the UI, the API accepts both shapes.
+
+**Cumulative this session**: 16/16 invoice-related tests still green (13 existing + 3 new); zero regressions.
+
+**Files**:
+- `/app/backend/routes/invoices.py` (`LineItemBase` — 3 new optional fields)
+- `/app/frontend/src/pages/admin/Invoice.js` (emptyLineItem upgrade, loader/saver mapping, dialog state + 4 handlers, live-search useEffect, dialog JSX)
+- `/app/frontend/src/components/invoice/InvoiceLineItemsTable.js` (2 new props, intercepted checkbox, linked-INV pill under RETURNED)
+- `/app/frontend/src/components/invoice/InvoicePrintPreview.js` (linked INV shown on the paper invoice)
+- `/app/backend/tests/test_invoice_return_link.py` (NEW — 3 tests)
+
+
+
 ### [Feb 26, 2026 — Forked session] 🎯 Price Tickets: SALE / CLEARANCE / NEW IN diagonal corner banner
 
 **User request**: *"SALE / CLEARANCE / NEW IN diagonal corner banner option for sale tickets. A red triangle in the top-right of the ticket with a single bold word, super eye-catching from across the showroom → YES."*

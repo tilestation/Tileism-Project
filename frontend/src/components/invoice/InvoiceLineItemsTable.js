@@ -203,6 +203,12 @@ export const InvoiceLineItemsTable = ({
   // Trade-credit redemption — rendered as a payment line, not a discount.
   creditRedeemedAmount = 0,
   creditRedeemedAccount = null,
+  // Per-line return-link callbacks — when ticking the Return checkbox we
+  // ask the parent to open a dialog (and only flip the row to RETURNED
+  // once the original invoice number is confirmed). Unticking clears
+  // the link in one shot.
+  onRequestReturnLink = null,
+  onClearReturnLink = null,
 }) => {
   // Filter products based on search - supports word-by-word matching in any order
   // e.g., "chrome tin" matches "Tin Chrome Edge Finish"
@@ -527,16 +533,65 @@ export const InvoiceLineItemsTable = ({
                       <Checkbox
                         checked={isReturn}
                         onCheckedChange={(checked) => {
-                          onUpdateLineItem(index, 'isReturn', checked);
+                          if (checked) {
+                            // Ticking → must capture original invoice no.
+                            // Keep the row UNTICKED until parent confirms.
+                            if (onRequestReturnLink) {
+                              onRequestReturnLink(index, item.originalInvoiceNo || '', item.originalInvoiceId || '');
+                            } else {
+                              // Defensive fallback if parent didn't wire the
+                              // handler — preserves the old flip-on-tick
+                              // behaviour so the box still works.
+                              onUpdateLineItem(index, 'isReturn', true);
+                            }
+                          } else {
+                            // Unticking → clear all 3 return fields in one go.
+                            if (onClearReturnLink) {
+                              onClearReturnLink(index);
+                            } else {
+                              onUpdateLineItem(index, 'isReturn', false);
+                            }
+                          }
                         }}
                         className={isReturn ? 'border-red-500 data-[state=checked]:bg-red-600' : ''}
                         data-testid={`return-checkbox-${index}`}
                       />
                       {isReturn && (
-                        <span className="text-xs text-red-600 font-bold flex items-center gap-1">
-                          <RotateCcw className="h-3 w-3" />
-                          RETURNED
-                        </span>
+                        <>
+                          <span className="text-xs text-red-600 font-bold flex items-center gap-1">
+                            <RotateCcw className="h-3 w-3" />
+                            RETURNED
+                          </span>
+                          {/* Linked invoice — clicking re-opens the dialog
+                              so staff can change which sale this return is
+                              tied to. Falls back to a "Link…" affordance
+                              when somehow the link is missing (e.g. an
+                              older invoice loaded for edit). */}
+                          {item.originalInvoiceNo ? (
+                            <button
+                              type="button"
+                              onClick={() => onRequestReturnLink && onRequestReturnLink(
+                                index,
+                                item.originalInvoiceNo || '',
+                                item.originalInvoiceId || ''
+                              )}
+                              className="text-[10px] text-red-700 underline decoration-dotted underline-offset-2 font-mono hover:text-red-900"
+                              title="Click to change the linked invoice"
+                              data-testid={`return-linked-invoice-${index}`}
+                            >
+                              {item.originalInvoiceNo}
+                            </button>
+                          ) : onRequestReturnLink && (
+                            <button
+                              type="button"
+                              onClick={() => onRequestReturnLink(index, '', '')}
+                              className="text-[10px] text-amber-700 underline font-medium hover:text-amber-900"
+                              data-testid={`return-link-missing-${index}`}
+                            >
+                              Link invoice…
+                            </button>
+                          )}
+                        </>
                       )}
                     </div>
                   </td>

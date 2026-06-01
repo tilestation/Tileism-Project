@@ -75,6 +75,11 @@ export const InvoicePrintPreview = ({
                 <td className="border border-gray-300 px-2 py-1">
                   {isReturn && <span className="font-bold text-red-600 mr-1">(RETURNED)</span>}
                   {toTitleCase(item.product) || ''}
+                  {isReturn && item.originalInvoiceNo && (
+                    <span className="ml-1 text-xs text-red-700 font-mono">
+                      — linked to {item.originalInvoiceNo}
+                    </span>
+                  )}
                 </td>
                 <td className="border border-gray-300 px-2 py-1 text-right">£{parseFloat(item.price || 0).toFixed(2)}</td>
                 <td className="border border-gray-300 px-2 py-1 text-right">£{calc.duePrice.toFixed(2)}</td>

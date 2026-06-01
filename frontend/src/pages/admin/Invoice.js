@@ -69,7 +69,14 @@ const emptyLineItem = {
   sku: '',
   stock: 0,
   tile_m2_per_piece: null,  // m² per piece for auto-calculation
-  max_discount: null  // Maximum discount % allowed for this product
+  max_discount: null,  // Maximum discount % allowed for this product
+  // Per-line return/exchange — when isReturn is true the line subtracts
+  // from the invoice total and MUST be linked to the original invoice it
+  // came from (originalInvoiceNo/originalInvoiceId). Captured the moment
+  // the Return checkbox is ticked so the audit trail is never lost.
+  isReturn: false,
+  originalInvoiceNo: '',
+  originalInvoiceId: ''
 };
 
 export const Invoice = () => {
@@ -165,6 +172,17 @@ export const Invoice = () => {
   const [refundReason, setRefundReason] = useState('');
   const [refundMethod, setRefundMethod] = useState('original_payment');
   const [processingRefund, setProcessingRefund] = useState(false);
+
+  // ── Per-line return-link dialog ────────────────────────────────────
+  // Opens the instant a staff member ticks the "Return" checkbox on a
+  // line item. The original invoice number MUST be captured before the
+  // line can flip to RETURNED — cancelling rolls the checkbox back.
+  const [showLinkReturnDialog, setShowLinkReturnDialog] = useState(false);
+  const [linkReturnLineIndex, setLinkReturnLineIndex] = useState(null);
+  const [linkReturnInput, setLinkReturnInput] = useState('');
+  const [linkReturnSuggestions, setLinkReturnSuggestions] = useState([]);
+  const [linkReturnSearching, setLinkReturnSearching] = useState(false);
+  const [linkReturnPickedId, setLinkReturnPickedId] = useState('');
   
   const [invoiceData, setInvoiceData] = useState({
     invoiceNo: `INV-${Date.now().toString().slice(-6)}`,
@@ -235,7 +253,12 @@ export const Invoice = () => {
         price: item.price.toString(),
         duePrice: item.due_price !== undefined && item.due_price !== null ? item.due_price.toString() : item.price.toString(),
         discount: item.discount || 0,
-        stock: 0 // Will be updated after products load
+        stock: 0, // Will be updated after products load
+        // Restore the per-line return link so editing an existing invoice
+        // shows the RETURNED badge + linked INV-XXXXXX next to it.
+        isReturn: item.is_return === true,
+        originalInvoiceNo: item.original_invoice_no || '',
+        originalInvoiceId: item.original_invoice_id || ''
       })) || [{ ...emptyLineItem }];
       
       setInvoiceData({
@@ -510,6 +533,47 @@ export const Invoice = () => {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lineItemsCreditSig, applyVat]);
+
+  // ── Live invoice-number lookup for the return-link dialog ──────────
+  // Debounced 300 ms after the user types. Fires GET /api/invoices with
+  // the typed string as the `search` param (server already matches on
+  // invoice_no, customer_name, phone, email). Hidden when no input.
+  useEffect(() => {
+    if (!showLinkReturnDialog) return undefined;
+    const term = (linkReturnInput || '').trim();
+    if (term.length < 2) {
+      setLinkReturnSuggestions([]);
+      return undefined;
+    }
+    let alive = true;
+    setLinkReturnSearching(true);
+    const handle = setTimeout(async () => {
+      try {
+        const res = await api.getInvoices({ search: term, limit: 8 });
+        if (!alive) return;
+        // Backend returns the full list; we cap to 8 and project the
+        // 4 fields the dropdown shows.
+        const rows = Array.isArray(res.data) ? res.data.slice(0, 8) : [];
+        setLinkReturnSuggestions(
+          rows.map(inv => ({
+            id: inv.id || inv.invoice_id || '',
+            invoice_no: inv.invoice_no || '',
+            customer_name: inv.customer_name || '',
+            date: inv.date || '',
+            gross_total: inv.gross_total || 0,
+          }))
+        );
+      } catch (_e) {
+        if (alive) setLinkReturnSuggestions([]);
+      } finally {
+        if (alive) setLinkReturnSearching(false);
+      }
+    }, 300);
+    return () => {
+      alive = false;
+      clearTimeout(handle);
+    };
+  }, [linkReturnInput, showLinkReturnDialog]);
 
   // Browser beforeunload warning
   useEffect(() => {
@@ -1191,6 +1255,68 @@ export const Invoice = () => {
     setInvoiceData({ ...invoiceData, lineItems: newItems });
   };
 
+  // ── Return-link handlers ────────────────────────────────────────────
+  // Called by InvoiceLineItemsTable when the Return checkbox is ticked.
+  // We open a dialog asking the staff member which original invoice the
+  // return is linked to. The checkbox doesn't actually flip to RETURNED
+  // until they confirm — cancelling rolls it back. Re-opening an already
+  // RETURNED line lets them edit the linked invoice.
+  const openLinkReturnDialog = (index, prefillNo = '', prefillId = '') => {
+    setLinkReturnLineIndex(index);
+    setLinkReturnInput(prefillNo || '');
+    setLinkReturnPickedId(prefillId || '');
+    setLinkReturnSuggestions([]);
+    setShowLinkReturnDialog(true);
+  };
+
+  // Untick by clearing the 3 return-related fields on a line item.
+  const clearReturnLink = (index) => {
+    const newItems = [...invoiceData.lineItems];
+    newItems[index] = {
+      ...newItems[index],
+      isReturn: false,
+      originalInvoiceNo: '',
+      originalInvoiceId: ''
+    };
+    setInvoiceData({ ...invoiceData, lineItems: newItems });
+  };
+
+  // Confirm the link — flips the line to RETURNED and stamps the linked
+  // invoice number/id. Requires a non-empty invoice number.
+  const confirmLinkReturn = () => {
+    const trimmed = (linkReturnInput || '').trim();
+    if (!trimmed) {
+      toast.error('Please enter or pick the original invoice number');
+      return;
+    }
+    if (linkReturnLineIndex === null) return;
+    const newItems = [...invoiceData.lineItems];
+    newItems[linkReturnLineIndex] = {
+      ...newItems[linkReturnLineIndex],
+      isReturn: true,
+      originalInvoiceNo: trimmed.toUpperCase(),
+      originalInvoiceId: linkReturnPickedId || ''
+    };
+    setInvoiceData({ ...invoiceData, lineItems: newItems });
+    setShowLinkReturnDialog(false);
+    setLinkReturnLineIndex(null);
+    setLinkReturnInput('');
+    setLinkReturnPickedId('');
+    setLinkReturnSuggestions([]);
+    toast.success(`Return linked to ${trimmed.toUpperCase()}`);
+  };
+
+  // User dismissed the dialog WITHOUT confirming → make sure the line
+  // stays unticked. (Re-open path for already-RETURNED lines doesn't roll
+  // back; we only roll back if isReturn was still false going in.)
+  const cancelLinkReturn = () => {
+    setShowLinkReturnDialog(false);
+    setLinkReturnLineIndex(null);
+    setLinkReturnInput('');
+    setLinkReturnPickedId('');
+    setLinkReturnSuggestions([]);
+  };
+
   const calculateLineTotal = (item) => {
     const qty = parseFloat(item.qty) || 0;
     const originalPrice = parseFloat(item.price) || 0;
@@ -1843,7 +1969,13 @@ export const Invoice = () => {
             price: parseFloat(item.price),
             due_price: calc.duePrice,
             total: calc.due,
-            discount: parseFloat(item.discount) || 0
+            discount: parseFloat(item.discount) || 0,
+            // Per-line return link — captured the moment the staff member
+            // ticked the Return checkbox on this row. Backend uses this for
+            // credit reversal + return-audit reporting.
+            is_return: item.isReturn === true,
+            original_invoice_no: item.originalInvoiceNo || null,
+            original_invoice_id: item.originalInvoiceId || null
           };
         }),
         subtotal: totals.totalDue,
@@ -2523,6 +2655,115 @@ export const Invoice = () => {
         </DialogContent>
       </Dialog>
 
+      {/* ─────────────────────────────────────────────────────────────
+          Link return to original invoice
+          Opens the instant a staff member ticks the Return checkbox on
+          a line item. Until they confirm (or type/pick a value), the
+          line stays UNTICKED — cancelling rolls back. Already-RETURNED
+          lines can click the badge to re-open the dialog and change
+          the link.
+      ─────────────────────────────────────────────────────────────── */}
+      <Dialog open={showLinkReturnDialog} onOpenChange={(open) => { if (!open) cancelLinkReturn(); }}>
+        <DialogContent className="max-w-md" data-testid="link-return-dialog">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <RotateCcw className="h-5 w-5 text-red-600" />
+              Link return to original invoice
+            </DialogTitle>
+            <DialogDescription>
+              Which invoice did this product originally come from? Linking the
+              return keeps the audit trail intact so refunds and trade-credit
+              reversals tie back to the source sale.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3 py-2">
+            <div>
+              <label className="text-sm font-medium mb-1.5 block">
+                Original invoice number <span className="text-red-500">*</span>
+              </label>
+              <Input
+                autoFocus
+                value={linkReturnInput}
+                onChange={(e) => {
+                  setLinkReturnInput(e.target.value);
+                  // Typing manually invalidates a previously picked suggestion.
+                  if (linkReturnPickedId) setLinkReturnPickedId('');
+                }}
+                onKeyDown={(e) => { if (e.key === 'Enter') confirmLinkReturn(); }}
+                placeholder="e.g. INV-326878"
+                data-testid="link-return-input"
+                className="font-mono"
+              />
+              <p className="text-xs text-muted-foreground mt-1">
+                Type the invoice number — we'll suggest matches from history below.
+              </p>
+            </div>
+
+            {/* Suggestions panel */}
+            {linkReturnInput.trim().length >= 2 && (
+              <div className="border rounded-md max-h-56 overflow-y-auto" data-testid="link-return-suggestions">
+                {linkReturnSearching ? (
+                  <div className="px-3 py-3 text-sm text-muted-foreground flex items-center gap-2">
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                    Searching invoices…
+                  </div>
+                ) : linkReturnSuggestions.length === 0 ? (
+                  <div className="px-3 py-3 text-sm text-muted-foreground">
+                    No invoices matched "{linkReturnInput.trim()}". You can still link
+                    by typing the number manually.
+                  </div>
+                ) : (
+                  linkReturnSuggestions.map(inv => {
+                    const picked = inv.id && inv.id === linkReturnPickedId;
+                    return (
+                      <button
+                        key={inv.id || inv.invoice_no}
+                        type="button"
+                        onClick={() => {
+                          setLinkReturnInput(inv.invoice_no);
+                          setLinkReturnPickedId(inv.id || '');
+                        }}
+                        className={`w-full text-left px-3 py-2 border-b last:border-b-0 hover:bg-muted transition-colors ${picked ? 'bg-amber-50 hover:bg-amber-100' : ''}`}
+                        data-testid={`link-return-suggestion-${inv.invoice_no}`}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-mono text-sm font-medium">{inv.invoice_no}</span>
+                          <span className="text-xs text-muted-foreground">{inv.date}</span>
+                        </div>
+                        <div className="flex items-center justify-between gap-2 mt-0.5">
+                          <span className="text-xs text-muted-foreground truncate">{inv.customer_name || '—'}</span>
+                          <span className="text-xs font-medium">£{Number(inv.gross_total || 0).toFixed(2)}</span>
+                        </div>
+                      </button>
+                    );
+                  })
+                )}
+              </div>
+            )}
+          </div>
+
+          <DialogFooter className="gap-2 sm:gap-2">
+            <Button
+              variant="outline"
+              onClick={cancelLinkReturn}
+              data-testid="link-return-cancel-btn"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={confirmLinkReturn}
+              disabled={!linkReturnInput.trim()}
+              className="bg-red-600 hover:bg-red-700"
+              data-testid="link-return-confirm-btn"
+            >
+              <RotateCcw className="h-4 w-4 mr-2" />
+              Mark as RETURN
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Editable Invoice Form */}
       <Card className="p-6">
         <div className="grid md:grid-cols-2 gap-6 mb-6">
@@ -3039,6 +3280,8 @@ export const Invoice = () => {
             totals={totals}
             creditRedeemedAmount={invoiceData.creditRedeemedAmount || 0}
             creditRedeemedAccount={invoiceData.creditRedeemedAccount || null}
+            onRequestReturnLink={openLinkReturnDialog}
+            onClearReturnLink={clearReturnLink}
           />
         )}
       </Card>
