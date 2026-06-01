@@ -3,6 +3,7 @@ import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { usePermissions } from '../contexts/PermissionsContext';
 import { cn } from '../lib/utils';
+import { api } from '../lib/api';
 import PageGate from './PageGate';
 import OutageBanner from './admin/OutageBanner';
 import SchemaDriftBanner from './admin/SchemaDriftBanner';
@@ -92,6 +93,27 @@ export const Layout = () => {
   const [expandedGroups, setExpandedGroups] = useState(['sales', 'products', 'stock', 'marketing-growth']);
   const [showScrollIndicator, setShowScrollIndicator] = useState(true);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  // ── Sidebar activity snippets (Feb 26, 2026) ────────────────────────
+  // Quiet status indicators under specific sidebar items so staff can
+  // see at a glance whether the last ticket run / stocktake / reorder
+  // check was done today. Fetched once on mount + every 5 min so the
+  // numbers stay fresh without flooding the backend.
+  const [sidebarActivity, setSidebarActivity] = useState({
+    price_tickets: null,
+    reorder_suggestions: null,
+    stocktake_report: null,
+  });
+  useEffect(() => {
+    let cancelled = false;
+    const load = () => {
+      api.get('/sidebar-activity')
+        .then((res) => { if (!cancelled && res?.data) setSidebarActivity(res.data); })
+        .catch(() => { /* silent — sidebar still works without the snippet */ });
+    };
+    load();
+    const t = setInterval(load, 5 * 60 * 1000);
+    return () => { cancelled = true; clearInterval(t); };
+  }, []);
   const mainRef = useRef(null);
   const { user, logout } = useAuth();
   const navigate = useNavigate();
@@ -403,6 +425,47 @@ export const Layout = () => {
     { to: '/customer/orders', icon: ClipboardList, label: 'My Orders' },
   ];
 
+  // Build the small "last activity" snippet for select sidebar items.
+  // Returns null when there's nothing to show OR the item is collapsed.
+  // Uses relative-time formatting in human language ("2 hr ago").
+  const _fmtRelative = (iso) => {
+    if (!iso) return '';
+    try {
+      const then = new Date(iso).getTime();
+      if (!Number.isFinite(then)) return '';
+      const diffMs = Date.now() - then;
+      const m = Math.round(diffMs / 60000);
+      if (m < 1) return 'just now';
+      if (m < 60) return `${m}m ago`;
+      const h = Math.round(m / 60);
+      if (h < 24) return `${h}h ago`;
+      const d = Math.round(h / 24);
+      if (d < 30) return `${d}d ago`;
+      const mo = Math.round(d / 30);
+      return `${mo}mo ago`;
+    } catch (_e) { return ''; }
+  };
+
+  const sidebarSnippet = (item) => {
+    if (collapsed) return null;
+    if (item.to === '/admin/price-tickets') {
+      const a = sidebarActivity.price_tickets;
+      if (!a || !a.last_at) return null;
+      return `Last batch · ${a.count} ticket${a.count === 1 ? '' : 's'} · ${_fmtRelative(a.last_at)}`;
+    }
+    if (item.to === '/admin/reorder-suggestions') {
+      const a = sidebarActivity.reorder_suggestions;
+      if (!a || !a.critical_count) return null;
+      return `${a.critical_count} ${a.critical_count === 1 ? 'item' : 'items'} need ordering`;
+    }
+    if (item.to === '/admin/stocktake-report') {
+      const a = sidebarActivity.stocktake_report;
+      if (!a || !a.last_at) return null;
+      return `Last count · ${_fmtRelative(a.last_at)}`;
+    }
+    return null;
+  };
+
   // Render a single nav item
   const renderNavItem = (item) => {
     // External items (e.g. Play Store Radio → /radio public page)
@@ -435,6 +498,8 @@ export const Layout = () => {
       );
     }
 
+    const snippet = sidebarSnippet(item);
+
     return (
       <NavLink
         key={item.to}
@@ -443,7 +508,10 @@ export const Layout = () => {
         data-testid={`nav-${item.label.toLowerCase().replace(/\s+/g, '-')}`}
         className={({ isActive }) =>
           cn(
-            'flex items-center gap-3 px-4 py-2.5 rounded-md font-medium duration-200 text-sm',
+            // When there's a snippet we switch to a stacked column layout
+            // so the small status line wraps nicely under the label.
+            snippet ? 'flex items-start gap-3 px-4 py-2 rounded-md font-medium duration-200 text-sm'
+                    : 'flex items-center gap-3 px-4 py-2.5 rounded-md font-medium duration-200 text-sm',
             isActive
               ? 'bg-accent text-accent-foreground shadow-md'
               : 'text-primary-foreground/80 hover:bg-white/10 hover:text-primary-foreground',
@@ -451,8 +519,20 @@ export const Layout = () => {
           )
         }
       >
-        <item.icon className="h-4 w-4 flex-shrink-0" strokeWidth={1.5} />
-        {!collapsed && <span className="truncate">{item.label}</span>}
+        <item.icon className={cn('h-4 w-4 flex-shrink-0', snippet && 'mt-0.5')} strokeWidth={1.5} />
+        {!collapsed && (
+          <span className="flex flex-col min-w-0 leading-tight">
+            <span className="truncate">{item.label}</span>
+            {snippet && (
+              <span
+                className="text-[10px] font-normal opacity-65 truncate"
+                data-testid={`nav-snippet-${item.label.toLowerCase().replace(/\s+/g, '-')}`}
+              >
+                {snippet}
+              </span>
+            )}
+          </span>
+        )}
       </NavLink>
     );
   };

@@ -3374,3 +3374,85 @@ async def run_hot_sessions_digest_tick():
         {"$set": {"last_sent_date": today, "last_count": digest["count"], "hour_utc": target_hour, "enabled": settings.get("enabled", True)}},
         upsert=True,
     )
+
+
+
+# ============================================================================
+# Sidebar Activity — Feb 26, 2026
+#
+# Lightweight aggregate endpoint that powers the small "last activity" snippet
+# under specific sidebar items (Price Tickets, Reorder Suggestions, Stocktake
+# Report). Returns a tiny payload in ONE query each so we can poll it cheaply
+# from the Layout component without flooding the backend.
+# ============================================================================
+@router.get("/sidebar-activity")
+async def get_sidebar_activity(current_user: dict = Depends(get_current_user)):
+    """Per-sidebar-item status snippets — for the Layout 'last activity' note.
+
+    Each field is independent: missing data → `null` field on that key, the
+    frontend just hides that snippet rather than rendering a stale label.
+    """
+    db = get_db()
+
+    out: dict = {
+        "price_tickets": None,
+        "reorder_suggestions": None,
+        "stocktake_report": None,
+    }
+
+    # ── Price Tickets — newest entry in ticket_print_batches ────────────
+    # Scoped to THIS user (so each staff member sees their own last print)
+    # because that's how the batches are stored (printed_by = email).
+    try:
+        latest_batch = await db.ticket_print_batches.find_one(
+            {"printed_by": current_user.get("email")},
+            {"_id": 0, "last_printed_at": 1, "printed_at": 1, "product_count": 1, "print_count": 1},
+            sort=[("last_printed_at", -1)],
+        )
+        if latest_batch:
+            out["price_tickets"] = {
+                "last_at": latest_batch.get("last_printed_at") or latest_batch.get("printed_at"),
+                "count": int(latest_batch.get("product_count") or 0),
+                "print_count": int(latest_batch.get("print_count") or 1),
+            }
+    except Exception:
+        # Missing index / collection → leave null. Frontend hides the row.
+        pass
+
+    # ── Reorder Suggestions — count of currently-critical items ─────────
+    # We can't easily mirror the full /analyze run here, but a quick
+    # signal is the number of products with stock at-or-below their
+    # reorder_point (stored on each product). That's accurate enough
+    # to put a red dot on the menu when there's something to do.
+    try:
+        critical = await db.products.count_documents({
+            "$expr": {
+                "$and": [
+                    {"$gt": ["$reorder_point", 0]},
+                    {"$lte": ["$stock_quantity", "$reorder_point"]},
+                ]
+            },
+            "deleted": {"$ne": True},
+        })
+        out["reorder_suggestions"] = {"critical_count": int(critical)}
+    except Exception:
+        pass
+
+    # ── Stocktake Report — last STOCK_IMPORT audit log entry ────────────
+    # Stocktake doesn't store its own run history; the closest signal is
+    # the audit log for the upload that generated it.
+    try:
+        latest_import = await db.audit_logs.find_one(
+            {"action": "STOCK_IMPORT"},
+            {"_id": 0, "timestamp": 1, "user_name": 1, "details": 1},
+            sort=[("timestamp", -1)],
+        )
+        if latest_import:
+            out["stocktake_report"] = {
+                "last_at": latest_import.get("timestamp"),
+                "by": latest_import.get("user_name") or "",
+            }
+    except Exception:
+        pass
+
+    return out

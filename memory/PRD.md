@@ -9,6 +9,37 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Feb 26, 2026 — Forked session] 🧭 Sidebar "Last activity" snippets under select items
+
+**User intent**: *"Last batch printed: 4 tickets · 2 hr ago"* snippet under the Price Tickets sidebar label so staff can see at a glance whether today's ticket run was done. Same trick on **Reorder Suggestions** and **Stocktake Report**.
+
+**Backend** (`/app/backend/routes/analytics.py`):
+- New endpoint **`GET /api/sidebar-activity`** — one lightweight call aggregates 3 sources:
+  - `price_tickets` → newest `ticket_print_batches` entry for THIS user (so each staff member sees their own last print). Returns `{ last_at, count, print_count }`.
+  - `reorder_suggestions` → count of products where `stock_quantity <= reorder_point > 0`. Returns `{ critical_count }`.
+  - `stocktake_report` → newest `STOCK_IMPORT` audit-log entry (since stocktake has no native run-history). Returns `{ last_at, by }`.
+- Each block wrapped in try/except so a missing collection or audit log leaves the field `null` and the sidebar simply hides that snippet — never blocks render.
+
+**Frontend** (`/app/frontend/src/components/Layout.js`):
+- Added `sidebarActivity` state + `useEffect` that fetches `/api/sidebar-activity` on mount AND every 5 minutes thereafter.
+- New helper `_fmtRelative(iso)` → `"just now"` / `"5m ago"` / `"2h ago"` / `"19d ago"` / `"3mo ago"`.
+- New helper `sidebarSnippet(item)` → returns the right copy per matched route:
+  - `/admin/price-tickets`: `"Last batch · N ticket(s) · X ago"`
+  - `/admin/reorder-suggestions`: `"N item(s) need ordering"`
+  - `/admin/stocktake-report`: `"Last count · X ago"`
+- `renderNavItem` now stacks the icon + label into a column whenever there's a snippet, and emits the snippet as a small `text-[10px] opacity-65` line below the label. `data-testid="nav-snippet-{slug}"`.
+- Snippet hidden when sidebar is collapsed.
+
+**Verified live**:
+- `nav-snippet-price-tickets`: `"Last batch · 1 ticket · 19d ago"` ✓
+- Reorder Suggestions + Stocktake hidden (no data yet) ✓ — will appear automatically when audit data lands.
+
+**Files**:
+- `/app/backend/routes/analytics.py` — new `GET /api/sidebar-activity` endpoint.
+- `/app/frontend/src/components/Layout.js` — state + fetch + helpers + updated `renderNavItem`.
+
+
+
 ### [Feb 26, 2026 — Forked session] 🧭 Price Tickets promoted to top-level sidebar item
 
 **User request**: *"Move the Price Tickets feature to Side Bar menu under Supplier products section, right now it's not very visible in and sitting inside supplier products section"*
