@@ -458,46 +458,80 @@ const PriceTicket = ({ product, showOriginalPrice, showClearanceBadge, showThisW
         )}
       </div>
 
-      {/* Sizes Section — boxed numbers, larger to match the printed
-          reference (size boxes are a prominent visual block). */}
-      {product.sizes && product.sizes.length > 0 && (
-        <div style={{ 
-          borderTop: '1px solid #ddd',
-          paddingTop: '4mm',
-          marginTop: 'auto'
-        }}>
-          <div style={{ 
-            fontSize: '12pt', 
-            color: '#1a1a1a',
-            marginBottom: '3mm',
-            fontWeight: 700
+      {/* Sizes Section — boxes drawn at the actual tile aspect ratio so
+          30×60 looks like a thin rectangle and 60×60 looks like a square.
+          A shared base scale (0.32mm per cm) keeps all boxes on one
+          ticket proportional to each other. Falls back to a fixed 22mm
+          square when the size string can't be parsed. */}
+      {product.sizes && product.sizes.length > 0 && (() => {
+        // Parse helper — "60x120cm" → { w: 60, h: 120 }
+        const parseSize = (s) => {
+          if (!s) return null;
+          const m = String(s).replace(/cm/gi, '').match(/(\d+(?:\.\d+)?)\s*[x×]\s*(\d+(?:\.\d+)?)/i);
+          if (!m) return null;
+          const w = parseFloat(m[1]); const h = parseFloat(m[2]);
+          if (!w || !h) return null;
+          return { w, h };
+        };
+        // Scale = 0.32mm per cm → 30cm box is 9.6mm wide, 120cm box is 38.4mm.
+        // Min 14mm so even 30cm side stays readable with the size label inside.
+        const SCALE = 0.32;
+        const MIN_SIDE_MM = 14;
+        const renderBoxStyle = (sz) => {
+          if (!sz) return { width: '20mm', height: '12mm' };
+          const wMm = Math.max(MIN_SIDE_MM, sz.w * SCALE);
+          const hMm = Math.max(MIN_SIDE_MM * 0.7, sz.h * SCALE);
+          return { width: `${wMm}mm`, height: `${hMm}mm` };
+        };
+        return (
+          <div style={{
+            borderTop: '1px solid #ddd',
+            paddingTop: '4mm',
+            marginTop: 'auto'
           }}>
-            Sizes Available (cm):
+            <div style={{
+              fontSize: '12pt',
+              color: '#1a1a1a',
+              marginBottom: '3mm',
+              fontWeight: 700
+            }}>
+              Sizes Available (cm):
+            </div>
+            <div style={{
+              display: 'flex',
+              flexWrap: 'wrap',
+              alignItems: 'flex-end',
+              gap: '3mm'
+            }}>
+              {product.sizes.map((size, idx) => {
+                const sz = parseSize(size);
+                const boxStyle = renderBoxStyle(sz);
+                return (
+                  <div
+                    key={idx}
+                    style={{
+                      border: '1.5px solid #1a1a1a',
+                      backgroundColor: '#ffffff',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      // Long-side text size: shrink when the box is small so
+                      // "120x120" still fits inside a 38mm box.
+                      fontSize: sz ? `${Math.min(13, Math.max(8, sz.w * 0.11))}pt` : '11pt',
+                      fontWeight: 700,
+                      textAlign: 'center',
+                      ...boxStyle,
+                    }}
+                    data-testid={`price-ticket-size-${index}-${idx}`}
+                  >
+                    {size}
+                  </div>
+                );
+              })}
+            </div>
           </div>
-          <div style={{ 
-            display: 'flex', 
-            flexWrap: 'wrap', 
-            gap: '3mm' 
-          }}>
-            {product.sizes.map((size, idx) => (
-              <div 
-                key={idx}
-                style={{
-                  border: '1.5px solid #1a1a1a',
-                  backgroundColor: '#ffffff',
-                  padding: '3mm 5mm',
-                  fontSize: '16pt',
-                  fontWeight: 700,
-                  textAlign: 'center',
-                  minWidth: '20mm',
-                }}
-              >
-                {size}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Bottom scan strip (13 May 2026) — barcode (Code128 → EPOS) on
           the left, QR (PDP deep-link) on the right. Both are optional
@@ -1538,12 +1572,24 @@ export const PriceTickets = () => {
           ${_showAuxM2 ? `<div><strong>Price m²:</strong> £${_auxM2.toFixed(2)}</div>` : ''}
         </div>
 
-        <!-- Sizes -->
+        <!-- Sizes — boxes drawn proportional to the actual tile
+             dimensions (60×120 = wide rectangle, 60×60 = square). -->
         ${product.sizes && product.sizes.length > 0 ? `
           <div class="sizes-section">
             <div class="sizes-label">Sizes Available (cm):</div>
             <div class="sizes-container">
-              ${product.sizes.map(size => `<div class="size-box">${size}</div>`).join('')}
+              ${product.sizes.map(size => {
+                const m = String(size).replace(/cm/gi, '').match(/(\d+(?:\.\d+)?)\s*[x×]\s*(\d+(?:\.\d+)?)/i);
+                if (!m) {
+                  return `<div class="size-box" style="width:20mm;height:12mm;font-size:11pt;">${size}</div>`;
+                }
+                const w = parseFloat(m[1]); const h = parseFloat(m[2]);
+                const SCALE = 0.32;
+                const wMm = Math.max(14, w * SCALE);
+                const hMm = Math.max(14 * 0.7, h * SCALE);
+                const fontPt = Math.min(13, Math.max(8, w * 0.11));
+                return `<div class="size-box" style="width:${wMm}mm;height:${hMm}mm;font-size:${fontPt}pt;">${size}</div>`;
+              }).join('')}
             </div>
           </div>
         ` : ''}
@@ -1834,17 +1880,20 @@ export const PriceTickets = () => {
             .sizes-container {
               display: flex;
               flex-wrap: wrap;
+              align-items: flex-end;
               gap: 3mm;
             }
             
             .size-box {
+              /* Width/height/font-size set inline per-box so each size
+                 box scales to its real tile dimensions. */
               border: 1.5px solid #1a1a1a;
               background: #ffffff;
-              padding: 3mm 5mm;
-              font-size: 16pt;
+              display: flex;
+              align-items: center;
+              justify-content: center;
               font-weight: 700;
               text-align: center;
-              min-width: 20mm;
             }
             
             .country-section {
@@ -2801,6 +2850,49 @@ export const PriceTickets = () => {
                     </div>
                     
                     <div className="grid grid-cols-2 gap-2 text-sm">
+                      {/* Prices — both fields explicit so it's obvious where
+                          the strike-through WAS price comes from. Standard
+                          price always prints; Sale price (when set lower)
+                          turns it into a WAS/NOW combo and the Standard
+                          price gets struck through in red. */}
+                      <div>
+                        <label className="text-xs text-muted-foreground">
+                          Standard price (£) <span className="text-[10px] text-slate-400">— shown as WAS when on sale</span>
+                        </label>
+                        <Input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          value={product.price ?? ''}
+                          onChange={(e) => {
+                            const v = e.target.value === '' ? '' : parseFloat(e.target.value);
+                            updateProductField(product.id, 'price', Number.isFinite(v) ? v : '');
+                          }}
+                          placeholder="59.99"
+                          className="h-8 text-sm"
+                          data-testid={`standard-price-input-${product.id}`}
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs text-muted-foreground">
+                          Sale price (£) <span className="text-[10px] text-slate-400">— optional, shown in red as NOW</span>
+                        </label>
+                        <Input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          value={product.clearance_price ?? ''}
+                          onChange={(e) => {
+                            const raw = e.target.value;
+                            const v = raw === '' ? null : parseFloat(raw);
+                            updateProductField(product.id, 'clearance_price', Number.isFinite(v) ? v : null);
+                          }}
+                          placeholder="(leave blank if not on sale)"
+                          className="h-8 text-sm"
+                          data-testid={`sale-price-input-${product.id}`}
+                        />
+                      </div>
+
                       <div>
                         <label className="text-xs text-muted-foreground">Suitability</label>
                         <Input
@@ -2811,19 +2903,70 @@ export const PriceTickets = () => {
                         />
                       </div>
                       <div>
-                        <label className="text-xs text-muted-foreground">Finish</label>
-                        <select
-                          value={product.finish || ''}
-                          onChange={(e) => updateProductField(product.id, 'finish', e.target.value)}
-                          className="w-full h-8 px-2 border rounded-md text-sm"
-                        >
-                          <option value="">-- Select Finish --</option>
-                          <option value="Polish">Polish</option>
-                          <option value="Matt">Matt</option>
-                          <option value="High Polish">High Polish</option>
-                          <option value="Semi Polish (Sugar)">Semi Polish (Sugar)</option>
-                          <option value="Carved Matt">Carved Matt</option>
-                        </select>
+                        <label className="text-xs text-muted-foreground">
+                          Finishes <span className="text-[10px] text-muted-foreground/70">(pick one or more)</span>
+                        </label>
+                        {/* Multi-finish picker — some tiles ship in both Polish
+                            AND Matt (or other combos). Stored as a comma-
+                            separated string for backwards-compat with the
+                            existing product schema; rendered as chips here so
+                            the user can add/remove individual finishes. */}
+                        {(() => {
+                          const finishOptions = ['Polish', 'Matt', 'High Polish', 'Semi Polish (Sugar)', 'Carved Matt', 'Glazed', 'Satin', 'Lappato', 'Structured'];
+                          const current = (product.finish || '')
+                            .split(',')
+                            .map(s => s.trim())
+                            .filter(Boolean);
+                          const toggle = (name) => {
+                            const has = current.includes(name);
+                            const next = has ? current.filter(s => s !== name) : [...current, name];
+                            updateProductField(product.id, 'finish', next.join(', '));
+                          };
+                          return (
+                            <div className="p-2 border rounded-md bg-white space-y-2" data-testid={`finishes-picker-${product.id}`}>
+                              {/* Chosen finishes — show as removable chips */}
+                              {current.length > 0 && (
+                                <div className="flex flex-wrap gap-1.5">
+                                  {current.map((f) => (
+                                    <span
+                                      key={f}
+                                      className="inline-flex items-center gap-1 px-2 py-0.5 text-xs bg-slate-900 text-white rounded-full"
+                                      data-testid={`finish-chip-${product.id}-${f}`}
+                                    >
+                                      {f}
+                                      <button
+                                        type="button"
+                                        onClick={() => toggle(f)}
+                                        className="hover:text-red-300 font-bold leading-none"
+                                        aria-label={`Remove ${f}`}
+                                      >×</button>
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
+                              {/* Pickable options — click adds, click-again removes */}
+                              <div className="flex flex-wrap gap-1">
+                                {finishOptions.map((f) => {
+                                  const active = current.includes(f);
+                                  return (
+                                    <button
+                                      key={f}
+                                      type="button"
+                                      onClick={() => toggle(f)}
+                                      className={`text-[11px] px-2 py-0.5 rounded-full border transition-colors ${
+                                        active
+                                          ? 'bg-slate-900 text-white border-slate-900'
+                                          : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
+                                      }`}
+                                    >
+                                      {active ? '✓ ' : '+ '}{f}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          );
+                        })()}
                       </div>
                       <div>
                         <label className="text-xs text-muted-foreground">Material</label>

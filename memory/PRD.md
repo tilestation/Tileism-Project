@@ -9,6 +9,44 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Feb 26, 2026 — Forked session] 🏷️ Price Tickets v3: multi-finish chips + proportional size boxes + explicit price fields
+
+**User feedback (3 separate asks)**:
+1. *"I need to be able to add multiple finishes, like some tiles come polish and matt, so allow me to add multiple finishes"*
+2. *"Size tabs… if it's 30x60cm it shows small rectangular, if it's 60x120cm it shows bigger rectangular, if it's 60x60cm it shows smaller square… following the dimensions and use similar boxes"*
+3. *"Crossed price? where is getting generated from, I don't even see any field on the form where you have put any value, I only see the price in red which has a field"*
+
+**Fixes** (`/app/frontend/src/pages/admin/PriceTickets.js`):
+
+1. **Multi-finish chip picker** — replaced the single `<select>` with a chip-based UI inside `Finishes (pick one or more)`:
+   - Chosen finishes show as dark removable chips with `×` buttons.
+   - Available finishes (`Polish`, `Matt`, `High Polish`, `Semi Polish (Sugar)`, `Carved Matt`, `Glazed`, `Satin`, `Lappato`, `Structured`) are clickable `+ Polish`-style add buttons. Click toggles in/out.
+   - Stored as a comma-joined string (`"Polish, Matt"`) for backwards-compat with the existing product schema — round-trips through the catalogue & saved-batches without migration.
+   - Renders on the ticket as `Finish: Polish, Matt`. `data-testid="finishes-picker-{id}"`, `data-testid="finish-chip-{id}-{name}"`.
+
+2. **Proportional size boxes** — boxes now drawn at the actual tile aspect-ratio + relative-size:
+   - Each `"WxH"` parsed → `{ w, h }` cm.
+   - Scale factor `0.32 mm per cm` → 30cm side ≈ 9.6mm box dim, 120cm ≈ 38.4mm. Floor of 14mm so the size label stays readable.
+   - 30×60 prints as a thin wide rectangle, 60×60 as a small square, 80×80 as medium square, 120×120 as the biggest square — exactly as the user described.
+   - Font size inside the box scales too (clamped 8-13pt) so `120x120` still fits.
+   - Boxes baseline-aligned (`alignItems: flex-end`) so they sit on one shared "floor" line like a row of tile samples.
+   - Same proportional logic mirrored in the print HTML (inline `style="width:Xmm;height:Ymm;font-size:Zpt"` per box).
+   - `data-testid="price-ticket-size-{idx}-{size_idx}"` on every box.
+
+3. **Standard / Sale price fields** — added 2 explicit inputs at the top of every product's edit panel:
+   - **Standard price (£)** — labelled *"shown as WAS when on sale"*. Edits `product.price`. `data-testid="standard-price-input-{id}"`.
+   - **Sale price (£)** — labelled *"optional, shown in red as NOW"*. Edits `product.clearance_price` (with `null` when emptied). Placeholder copy: *"(leave blank if not on sale)"*. `data-testid="sale-price-input-{id}"`.
+   - Result: typing `28.50` in Sale price → ticket immediately re-renders with `£35.99` strikethrough + `£28.50` in red + `SAVE £7.49 (21% OFF)` pill. Removing the value → single black `£35.99 m²` only. Behaviour is now self-explanatory.
+
+**Verified live** with Floor Tile Grey 600x600 + Test Tile XL:
+- Multi-finish chips toggle in/out, ticket text shows `Finish: Polish, Matt`.
+- 5-size product (30x60 / 60x60 / 60x120 / 80x80 / 120x120) renders as 5 different-sized rectangles/squares in the preview.
+- Filling Sale price → instant WAS/NOW switch in the preview thumbnail.
+
+**Files**: `/app/frontend/src/pages/admin/PriceTickets.js` — `PriceTicket` JSX (size boxes), print HTML/CSS (size boxes), edit-form grid (Finishes chip picker + Standard/Sale price inputs).
+
+
+
 ### [Feb 26, 2026 — Forked session] 🏷️ Price Tickets v2: matched reference physical-ticket layout
 
 **User feedback**: *"Tell me a clear difference in what I sent you and what you designed? Where are all the fields and layout?"* (with reference photos of Rivertine Cream + Moonstone Carbon physical tickets)
