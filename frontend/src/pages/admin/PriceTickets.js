@@ -1671,9 +1671,14 @@ export const PriceTickets = () => {
       toast.error('Product name is required');
       return;
     }
-    const price = parseFloat(manualPrice);
-    if (Number.isNaN(price) || price <= 0) {
-      toast.error('Enter a valid price');
+    // Price is now OPTIONAL — staff often want to print a ticket with
+    // placeholder text and fill the price in later. Blank price → 0
+    // (so the existing display logic doesn't NaN out), and the staff
+    // member can edit it any time from the per-ticket card below.
+    const priceRaw = (manualPrice || '').trim();
+    const price = priceRaw === '' ? 0 : parseFloat(priceRaw);
+    if (priceRaw && (Number.isNaN(price) || price < 0)) {
+      toast.error('Price must be a positive number (or leave blank)');
       return;
     }
     const clearance = manualClearance.trim() ? parseFloat(manualClearance) : null;
@@ -2528,6 +2533,122 @@ export const PriceTickets = () => {
         </div>
       )}
 
+      {/* ────────────────────────────────────────────────────────────────
+          Quick Manual Ticket — HERO (1 Jun 2026)
+          User feedback: "manual tickets are the most important feature for
+          ticketing for now, can you move the whole section to main page
+          out of that side left bar section". So we promote the manual
+          ticket form + a tickets-search combo to the top of the page.
+          The catalogue picker still lives in the left column below.
+      ──────────────────────────────────────────────────────────────── */}
+      <Card className="p-5 bg-gradient-to-br from-amber-50/60 via-white to-orange-50/40 border-amber-200" data-testid="quick-manual-hero">
+        <div className="flex items-start justify-between gap-4 mb-3">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-lg bg-amber-500/15 flex items-center justify-center">
+              <Tag className="h-5 w-5 text-amber-700" />
+            </div>
+            <div>
+              <h2 className="text-base font-semibold leading-tight">Create a ticket</h2>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Type the product name. Price is optional — leave blank and fill in below.
+              </p>
+            </div>
+          </div>
+          {/* Combined search — finds matching catalogue products AND
+              saved batches in one go. */}
+          <div className="flex-1 max-w-md">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+              <Input
+                type="text"
+                placeholder="Search products or saved batches…"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="h-10 pl-10 text-sm bg-white"
+                data-testid="hero-combined-search"
+              />
+            </div>
+            {searchTerm && (
+              <p className="text-[10px] text-slate-500 mt-1">
+                Matching {Math.min(filteredProducts.length, 50)} catalogue product{filteredProducts.length === 1 ? '' : 's'} + {(savedBatches || []).filter(b => (b.name || '').toLowerCase().includes(searchTerm.toLowerCase())).length} saved batch{(savedBatches || []).filter(b => (b.name || '').toLowerCase().includes(searchTerm.toLowerCase())).length === 1 ? '' : 'es'} below
+              </p>
+            )}
+          </div>
+        </div>
+
+        {/* Inline quick-add form — always expanded so staff can start
+            typing without an extra click. */}
+        <div className="grid grid-cols-1 md:grid-cols-[2fr_1fr_1fr_1fr_auto] gap-2 items-end">
+          <div>
+            <label className="text-[11px] uppercase tracking-wider text-slate-600 font-semibold mb-1 block">
+              Product name <span className="text-rose-500">*</span>
+            </label>
+            <Input
+              type="text"
+              placeholder="e.g. Ardesia Slate White"
+              value={manualName}
+              onChange={(e) => setManualName(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter' && manualName.trim()) addManualProduct(); }}
+              className="h-10 text-sm bg-white"
+              data-testid="hero-manual-name-input"
+            />
+          </div>
+          <div>
+            <label className="text-[11px] uppercase tracking-wider text-slate-600 font-semibold mb-1 block">
+              Price (£) <span className="text-slate-400 normal-case font-normal">— optional</span>
+            </label>
+            <Input
+              type="number"
+              step="0.01"
+              placeholder="35.99"
+              value={manualPrice}
+              onChange={(e) => setManualPrice(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter' && manualName.trim()) addManualProduct(); }}
+              className="h-10 text-sm bg-white"
+              data-testid="hero-manual-price-input"
+            />
+          </div>
+          <div>
+            <label className="text-[11px] uppercase tracking-wider text-slate-600 font-semibold mb-1 block">
+              Sale £ <span className="text-slate-400 normal-case font-normal">— optional</span>
+            </label>
+            <Input
+              type="number"
+              step="0.01"
+              placeholder="28.50"
+              value={manualClearance}
+              onChange={(e) => setManualClearance(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter' && manualName.trim()) addManualProduct(); }}
+              className="h-10 text-sm bg-white"
+              data-testid="hero-manual-clearance-input"
+            />
+          </div>
+          <div>
+            <label className="text-[11px] uppercase tracking-wider text-slate-600 font-semibold mb-1 block">
+              Barcode / SKU <span className="text-slate-400 normal-case font-normal">— optional</span>
+            </label>
+            <Input
+              type="text"
+              placeholder="ABC123"
+              value={manualBarcode}
+              onChange={(e) => setManualBarcode(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter' && manualName.trim()) addManualProduct(); }}
+              className="h-10 text-sm bg-white"
+              data-testid="hero-manual-barcode-input"
+            />
+          </div>
+          <Button
+            onClick={addManualProduct}
+            disabled={!manualName.trim()}
+            className="h-10 px-4 bg-amber-600 hover:bg-amber-700 text-white whitespace-nowrap"
+            data-testid="hero-manual-add-btn"
+          >
+            <Plus className="h-4 w-4 mr-1" />
+            Add ticket
+          </Button>
+        </div>
+      </Card>
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Product Selection */}
         <div className="lg:col-span-1 space-y-4">
@@ -2678,7 +2799,7 @@ export const PriceTickets = () => {
                     <Input
                       type="number"
                       step="0.01"
-                      placeholder="Price * (£)"
+                      placeholder="Price (£) — optional"
                       value={manualPrice}
                       onChange={(e) => setManualPrice(e.target.value)}
                       className="h-8 text-sm"
@@ -2687,7 +2808,7 @@ export const PriceTickets = () => {
                     <Input
                       type="number"
                       step="0.01"
-                      placeholder="Clearance £ (opt)"
+                      placeholder="Sale £ (opt)"
                       value={manualClearance}
                       onChange={(e) => setManualClearance(e.target.value)}
                       className="h-8 text-sm"

@@ -9,6 +9,32 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Feb 26, 2026 — Forked session] 🏷️ Price Tickets: Manual-ticket hero + optional price
+
+**User feedback (with screenshot)**: *"Don't make the price compulsory here, also, the manual tickets are the most important feature for ticketing for now, can you move the whole section to main page out of that side left bar section and put it on main page on the front to start manual ticketing. Including the search of tickets."*
+
+**Fixes** (`/app/frontend/src/pages/admin/PriceTickets.js`):
+
+1. **Price is now OPTIONAL** in `addManualProduct()`:
+   - Empty price → defaults to `0` so the downstream display logic doesn't NaN out (staff can fill it in any time from the per-ticket card below).
+   - Validation only rejects negative or non-numeric values when a price WAS typed.
+   - Placeholder updated: `"Price * (£)"` → `"Price (£) — optional"` (no asterisk).
+   - Old short-form `"Clearance £ (opt)"` → `"Sale £ (opt)"` to match the rest of the app's vocabulary.
+
+2. **New HERO "Create a ticket" card at the TOP of the page** — full-width amber-tinted Card placed above the 3-column body grid:
+   - Title + helper: *"Type the product name. Price is optional — leave blank and fill in below."*
+   - **Combined search bar** on the right (`data-testid="hero-combined-search"`): instant filter for both the catalogue products list AND the Saved Batches panel below. Helper text below the search reports counts: *"Matching N catalogue products + M saved batches below"*.
+   - **5-column inline quick-add form**: Product Name * | Price (£) optional | Sale £ optional | Barcode / SKU optional | `Add ticket` button. All 4 inputs commit on Enter so power-users can type-Tab-type-Enter without touching the mouse. `Add ticket` button is disabled until Name has content.
+   - All hero inputs carry `data-testid`s: `hero-manual-name-input`, `hero-manual-price-input`, `hero-manual-clearance-input`, `hero-manual-barcode-input`, `hero-manual-add-btn`.
+   - The existing in-sidebar `+ Add manual product` collapsible form is left in place (still functional) so existing testers' selectors don't break — but the hero is now the obvious go-to path.
+
+**Verified live**:
+- "Bare Ticket No Price" added with empty Price → toast confirms, card renders with `£0.00 /m²` (editable any time).
+- Typing "Floor" in the hero search → live-filters Select Products to "Floor Tile Grey 600x600" and reports `"Matching 1 catalogue product + 0 saved batches"`.
+- All existing tests (Manual one-off, Clearance Run A saved batches) continue to load from the unchanged Saved Batches sidebar.
+
+
+
 ### [Feb 26, 2026 — Forked session] 🏷️ Price Tickets: compact all-landscape size boxes
 
 **User feedback (with reference photo + current screenshot)**: *"Size boxes are taking a lot of space which is causing tickets to go bigger than the sizes expected, can you make the all sizes to be in rectangular shape rather than a tall (vertical shape (for example 60x120), like I have attached old ticket template. They don't need to be massive, just slight difference in box sizes."*
