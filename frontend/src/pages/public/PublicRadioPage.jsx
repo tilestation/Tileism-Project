@@ -27,6 +27,7 @@
  */
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Radio, Play, Pause, Music, Mic, Info, ListMusic } from 'lucide-react';
+import LiveVolumeMeter from '../../components/radio/LiveVolumeMeter';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${API_URL}/api`;
@@ -633,6 +634,15 @@ export default function PublicRadioPage() {
             Stop
           </button>
         )}
+        {/* 2 Jun 2026 — Live volume meter. Renders only after the user
+            has tuned in so the AudioContext can start without a user-
+            gesture violation. Helps staff spot under-normalised tracks
+            in real time (e.g. an ad reading −28 dB vs music at −19 dB). */}
+        <LiveVolumeMeter
+          audioRefA={audioRefA}
+          audioRefB={audioRefB}
+          tunedIn={tunedIn}
+        />
         <p className="text-[10px] text-slate-600 max-w-xs text-center leading-relaxed">
           Connect this device to your store's Bluetooth speaker, tap Tune in,
           and leave the tab open. All 4 stores stay in sync.

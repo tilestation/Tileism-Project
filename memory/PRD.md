@@ -9,6 +9,38 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Feb 26, 2026 — Forked session] 📻 Public radio: Live Volume Meter component
+
+**User intent**: *"Live volume meter at the bottom of the public radio page (/radio) so showroom staff can SEE the loudness of what's currently playing in dB. It'd help spot any track that's still mis-normalised before customers notice — and would also make it easy to A/B compare ads vs music in real time after running the balance fix. YES"*
+
+**New component** (`/app/frontend/src/components/radio/LiveVolumeMeter.jsx` — ~150 LOC):
+
+- Taps **both** crossfade audio refs (A + B) via Web Audio's `createMediaElementSource` → `AnalyserNode` → `ctx.destination`, so the reading stays continuous across track transitions. Each `MediaElementSource` is created exactly once per element (Web Audio constraint) and stored in refs.
+- **Lazy spin-up**: AudioContext + AnalyserNode are only created AFTER `tunedIn === true`, so the browser's user-gesture requirement is satisfied (the Tune in button click IS the gesture).
+- **Cheap real-time loop**: single `requestAnimationFrame`, `fftSize=2048`, computes RMS from time-domain samples, converts to dBFS. Exponential smoothing (fast attack 0.5, slower release 0.12) so it behaves like a peak meter on transients but doesn't flicker.
+- **React state throttled to ~30Hz** — only updates `setDbReading` every other 60Hz frame so we don't trigger spammy re-renders.
+- **Zone semantics**:
+  - **Silent** (slate, `< −55 dBFS`) — *"Silent"*
+  - **Very low** (amber, `≤ −29 dBFS`) — *"Quiet — re-normalise?"* (the key signal that a track wasn't loudnorm'd)
+  - **Low** (amber, `≤ −22 dBFS`) — *"A bit quiet"*
+  - **On target** (emerald, `≈ −19 ± 3 dBFS`) — *"On target"* (≈ −16 LUFS broadcast standard)
+  - **Hot** (rose, `> −13 dBFS`) — *"Hot — risk of clipping"*
+- Renders a horizontal bar meter with the **target line at −19 dBFS** (≈ −16 LUFS RMS for typical program content), numeric readout in monospace tabular-nums (e.g. `−18.4 dB`), and a 4-stop scale below (`−60 · −40 · −19 · 0 dB`).
+- `data-testid="public-radio-volume-meter"` + `data-testid="public-radio-volume-db"` for testing.
+
+**Wiring** (`/app/frontend/src/pages/public/PublicRadioPage.jsx`):
+- Imported and mounted directly below the Tune in / Stop button — only renders when `tunedIn === true`. Both `audioRefA` and `audioRefB` passed as props.
+
+**Verified live**:
+- `/radio` renders without errors before tune-in; meter correctly hidden (`count: 0`).
+- After tune-in (production env with active playlist) the meter will show under the Stop button. In your case where ads currently sound quieter than music, you'll see the meter bar drop into the **amber "Quiet — re-normalise?"** zone during ad playback and pop back into the **emerald "On target"** during music — perfect visual confirmation of the loudness mismatch you mentioned, and an instant A/B test for verifying the Volume Balance fix from earlier this session.
+
+**Files**: 
+- `/app/frontend/src/components/radio/LiveVolumeMeter.jsx` (NEW)
+- `/app/frontend/src/pages/public/PublicRadioPage.jsx` (import + mount under Tune in button)
+
+
+
 ### [Feb 26, 2026 — Forked session] 📻 Radio Studio: Volume Balance pill in header for one-click ad/music loudness fix
 
 **User question**: *"How do I adjust volumes as when music plays it's on good volume but when ads play the volume is too low, I need that opposite."*
