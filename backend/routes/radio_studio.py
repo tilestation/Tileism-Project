@@ -1398,7 +1398,20 @@ async def generate_trade_talk_script(req: GenerateTradeTalkReq, current_user: di
         "   HOST: Welcome back to Trade Talk...\n"
         "   GUEST: Right, yeah — hi mate. Got a kitchen-diner, big one...\n"
         "   HOST: Mmm, fair, fair. So the key thing with...\n"
-        "9. No stage directions, no markdown, no episode title — JUST the dialogue lines."
+        "9. No stage directions, no markdown, no episode title — JUST the dialogue lines.\n"
+        "10. At the VERY END of the script (after the final HOST: line), add ONE additional "
+        "line of the EXACT form:\n"
+        "    EXPRESSIVENESS: 0.0..1.0 — short reason\n"
+        "    Where the number recommends the energy slider for this topic:\n"
+        "      • 0.20-0.35 = Stiff (technical detail, safety, fire-rated boards, "
+        "structural advice, complex measurements, building regs)\n"
+        "      • 0.40-0.60 = Natural (everyday tiling/fitting tips, troubleshooting, "
+        "tool/adhesive selection, the default)\n"
+        "      • 0.65-0.85 = Animated (deals, new collections, seasonal promotions, "
+        "showroom events, light-hearted topics)\n"
+        "    Example: 'EXPRESSIVENESS: 0.30 — technical safety detail, calm delivery'\n"
+        "    or 'EXPRESSIVENESS: 0.75 — promotion, energetic'.\n"
+        "    Only ONE such line, ONLY at the end."
     )
     user_msg = (
         f"Episode topic: {req.topic.strip()}\n\n"
@@ -1421,13 +1434,34 @@ async def generate_trade_talk_script(req: GenerateTradeTalkReq, current_user: di
     # Parse `HOST: ...` / `GUEST: ...` lines. Tolerant of variation
     # (sometimes the model adds "MARK:" / "DAVE:" or prepends labels
     # in different cases — accept anything matching the pattern).
+    # Also extracts a trailing `EXPRESSIVENESS: 0.x — reason` line if
+    # present (Feb 26, 2026) so the admin gets a topic-aware starting
+    # point on the energy slider.
     turns: List[dict] = []
+    suggested_expressiveness: Optional[float] = None
+    expressiveness_reason: str = ""
     for raw_line in (out or "").splitlines():
         line = raw_line.strip()
         if not line:
             continue
         # Strip leading markdown bullets / quotes the LLM occasionally adds.
         line = line.lstrip("*-• ").strip()
+        # Expressiveness hint line — pulled BEFORE the speaker check
+        # so we don't accidentally treat it as a dialogue line.
+        if line.upper().startswith("EXPRESSIVENESS:"):
+            body = line.split(":", 1)[1].strip()
+            # Body looks like: "0.30 — technical safety detail"
+            # Use regex to tolerate any em-dash variant / extra whitespace.
+            m = re.match(r"^\s*([01](?:\.\d+)?)\s*(?:[—–\-]\s*(.*))?$", body)
+            if m:
+                try:
+                    val = float(m.group(1))
+                    if 0.0 <= val <= 1.0:
+                        suggested_expressiveness = round(val, 2)
+                        expressiveness_reason = (m.group(2) or "").strip()
+                except ValueError:
+                    pass
+            continue
         # Match "HOST:" / "GUEST:" / "{host_name}:" / "{guest_name}:"
         host_aliases = ("host:", f"{req.host_name.lower()}:")
         guest_aliases = ("guest:", f"{req.guest_name.lower()}:")
@@ -1454,12 +1488,155 @@ async def generate_trade_talk_script(req: GenerateTradeTalkReq, current_user: di
 
     suggested_name = f"Trade Talk: {req.topic.strip()[:80]}"
     total_words = sum(len(t["text"].split()) for t in turns)
+    # Default to Natural (0.5) if Claude didn't include the line —
+    # rare but possible if the model trims it under length pressure.
     return {
         "title": suggested_name,
         "suggested_name": suggested_name,
         "turns": turns,
         "approx_words": total_words,
         "approx_seconds": round(total_words / 2.1, 1),
+        "suggested_expressiveness": suggested_expressiveness if suggested_expressiveness is not None else 0.5,
+        "expressiveness_reason": expressiveness_reason or "default — natural delivery",
+    }
+
+
+# ------------------------------------------------------------------
+# Convert Q&A ↔ Trade Talk (Feb 26, 2026)
+#
+# Promotes a Q&A pair into a multi-turn Trade Talk dialogue (better
+# for evergreen technical topics) OR collapses a Trade Talk into a
+# single Q&A (better for the short "Ask the Showroom" segment).
+#
+# Returns the converted PAYLOAD only — does NOT mutate the source
+# doc. The UI then chooses Save-as-new-segment or Replace-existing.
+# ------------------------------------------------------------------
+
+
+class ConvertSegmentReq(BaseModel):
+    source_id: str = Field(..., description="Existing ad/qa/trade_talk doc id")
+    target_kind: Literal["qa", "trade_talk"]
+    # Only used when target_kind == "trade_talk".
+    host_name: str = Field(default="Mark", max_length=40)
+    guest_name: str = Field(default="Dave", max_length=40)
+    target_duration_seconds: int = Field(default=240, ge=60, le=480)
+
+
+@router.post("/scripts/convert")
+async def convert_segment(req: ConvertSegmentReq, current_user: dict = Depends(get_current_user)):
+    """Convert Q&A ↔ Trade Talk in-place (returns the new payload,
+    UI decides whether to save-as-new or replace the existing doc)."""
+    _require_admin(current_user)
+    api_key = os.environ.get("EMERGENT_LLM_KEY")
+    if not api_key:
+        raise HTTPException(status_code=500, detail="EMERGENT_LLM_KEY not set")
+
+    db = get_db()
+    source = await db.radio_studio_ads.find_one(
+        {"id": req.source_id, "_deleted": {"$ne": True}}, {"_id": 0},
+    )
+    if not source:
+        raise HTTPException(status_code=404, detail="Source segment not found")
+    source_kind = source.get("kind") or "ad"
+
+    # ─── Q&A → Trade Talk ─────────────────────────────────────────
+    if req.target_kind == "trade_talk":
+        if source_kind == "trade_talk":
+            raise HTTPException(status_code=400, detail="Segment is already a Trade Talk")
+        question = (source.get("customer_question") or "").strip()
+        answer = (source.get("answer") or source.get("script") or "").strip()
+        if not question or not answer:
+            raise HTTPException(
+                status_code=400,
+                detail="Source has no question/answer to convert. Fill both in first.",
+            )
+        # Reuse the Trade Talk generator — we pin the topic to the
+        # existing answer so Claude EXPANDS rather than inventing
+        # new facts. Same prompt → same expressiveness recommendation.
+        tt_req = GenerateTradeTalkReq(
+            topic=(
+                f"A builder calls in asking: {question}\n\n"
+                f"The expert host should EXPAND on this AUTHORITATIVE answer in "
+                f"conversation form (don't invent new facts — stretch + add "
+                f"natural back-and-forth around the same points):\n\n{answer}"
+            ),
+            target_duration_seconds=req.target_duration_seconds,
+            host_name=req.host_name,
+            guest_name=req.guest_name,
+        )
+        return await generate_trade_talk_script(tt_req, current_user)
+
+    # ─── Trade Talk → Q&A ─────────────────────────────────────────
+    if source_kind != "trade_talk":
+        raise HTTPException(status_code=400, detail="Source segment is not a Trade Talk")
+    turns = source.get("turns") or []
+    if len(turns) < 2:
+        raise HTTPException(status_code=400, detail="Trade Talk has no turns to convert")
+
+    transcript = "\n".join(
+        f"{(t.get('speaker') or '').upper()}: {(t.get('text') or '').strip()}"
+        for t in turns if (t.get("text") or "").strip()
+    )
+    system = (
+        "You convert a multi-turn 'Trade Talk' radio dialogue into a single tight "
+        "Q&A pair for the 'Ask the Showroom' segment.\n\n"
+        "RULES:\n"
+        "1. Output STRICTLY in this format — two lines, nothing else:\n"
+        "   QUESTION: <the customer's effective question, ≤ 30 words, ends in ?>\n"
+        "   ANSWER: <authoritative answer, 75-130 words, UK English>\n"
+        "2. The QUESTION should be how a customer/builder would phrase it — "
+        "natural, single sentence, no jargon they wouldn't use.\n"
+        "3. The ANSWER consolidates everything the HOST said. Strip conversational "
+        "fillers ('erm', 'right yeah', 'mmm'). Keep technical facts, brand names, "
+        "exact figures.\n"
+        "4. Don't say 'visit our website' or 'come to our showroom'. End with a "
+        "concrete tip OR a 'we stock X' pointer.\n"
+        "5. Tone: calm, technical-but-accessible. Like a senior tile-fitter on a "
+        "radio phone-in.\n"
+        "6. NO markdown, NO quotes, NO preamble."
+    )
+    try:
+        from emergentintegrations.llm.chat import LlmChat, UserMessage
+        chat = LlmChat(
+            api_key=api_key,
+            session_id=f"radio-convert-{os.urandom(4).hex()}",
+            system_message=system,
+        )
+        chat.with_model("anthropic", "claude-haiku-4-5-20251001")
+        out = await chat.send_message(UserMessage(text=f"Collapse this dialogue:\n\n{transcript}"))
+    except Exception as exc:
+        logger.exception("Convert TT→QA failed")
+        raise HTTPException(status_code=502, detail=f"Conversion failed: {str(exc)[:200]}") from exc
+
+    question_out, answer_out = "", ""
+    in_answer = False
+    for raw in (out or "").splitlines():
+        line = raw.strip().lstrip("*-• ").strip()
+        if not line:
+            continue
+        if line.upper().startswith("QUESTION:"):
+            question_out = line.split(":", 1)[1].strip().strip('"')
+            in_answer = False
+        elif line.upper().startswith("ANSWER:"):
+            answer_out = line.split(":", 1)[1].strip().strip('"')
+            in_answer = True
+        elif in_answer:
+            # Continuation of the answer (Claude sometimes wraps).
+            answer_out += " " + line.strip('"')
+
+    if not question_out or not answer_out:
+        raise HTTPException(
+            status_code=502,
+            detail="LLM didn't return a clean QUESTION/ANSWER pair — retry.",
+        )
+
+    suggested_name = question_out.rstrip("?")[:80] or "Q&A"
+    return {
+        "question": question_out,
+        "answer": answer_out.strip(),
+        "suggested_name": suggested_name,
+        "approx_words": len(answer_out.split()),
+        "approx_seconds": round(len(answer_out.split()) / 2.3, 1),
     }
 
 

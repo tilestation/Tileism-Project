@@ -9,6 +9,57 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Feb 26, 2026 — Forked session] 📻 AI-suggested expressiveness + Convert Q&A ↔ Trade Talk
+
+**User intent (two asks)**: *"AI-suggested expressiveness when a Trade Talk is auto-generated — Claude returns a recommended slider position based on the topic. DO THAT. Also, how do I convert Q&A into Trade Talk topic or vice versa."*
+
+#### Feature 1 — AI-suggested expressiveness
+
+**Backend** (`/app/backend/routes/radio_studio.py`):
+- Extended the Trade Talk generator's system prompt with rule 10: Claude must append ONE final line `EXPRESSIVENESS: 0.0..1.0 — short reason` after the dialogue, with topic-based guidance:
+  - `0.20-0.35` for technical/safety content (calm delivery)
+  - `0.40-0.60` for everyday tiling tips (default Natural)
+  - `0.65-0.85` for deals/promotions/seasonal events (animated)
+- Parser added a tolerant regex `EXPRESSIVENESS:\s*([01](?:\.\d+)?)\s*(?:[—–\-]\s*(.*))?$` accepting em-dash, en-dash, plain hyphen, or no-dash formats.
+- Response now includes `suggested_expressiveness` (float 0-1) + `expressiveness_reason` (Claude's one-line justification). Falls back to `0.5` + `"default — natural delivery"` if Claude trims the line.
+- The EXPRESSIVENESS line is filtered out of the parsed `turns` list so it never leaks into the dialogue.
+
+**Frontend** (`/app/frontend/src/pages/admin/RadioStudio.jsx`):
+- Trade Talk generator's success handler now reads `suggested_expressiveness` from the response, ALWAYS overwrites the form's slider (a brand-new dialogue makes the previous setting stale by definition).
+- Toast extended to surface the recommendation: `"Dialogue written — 12 turns, ~240s · Expressiveness: 0.30 (technical safety detail, calm delivery)"`.
+
+#### Feature 2 — Convert Q&A ↔ Trade Talk
+
+**Backend** (`/app/backend/routes/radio_studio.py`):
+- New endpoint **`POST /api/admin/radio-studio/scripts/convert`** with `ConvertSegmentReq{source_id, target_kind, host_name?, guest_name?, target_duration_seconds?}`.
+- **Q&A → Trade Talk** path: reuses the existing Trade Talk generator under the hood. We pin the topic to the original Q&A's answer so Claude EXPANDS on it rather than inventing new facts — preserves the technical content. Returns the standard generator response (turns + suggested_expressiveness).
+- **Trade Talk → Q&A** path: new Claude prompt collapses the multi-turn transcript into one `QUESTION:` + `ANSWER:` pair (75-130 word answer, fillers stripped, brand names + figures retained). Returns `{question, answer, suggested_name, approx_words, approx_seconds}`.
+- Returns the PAYLOAD only — does not mutate the source doc. The UI then loads it into the editor for review.
+- Defensive rejects: same-kind conversion → 400, missing source → 404, empty turns → 400.
+
+**Frontend** (`/app/frontend/src/pages/admin/RadioStudio.jsx`):
+- New cyan `RefreshCw` button on every Q&A and Trade Talk segment library row (next to Save-as-Template + Delete). Tooltip per-kind: *"Convert this Q&A into a multi-turn Trade Talk dialogue"* / *"Collapse this Trade Talk into a single Q&A pair"*.
+- `handleConvertSegment(ad)` shows a confirm dialog explaining the destructive-edit safety net (*"The original stays untouched — review the result then click Save to create a new segment"*), POSTs the convert endpoint, then drops the result into the editor with `kind` flipped to the target. Voices are intentionally cleared so the user explicitly re-picks them.
+- Toast surfaces stats: `"Converted to Trade Talk · 12 turns · ~240s · Expressiveness 0.30"` + description `"Pick voices, review, then Save to create the new segment."`.
+- Loading state per-row (`converting[ad.id]`) replaces icon with spinner while in flight.
+
+**Tests** (`tests/test_radio_studio_expressiveness_ai_and_convert.py` — 7 new, all pass):
+- Parses the EXPRESSIVENESS line correctly with em-dash, en-dash, plain hyphen, and missing-dash formats.
+- Defaults to 0.5 + a friendly reason when the line is missing.
+- Q&A → Trade Talk: original answer is included in the prompt sent to Claude (proves facts won't drift). Expressiveness pass-through verified.
+- Trade Talk → Q&A: question ends in `?`, answer is non-empty, and conversational fillers (`mmm`, `right, yeah`, `ah, gotcha`) are stripped.
+- Same-kind conversion → 400 with friendly message.
+- Missing source → 404.
+
+**Test suite**: 68/68 radio tests pass (the 7 new + all existing).
+
+**Files**:
+- `/app/backend/routes/radio_studio.py` — generator prompt + parser + new convert endpoint.
+- `/app/frontend/src/pages/admin/RadioStudio.jsx` — generator success handler, `handleConvertSegment`, Convert button on segment library rows.
+- `/app/backend/tests/test_radio_studio_expressiveness_ai_and_convert.py` (NEW — 7 tests).
+
+
+
 ### [Feb 26, 2026 — Forked session] 📻 Trade Talk: Expressiveness slider (per-episode energy control)
 
 **User intent**: *"An expressiveness slider (Stiff ← → Natural ← → Animated) on the Trade Talk edit form so you can dial the energy per-episode without me hard-coding it in the backend. YES"*

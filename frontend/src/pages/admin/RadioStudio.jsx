@@ -550,6 +550,81 @@ function AdsTab({ voices, voicesLoading, onResyncVoices, ads, music, onAdsChange
     }
   };
 
+  // ─── 2 Jun 2026: Convert Q&A ↔ Trade Talk ────────────────────────
+  // Promotes a Q&A into a multi-turn Trade Talk dialogue OR collapses
+  // a Trade Talk into a single Q&A. The new content lands in the
+  // editor as a SCRATCH copy (form state only) — staff reviews then
+  // chooses Save (creates new) or Save-and-Delete-Source.
+  const [converting, setConverting] = useState({});
+  const handleConvertSegment = async (ad) => {
+    const sourceKind = ad.kind || 'ad';
+    const targetKind = sourceKind === 'qa' ? 'trade_talk' : 'qa';
+    const targetLabel = targetKind === 'qa' ? 'Q&A' : 'Trade Talk';
+    const sourceLabel = sourceKind === 'qa' ? 'Q&A' : 'Trade Talk';
+    if (!window.confirm(
+      `Convert this ${sourceLabel} into a ${targetLabel}?\n\n` +
+      `Claude rebuilds the content in the new format, keeping all the technical ` +
+      `facts intact. The original "${ad.name}" stays untouched — review the result ` +
+      `in the editor and click Save to create a new segment.`,
+    )) return;
+    setConverting((m) => ({ ...m, [ad.id]: true }));
+    const tId = toast.loading(`Converting "${ad.name}" to ${targetLabel}…`);
+    try {
+      const r = await axios.post(
+        `${API}/admin/radio-studio/scripts/convert`,
+        { source_id: ad.id, target_kind: targetKind },
+        { headers: tokenHdr() },
+      );
+      if (targetKind === 'trade_talk') {
+        // Land in the editor as a NEW Trade Talk. Voices stay empty
+        // so staff explicitly picks host + guest before generating.
+        setForm({
+          kind: 'trade_talk',
+          name: `${ad.name} (as Trade Talk)`,
+          topic: ad.customer_question || ad.name || '',
+          host_name: 'Mark', guest_name: 'Dave',
+          host_voice_id: '', host_voice_name: '',
+          guest_voice_id: '', guest_voice_name: '',
+          turns: r.data.turns || [],
+          expressiveness: r.data.suggested_expressiveness ?? 0.5,
+          stability: 0.5, similarity_boost: 0.75, style: 0,
+          model_id: 'eleven_multilingual_v2',
+          bed_music_id: '', bed_volume_pct: 18,
+          pronunciation_hints: ad.pronunciation_hints || '',
+        });
+        toast.success(
+          `Converted to Trade Talk · ${r.data.turns.length} turns · ~${r.data.approx_seconds}s · ` +
+          `Expressiveness ${(r.data.suggested_expressiveness ?? 0.5).toFixed(2)}`,
+          { id: tId, duration: 6000, description: 'Pick voices, review, then Save to create the new segment.' },
+        );
+      } else {
+        // Trade Talk → Q&A.
+        setForm({
+          kind: 'qa',
+          name: `${ad.name} (as Q&A)`,
+          customer_question: r.data.question || '',
+          answer: r.data.answer || '',
+          script: r.data.answer || '',
+          voice_id: '', voice_name: '',
+          stability: 0.5, similarity_boost: 0.75, style: 0,
+          model_id: 'eleven_multilingual_v2',
+          bed_music_id: '', bed_volume_pct: 18,
+          pronunciation_hints: ad.pronunciation_hints || '',
+          tone: 'professional',
+        });
+        toast.success(
+          `Converted to Q&A · ${r.data.approx_words} words · ~${r.data.approx_seconds}s`,
+          { id: tId, duration: 6000, description: 'Pick a voice, review, then Save to create the new segment.' },
+        );
+      }
+    } catch (e) {
+      const detail = e?.response?.data?.detail;
+      toast.error(typeof detail === 'string' ? detail : `Conversion failed: ${e.message}`, { id: tId });
+    } finally {
+      setConverting((m) => ({ ...m, [ad.id]: false }));
+    }
+  };
+
   // 24 May 2026 — AI auto-generate. LLM writes the script from
   // keywords + tone; result populates the Script textarea so the
   // admin can edit before saving. The voice + voice settings remain
@@ -1178,6 +1253,25 @@ function AdsTab({ voices, voicesLoading, onResyncVoices, ads, music, onAdsChange
                       <BookmarkPlus className="w-3.5 h-3.5" />
                     </button>
                   )}
+                  {/* 2 Jun 2026 — Convert Q&A ↔ Trade Talk. Lands the
+                      new format in the editor as a scratch copy so
+                      staff reviews then Saves (creates new). The
+                      source segment is left untouched. */}
+                  {(ad.kind === 'qa' || ad.kind === 'trade_talk') && (
+                    <button
+                      onClick={() => handleConvertSegment(ad)}
+                      disabled={!!converting[ad.id]}
+                      data-testid={`radio-ad-convert-${ad.id}`}
+                      className="p-1.5 text-cyan-400 hover:text-cyan-300 hover:bg-slate-800 rounded disabled:opacity-60 disabled:cursor-wait"
+                      title={ad.kind === 'qa'
+                        ? 'Convert this Q&A into a multi-turn Trade Talk dialogue'
+                        : 'Collapse this Trade Talk into a single Q&A pair'}
+                    >
+                      {converting[ad.id]
+                        ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        : <RefreshCw className="w-3.5 h-3.5" />}
+                    </button>
+                  )}
                   <button
                     onClick={() => handleDelete(ad.id)}
                     className="p-1.5 text-red-400 hover:text-red-300 hover:bg-slate-800 rounded"
@@ -1524,12 +1618,28 @@ function TradeTalkFields({ form, setForm, voices, voicesLoading, onResyncVoices,
         },
         { headers: tokenHdr() },
       );
+      const suggestedE = typeof r.data.suggested_expressiveness === 'number'
+        ? r.data.suggested_expressiveness
+        : null;
       setForm({
         ...form,
         turns: r.data.turns,
         name: form.name || r.data.suggested_name,
+        // 2 Jun 2026 — Apply Claude's topic-aware expressiveness
+        // recommendation. We always overwrite the slider (the user
+        // is generating a NEW dialogue, so the previous setting is
+        // stale by definition). Default 0.5 if Claude trimmed the line.
+        expressiveness: suggestedE ?? 0.5,
       });
-      toast.success(`Dialogue written — ${r.data.turns.length} turns, ~${r.data.approx_seconds}s`);
+      // Surface the recommendation in the toast so the user knows
+      // we tuned the slider for them + can reason about it.
+      const reason = r.data.expressiveness_reason
+        ? ` · Expressiveness: ${suggestedE?.toFixed(2) ?? '0.50'} (${r.data.expressiveness_reason})`
+        : '';
+      toast.success(
+        `Dialogue written — ${r.data.turns.length} turns, ~${r.data.approx_seconds}s${reason}`,
+        { duration: 6000 },
+      );
     } catch (e) {
       toast.error(`Generation failed: ${e?.response?.data?.detail || e.message}`);
     } finally {
