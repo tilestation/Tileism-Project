@@ -9,6 +9,34 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Feb 26, 2026 — Forked session] 📻 Radio Studio: Test-voice button now pre-flight-checks per kind + identifies failing row in errors
+
+**User feedback (with screenshot)**: A toast appeared saying *"Test voice failed: No turns yet — add at least one before previewing"* while the user was editing a Q&A. The error message itself was a Trade Talk concept (turns) but the user wasn't editing a Trade Talk — the toast landed far from the segment library row that triggered it (the user had clicked a speaker icon on a Trade Talk row in the library while EDITING a Q&A on the left).
+
+**Fixes** (`/app/frontend/src/pages/admin/RadioStudio.jsx`):
+
+1. **New `testVoiceBlockedReason(ad)` helper** — runs in the browser BEFORE we POST to the backend. Returns null when the row is ready, or a human-readable reason string per kind:
+   - `trade_talk` no turns → *"No turns yet — click Edit and add at least one before previewing"*
+   - `trade_talk` missing host or guest voice → *"Pick host + guest voices before previewing"*
+   - `qa` blank question or answer → *"Fill in both the customer question AND the answer before previewing"*
+   - `qa` no voice_id → *"Pick a voice before previewing"*
+   - plain `ad` blank script → *"Write the script before previewing"*
+   - plain `ad` no voice_id → *"Pick a voice before previewing"*
+
+2. **Library-row Test Voice button** now reads the blocked reason and:
+   - When blocked: dims the speaker icon (slate, not fuchsia) and changes the tooltip to *"Test voice unavailable — {reason}"*. Clicking still does something — it pops a `toast.warning` prefixed with the row's NAME so the user instantly knows which row failed and why. No backend call, no API spend.
+   - When unblocked: behaves exactly like before (fuchsia, plays the preview).
+
+3. **`handleTestVoice(adId, adName)`** — accepts an optional `adName` so the error toast becomes `"Edge case — {detail}"` instead of an anonymous `"Test voice failed: …"`. The single existing call site updated to pass `ad.name`.
+
+**Net effect**: the misleading "No turns yet" toast that confused the user can no longer fire on a Q&A row, and even if a backend error DOES somehow leak through, the toast now identifies which row failed.
+
+**Verified live**: 30 Q&A segments in the seeded library now show dimmed speaker icons with the tooltip *"Test voice unavailable — Fill in both the customer question AND the answer before previewing"*. Tested by enumerating 30 buttons in Playwright — all 30 show the new blocked-state tooltip.
+
+**Files**: `/app/frontend/src/pages/admin/RadioStudio.jsx` — `handleTestVoice` signature, new `testVoiceBlockedReason` helper, library-row button render.
+
+
+
 ### [Feb 26, 2026 — Forked session] 🏷️ Price Tickets: Manual-ticket hero + optional price
 
 **User feedback (with screenshot)**: *"Don't make the price compulsory here, also, the manual tickets are the most important feature for ticketing for now, can you move the whole section to main page out of that side left bar section and put it on main page on the front to start manual ticketing. Including the search of tickets."*

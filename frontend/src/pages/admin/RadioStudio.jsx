@@ -370,7 +370,11 @@ function AdsTab({ voices, voicesLoading, onResyncVoices, ads, music, onAdsChange
   // normalised characters of the ad's script and plays them inline.
   // ~£0.0002 per preview (vs ~£0.005 for a full 30s ad). Lets the
   // admin sanity-check pronunciations (£, URLs) before committing.
-  const handleTestVoice = async (adId) => {
+  //
+  // 1 Jun 2026 — `adName` added so error toasts identify WHICH row
+  // failed (the toast lands far from the clicked button, so without
+  // the name it's hard to tell which segment is wrong).
+  const handleTestVoice = async (adId, adName = '') => {
     setTestingId(adId);
     try {
       // axios+blob — backend returns audio/mpeg bytes inline.
@@ -389,20 +393,47 @@ function AdsTab({ voices, voicesLoading, onResyncVoices, ads, music, onAdsChange
       await audio.play();
     } catch (e) {
       const detail = e?.response?.data?.detail;
+      const prefix = adName ? `"${adName}" — ` : '';
       // axios responseType=blob keeps `data` as a Blob even on
       // error — try to parse the JSON error body if there is one.
       if (e?.response?.data && typeof e.response.data.text === 'function') {
         try {
           const text = await e.response.data.text();
           const parsed = JSON.parse(text);
-          toast.error(`Test voice failed: ${parsed.detail || text}`);
+          toast.error(`${prefix}${parsed.detail || text}`);
           return;
         } catch (_e) { /* fall through */ }
       }
-      toast.error(`Test voice failed: ${detail || e.message}`);
+      toast.error(`${prefix}${detail || e.message}`);
     } finally {
       setTestingId(null);
     }
+  };
+
+  // 1 Jun 2026 — Pre-flight check for the Test Voice button so we can
+  // disable it with an explanatory tooltip BEFORE the backend has to
+  // 400. Returns a human-readable reason (string) when blocked, null
+  // when good to fire.
+  const testVoiceBlockedReason = (ad) => {
+    if (!ad) return 'No segment selected';
+    const kind = ad.kind || 'ad';
+    if (kind === 'trade_talk') {
+      const turns = ad.turns || [];
+      if (turns.length === 0) return 'No turns yet — click Edit and add at least one before previewing';
+      if (!ad.host_voice_id || !ad.guest_voice_id) return 'Pick host + guest voices before previewing';
+      return null;
+    }
+    if (kind === 'qa') {
+      const q = (ad.customer_question || '').trim();
+      const a = (ad.answer || ad.script || '').trim();
+      if (!q || !a) return 'Fill in both the customer question AND the answer before previewing';
+      if (!ad.voice_id) return 'Pick a voice before previewing';
+      return null;
+    }
+    // Plain ad
+    if (!(ad.script || '').trim()) return 'Write the script before previewing';
+    if (!ad.voice_id) return 'Pick a voice before previewing';
+    return null;
   };
 
   const handleDelete = async (adId) => {
@@ -1019,17 +1050,37 @@ function AdsTab({ voices, voicesLoading, onResyncVoices, ads, music, onAdsChange
                   >
                     <Mic className="w-3.5 h-3.5" />
                   </button>
-                  <button
-                    onClick={() => handleTestVoice(ad.id)}
-                    disabled={testingId === ad.id || generatingId === ad.id}
-                    data-testid={`radio-ad-test-voice-${ad.id}`}
-                    className="p-1.5 text-fuchsia-400 hover:text-fuchsia-300 hover:bg-slate-800 rounded disabled:opacity-60 disabled:cursor-wait"
-                    title="Test voice — play the first sentence to check pronunciations (£, URLs). ~£0.0002"
-                  >
-                    {testingId === ad.id
-                      ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      : <Volume2 className="w-3.5 h-3.5" />}
-                  </button>
+                  {(() => {
+                    // Pre-flight blocked-state — if the segment can't
+                    // be previewed yet (no turns, no script, no voice
+                    // picked etc.), disable the speaker and show why
+                    // in the tooltip RIGHT ON the row, not as a toast.
+                    const blocked = testVoiceBlockedReason(ad);
+                    return (
+                      <button
+                        onClick={() => {
+                          if (blocked) { toast.warning(`"${ad.name}" — ${blocked}`); return; }
+                          handleTestVoice(ad.id, ad.name);
+                        }}
+                        disabled={testingId === ad.id || generatingId === ad.id}
+                        data-testid={`radio-ad-test-voice-${ad.id}`}
+                        className={`p-1.5 rounded disabled:opacity-60 disabled:cursor-wait ${
+                          blocked
+                            ? 'text-slate-500 hover:text-slate-400 hover:bg-slate-800/60'
+                            : 'text-fuchsia-400 hover:text-fuchsia-300 hover:bg-slate-800'
+                        }`}
+                        title={
+                          blocked
+                            ? `Test voice unavailable — ${blocked}`
+                            : 'Test voice — play the first sentence to check pronunciations (£, URLs). ~£0.0002'
+                        }
+                      >
+                        {testingId === ad.id
+                          ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          : <Volume2 className="w-3.5 h-3.5" />}
+                      </button>
+                    );
+                  })()}
                   <button
                     onClick={() => handleGenerate(ad.id)}
                     disabled={generatingId === ad.id}
