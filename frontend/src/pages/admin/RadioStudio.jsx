@@ -106,14 +106,86 @@ export default function RadioStudio() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-slate-100 p-4 sm:p-6">
       {/* Header */}
-      <div className="mb-6 flex items-center gap-3">
+      <div className="mb-6 flex items-center gap-3 flex-wrap">
         <div className="bg-amber-500 text-slate-900 p-2.5 rounded-xl shadow-lg">
           <Radio className="w-6 h-6" />
         </div>
-        <div>
+        <div className="flex-1 min-w-0">
           <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">Radio Studio</h1>
           <p className="text-xs text-slate-400">In-store AI-narrated radio · ElevenLabs UK voices · 4 stores</p>
         </div>
+        {/* 2 Jun 2026 — Volume Balance status pill. Surfaces the library
+            normalisation state directly in the header so admins don't
+            have to dig into Music Library when ads sound quieter than
+            music. Click → one-shot fix that brings everything up to
+            −16 LUFS (EBU R128 broadcast standard). */}
+        {(() => {
+          const adsPending = ads.filter(a => a.audio_blob && !a.loudnorm_applied).length;
+          const musicPending = music.filter(m => !m.loudnorm_applied).length;
+          const totalPending = adsPending + musicPending;
+          const totalNormalised = ads.filter(a => a.loudnorm_applied).length + music.filter(m => m.loudnorm_applied).length;
+          const allHealthy = totalPending === 0 && totalNormalised > 0;
+          return (
+            <button
+              type="button"
+              onClick={async () => {
+                if (totalPending === 0) {
+                  toast.info('Volume balance already healthy — every ad + track is at −16 LUFS');
+                  return;
+                }
+                if (!window.confirm(
+                  `Re-process ${adsPending} ad${adsPending === 1 ? '' : 's'} + ${musicPending} music track${musicPending === 1 ? '' : 's'} to the −16 LUFS broadcast standard?\n\n` +
+                  `This brings older content up to the same volume as new uploads, so ads stop sounding quieter than music. Takes 1-2 seconds per item. Safe to re-run anytime.`
+                )) return;
+                const tId = toast.loading(`Normalising ${totalPending} item${totalPending === 1 ? '' : 's'}…`);
+                try {
+                  const r = await axios.post(
+                    `${API}/admin/radio-studio/music/normalize-existing`,
+                    {},
+                    { headers: tokenHdr() }
+                  );
+                  const { music_normalised = 0, ads_normalised = 0, music_failed = 0, ads_failed = 0 } = r.data;
+                  toast.success(
+                    `Volume balance restored: ${ads_normalised} ad${ads_normalised === 1 ? '' : 's'} + ${music_normalised} track${music_normalised === 1 ? '' : 's'} normalised` +
+                    (music_failed + ads_failed > 0 ? ` · ${music_failed + ads_failed} skipped` : ''),
+                    { id: tId, duration: 5000 }
+                  );
+                  await Promise.all([loadAds(), loadMusic()]);
+                } catch (e) {
+                  toast.error(`Normalisation failed: ${e?.response?.data?.detail || e.message}`, { id: tId });
+                }
+              }}
+              data-testid="radio-volume-balance-pill"
+              title={
+                totalPending === 0
+                  ? `All ${totalNormalised} items at −16 LUFS — ads + music sound the same volume`
+                  : `${totalPending} item${totalPending === 1 ? '' : 's'} need normalising — click to fix the music-vs-ads volume mismatch in one go`
+              }
+              className={`group flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all border ${
+                allHealthy
+                  ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/15'
+                  : totalPending > 0
+                    ? 'bg-amber-500/10 border-amber-500/40 text-amber-200 hover:bg-amber-500/20 animate-pulse'
+                    : 'bg-slate-700/40 border-slate-600/50 text-slate-400'
+              }`}
+            >
+              <Volume2 className="w-3.5 h-3.5" />
+              {totalPending > 0 ? (
+                <span>
+                  <span className="opacity-80">Volume balance:</span>{' '}
+                  <span className="font-bold">{totalPending} need fixing</span>
+                </span>
+              ) : allHealthy ? (
+                <span>
+                  <span className="opacity-80">Volume balance:</span>{' '}
+                  <span className="font-bold">✓ All at −16 LUFS</span>
+                </span>
+              ) : (
+                <span>Volume balance: no audio yet</span>
+              )}
+            </button>
+          );
+        })()}
       </div>
 
       {/* Tabs */}

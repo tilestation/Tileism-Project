@@ -9,6 +9,28 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Feb 26, 2026 — Forked session] 📻 Radio Studio: Volume Balance pill in header for one-click ad/music loudness fix
+
+**User question**: *"How do I adjust volumes as when music plays it's on good volume but when ads play the volume is too low, I need that opposite."*
+
+**Root cause + fix surfaced**: The backend already has `_normalize_loudness` (ffmpeg `loudnorm` to −16 LUFS, EBU R128 broadcast standard) running on every NEW music/ad upload, plus a `/admin/radio-studio/music/normalize-existing` backfill endpoint with a UI button. Problem: that button was buried in the Music Library tab where most admins never go — so existing ads uploaded before the loudnorm pass shipped (May 2026) were still at their original lower volume relative to newer music tracks.
+
+**Fix** (`/app/frontend/src/pages/admin/RadioStudio.jsx`):
+
+- New **Volume Balance pill in the Radio Studio header** (right of the title) — `data-testid="radio-volume-balance-pill"`. Lives outside the tab system so it's visible no matter where the admin is in the Studio.
+- Three states driven by live counts of `ads.filter(a => a.audio_blob && !a.loudnorm_applied)` and `music.filter(m => !m.loudnorm_applied)`:
+  - **Healthy (emerald)**: *"Volume balance: ✓ All at −16 LUFS"* — tooltip: *"All N items at −16 LUFS — ads + music sound the same volume"*.
+  - **Pending (amber + animate-pulse)**: *"Volume balance: N need fixing"* — tooltip: *"N items need normalising — click to fix the music-vs-ads volume mismatch in one go"*.
+  - **No audio yet (grey)**: *"Volume balance: no audio yet"*.
+- **Click → confirmation dialog** explains exactly what'll happen: *"Re-process N ads + M music tracks to the −16 LUFS broadcast standard. This brings older content up to the same volume as new uploads, so ads stop sounding quieter than music. Takes 1-2 seconds per item."*. Confirmed → POSTs `/admin/radio-studio/music/normalize-existing` → loading toast → success toast with counts → re-fetches `ads` + `music` so the pill flips to emerald.
+- The existing in-tab "Normalise volume across library" button is left in place for backward-compatibility — but the header pill is now the obvious path.
+
+**Verified live**: Pill renders correctly in the header, the empty-state copy *"Volume balance: no audio yet"* shows when ads + music are empty, tooltip *"All 0 items at −16 LUFS"* on hover. Will turn amber + clickable the moment the user has any un-normalised audio.
+
+**Files**: `/app/frontend/src/pages/admin/RadioStudio.jsx` — header layout (flex-wrap + flex-1 min-w-0 on title), pill component with 3-state styling.
+
+
+
 ### [Feb 26, 2026 — Forked session] 📻 Radio Studio: Test-voice button now pre-flight-checks per kind + identifies failing row in errors
 
 **User feedback (with screenshot)**: A toast appeared saying *"Test voice failed: No turns yet — add at least one before previewing"* while the user was editing a Q&A. The error message itself was a Trade Talk concept (turns) but the user wasn't editing a Trade Talk — the toast landed far from the segment library row that triggered it (the user had clicked a speaker icon on a Trade Talk row in the library while EDITING a Q&A on the left).
