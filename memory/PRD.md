@@ -9,6 +9,53 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Feb 26, 2026 — Forked session] 📻 Trade Talk now sounds like 2 humans, not 2 computers
+
+**User complaint (with MP3 attached)**: *"Can you listen to this trade talk dialogues conversation, it's not very sounding like 2 human talking rather than 2 computers talking. They need to sound much more natural and energetic."*
+
+**Diagnosis** (after listening): 4 stacked causes of the robotic feel.
+
+**Fixes** (`/app/backend/routes/radio_studio.py`):
+
+1. **Voice settings flipped to conversational** for `kind == "trade_talk"`:
+   - **Stability `0.5 → 0.30`** (host) / `0.26` (guest) — wider emotional range, no monotone delivery.
+   - **Style `0.0 → 0.55`** (host) / `0.65` (guest) — turns on vocal expressiveness so emphasis + tone-of-voice come through.
+   - **Similarity boost `0.75 → 0.85`** — voice stays recognisably "this person".
+   - **Speaker boost `false → true`** — punchier presence.
+   - **Model `eleven_multilingual_v2 → eleven_flash_v2_5`** — Eleven's most natural-sounding English-dialogue model.
+   - Host vs guest differentiation: guest gets slightly lower stability + higher style so they sound like a builder on a job site, not a co-host reading the same script.
+   - Plain ads keep their existing settings — back-compat preserved.
+
+2. **Inter-turn gap `1.0 s → 0.4 s`** — real conversation has 200-400ms turn-handover pauses. The old 1-second gap made the dialogue feel like "Speaker A talks, robot pause, Speaker B talks". The `_concat_audio_turns` helper rewritten to support fractional gaps via on-the-fly `anullsrc` silence generation (was previously capped to whole-second multiples via a cached 1-sec silence file).
+
+3. **Claude script prompt re-written** to produce *spoken* dialogue, not read paragraphs:
+   - Explicit "CRITICAL — SOUND LIKE TWO HUMANS, NOT TWO ROBOTS" section.
+   - Required filler/backchannel words: *"erm, right, so, I mean, yeah-yeah, mmm, fair point, ah, gotcha, no — well, sort of, kind of"* — sprinkled naturally.
+   - Each turn capped at 1-3 sentences MAX (no monologues).
+   - Required reaction-word turn-starters: *"Right, yeah —", "Ah okay —", "Mmm, gotcha —", "Hmm.", "Yeah, see that's what I —"*.
+   - Required contractions always (`you're / it's / we've` — never `you are`).
+   - Em-dashes + ellipsis for natural pauses + trailing-off.
+   - Guest must occasionally self-interrupt + backtrack.
+   - Host must drop in casual asides: *"mind you", "between us", "classic mistake", "happens all the time"*.
+
+4. **Test-voice preview** endpoint now mirrors the conversational settings when previewing a `trade_talk` segment, so what the admin hears in the preview matches what'll render in the full episode.
+
+**Tests** (3 new in `tests/test_radio_studio_conversational_voice.py`):
+- `test_trade_talk_uses_conversational_voice_settings`: ALL turn TTS calls use stability ≤ 0.32, style ≥ 0.50, speaker_boost on, and `eleven_flash_v2_5` model; guest stability < host stability AND guest style > host style.
+- `test_plain_ad_keeps_existing_voice_settings`: static-analysis guard so a future refactor can't break back-compat with plain ads.
+- `test_concat_audio_default_gap_is_sub_second`: gap default is in the conversational range (≥0.2s and <1.0s).
+
+**Bonus fix**: `tests/test_radio_studio_multi_kind.py` was missing `from fastapi import HTTPException` — added so it stops failing the rescue-path test.
+
+**Result**: 117/117 radio-studio tests pass with the new settings.
+
+**Files**:
+- `/app/backend/routes/radio_studio.py` — `generate_ad_audio` per-turn voice settings + model_id override, `_concat_audio_turns` default-0.4s + fractional-gap support, Claude system prompt for `generate_trade_talk`, test-voice endpoint mirror.
+- `/app/backend/tests/test_radio_studio_conversational_voice.py` — NEW.
+- `/app/backend/tests/test_radio_studio_multi_kind.py` — missing import added.
+
+
+
 ### [Feb 26, 2026 — Forked session] 📻 Public radio: Live Volume Meter component
 
 **User intent**: *"Live volume meter at the bottom of the public radio page (/radio) so showroom staff can SEE the loudness of what's currently playing in dB. It'd help spot any track that's still mis-normalised before customers notice — and would also make it easy to A/B compare ads vs music in real time after running the balance fix. YES"*

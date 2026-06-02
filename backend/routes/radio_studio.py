@@ -620,12 +620,20 @@ def _mix_voice_with_bed(
 # streaming + playlist pipeline, gets logged to the cost dashboard
 # as a single call summing all turns.
 
-def _concat_audio_turns(audio_chunks: List[bytes], gap_seconds: float = 1.0) -> bytes:
+def _concat_audio_turns(audio_chunks: List[bytes], gap_seconds: float = 0.4) -> bytes:
     """Concatenate MP3 audio chunks with `gap_seconds` of silence
     between each. Uses ffmpeg's concat demuxer with `-c copy` so
     no re-encoding happens (each chunk is already a 128 kbps
     44.1 kHz MP3 from ElevenLabs and our cached silence file
-    matches — see `_get_silence_mp3`)."""
+    matches — see `_get_silence_mp3`).
+
+    1 Jun 2026 — Default gap reduced from 1.0s → 0.4s for trade
+    talk: human conversation typically has 200-400ms turn-handover
+    pauses, not the full 1-second pause we had which made the
+    dialogue feel like a Speaker-A-then-Speaker-B robot loop. For
+    sub-second gaps we render a one-shot short silence MP3 in
+    memory rather than concatenating multiple 1-sec silence files.
+    """
     if not audio_chunks:
         return b""
     if len(audio_chunks) == 1:
@@ -638,13 +646,8 @@ def _concat_audio_turns(audio_chunks: List[bytes], gap_seconds: float = 1.0) -> 
         logger.warning("ffmpeg missing — concatenating without gap")
         return b"".join(audio_chunks)
 
-    silence = _get_silence_mp3()  # 1 sec of 128k @ 44.1 kHz
     with tempfile.TemporaryDirectory(prefix="radio_concat_") as tmp:
-        # Write each turn to its own file + write the silence once,
-        # reference it from the concat list.
-        silence_path = os.path.join(tmp, "silence.mp3")
-        with open(silence_path, "wb") as f:
-            f.write(silence)
+        # Write each turn to its own file.
         turn_paths: List[str] = []
         for i, chunk in enumerate(audio_chunks):
             p = os.path.join(tmp, f"turn_{i:03d}.mp3")
@@ -652,17 +655,28 @@ def _concat_audio_turns(audio_chunks: List[bytes], gap_seconds: float = 1.0) -> 
                 f.write(chunk)
             turn_paths.append(p)
 
-        # concat demuxer list. We add `gap_seconds` of silence by
-        # repeating the 1-sec silence file (1 line per second; we
-        # default to 1 sec so that's just one repetition).
-        gap_repeats = max(0, int(round(gap_seconds)))
+        # Generate a custom-duration silence file once per call so we
+        # can support fractional gaps (0.4s typical for natural speech).
+        silence_path = os.path.join(tmp, "silence.mp3")
+        gap_sec = max(0.0, float(gap_seconds))
+        if gap_sec > 0:
+            sil_cmd = [
+                ffmpeg, "-hide_banner", "-loglevel", "error", "-y",
+                "-f", "lavfi", "-i", f"anullsrc=r=44100:cl=stereo:d={gap_sec:.3f}",
+                "-c:a", "libmp3lame", "-b:a", "128k", "-ar", "44100", "-ac", "2",
+                silence_path,
+            ]
+            proc = subprocess.run(sil_cmd, capture_output=True, timeout=15)
+            if proc.returncode != 0:
+                logger.warning("silence-gen failed, falling back to no gap")
+                gap_sec = 0.0
+
         list_path = os.path.join(tmp, "list.txt")
         with open(list_path, "w") as f:
             for i, p in enumerate(turn_paths):
                 f.write(f"file '{p}'\n")
-                if i != len(turn_paths) - 1:  # no trailing silence
-                    for _ in range(gap_repeats):
-                        f.write(f"file '{silence_path}'\n")
+                if gap_sec > 0 and i != len(turn_paths) - 1:
+                    f.write(f"file '{silence_path}'\n")
 
         out_path = os.path.join(tmp, "out.mp3")
         cmd = [
@@ -1288,15 +1302,40 @@ async def generate_trade_talk_script(req: GenerateTradeTalkReq, current_user: di
         f"dialogue plays in our 4 showrooms; builders eavesdrop and learn.\n\n"
         f"CHARACTERS:\n"
         f"  HOST = {req.host_name} — Tile Station expert. Calm, technical, experienced. "
-        "Mid-40s UK English. Uses precise terminology but explains it.\n"
-        f"  GUEST = {req.guest_name} — a working builder calling in. Friendly, asks the "
-        "questions a real builder would. Sounds like he's on a job site.\n\n"
+        "Mid-40s UK English. Uses precise terminology but explains it. Has a warm, dry "
+        "sense of humour. Occasionally chuckles at a daft mistake before explaining the "
+        "fix.\n"
+        f"  GUEST = {req.guest_name} — a working builder calling in from a job site. "
+        "Friendly, asks the questions a real builder would. Slightly hesitant — pauses, "
+        "trails off, says 'right' and 'yeah' a lot. Sounds like he's wiping his hands "
+        "on his jeans while talking.\n\n"
+        "CRITICAL — SOUND LIKE TWO HUMANS, NOT TWO ROBOTS:\n"
+        "• Use natural speech disfluencies: 'erm', 'right', 'so', 'I mean', 'yeah, "
+        "yeah', 'mmm', 'fair point', 'ah, gotcha', 'no — well', 'sort of', 'kind of'. "
+        "Sprinkle these naturally — too many makes it cartoonish, none makes it robotic.\n"
+        "• Each turn should be 1-3 sentences MAX. Real phone-ins are short back-and-forths, "
+        "not paragraphs. Long monologues kill the conversational feel.\n"
+        "• Start GUEST turns with a reaction word that ACKNOWLEDGES what HOST just said: "
+        "'Right, yeah —', 'Ah okay —', 'Mmm, gotcha —', 'Hmm.', 'Yeah, see that's what I —'.\n"
+        "• Start HOST turns with a reaction too sometimes: 'Yeah, so —', 'Right —', "
+        "'Good question, actually —', 'Ah, classic one this —'.\n"
+        "• Use contractions ALWAYS: 'you're / it's / we've / don't / can't'. Never 'you are' "
+        "or 'it is' — that reads as formal/written.\n"
+        "• Em-dashes and trailing commas for natural pauses: 'so what you want, really — "
+        "is...'. Ellipsis when someone trails off: 'and then I... yeah'.\n"
+        "• The GUEST should occasionally interrupt himself or backtrack: 'I was using — "
+        "well, the ten kilo bag, the Mapei one'.\n"
+        "• HOST never sounds like he's reading. He's having a chat with a mate who happens "
+        "to be on the radio. Drop in light asides: 'mind you', 'between us', 'classic "
+        "mistake', 'happens all the time'.\n\n"
         "HARD RULES:\n"
         f"1. {target_turns} turns total. Roughly alternating HOST → GUEST → HOST.\n"
-        f"2. Aim for ~{target_words} total words across all turns.\n"
+        f"2. Aim for ~{target_words} total words across all turns (so each turn averages "
+        f"{target_words // target_turns} words).\n"
         "3. UK English (metres, kilos, mil, square metres).\n"
         "4. Open with HOST welcoming listeners back to 'Trade Talk on Tile Station Radio' "
-        f"and introducing {req.guest_name}'s question.\n"
+        f"and introducing {req.guest_name}'s question. Keep this intro punchy — 1-2 "
+        "sentences max, not a long preamble.\n"
         "5. Close with HOST thanking the guest + a soft sign-off (e.g. 'Trade Talk is "
         "back tomorrow').\n"
         "6. Reference specific products/brands we stock when relevant (Mapei Keraflex "
@@ -1306,8 +1345,8 @@ async def generate_trade_talk_script(req: GenerateTradeTalkReq, current_user: di
         "mention the website once).\n"
         "8. Output STRICTLY in this format, one turn per line:\n"
         "   HOST: Welcome back to Trade Talk...\n"
-        "   GUEST: Hi Mark, yeah — I've got a kitchen-diner...\n"
-        "   HOST: Right, so the key thing with...\n"
+        "   GUEST: Right, yeah — hi mate. Got a kitchen-diner, big one...\n"
+        "   HOST: Mmm, fair, fair. So the key thing with...\n"
         "9. No stage directions, no markdown, no episode title — JUST the dialogue lines."
     )
     user_msg = (
@@ -2226,17 +2265,28 @@ async def test_ad_voice(
     preview = preview.strip()
 
     client = _get_eleven_client()
-    voice_settings = VoiceSettings(
-        stability=float(ad.get("stability", 0.5)),
-        similarity_boost=float(ad.get("similarity_boost", 0.75)),
-        style=float(ad.get("style", 0.0)),
-        use_speaker_boost=True,
-    )
+    # Mirror the conversational override from the full /generate
+    # endpoint so the preview matches what we'll actually render
+    # for trade_talk segments (Feb 26, 2026).
+    if (ad.get("kind") or "ad") == "trade_talk":
+        voice_settings = VoiceSettings(
+            stability=0.30, similarity_boost=0.85, style=0.55,
+            use_speaker_boost=True,
+        )
+        preview_model_id = "eleven_flash_v2_5"
+    else:
+        voice_settings = VoiceSettings(
+            stability=float(ad.get("stability", 0.5)),
+            similarity_boost=float(ad.get("similarity_boost", 0.75)),
+            style=float(ad.get("style", 0.0)),
+            use_speaker_boost=True,
+        )
+        preview_model_id = ad.get("model_id") or "eleven_multilingual_v2"
     try:
         audio_iter = client.text_to_speech.convert(
             text=preview,
             voice_id=preview_voice_id,
-            model_id=ad.get("model_id") or "eleven_multilingual_v2",
+            model_id=preview_model_id,
             voice_settings=voice_settings,
             output_format="mp3_44100_128",
         )
@@ -2289,15 +2339,32 @@ async def generate_ad_audio(
         raise HTTPException(status_code=404, detail="Ad not found")
 
     client = _get_eleven_client()
-    voice_settings = VoiceSettings(
-        stability=float(ad.get("stability", 0.5)),
-        similarity_boost=float(ad.get("similarity_boost", 0.75)),
-        style=float(ad.get("style", 0.0)),
-        use_speaker_boost=True,
-    )
-    model_id = ad.get("model_id") or "eleven_multilingual_v2"
-
+    # Default voice settings come from the ad doc; Trade Talk OVERRIDES
+    # to conversational defaults (lower stability + higher style) since
+    # 0.5/0.0 produces monotone "broadcaster reading a press release"
+    # delivery — fine for ads, awful for two-person dialogue.
+    # See _trade_talk_voice_settings() rationale (Feb 26, 2026 fix).
     kind = ad.get("kind") or "ad"
+    if kind == "trade_talk":
+        # Lower stability = wider emotional range; higher style = more
+        # vocal expressiveness / personality. Use Eleven's flash v2.5
+        # model — significantly more natural turn-of-phrase + emphasis
+        # than multilingual_v2 for English dialogue.
+        voice_settings = VoiceSettings(
+            stability=float(ad.get("stability", 0.30)) if ad.get("_voice_overrides_locked") else 0.30,
+            similarity_boost=float(ad.get("similarity_boost", 0.85)),
+            style=0.55,
+            use_speaker_boost=True,
+        )
+        model_id = "eleven_flash_v2_5"
+    else:
+        voice_settings = VoiceSettings(
+            stability=float(ad.get("stability", 0.5)),
+            similarity_boost=float(ad.get("similarity_boost", 0.75)),
+            style=float(ad.get("style", 0.0)),
+            use_speaker_boost=True,
+        )
+        model_id = ad.get("model_id") or "eleven_multilingual_v2"
     # Trade Talk = N TTS calls (one per turn, alternating voices) +
     # ffmpeg concat with 1s silence between turns. Q&A + plain Ad =
     # single TTS call. We accumulate `normalised_text` as the
@@ -2318,16 +2385,27 @@ async def generate_ad_audio(
                 text = (turn.get("text") or "").strip()
                 if not text:
                     continue
-                speaker_voice = host_voice if turn.get("speaker") == "host" else guest_voice
+                is_host = turn.get("speaker") == "host"
+                speaker_voice = host_voice if is_host else guest_voice
                 turn_text = _normalize_for_tts(
                     _apply_pronunciation_hints(text, ad.get("pronunciation_hints")),
                 )
                 normalised_text += turn_text + "\n"
+                # Slight per-character voice-settings differentiation —
+                # GUEST gets a touch more style + slightly lower stability
+                # so they sound like a builder on a site, not a co-host
+                # reading from the same script. (Feb 26, 2026.)
+                turn_settings = VoiceSettings(
+                    stability=0.30 if is_host else 0.26,
+                    similarity_boost=0.85,
+                    style=0.55 if is_host else 0.65,
+                    use_speaker_boost=True,
+                )
                 audio_iter = client.text_to_speech.convert(
                     text=turn_text,
                     voice_id=speaker_voice,
                     model_id=model_id,
-                    voice_settings=voice_settings,
+                    voice_settings=turn_settings,
                     output_format="mp3_44100_128",
                 )
                 bytes_for_turn = b"".join(chunk for chunk in audio_iter if chunk)
@@ -2336,7 +2414,7 @@ async def generate_ad_audio(
                 turn_audio.append(bytes_for_turn)
             if not turn_audio:
                 raise HTTPException(status_code=400, detail="All turns are empty")
-            audio_data = _concat_audio_turns(turn_audio, gap_seconds=1.0)
+            audio_data = _concat_audio_turns(turn_audio, gap_seconds=0.4)
         else:
             # ad or qa — single voice. For Q&A `_build_script_from_kind`
             # composes "Today's question — ..., {answer}".
