@@ -9,6 +9,27 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Jun 3, 2026 — Forked session] 🔇 PROD HOT-FIX: Public /radio silent in production (cross-origin Web Audio)
+
+**User report (with screenshot of /radio at tilestation.co.uk)**: *"I can't hear anything"* — Trade Talk title rendered correctly, progress bar advancing (66s elapsed), Live Volume Meter pegged at **−∞ / Silent**. Same playlist plays fine in admin Radio Studio (in preview env). Production-only bug on the public radio page.
+
+**Root cause** (traced via git log + diff of `LiveVolumeMeter.jsx`):
+- Commit `4fb3a88` (Jun 2 19:48 UTC) shipped the meter using `ctx.createMediaElementSource(audioEl)` and connected source → analyser → `ctx.destination`. This works for **same-origin** audio (preview env: page + audio both on `feature-verification-7.preview.emergentagent.com`).
+- In **production**, the page is on `tilestation.co.uk` while audio is fetched from the Railway backend (different origin). `createMediaElementSource` on a cross-origin audio element WITHOUT `crossOrigin="anonymous"` silences the audio entirely as a browser security feature — the element's `currentTime` keeps advancing (so the progress bar moves) but no samples reach the output. NET: complete silence in production, perfect playback in preview.
+- Commit `e01e171` (Jun 2 23:16 UTC) had already rewritten the meter to use `audio.captureStream()` (parallel observation, doesn't touch playback) — but that rewrite hadn't been deployed to production yet when the user reported the bug.
+
+**Fix shipped this commit** (`/app/frontend/src/pages/public/PublicRadioPage.jsx`):
+- Added `crossOrigin="anonymous"` attribute to both `<audio ref={audioRefA}>` and `<audio ref={audioRefB}>` elements. This:
+  1. Ensures the rewritten `captureStream()`-based meter receives populated MediaStream tracks in production (otherwise the meter would still show `−∞` even with the rewrite, because cross-origin captureStream returns empty tracks without the anonymous flag)
+  2. Is a defensive measure against any future Web Audio integration on the public radio page
+- Backend CORS already returns `Access-Control-Allow-Origin: *` (verified via curl with `Origin: https://tilestation.co.uk`), so the anonymous request succeeds with no other server-side changes needed.
+
+**Action required from user**: push to GitHub via Emergent's "Save to Github" button — Railway will auto-deploy. Once live, audio plays through speakers AND the meter shows real dB readings in production.
+
+**Files**: `/app/frontend/src/pages/public/PublicRadioPage.jsx` — added `crossOrigin="anonymous"` to both audio elements with explanatory comment.
+
+
+
 ### [Feb 26, 2026 — Forked session] 📻 AI-suggested expressiveness + Convert Q&A ↔ Trade Talk
 
 **User intent (two asks)**: *"AI-suggested expressiveness when a Trade Talk is auto-generated — Claude returns a recommended slider position based on the topic. DO THAT. Also, how do I convert Q&A into Trade Talk topic or vice versa."*

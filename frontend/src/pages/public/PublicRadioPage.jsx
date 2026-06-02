@@ -610,8 +610,17 @@ export default function PublicRadioPage() {
       </div>
 
       <div className="px-6 pb-8 flex flex-col items-center gap-3">
-        <audio ref={audioRefA} preload="none" data-testid="public-radio-audio" />
-        <audio ref={audioRefB} preload="none" data-testid="public-radio-audio-b" />
+        {/* crossOrigin="anonymous" required so the LiveVolumeMeter's
+            audio.captureStream() returns a populated MediaStream when
+            the audio is loaded from a different origin (production:
+            page is on tilestation.co.uk, audio from Railway backend).
+            Without it, captureStream returns empty tracks → meter
+            shows −∞ dB even though audio plays normally. Backend's
+            /stream/ad and /stream/music endpoints already return
+            Access-Control-Allow-Origin: * so the anonymous request
+            succeeds. (3 Jun 2026.) */}
+        <audio ref={audioRefA} preload="none" crossOrigin="anonymous" data-testid="public-radio-audio" />
+        <audio ref={audioRefB} preload="none" crossOrigin="anonymous" data-testid="public-radio-audio-b" />
         {!tunedIn ? (
           <button
             type="button"
