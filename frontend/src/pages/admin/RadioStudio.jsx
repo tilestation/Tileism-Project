@@ -261,6 +261,10 @@ function AdsTab({ voices, voicesLoading, onResyncVoices, ads, music, onAdsChange
     guest_voice_id: '',
     guest_voice_name: '',
     turns: [],
+    // Trade Talk expressiveness slider (1 Jun 2026). 0=Stiff,
+    // 0.5=Natural (default), 1=Animated. Drives stability + style
+    // for every TTS call on this episode.
+    expressiveness: 0.5,
     stability: 0.5,
     similarity_boost: 0.75,
     style: 0,
@@ -324,6 +328,7 @@ function AdsTab({ voices, voicesLoading, onResyncVoices, ads, music, onAdsChange
       guest_voice_id: '',
       guest_voice_name: '',
       turns: [],
+      expressiveness: 0.5,
       stability: 0.5,
       similarity_boost: 0.75,
       style: 0,
@@ -349,6 +354,7 @@ function AdsTab({ voices, voicesLoading, onResyncVoices, ads, music, onAdsChange
       guest_voice_id: ad.guest_voice_id || '',
       guest_voice_name: ad.guest_voice_name || '',
       turns: Array.isArray(ad.turns) ? ad.turns.map((t) => ({ ...t })) : [],
+      expressiveness: typeof ad.expressiveness === 'number' ? ad.expressiveness : 0.5,
       stability: ad.stability ?? 0.5,
       similarity_boost: ad.similarity_boost ?? 0.75,
       style: ad.style ?? 0,
@@ -1688,6 +1694,87 @@ function TradeTalkFields({ form, setForm, voices, voicesLoading, onResyncVoices,
           colour="fuchsia"
         />
       </div>
+
+      {/* ──────────────────────────────────────────────────────────
+          Expressiveness slider (1 Jun 2026)
+          One dial that maps to both stability + style on the
+          ElevenLabs side. 0=Stiff (broadcaster), 0.5=Natural,
+          1=Animated (full of inflection). Backend
+          `_voice_settings_for_expressiveness` does the maths.
+       ────────────────────────────────────────────────────────── */}
+      {(() => {
+        const e = typeof form.expressiveness === 'number' ? form.expressiveness : 0.5;
+        // Mirror the backend curve so the UI shows the actual values
+        // we'll send to ElevenLabs — keeps the slider honest.
+        const eClamp = Math.max(0, Math.min(1, e));
+        let stability;
+        let style;
+        if (eClamp <= 0.5) {
+          const t = eClamp * 2;
+          stability = 0.55 + t * (0.30 - 0.55);
+          style = 0.10 + t * (0.55 - 0.10);
+        } else {
+          const t = (eClamp - 0.5) * 2;
+          stability = 0.30 + t * (0.15 - 0.30);
+          style = 0.55 + t * (0.80 - 0.55);
+        }
+        const labels = ['Stiff', 'Natural', 'Animated'];
+        const labelIdx = eClamp <= 0.33 ? 0 : eClamp >= 0.67 ? 2 : 1;
+        const accent = labelIdx === 0 ? 'text-slate-400' : labelIdx === 1 ? 'text-emerald-300' : 'text-amber-300';
+        return (
+          <div className="bg-slate-900/40 rounded-lg px-3 py-3 border border-slate-700/40" data-testid="trade-talk-expressiveness">
+            <div className="flex items-center justify-between mb-2">
+              <label className="text-xs font-bold text-slate-300 flex items-center gap-2">
+                <Sparkles className="w-3.5 h-3.5 text-fuchsia-400" />
+                Expressiveness
+                <span className="text-[10px] font-normal text-slate-500">
+                  — controls how energetic each turn sounds
+                </span>
+              </label>
+              <span className={`text-xs font-bold ${accent}`} data-testid="trade-talk-expressiveness-label">
+                {labels[labelIdx]}
+              </span>
+            </div>
+            {/* Three named-stop labels above the slider so the user
+                knows what each end + the middle mean without hovering. */}
+            <div className="flex justify-between text-[10px] text-slate-500 mb-1">
+              <span>← Stiff</span>
+              <span>Natural</span>
+              <span>Animated →</span>
+            </div>
+            <input
+              type="range"
+              min="0"
+              max="1"
+              step="0.05"
+              value={eClamp}
+              onChange={(ev) => setForm({ ...form, expressiveness: parseFloat(ev.target.value) })}
+              className="w-full accent-fuchsia-500 cursor-pointer"
+              data-testid="trade-talk-expressiveness-slider"
+              aria-label="Trade Talk expressiveness"
+            />
+            <div className="flex items-center justify-between text-[10px] mt-1.5">
+              <span className="text-slate-500">
+                Stability <span className="font-mono text-slate-300">{stability.toFixed(2)}</span>
+                <span className="text-slate-600 mx-1">·</span>
+                Style <span className="font-mono text-slate-300">{style.toFixed(2)}</span>
+              </span>
+              <button
+                type="button"
+                onClick={() => setForm({ ...form, expressiveness: 0.5 })}
+                className="text-fuchsia-400 hover:text-fuchsia-300 underline-offset-2 hover:underline"
+                data-testid="trade-talk-expressiveness-reset"
+              >
+                Reset to Natural
+              </button>
+            </div>
+            <p className="text-[10px] text-slate-500 mt-1.5 leading-snug">
+              Drag right for more energy + inflection (use sparingly — too animated reads as theatrical).
+              Drag left for calm, measured delivery (long technical explanations).
+            </p>
+          </div>
+        );
+      })()}
 
       <div>
         <label className="flex items-center justify-between text-xs uppercase tracking-wider text-slate-400 font-bold mb-2">

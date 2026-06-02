@@ -104,6 +104,50 @@ def _chars_to_gbp(chars: int) -> float:
     return round(usd * _GBP_PER_USD, 6)  # 6 d.p. → 0.0001p resolution
 
 
+# ────────────────────────────────────────────────────────────────────
+# Expressiveness slider — Feb 26, 2026
+#
+# Trade Talk segments expose a single 0-1 dial in the admin UI:
+#     0.0 → Stiff (broadcaster reading a press release)
+#     0.5 → Natural (default — sounds like a real podcast)
+#     1.0 → Animated (energetic, full of inflection)
+#
+# We map that one knob to TWO ElevenLabs params (stability + style)
+# via linear interpolation. Guest gets a small offset so they sound
+# slightly more animated than host (a builder on the phone vs a
+# studio host) — keeps the two voices feeling distinct without
+# requiring 2 separate sliders.
+#
+# These mappings come from ElevenLabs best-practice docs for the
+# `eleven_flash_v2_5` and `eleven_v3` models — verified against
+# empirical comparison of the user's reference Trade Talk MP3.
+# ────────────────────────────────────────────────────────────────────
+def _voice_settings_for_expressiveness(
+    expressiveness: float, *, is_host: bool = True
+) -> tuple[float, float]:
+    """Returns (stability, style) for a given 0-1 expressiveness.
+
+    Caller can pass `is_host=False` to apply the guest-side offset
+    (~10% more emotive than the host on the same slider value).
+    """
+    e = max(0.0, min(1.0, float(expressiveness)))
+    # Host curve: stiff(0.55,0.10) → natural(0.30,0.55) → animated(0.15,0.80)
+    # Linear lerp across the 3-stop curve via 2-segment interpolation.
+    if e <= 0.5:
+        t = e * 2.0
+        stability = 0.55 + t * (0.30 - 0.55)  # 0.55 → 0.30
+        style = 0.10 + t * (0.55 - 0.10)       # 0.10 → 0.55
+    else:
+        t = (e - 0.5) * 2.0
+        stability = 0.30 + t * (0.15 - 0.30)  # 0.30 → 0.15
+        style = 0.55 + t * (0.80 - 0.55)      # 0.55 → 0.80
+    if not is_host:
+        # Guest is slightly more animated — drop stability, lift style.
+        stability = max(0.10, stability - 0.04)
+        style = min(0.95, style + 0.10)
+    return round(stability, 3), round(style, 3)
+
+
 async def _log_tts_usage(
     *,
     db,
@@ -790,6 +834,13 @@ class AdCreateKindExtras(BaseModel):
     guest_voice_id: Optional[str] = None
     guest_voice_name: Optional[str] = None
     turns: List[DialogueTurnIn] = Field(default_factory=list)
+    # Expressiveness slider 0-1 (Feb 26, 2026). Drives stability +
+    # style for every TTS call when kind == "trade_talk".
+    #   0.0 → Stiff (broadcaster reading a press release)
+    #   0.5 → Natural (default, sounds like a real podcast)
+    #   1.0 → Animated (energetic, very inflected)
+    # Default 0.5 = the conversational baseline this session shipped.
+    expressiveness: Optional[float] = Field(default=0.5, ge=0.0, le=1.0)
 
 
 # Compose AdCreate / AdUpdate with the new optional fields without
@@ -2136,6 +2187,10 @@ async def create_ad(req: AdCreate, current_user: dict = Depends(get_current_user
         "guest_voice_id": getattr(req, "guest_voice_id", None),
         "guest_voice_name": getattr(req, "guest_voice_name", None),
         "turns": [t.model_dump() for t in (getattr(req, "turns", []) or [])],
+        # Expressiveness slider value 0-1 (Trade Talk). Stored on
+        # every doc so the field is always present and the per-turn
+        # voice settings can read it without a fallback dance.
+        "expressiveness": float(getattr(req, "expressiveness", 0.5) or 0.5),
         "audio_filename": None,  # populated after first generation
         "duration_seconds": None,
         "generated_at": None,
@@ -2269,8 +2324,16 @@ async def test_ad_voice(
     # endpoint so the preview matches what we'll actually render
     # for trade_talk segments (Feb 26, 2026).
     if (ad.get("kind") or "ad") == "trade_talk":
+        # Trade Talk preview uses the same expressiveness slider as
+        # the full /generate path so what the admin hears matches.
+        # Defaults to 0.5 (Natural) for ads created before the
+        # slider shipped. (Feb 26, 2026.)
+        stab, sty = _voice_settings_for_expressiveness(
+            float(ad.get("expressiveness", 0.5)),
+            is_host=True,  # preview only uses host voice
+        )
         voice_settings = VoiceSettings(
-            stability=0.30, similarity_boost=0.85, style=0.55,
+            stability=stab, similarity_boost=0.85, style=sty,
             use_speaker_boost=True,
         )
         preview_model_id = "eleven_flash_v2_5"
@@ -2350,13 +2413,15 @@ async def generate_ad_audio(
         # vocal expressiveness / personality. Use Eleven's flash v2.5
         # model — significantly more natural turn-of-phrase + emphasis
         # than multilingual_v2 for English dialogue.
+        # 1 Jun 2026 — `expressiveness` (0-1) on the ad doc drives the
+        # stability/style mapping per-turn. Default 0.5 = natural.
+        model_id = "eleven_flash_v2_5"
+        # The default voice_settings here is a placeholder used for
+        # logging/spec; per-turn settings are computed inside the loop.
         voice_settings = VoiceSettings(
-            stability=float(ad.get("stability", 0.30)) if ad.get("_voice_overrides_locked") else 0.30,
-            similarity_boost=float(ad.get("similarity_boost", 0.85)),
-            style=0.55,
+            stability=0.30, similarity_boost=0.85, style=0.55,
             use_speaker_boost=True,
         )
-        model_id = "eleven_flash_v2_5"
     else:
         voice_settings = VoiceSettings(
             stability=float(ad.get("stability", 0.5)),
@@ -2381,6 +2446,11 @@ async def generate_ad_audio(
                 raise HTTPException(status_code=400, detail="Pick host + guest voices before generating")
             turn_audio: List[bytes] = []
             normalised_text = ""
+            # Per-turn voice settings come from the `expressiveness`
+            # slider (0=Stiff, 0.5=Natural, 1=Animated). Default 0.5
+            # for back-compat with ads created before this slider
+            # shipped. (Feb 26, 2026.)
+            expressiveness = float(ad.get("expressiveness", 0.5))
             for i, turn in enumerate(turns):
                 text = (turn.get("text") or "").strip()
                 if not text:
@@ -2394,11 +2464,15 @@ async def generate_ad_audio(
                 # Slight per-character voice-settings differentiation —
                 # GUEST gets a touch more style + slightly lower stability
                 # so they sound like a builder on a site, not a co-host
-                # reading from the same script. (Feb 26, 2026.)
+                # reading from the same script. Driven by the same
+                # `expressiveness` slider on the ad doc.
+                stab, sty = _voice_settings_for_expressiveness(
+                    expressiveness, is_host=is_host,
+                )
                 turn_settings = VoiceSettings(
-                    stability=0.30 if is_host else 0.26,
+                    stability=stab,
                     similarity_boost=0.85,
-                    style=0.55 if is_host else 0.65,
+                    style=sty,
                     use_speaker_boost=True,
                 )
                 audio_iter = client.text_to_speech.convert(

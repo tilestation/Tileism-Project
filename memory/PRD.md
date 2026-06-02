@@ -9,6 +9,53 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Feb 26, 2026 — Forked session] 📻 Trade Talk: Expressiveness slider (per-episode energy control)
+
+**User intent**: *"An expressiveness slider (Stiff ← → Natural ← → Animated) on the Trade Talk edit form so you can dial the energy per-episode without me hard-coding it in the backend. YES"*
+
+**Why this and not the A/B**: One persistent dial > one-shot comparison. Different topics need different energy (a long technical "why your screed cracked" needs `Stiff` / `Natural`; a Friday-afternoon "best deals this weekend" episode wants `Animated`). Now you tune it per-episode.
+
+**Backend** (`/app/backend/routes/radio_studio.py`):
+- New helper `_voice_settings_for_expressiveness(expressiveness, is_host=...)` → `(stability, style)`. Linear interpolation across a 3-stop curve:
+  - **`0.0` Stiff** → `stability=0.55, style=0.10` (press-release flat)
+  - **`0.5` Natural** → `stability=0.30, style=0.55` (matches the conversational shift this session shipped, so existing ads keep their tone)
+  - **`1.0` Animated** → `stability=0.15, style=0.80` (energetic, full of inflection)
+- **Guest gets a small offset** (~10% more emotive than host on the same slider position): `stability -= 0.04`, `style += 0.10`, clamped to `[0, 1]` — keeps the builder feeling distinct from the host without requiring two separate sliders.
+- **Clamps invalid inputs**: `e = max(0, min(1, e))` so a bad value can't crash the synthesis loop.
+- `expressiveness: Optional[float] = Field(default=0.5, ge=0.0, le=1.0)` added to the Trade Talk extras Pydantic model — persisted on every ad doc.
+- Every per-turn TTS call inside `generate_ad_audio` now reads `ad.expressiveness` (default 0.5 for back-compat) and computes per-turn settings via the helper. Test-voice preview endpoint mirrored.
+
+**Frontend** (`/app/frontend/src/pages/admin/RadioStudio.jsx`):
+- New form field `expressiveness: 0.5` on the empty form + restored from `ad.expressiveness` in `startEdit`.
+- New **slider widget** in `TradeTalkFields`, sitting between the voice pickers and the dialogue list:
+  - 3-stop named scale above the bar: `← Stiff | Natural | Animated →`
+  - Range input (`min=0 max=1 step=0.05`) with fuchsia accent
+  - Live label on the right that flips between `Stiff / Natural / Animated` based on tertile (`≤0.33 / mid / ≥0.67`) with matching colour (slate / emerald / amber)
+  - **Live readout** below the bar: `Stability 0.30 · Style 0.55` — keeps the slider honest by showing the actual values we'll send to ElevenLabs
+  - `Reset to Natural` link in fuchsia for one-click revert
+  - Helper copy: *"Drag right for more energy + inflection (use sparingly — too animated reads as theatrical). Drag left for calm, measured delivery (long technical explanations)."*
+- All `data-testid`s present (`trade-talk-expressiveness`, `trade-talk-expressiveness-slider`, `trade-talk-expressiveness-label`, `trade-talk-expressiveness-reset`).
+
+**Tests** (`tests/test_radio_studio_expressiveness_slider.py` — 7 new):
+- `0.5` default produces exactly `(0.30, 0.55)` — back-compat with the conversational shift.
+- `0.0` produces stiff settings (`stab ≥ 0.50, style ≤ 0.15`).
+- `1.0` produces animated settings (`stab ≤ 0.20, style ≥ 0.75`).
+- Guest stability < host stability AND guest style > host style at every slider position.
+- Curve is monotonic — sliding from Stiff → Animated only DROPs stability + LIFTs style, no surprises.
+- Out-of-range input (`-0.5`, `2.0`) clamps cleanly to `0.0` / `1.0` without crashing.
+- Guest settings always stay inside `[0, 1]` even at the curve extremes.
+
+**Verified live** in preview:
+- Trade Talk edit form renders the slider with all 3 stops + label "Natural" + readouts "Stability 0.30 · Style 0.55" at the default center.
+- React state hookup confirmed (label re-renders on slider change in the JSX).
+
+**Files**:
+- `/app/backend/routes/radio_studio.py` — `_voice_settings_for_expressiveness`, AdCreateKindExtras field, per-turn read in `generate_ad_audio`, test-voice mirror, Mongo write.
+- `/app/frontend/src/pages/admin/RadioStudio.jsx` — form default, startEdit restore, slider widget in `TradeTalkFields`.
+- `/app/backend/tests/test_radio_studio_expressiveness_slider.py` (NEW — 7 tests).
+
+
+
 ### [Feb 26, 2026 — Forked session] 📻 Trade Talk now sounds like 2 humans, not 2 computers
 
 **User complaint (with MP3 attached)**: *"Can you listen to this trade talk dialogues conversation, it's not very sounding like 2 human talking rather than 2 computers talking. They need to sound much more natural and energetic."*
