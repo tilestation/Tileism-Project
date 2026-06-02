@@ -483,7 +483,9 @@ export default function PublicRadioPage() {
             <>
               <span className="font-semibold text-emerald-200">Continuous radio (synced).</span>{' '}
               All 4 showrooms hear the same track at the same second.
-              You join wherever the playlist loop currently is — like turning on FM radio mid-show, not at the start.
+              Loop restarts from track #1 each time you click Save Playlist;
+              after that, new tune-ins join wherever the loop currently is —
+              like turning on FM radio mid-show.
             </>
           )}
         </div>

@@ -3338,24 +3338,31 @@ async def save_playlist(
         "created_at": (existing or {}).get("created_at") or now,
         "updated_at": now,
     }
-    # When repeat=False, anchor the "playlist clock" to the moment
-    # the admin saved this revision so live_now_playing can compute
-    # elapsed against a stable origin. We reset the anchor any time
-    # the items list or the repeat flag changes (i.e. any meaningful
-    # save) so a re-save restarts the countdown.
+    # Anchor the "playlist clock" to the moment the admin saved this
+    # revision so the loop restarts from track #1 right after Save —
+    # not at some arbitrary point determined by unix-epoch-modulo
+    # (the legacy behaviour that surfaced the "Why is the last track
+    # playing first?" confusion on 3 Jun 2026).
+    #
+    # Multi-store sync is preserved: every store computes
+    # `(now - started_at_epoch) % total`, all referencing the SAME
+    # epoch stored here in Mongo, so they all land on the same item
+    # at the same wall-clock second.
+    #
+    # We reset the anchor any time the items list or the repeat flag
+    # changes (i.e. any meaningful save). A no-op save preserves the
+    # existing anchor so a fix-typo edit doesn't yank the listener
+    # back to track #1 mid-broadcast.
+    import time as _t
     prev_items = (existing or {}).get("items") or []
     items_changed = (
         [it.model_dump() for it in req.items] != prev_items
         or bool((existing or {}).get("repeat", True)) != bool(req.repeat)
     )
-    if not req.repeat and items_changed:
-        import time as _t
+    if items_changed:
         doc["started_at_epoch"] = _t.time()
-    elif req.repeat:
-        # Don't leak a stale anchor when toggling back to repeat.
-        doc["started_at_epoch"] = None
     else:
-        doc["started_at_epoch"] = (existing or {}).get("started_at_epoch")
+        doc["started_at_epoch"] = (existing or {}).get("started_at_epoch") or _t.time()
     await db.radio_studio_playlists.update_one(
         {"id": doc["id"]},
         {"$set": doc},
@@ -3968,7 +3975,22 @@ async def live_now_playing():
             }
         offset = elapsed
     else:
-        offset = time.time() % total
+        # Repeat=True: loop the playlist forever. Anchor to the
+        # `started_at_epoch` set on save so the loop restarts from
+        # track #1 at the moment of save (not at unix epoch, which
+        # used to drop new listeners at a random point in the loop
+        # — the "why is the LAST track playing first?" report on
+        # 3 Jun 2026). All 4 stores compute the same offset from
+        # the same epoch in Mongo → multi-store sync preserved.
+        anchor = float(playlist.get("started_at_epoch") or 0)
+        if anchor <= 0:
+            # Legacy playlist saved before this anchor existed —
+            # fall back to the old unix-epoch behaviour so existing
+            # broadcasts don't lurch mid-loop. The next Save will
+            # populate the anchor and the loop will restart cleanly.
+            offset = time.time() % total
+        else:
+            offset = max(0.0, time.time() - anchor) % total
     idx, item_offset = _locate(offset, durations)
     cur = resolved[idx]
     nxt_idx = (idx + 1) % len(resolved)

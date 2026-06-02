@@ -9,6 +9,38 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Jun 3, 2026 — Forked session] 📻 Playlist now restarts from track #1 on every Save
+
+**User report (with screenshots of public /radio + admin playlist)**: *"Why don't it play in sequence I have saved the playlist in, the track is at the bottom of playlist but it plays first. Complete playlist need to play in a sequence which I save"* — saved 8-item playlist with "Would It Matter - Rose Campbell" as item #8, but on tune-in the public radio started playing item #8 first with items #1-#3 in the Up Next list.
+
+**Root cause** (`/app/backend/routes/radio_studio.py`):
+- `save_playlist` set `started_at_epoch = None` whenever `repeat=True`.
+- `live_now_playing` for repeat=True then fell back to `offset = time.time() % total` — anchoring the loop to **unix epoch (1970)**, which meant the "current item" at any wall-clock moment was effectively random with respect to when the admin saved the playlist.
+- User happened to tune in when `time.time() % total` landed near the end of the loop → heard the last item first.
+
+**Fix shipped**:
+- `save_playlist` now ALWAYS sets `started_at_epoch = time.time()` when items or the repeat flag materially change (regardless of `repeat` value). No-op saves preserve the existing anchor so a fix-typo edit doesn't yank tuned-in listeners back to track #1 mid-broadcast.
+- `live_now_playing` for repeat=True computes `offset = (time.time() - started_at_epoch) % total`. Right after Save the offset is ~0s → track #1 plays first. Multi-store sync is preserved because all 4 stores reference the same anchor stored in Mongo, all computing the same offset at the same wall-clock second.
+- Legacy playlists saved before this anchor existed (where `started_at_epoch` is None/0) keep the old modulo-epoch behaviour so existing broadcasts don't lurch mid-loop on first deploy. The next Save will populate the anchor and the loop restarts cleanly from #1.
+
+**Updated explainer banner** (`/app/frontend/src/pages/public/PublicRadioPage.jsx`): *"Continuous radio (synced). All 4 showrooms hear the same track at the same second. Loop restarts from track #1 each time you click Save Playlist; after that, new tune-ins join wherever the loop currently is — like turning on FM radio mid-show."*
+
+**Tests** (`tests/test_radio_playlist_anchor_on_save.py` — 5 new, all pass):
+1. Fresh repeat=True save sets `started_at_epoch` (was None pre-fix).
+2. Re-saving identical playlist preserves the anchor (no mid-broadcast jolt).
+3. Changing the items list resets the anchor to "now".
+4. `live_now_playing` with anchor set 0.1s ago returns `current_index=0` + `loop_offset<5s` (track #1).
+5. Legacy playlist with no anchor still uses `time.time() % total` (no regression for existing broadcasts).
+
+**Test suite**: 256/256 radio-studio tests pass (5 new + all existing — zero regressions).
+
+**Files**:
+- `/app/backend/routes/radio_studio.py` — `save_playlist` always sets the anchor; `live_now_playing` reads it for repeat=True.
+- `/app/frontend/src/pages/public/PublicRadioPage.jsx` — explainer banner copy.
+- `/app/backend/tests/test_radio_playlist_anchor_on_save.py` (NEW — 5 tests).
+
+
+
 ### [Jun 3, 2026 — Forked session] 🔇 PROD HOT-FIX: Public /radio silent in production (cross-origin Web Audio)
 
 **User report (with screenshot of /radio at tilestation.co.uk)**: *"I can't hear anything"* — Trade Talk title rendered correctly, progress bar advancing (66s elapsed), Live Volume Meter pegged at **−∞ / Silent**. Same playlist plays fine in admin Radio Studio (in preview env). Production-only bug on the public radio page.
