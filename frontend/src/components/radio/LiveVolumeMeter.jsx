@@ -1,18 +1,24 @@
 /**
  * Live Volume Meter — shows real-time loudness of whatever's playing on
  * /radio so showroom staff can spot mis-normalised tracks before customers
- * notice. Reads ALL active <audio> elements via Web Audio's AnalyserNode,
- * computes RMS dBFS, and renders a green/amber/red horizontal bar with a
- * numeric dB readout plus the −16 LUFS broadcast-target line.
+ * notice. Reads via `audio.captureStream()` → MediaStreamSource → Analyser
+ * (a "parallel observation" path that does NOT touch the audio element's
+ * default output, so playback works exactly as before — the meter is purely
+ * additive).
  *
  * Built 2 Jun 2026.
+ * Rewritten 3 Jun 2026 — original used `createMediaElementSource` which
+ *   reroutes the element's audio through the Web Audio graph. That made
+ *   the audio silent for the user when the routing failed. `captureStream()`
+ *   avoids touching the playback pipeline entirely.
  *
  *   • Multi-source: ties into BOTH crossfade audio refs (A + B) so the
  *     reading stays continuous across track transitions.
- *   • Lazy: only spins up AudioContext after the user actually tunes in
- *     (browsers require a user gesture before starting AudioContext).
+ *   • Lazy: only spins up AudioContext after the user has tuned in.
  *   • Cheap: single requestAnimationFrame loop, smoothed with EMA, no
  *     React state updates faster than ~30Hz.
+ *   • Safe: graceful no-op when captureStream() is unsupported (e.g.
+ *     some Safari versions). Hides the bar but never blocks playback.
  *
  * dBFS vs LUFS: dBFS is INSTANTANEOUS sample-peak/RMS, LUFS is gated
  * loudness over time. They're not the same number — but for spotting a
@@ -29,63 +35,87 @@ const FLOOR_DBFS = -60;  // bottom of the meter
 const LiveVolumeMeter = ({ audioRefA, audioRefB, tunedIn }) => {
   const ctxRef = useRef(null);
   const analyserRef = useRef(null);
-  const sourceARef = useRef(null);
-  const sourceBRef = useRef(null);
+  const streamSourcesRef = useRef([]); // MediaStreamAudioSourceNodes
   const rafRef = useRef(null);
   const smoothedRef = useRef(FLOOR_DBFS);
 
   const [dbReading, setDbReading] = useState(FLOOR_DBFS);
   const [active, setActive] = useState(false);
+  const [supported, setSupported] = useState(true);
 
   useEffect(() => {
     // Only spin up Web Audio once the user has tuned in (so the
     // AudioContext can start without a user-gesture violation).
     if (!tunedIn) return undefined;
 
-    const a = audioRefA.current;
-    const b = audioRefB.current;
+    const a = audioRefA?.current;
+    const b = audioRefB?.current;
     if (!a || !b) return undefined;
 
-    // Re-use the AudioContext across re-renders. createMediaElementSource
-    // can only be called ONCE per element so we keep refs around.
     let cancelled = false;
-    const ensureCtx = async () => {
+    const attach = async () => {
       try {
-        if (!ctxRef.current) {
-          const AC = window.AudioContext || window.webkitAudioContext;
-          if (!AC) return; // Older browser — silently skip the meter.
-          ctxRef.current = new AC();
-        }
+        const AC = window.AudioContext || window.webkitAudioContext;
+        if (!AC) { setSupported(false); return; }
+        // captureStream() is supported by all modern Chromium/Firefox.
+        // Safari needs 13.1+. Fall back to hidden meter if unsupported.
+        if (typeof a.captureStream !== 'function') { setSupported(false); return; }
+
+        if (!ctxRef.current) ctxRef.current = new AC();
         const ctx = ctxRef.current;
-        if (ctx.state === 'suspended') await ctx.resume();
+        if (ctx.state === 'suspended') {
+          try { await ctx.resume(); } catch (_e) { /* ignore */ }
+        }
+
         if (!analyserRef.current) {
           const an = ctx.createAnalyser();
           an.fftSize = 2048;
           an.smoothingTimeConstant = 0.3;
           analyserRef.current = an;
-          // Tap to BOTH audio elements so we keep the reading
-          // continuous through crossfades. Each audio plays via
-          // ctx.destination already (default routing), so we also
-          // connect the analyser back to destination → audio stays
-          // audible AND we get samples.
-          if (!sourceARef.current) {
-            sourceARef.current = ctx.createMediaElementSource(a);
-            sourceARef.current.connect(an);
-            sourceARef.current.connect(ctx.destination);
+        }
+
+        // Tap BOTH audio elements via captureStream so the reading
+        // stays continuous across the crossfade A→B handover. Each
+        // stream source is created ONCE per audio element + cached.
+        for (const el of [a, b]) {
+          // Have we already attached to this element?
+          if (streamSourcesRef.current.find(s => s._el === el)) continue;
+          let stream;
+          try {
+            stream = el.captureStream ? el.captureStream() : el.mozCaptureStream?.();
+          } catch (_e) {
+            stream = null;
           }
-          if (!sourceBRef.current) {
-            sourceBRef.current = ctx.createMediaElementSource(b);
-            sourceBRef.current.connect(an);
-            sourceBRef.current.connect(ctx.destination);
+          if (!stream) continue;
+          // The stream is initially empty until the element starts
+          // playing — that's fine, MediaStreamSource handles it.
+          try {
+            const node = ctx.createMediaStreamSource(stream);
+            node.connect(analyserRef.current);
+            node._el = el;
+            streamSourcesRef.current.push(node);
+          } catch (_e) {
+            // Some browsers throw if the stream has no audio track
+            // yet — retry on next play event.
+            const onPlay = () => {
+              try {
+                const s2 = el.captureStream ? el.captureStream() : el.mozCaptureStream?.();
+                if (!s2 || streamSourcesRef.current.find(s => s._el === el)) return;
+                const node2 = ctx.createMediaStreamSource(s2);
+                node2.connect(analyserRef.current);
+                node2._el = el;
+                streamSourcesRef.current.push(node2);
+                el.removeEventListener('play', onPlay);
+              } catch (_err) { /* keep trying */ }
+            };
+            el.addEventListener('play', onPlay);
           }
         }
       } catch (_e) {
-        // Some browsers (notably Safari sometimes) throw on
-        // createMediaElementSource if the element wasn't user-gestured.
-        // We swallow — the meter just won't show, audio still plays.
+        setSupported(false);
       }
     };
-    ensureCtx();
+    attach();
 
     const buf = new Uint8Array(2048);
     const tick = () => {
@@ -96,7 +126,6 @@ const LiveVolumeMeter = ({ audioRefA, audioRefB, tunedIn }) => {
         return;
       }
       an.getByteTimeDomainData(buf);
-      // RMS over the time-domain samples. 128 is silence (mid-point).
       let sumSq = 0;
       for (let i = 0; i < buf.length; i++) {
         const v = (buf[i] - 128) / 128;
@@ -104,14 +133,10 @@ const LiveVolumeMeter = ({ audioRefA, audioRefB, tunedIn }) => {
       }
       const rms = Math.sqrt(sumSq / buf.length);
       const dbInst = rms > 0.00001 ? 20 * Math.log10(rms) : FLOOR_DBFS;
-      // Exponential smoothing — fast attack, slower release so the
-      // meter behaves like a peak meter on percussive transients but
-      // doesn't flicker on noise.
       const prev = smoothedRef.current;
-      const a2 = dbInst > prev ? 0.5 : 0.12; // attack faster than release
+      const a2 = dbInst > prev ? 0.5 : 0.12;
       const smoothed = prev + a2 * (dbInst - prev);
       smoothedRef.current = smoothed;
-      // Throttle React state to ~30Hz (every other frame on 60Hz screens).
       if ((performance.now() | 0) % 2 === 0) {
         setDbReading(smoothed);
         setActive(smoothed > FLOOR_DBFS + 5);
@@ -127,14 +152,12 @@ const LiveVolumeMeter = ({ audioRefA, audioRefB, tunedIn }) => {
   }, [tunedIn, audioRefA, audioRefB]);
 
   if (!tunedIn) return null;
+  if (!supported) return null; // graceful — no meter, audio still plays
 
-  // Map dB → 0-100% bar fill.
   const clamped = Math.max(FLOOR_DBFS, Math.min(0, dbReading));
   const pct = ((clamped - FLOOR_DBFS) / (0 - FLOOR_DBFS)) * 100;
   const targetPct = ((TARGET_DBFS - FLOOR_DBFS) / (0 - FLOOR_DBFS)) * 100;
 
-  // Colour bands: green up to target, amber for +6dB above target, red beyond.
-  const dbAboveTarget = clamped - TARGET_DBFS;
   let zone = 'silent';
   if (clamped > TARGET_DBFS + 6) zone = 'hot';
   else if (clamped > TARGET_DBFS - 3) zone = 'on-target';
@@ -171,9 +194,7 @@ const LiveVolumeMeter = ({ audioRefA, audioRefB, tunedIn }) => {
           </span>
         </div>
       </div>
-      {/* Meter bar */}
       <div className="relative h-2.5 bg-slate-800/80 rounded-full overflow-hidden">
-        {/* Coloured fill */}
         <div
           className={`absolute inset-y-0 left-0 transition-[width] duration-75 ${
             zone === 'hot'
@@ -186,14 +207,12 @@ const LiveVolumeMeter = ({ audioRefA, audioRefB, tunedIn }) => {
           }`}
           style={{ width: `${pct}%` }}
         />
-        {/* Target line */}
         <div
           className="absolute inset-y-0 w-px bg-emerald-300/70"
           style={{ left: `${targetPct}%` }}
           title="Target: −16 LUFS broadcast standard"
         />
       </div>
-      {/* Scale */}
       <div className="flex justify-between text-[8px] text-slate-500 mt-1 font-mono">
         <span>−60</span>
         <span>−40</span>
