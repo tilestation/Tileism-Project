@@ -4019,6 +4019,35 @@ async def live_now_playing():
     cur_audio_url = (
         f"/api/radio-studio/stream/{'ad' if cur.get('type') == 'ad' else 'music'}/{cur.get('ref_id')}"
     )
+
+    # 3 Jun 2026 — Full ordered playlist (no audio blobs) so the
+    # client can advance items LOCALLY after natural end, rather
+    # than trusting the server's wall-clock view of "current". The
+    # wall-clock advanced at exactly the saved-duration pace; the
+    # CLIENT plays each item from offset 0 (no byte-range seek
+    # support), so when a listener joins mid-loop they lag the
+    # server's wall clock by `initial_elapsed`. Without this local
+    # list, the server's `now.next` after natural-end would point
+    # 1+ items past where the listener actually is, causing items
+    # to skip OR (when the server's "current" advanced mid-play)
+    # the audio to get cut off — the "half or less playing, jumping
+    # to next randomly" report.
+    def _audio_url_for(item) -> str:
+        kind = "ad" if item.get("type") == "ad" else "music"
+        return f"/api/radio-studio/stream/{kind}/{item.get('ref_id')}"
+
+    items_ordered = [
+        {
+            "type": r.get("type"),
+            "ref_id": r.get("ref_id"),
+            "name": r["ref"].get("name"),
+            "duration_seconds": r["duration_seconds"],
+            "audio_url": _audio_url_for(r),
+            "voice_name": r["ref"].get("voice_name") if r.get("type") == "ad" else None,
+            "bed_music_name": r["ref"].get("bed_music_name") if r.get("type") == "ad" else None,
+        }
+        for r in resolved
+    ]
     return {
         "playing": True,
         "now": {
@@ -4037,16 +4066,13 @@ async def live_now_playing():
                 "type": resolved[nxt_idx].get("type"),
                 "ref_id": resolved[nxt_idx].get("ref_id"),
                 "name": resolved[nxt_idx]["ref"].get("name"),
-                "audio_url": (
-                    f"/api/radio-studio/stream/"
-                    f"{'ad' if resolved[nxt_idx].get('type') == 'ad' else 'music'}"
-                    f"/{resolved[nxt_idx].get('ref_id')}"
-                ),
+                "audio_url": _audio_url_for(resolved[nxt_idx]),
             }
             if len(resolved) > 1 else None
         ),
         "upcoming": upcoming,
         "current_index": idx,
+        "items_ordered": items_ordered,
         "playlist": {
             "total_items": len(resolved),
             "total_seconds": round(total, 1),

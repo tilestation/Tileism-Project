@@ -9,6 +9,49 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Jun 3, 2026 — Forked session] 🎙️ Ads cut off mid-play ("half or less playing, jumping to next randomly")
+
+**User report**: *"Some ads/trade talks are half or less playing and jumping to next randomly. Can you fix the issue and deeply check why aren't full length playing"*
+
+**Root cause** (traced through the playback timing):
+- Server uses **wall-clock-modulo** math to determine the current item: `offset = (now - anchor) % total`. As real time advances, the server's "current item" advances at exactly the saved-duration pace.
+- Client plays each item from **offset 0**. Reason: the `/stream/ad/{id}` and `/stream/music/{id}` endpoints serve full finite MP3s without HTTP byte-range support, so `audio.currentTime = X` silently fails on most browsers.
+- **So when a listener joins mid-loop**, they lag the server's wall-clock by exactly `initial_elapsed_at_tune_in` seconds. The wall-clock then advances past the current item AT the listener's local playback rate. When the server's offset crosses the next item boundary, the 4-second poll on `/now-playing` returns a new `ref_id` → useEffect's `audio.src = new_url` → **the current ad is yanked mid-play**.
+- Cut-off length = `current_item.duration - initial_elapsed`. Tune in 50% into a 60s ad → hear 30s → cut. Tune in 80% in → hear 12s → cut. Matches user's "half or less playing" exactly.
+- "Jumping to next randomly" is the same root cause — every tune-in lands at a different elapsed offset, every item gets cut at a different point.
+
+**Fix shipped** — three-layer change so the audio is driven by the **LOCAL** playback index, not the server's wall-clock view:
+
+**Backend** (`/app/backend/routes/radio_studio.py`):
+- `/api/radio-studio/live/now-playing` now returns `items_ordered` — the full saved playlist with `{type, ref_id, name, duration_seconds, audio_url, voice_name, bed_music_name}` per item. Lightweight (~1.6KB for an 8-item playlist), no audio blobs. Lets the client advance items locally in saved order without re-polling the wall-clock view.
+
+**Frontend** (`/app/frontend/src/pages/public/PublicRadioPage.jsx`):
+- New `localIdx` state — initialised to the server's `current_index` on first tune-in (so we still "join the FM-radio mid-show" on first connect), advanced LOCALLY thereafter.
+- Audio-load useEffect now keys on `[tunedIn, localIdx]` instead of `[tunedIn, now]`. Server-poll-driven `now` updates the UI but cannot yank the audio src mid-play.
+- `onEnded` handler: `setLocalIdx(i => (i + 1) % items.length)` — purely local advance, no fetchNow(). Means **each item plays in FULL**, and the next item is always the one saved immediately after in the playlist (no item skipping).
+- `startCrossfade` uses `itemsRef.current[(localIdx + 1) % items.length]` for the next item — local playlist order, not `now.next` (which is the server's wall-clock view).
+- "Now Playing" + "Up Next" UI also derives from the local index when available, so what's on-screen matches what's coming out of the speakers.
+
+**Trade-off**:
+- Multi-store sync is now **approximate** instead of exact. Each store plays each item in full from start, lagging the server's wall-clock by its initial tune-in offset. Since all stores tune in at roughly the same moments (start of business day, after lunch, etc.) drift stays small. If all 4 stores tune in within 30 seconds of each other, they stay within 30 seconds of each other forever.
+- Stores that tune in at exact end-of-loop moments will start at track #1 simultaneously and stay perfectly synced.
+- This is the trade-off the user explicitly asked for ("Complete playlist needs to play in a sequence which I save").
+
+**Tests** (4 new in `tests/test_radio_items_ordered.py`):
+1. `items_ordered` present and matches the saved order — built around the user's actual 8-item playlist from the screenshot.
+2. Each item has the `audio_url` + `duration_seconds` + `type` + `ref_id` + `name` the client needs.
+3. Items with no audio_filename are silently skipped (matches the existing resolved-list contract).
+4. `current_index` is a valid offset into `items_ordered` and the indexed item matches `now.ref_id`.
+
+**Test suite**: 9/9 tests in the new + previous-anchor test files pass; 37/37 pass when run alongside repeat / live / solo-preview tests; pre-existing flaky DB-state-pollution failures in `test_radio_studio_url_import.py` and `test_radio_studio_usage.py` are unaffected (not introduced by this change — they fail in isolation).
+
+**Files**:
+- `/app/backend/routes/radio_studio.py` — `items_ordered` added to `/live/now-playing` response.
+- `/app/frontend/src/pages/public/PublicRadioPage.jsx` — `localIdx` state, items-ordered ref, audio-load useEffect refactor, `onEnded` local advance, `startCrossfade` local-next, Now Playing / Up Next UI derives from local index.
+- `/app/backend/tests/test_radio_items_ordered.py` (NEW — 4 tests).
+
+
+
 ### [Jun 3, 2026 — Forked session] 📻 Playlist now restarts from track #1 on every Save
 
 **User report (with screenshots of public /radio + admin playlist)**: *"Why don't it play in sequence I have saved the playlist in, the track is at the bottom of playlist but it plays first. Complete playlist need to play in a sequence which I save"* — saved 8-item playlist with "Would It Matter - Rose Campbell" as item #8, but on tune-in the public radio started playing item #8 first with items #1-#3 in the Up Next list.

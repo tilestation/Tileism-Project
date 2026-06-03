@@ -202,31 +202,78 @@ export default function PublicRadioPage() {
     return () => { alive = false; clearInterval(t); };
   }, [fetchNow, soloMode, soloIdx]);
 
-  // When the SERVER reports a different current item OR we just
-  // tuned in, swap the active audio element's source and play it
-  // from the start. We deliberately DON'T set `audio.currentTime`
-  // — our stream endpoint serves the full file without HTTP byte-
-  // range support, so a seek into unbuffered audio silently fails
+  // ──────────────────────────────────────────────────────────────────
+  // 3 Jun 2026 — LOCAL playlist advance.
+  //
+  // PROBLEM (user-reported): "Some ads/trade talks are half or less
+  // playing and jumping to next randomly." Root cause: the server
+  // uses wall-clock-modulo math to determine the current item, which
+  // advances at the saved-duration pace. The client plays each item
+  // from offset 0 (no HTTP byte-range support on /stream means seeks
+  // silently fail). So a listener joining mid-loop lags the server
+  // by `initial_elapsed`. When the server's clock advances past the
+  // current item, the client's polling sees a new ref_id and the
+  // useEffect below used to yank `audio.src` mid-play → the cut.
+  //
+  // FIX: maintain a LOCAL playback index. On natural end, increment
+  // it locally and play the next item from the saved playlist order.
+  // Server's `current_index` is used ONLY at tune-in to "join the
+  // wall clock" (FM-radio style). Polling continues to refresh the
+  // Up Next UI but never touches the audio source mid-play.
+  // ──────────────────────────────────────────────────────────────────
+  const [localIdx, setLocalIdx] = useState(-1);
+  // We mirror items_ordered in a ref too so the crossfade + onEnded
+  // handlers can read the current playlist without being captured at
+  // useEffect closure time.
+  const itemsRef = useRef([]);
+  if (now?.items_ordered) {
+    itemsRef.current = now.items_ordered;
+  }
+
+  // First-time tune-in: snap localIdx to the server's current_index
+  // so we "join the wall clock" — same UX as FM radio mid-show. After
+  // that, localIdx advances LOCALLY only.
+  useEffect(() => {
+    if (!tunedIn) {
+      setLocalIdx(-1);
+      return;
+    }
+    if (localIdx >= 0) return;  // already initialised
+    if (!now?.playing) return;
+    if (typeof now.current_index === 'number') {
+      setLocalIdx(now.current_index);
+    }
+  }, [tunedIn, now, localIdx]);
+
   // on most browsers and the audio never starts. (30 May 2026.)
+  //
+  // 3 Jun 2026 — Now driven by `localIdx` (local playback index)
+  // instead of `now.now`. The server's wall-clock view is used ONLY
+  // for the INITIAL position (above useEffect). Subsequent advances
+  // happen LOCALLY via `onEnded` → setLocalIdx(i + 1). This stops
+  // server-poll-driven mid-play cuts ("half or less playing" bug).
   useEffect(() => {
     if (!tunedIn) return;
-    if (!now?.playing || !now?.now?.audio_url) return;
+    if (localIdx < 0) return;
+    const items = itemsRef.current;
+    if (!items.length) return;
+    const item = items[localIdx % items.length];
+    if (!item?.audio_url) return;
     const audio = getActive();
     if (!audio) return;
-    const refKey = `${now.now.type}:${now.now.ref_id}`;
-    // If the client has already crossfaded INTO this item, the
-    // active element is already playing it — skip the resync.
+    const refKey = `${item.type}:${item.ref_id}`;
+    // Already playing this exact item — no-op.
     if (currentRefRef.current === refKey && !audio.paused) {
       return;
     }
     currentRefRef.current = refKey;
     crossfadeFiredRef.current = false;
-    audio.src = `${API_URL}${now.now.audio_url}`;
+    audio.src = `${API_URL}${item.audio_url}`;
     audio.volume = 1.0;
     audio.play().catch((e) => {
       setErr(e?.message || 'Browser blocked playback — tap Tune in again');
     });
-  }, [tunedIn, now]);
+  }, [tunedIn, localIdx]);
 
   // Drive the progress bar AND the crossfade trigger off the
   // active audio element's timeupdate. When we're within
@@ -243,7 +290,12 @@ export default function PublicRadioPage() {
       const cfSec = Number(now?.playlist?.crossfade_seconds || 0);
       if (cfSec <= 0) return;
       if (crossfadeFiredRef.current) return;
-      if (!now?.next?.audio_url) return;
+      // We need a NEXT item to crossfade into. Prefer the LOCAL
+      // playlist (saved order) over now.next (server's wall-clock
+      // view, which may have advanced past us).
+      const items = itemsRef.current;
+      const hasLocalNext = items.length > 0 && localIdx >= 0;
+      if (!hasLocalNext && !now?.next?.audio_url) return;
       const dur = a.duration || 0;
       const cur = a.currentTime || 0;
       if (dur <= 0 || cur <= 0) return;
@@ -274,17 +326,25 @@ export default function PublicRadioPage() {
   }, [tunedIn, now]);
 
   // Kick off a linear crossfade: ramp `current` from 1 → 0 and
-  // `next` from 0 → 1 over `seconds`, then swap active and fetch
-  // a fresh now-playing. Uses a 50 ms interval — 20 steps per
-  // crossfade is smoother than the human ear cares about.
+  // `next` from 0 → 1 over `seconds`, then swap active.
+  //
+  // 3 Jun 2026 — Now uses the LOCAL playlist (itemsRef) to find
+  // the next item rather than `now.next` (server's wall-clock view,
+  // which may have advanced past us mid-play). Bumps `localIdx` so
+  // the audio-load useEffect picks up the new ref on the next render.
   const startCrossfade = (seconds) => {
     const fromEl = getActive();
     const toEl = getInactive();
-    if (!fromEl || !toEl || !now?.next?.audio_url) return;
-    const nextRefKey = `${now.next.type}:${now.next.ref_id}`;
+    if (!fromEl || !toEl) return;
+    const items = itemsRef.current;
+    if (!items.length) return;
+    const nextIdxLocal = (localIdx + 1) % items.length;
+    const nextItem = items[nextIdxLocal];
+    if (!nextItem?.audio_url) return;
+    const nextRefKey = `${nextItem.type}:${nextItem.ref_id}`;
 
     // Prime the incoming element with the next track.
-    toEl.src = `${API_URL}${now.next.audio_url}`;
+    toEl.src = `${API_URL}${nextItem.audio_url}`;
     toEl.volume = 0;
     toEl.play().catch(() => {
       // If the browser blocked autoplay on the secondary element
@@ -296,7 +356,7 @@ export default function PublicRadioPage() {
       crossfadeFiredRef.current = false;
       toEl.volume = 1;
       toEl.play();
-      fetchNow();
+      setLocalIdx(nextIdxLocal);
     });
 
     const stepMs = 50;
@@ -321,31 +381,42 @@ export default function PublicRadioPage() {
         activeRef.current = activeRef.current === 'A' ? 'B' : 'A';
         currentRefRef.current = nextRefKey;
         crossfadeFiredRef.current = false;
-        // Pull the next item from the server so `now.next` updates.
-        fetchNow();
+        // Advance the LOCAL index so the audio-load useEffect sees
+        // the new position. We deliberately don't fetchNow() here —
+        // the server's wall-clock view may be many items ahead.
+        setLocalIdx(nextIdxLocal);
       }
     }, stepMs);
   };
 
-  // When the current track finishes WITHOUT a crossfade (cfSec=0
-  // or the next URL hadn't loaded), refresh now-playing once so
-  // the next render picks up the new item without waiting for the
-  // next 4-second poll cycle.
+  // When the current track finishes WITHOUT a crossfade, advance the
+  // LOCAL index so the next item plays. We deliberately do NOT
+  // fetchNow() here — the server's wall-clock has advanced at the
+  // saved-duration pace while we played the item from offset 0, so
+  // it's likely 1+ items past us. Trusting it would skip items.
+  // (3 Jun 2026 — fix for "half or less playing, jumping to next".)
   useEffect(() => {
     const a = audioRefA.current;
     const b = audioRefB.current;
     if (!a || !b) return;
     const onEnded = () => {
       if (fadeTimerRef.current) return; // crossfade is handling it
-      // In solo mode, advance the local index manually rather than
-      // re-polling the wall-clock endpoint.
+      // In solo mode, advance the dedicated solo index.
       if (soloMode) {
         setSoloIdx((i) => i + 1);
         return;
       }
+      const items = itemsRef.current;
+      if (items.length === 0) {
+        // No playlist info yet — fall back to a server poll.
+        currentRefRef.current = null;
+        crossfadeFiredRef.current = false;
+        fetchNow();
+        return;
+      }
       currentRefRef.current = null;
       crossfadeFiredRef.current = false;
-      fetchNow();
+      setLocalIdx((i) => (i + 1) % items.length);
     };
     a.addEventListener('ended', onEnded);
     b.addEventListener('ended', onEnded);
@@ -353,7 +424,7 @@ export default function PublicRadioPage() {
       a.removeEventListener('ended', onEnded);
       b.removeEventListener('ended', onEnded);
     };
-  }, [fetchNow]);
+  }, [fetchNow, soloMode]);
 
   const tuneIn = async () => {
     setErr(null);
@@ -412,7 +483,21 @@ export default function PublicRadioPage() {
     return () => { cancelled = true; clearInterval(t); };
   }, [tunedIn, deviceLabel]);
 
-  const cur = now?.now;
+  // 3 Jun 2026 — Derive the displayed "Now Playing" + "Up Next" from
+  // the LOCAL playback index when we have one. Falls back to the
+  // server's now/upcoming pre-tune-in or when the items list hasn't
+  // arrived yet. Keeps the on-screen state in sync with what's
+  // actually playing through the speakers (which is local-driven).
+  const playlistItems = now?.items_ordered || [];
+  const haveLocal = tunedIn && localIdx >= 0 && playlistItems.length > 0;
+  const cur = haveLocal
+    ? playlistItems[localIdx % playlistItems.length]
+    : now?.now;
+  const localUpcoming = haveLocal
+    ? [1, 2, 3]
+        .filter((off) => off < playlistItems.length)
+        .map((off) => playlistItems[(localIdx + off) % playlistItems.length])
+    : (now?.upcoming || (now?.next ? [now.next] : []));
   const isAd = cur?.type === 'ad';
   const playing = tunedIn && !!cur;
 
@@ -550,17 +635,14 @@ export default function PublicRadioPage() {
                   following the order they configured. Closes the
                   "Why doesn't the radio follow Saved Playlist?"
                   UX gap (31 May 2026). */}
-              {(now.upcoming?.length || now.next) && (
+              {(localUpcoming.length > 0) && (
                 <div className="w-full max-w-md mt-2" data-testid="public-radio-upcoming">
                   <div className="flex items-center gap-2 text-[10px] uppercase tracking-[0.25em] text-slate-500 font-bold mb-2">
                     <ListMusic className="w-3 h-3" />
                     Up next
                   </div>
                   <ol className="space-y-1 text-left">
-                    {(now.upcoming && now.upcoming.length
-                      ? now.upcoming
-                      : (now.next ? [now.next] : [])
-                    ).map((u, i) => (
+                    {localUpcoming.map((u, i) => (
                       <li
                         key={`${u.type}-${u.ref_id}-${i}`}
                         className="flex items-center gap-2 bg-slate-800/40 border border-slate-700/40 rounded-lg px-3 py-2"
