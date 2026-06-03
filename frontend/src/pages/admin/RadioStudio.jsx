@@ -3222,15 +3222,22 @@ function LiveStreamPanel({ hasItems }) {
   // a blind setting into an obvious live broadcast control. 8s vs
   // the standard 15s for the topbar pill so the count is current
   // when the admin tweaks the balance.
+  //
+  // Same endpoint also drives the new Tuned-In Stores panel below
+  // — keeps one polling loop for both consumers (3 Jun 2026).
+  const [tuneInStatus, setTuneInStatus] = useState(null);
   useEffect(() => {
     let alive = true;
     const tick = async () => {
       try {
         const r = await axios.get(`${API}/admin/radio-studio/tune-in/status`, { headers: tokenHdr() });
-        if (alive) setLiveListenerCount(r.data?.active_count ?? 0);
+        if (alive) {
+          setLiveListenerCount(r.data?.active_count ?? 0);
+          setTuneInStatus(r.data || null);
+        }
       } catch (_e) {
         // Non-fatal — show "—" rather than failing the whole panel.
-        if (alive) setLiveListenerCount(null);
+        if (alive) { setLiveListenerCount(null); setTuneInStatus(null); }
       }
     };
     tick();
@@ -3542,6 +3549,107 @@ function LiveStreamPanel({ hasItems }) {
         <span className="text-slate-500 hidden md:inline">
           · Use this URL in VLC or any continuous-stream audio app. Browsers use the in-store screen page above.
         </span>
+      </div>
+
+      {/* TUNED-IN STORES — Per-device on-air/paused dashboard
+          (3 Jun 2026). User report: "How do I know which store is
+          playing radio and which store has paused". A live list of
+          every device that's checked in within the last 90 s, with
+          its label, IP, and play/pause state. Pairs with the
+          improved off-air Telegram alert that ALWAYS includes the
+          store identifier (label OR fallback to "Device {id8}
+          (IP …)") so the admin can match the Telegram message to
+          a row in this panel at a glance. */}
+      <div
+        className="mt-4 border border-emerald-500/30 bg-gradient-to-br from-emerald-950/40 to-slate-950/60 rounded-xl p-3"
+        data-testid="radio-tuned-in-stores"
+      >
+        <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
+          <div className="flex items-center gap-2">
+            <Radio className="w-4 h-4 text-emerald-300" />
+            <h3 className="text-[11px] uppercase tracking-[0.25em] font-bold text-emerald-200">
+              Tuned-In stores
+            </h3>
+            {tuneInStatus && (
+              <span
+                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/40 text-[10px] font-bold text-emerald-300"
+                data-testid="radio-tuned-in-summary"
+              >
+                <span className="text-emerald-200">{tuneInStatus.playing_count ?? 0} playing</span>
+                {(tuneInStatus.paused_count ?? 0) > 0 && (
+                  <>
+                    <span className="text-slate-500">·</span>
+                    <span className="text-amber-300">{tuneInStatus.paused_count} paused</span>
+                  </>
+                )}
+              </span>
+            )}
+          </div>
+          <div className="text-[10px] text-slate-400">
+            Refreshes every 8 s
+          </div>
+        </div>
+
+        {(!tuneInStatus?.devices || tuneInStatus.devices.length === 0) ? (
+          <p className="text-[11px] text-slate-400 italic px-2 py-3 text-center" data-testid="radio-tuned-in-empty">
+            No stores tuned in. Open <code className="px-1 py-0.5 bg-slate-800 rounded text-amber-300">/radio</code> on a showroom device and tap Tune in.
+          </p>
+        ) : (
+          <ul className="space-y-1.5" data-testid="radio-tuned-in-list">
+            {tuneInStatus.devices.map((d) => {
+              const isPlaying = d.state === 'playing';
+              const lastSeen = (() => {
+                try {
+                  const dt = new Date(d.last_seen_at);
+                  return dt.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                } catch {
+                  return d.last_seen_at;
+                }
+              })();
+              return (
+                <li
+                  key={d.device_id}
+                  data-testid={`radio-tuned-in-device-${d.device_id.slice(0, 8)}`}
+                  className={`flex items-center gap-3 px-3 py-2 rounded-lg border ${
+                    isPlaying
+                      ? 'bg-emerald-500/10 border-emerald-500/30'
+                      : 'bg-amber-500/10 border-amber-500/30'
+                  }`}
+                >
+                  <span className={`w-2 h-2 rounded-full flex-shrink-0 ${
+                    isPlaying ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'
+                  }`} />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className={`text-sm font-bold truncate ${
+                        d.device_label ? 'text-slate-100' : 'text-slate-400 italic'
+                      }`}>
+                        {d.display_name}
+                      </span>
+                      {!d.device_label && (
+                        <span className="text-[9px] uppercase tracking-wider text-amber-300 font-bold px-1.5 py-0.5 rounded bg-amber-500/10 border border-amber-500/30">
+                          Unnamed · ask staff to label it
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2 text-[10px] text-slate-500 font-mono mt-0.5 flex-wrap">
+                      <span>id {d.device_id.slice(0, 8)}</span>
+                      {d.last_ip && <span>· IP {d.last_ip}</span>}
+                      <span>· last seen {lastSeen}</span>
+                    </div>
+                  </div>
+                  <span className={`text-[10px] uppercase tracking-wider font-bold px-2 py-1 rounded ${
+                    isPlaying
+                      ? 'bg-emerald-500/30 text-emerald-100'
+                      : 'bg-amber-500/30 text-amber-100'
+                  }`}>
+                    {isPlaying ? '▶ Playing' : '⏸ Paused'}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        )}
       </div>
 
       {/* AUDIO MIX — Music vs Ads balance fader (3 Jun 2026).

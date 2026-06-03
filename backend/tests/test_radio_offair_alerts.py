@@ -137,9 +137,15 @@ async def test_fires_recovery_when_device_returns(force_opening_hours, mock_tele
 
 
 @pytest.mark.asyncio
-async def test_ignores_unlabelled_devices(force_opening_hours, mock_telegram):
-    """An off-air device with no device_label is skipped — alerting
-    on a UUID would be useless noise."""
+async def test_fires_alert_for_unlabelled_devices_with_id_fallback(force_opening_hours, mock_telegram):
+    """3 Jun 2026 — Behaviour change. Previously unlabelled devices
+    were skipped (rationale: "alerting on a UUID is useless noise").
+    User report: "I receive telegram notification but it doesn't
+    show which store it is from". To make alerts ALWAYS actionable
+    even when the admin forgot to label a device, the message body
+    now falls back to "Device <8-char id> (IP …)" — short enough to
+    paste into the admin Tuned-In Stores panel and find which row
+    just dropped off-air."""
     db = get_db()
     dev_id = f"test-anon-{uuid.uuid4().hex[:8]}"
     await db.radio_offair_alerts.delete_many({"device_id": dev_id})
@@ -149,11 +155,19 @@ async def test_ignores_unlabelled_devices(force_opening_hours, mock_telegram):
         # No device_label
         "last_seen_at": _iso(10 * 60),
         "first_seen_at": _iso(60 * 60),
+        "last_ip": "10.99.0.1",
     })
     try:
         res = await roa.run_radio_offair_tick()
-        assert res["fired"] == 0
-        assert mock_telegram.await_count == 0
+        assert res["fired"] == 1, \
+            "Unlabelled devices must now fire alerts (with fallback identifier)"
+        assert mock_telegram.await_count == 1
+        # Inspect the message body — it must include the fallback ID
+        # so the admin can identify the store.
+        call = mock_telegram.await_args
+        msg = call.args[1] if len(call.args) > 1 else call.kwargs.get("message", "")
+        assert f"Device {dev_id[:8]}" in msg
+        assert "10.99.0.1" in msg
     finally:
         await db.radio_offair_alerts.delete_many({"device_id": dev_id})
         await db.radio_tune_in_heartbeats.delete_many({"device_id": dev_id})

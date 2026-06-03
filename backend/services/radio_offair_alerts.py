@@ -117,11 +117,17 @@ async def run_radio_offair_tick() -> dict:
         return {"skipped": "outside_opening_hours", "tz": LOCAL_TZ}
 
     db = get_db()
-    # Only consider labelled devices — unlabelled UUIDs would page
-    # the admin with "abc12345... dropped off-air" which is useless.
+    # 3 Jun 2026 — Previously this filter REQUIRED a device_label,
+    # so unlabelled devices never produced an alert (and the admin
+    # could think the radio was healthy while every store was off).
+    # Now we alert on EVERY recently-active device. The message body
+    # uses the label if present, falling back to "Device <8-char id>"
+    # plus the last-known IP so the admin can always identify the
+    # store. (User report: "I receive telegram notification but it
+    # doesn't show which store it is from".)
     cursor = db.radio_tune_in_heartbeats.find(
-        {"device_label": {"$exists": True, "$ne": ""}},
-        {"_id": 0, "device_id": 1, "device_label": 1, "last_seen_at": 1},
+        {},
+        {"_id": 0, "device_id": 1, "device_label": 1, "last_seen_at": 1, "last_ip": 1},
     )
     devices = [d async for d in cursor]
     if not devices:
@@ -134,10 +140,22 @@ async def run_radio_offair_tick() -> dict:
     recovered = 0
     for d in devices:
         device_id = d.get("device_id")
-        label = (d.get("device_label") or "").strip()
         last_seen = d.get("last_seen_at") or ""
-        if not device_id or not label or not last_seen:
+        if not device_id or not last_seen:
             continue
+        # Compose a human-friendly identifier the admin can read in
+        # a Telegram message. Label wins; fall back to a short stub
+        # + the last-known IP so unlabelled devices are still
+        # actionable. (3 Jun 2026 — user request.)
+        raw_label = (d.get("device_label") or "").strip()
+        last_ip = (d.get("last_ip") or "").strip()
+        if raw_label:
+            label = raw_label
+        else:
+            short_id = device_id[:8]
+            label = f"Device {short_id}"
+            if last_ip:
+                label = f"{label} (IP {last_ip})"
 
         existing_alert = await db.radio_offair_alerts.find_one(
             {"device_id": device_id}, {"_id": 0}

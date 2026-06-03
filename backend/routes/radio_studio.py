@@ -3538,6 +3538,12 @@ ACTIVE_HEARTBEAT_WINDOW_SECONDS = 90
 class TuneInHeartbeatReq(BaseModel):
     device_id: str = Field(min_length=4, max_length=64)
     device_label: Optional[str] = Field(default=None, max_length=80)
+    # 3 Jun 2026 — Play/pause state. Public /radio sends `False`
+    # when the listener taps Pause but stays on the page. Lets
+    # the admin "Tuned-In Stores" panel distinguish active
+    # playback from a sitting-paused tab, and the off-air alert
+    # message identify which store dropped vs paused.
+    is_playing: Optional[bool] = Field(default=None)
 
 
 @public_router.post("/tune-in/heartbeat")
@@ -3567,6 +3573,12 @@ async def radio_tune_in_heartbeat(req: TuneInHeartbeatReq, request: Request):
     }
     if req.device_label:
         update["$set"]["device_label"] = req.device_label.strip()[:80]
+    # Play/pause flag — None means client hasn't been upgraded yet
+    # (legacy tab), default to True so the panel doesn't flip to
+    # "paused" on every legacy heartbeat.
+    if req.is_playing is not None:
+        update["$set"]["is_playing"] = bool(req.is_playing)
+        update["$set"]["is_playing_changed_at"] = now_iso
     await db.radio_tune_in_heartbeats.update_one(
         {"device_id": req.device_id},
         update,
@@ -3592,9 +3604,30 @@ async def radio_tune_in_status(current_user: dict = Depends(get_current_user)):
     cursor = db.radio_tune_in_heartbeats.find(
         {"last_seen_at": {"$gte": cutoff}},
         {"_id": 0, "device_id": 1, "device_label": 1,
-         "last_seen_at": 1, "first_seen_at": 1, "last_ip": 1},
+         "last_seen_at": 1, "first_seen_at": 1, "last_ip": 1,
+         "is_playing": 1, "is_playing_changed_at": 1},
     ).sort("last_seen_at", -1).limit(20)
     devices = [doc async for doc in cursor]
+    # Normalise the play state into a presentation-friendly shape
+    # the admin Tuned-In Stores panel can render without if-ladders.
+    # Legacy heartbeats (pre-3-Jun-2026) don't carry is_playing —
+    # treat them as "playing" so the panel doesn't spuriously
+    # report every old device as paused.
+    for d in devices:
+        if d.get("is_playing") is False:
+            d["state"] = "paused"
+        else:
+            d["state"] = "playing"
+        # Friendly identifier — what the Telegram alert + UI panel
+        # show. Label wins; falls back to a short, human-readable
+        # device-id stub. (3 Jun 2026 — user request: "I receive
+        # telegram notification but it doesn't show which store".)
+        d["display_name"] = (
+            (d.get("device_label") or "").strip()
+            or f"Device {str(d.get('device_id') or '')[:8]}"
+        )
+    playing_count = sum(1 for d in devices if d.get("state") == "playing")
+    paused_count = sum(1 for d in devices if d.get("state") == "paused")
 
     # Resolve current playing item — best-effort, never blocks the pill
     now_playing = None
@@ -3642,6 +3675,8 @@ async def radio_tune_in_status(current_user: dict = Depends(get_current_user)):
 
     return {
         "active_count": len(devices),
+        "playing_count": playing_count,
+        "paused_count": paused_count,
         "active_window_seconds": ACTIVE_HEARTBEAT_WINDOW_SECONDS,
         "devices": devices,
         "now_playing": now_playing,

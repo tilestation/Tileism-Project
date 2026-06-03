@@ -9,6 +9,64 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Jun 3, 2026 — Forked session] 🏪 "Which store?" — Per-store visibility upgrade
+
+**User report**: *"How do I know which store is playing radio and which store has paused. I receive telegram notification but it doesn't show which store it is from"*.
+
+Three coordinated changes so every store action is **always identifiable**:
+
+**Backend — heartbeat now carries play/pause state** (`/app/backend/routes/radio_studio.py`):
+- `TuneInHeartbeatReq` accepts an optional `is_playing: bool`. Each `/radio` tab sends `True` while audio is actively playing, `False` when the listener taps Pause but stays on the page. Legacy clients (no `is_playing` key) are accepted unchanged — server simply doesn't touch the field.
+- `radio_tune_in_heartbeat` upserts the flag plus an `is_playing_changed_at` timestamp.
+
+**Backend — `/tune-in/status` returns per-device state + identifier**:
+- Each device entry now carries `state: "playing" | "paused"` (legacy devices without `is_playing` default to `"playing"` so a deploy doesn't paint every old tab amber on first poll).
+- Each device entry also carries `display_name` — label if present, falling back to `Device <8-char id>` so unlabelled devices are still identifiable.
+- Response includes top-level `playing_count` and `paused_count` for at-a-glance status summary.
+
+**Backend — Telegram off-air alert ALWAYS identifies the store** (`/app/backend/services/radio_offair_alerts.py`):
+- Previously filtered out unlabelled devices (silent: "alerting on a UUID is useless"). User reported the OPPOSITE problem: receiving alerts that DIDN'T identify the store. Likely root cause: someone labelled a device with whitespace OR the labels had been cleared.
+- New behaviour: alerts fire for EVERY recently-active device. Message body uses the label if set; falls back to `Device <8-char id> (IP …)` if not. The IP is the last-known one from the heartbeat, so the admin can ping the LAN and confirm which physical machine.
+- Existing `test_ignores_unlabelled_devices` was renamed to `test_fires_alert_for_unlabelled_devices_with_id_fallback` and inverted to match the new behaviour. The message-body assertion verifies the fallback identifier + IP appear.
+
+**Frontend — Public `/radio`**: device-name UX upgrade (`/app/frontend/src/pages/public/PublicRadioPage.jsx`):
+- Device label input moved ABOVE the Tune-in button and reframed as **Step 1 · Name this device**. Amber pulsing dot when empty → emerald when filled.
+- Tune-in button is **disabled** until the device is named. Button label switches to *"Step 2 · Name device first"* when blocked. Tooltip explains why.
+- After tune-in, an emerald "**● On air as {label}**" badge confirms the device identity to the staff member. A compact "Rename" input is still shown below so they can adjust without un-tuning.
+- Warning copy under the input: *"Name your store device so off-air Telegram alerts can tell you WHICH store dropped."*
+- Heartbeat payload now includes `is_playing: audio.paused === false`.
+
+**Frontend — Admin Radio Studio → Playlist tab → "TUNED-IN STORES" panel** (`/app/frontend/src/pages/admin/RadioStudio.jsx`):
+- New emerald-gradient panel inside `LiveStreamPanel`, between the Tune-in URL strip and the Audio Mix fader. Polls `/tune-in/status` every 8 s (same loop as the LIVE indicator).
+- Per-device row shows the colour-coded state dot (emerald pulse = playing, amber = paused), `display_name` (with an "Unnamed · ask staff to label it" amber badge for unlabelled devices), short device-id + last IP + last-seen time, and a right-side state badge `▶ Playing` / `⏸ Paused`.
+- Empty state: *"No stores tuned in. Open /radio on a showroom device and tap Tune in."*
+- Summary chip in the panel header: `N playing · M paused`.
+
+**Tests** (9 new in `tests/test_radio_per_store_status.py`):
+1. Heartbeat stores `is_playing=True`.
+2. Heartbeat stores `is_playing=False` (paused state).
+3. Legacy payload without `is_playing` doesn't touch the field.
+4. `/tune-in/status` reports `state="playing"` for active devices and `playing_count=1`.
+5. `/tune-in/status` reports `state="paused"` for paused devices and `paused_count=1`.
+6. `/tune-in/status` falls back to `Device <id8>` display_name when label is missing.
+7. `/tune-in/status` treats legacy (no `is_playing` field) devices as playing.
+8. Off-air alert fires for unlabelled devices with fallback identifier + IP in message body.
+9. Off-air alert preserves clean message for labelled devices (no spurious fallback).
+
+Plus existing `tests/test_radio_offair_alerts.py::test_ignores_unlabelled_devices` was rewritten to `test_fires_alert_for_unlabelled_devices_with_id_fallback` to match the new contract.
+
+**Test suite**: 56/56 tests pass across all 7 sync-related fixes shipped today (9 per-store + 12 audio-mix + 12 byte-range + 4 items-ordered + 5 anchor + 7 DJ jump + 7 off-air). Zero regressions. Frontend lint clean on both files. Smoke screenshot of `/admin/radio-studio` Playlist tab confirms the new "TUNED-IN STORES" panel renders (currently in empty state with "No stores tuned in" — switches to the per-device list when any device tunes in).
+
+**Files**:
+- `/app/backend/routes/radio_studio.py` — `TuneInHeartbeatReq.is_playing` field, heartbeat persistence, `radio_tune_in_status` derives `state` + `display_name` + counts.
+- `/app/backend/services/radio_offair_alerts.py` — Filter relaxed to alert all devices; message body uses label or `Device <id8> (IP …)` fallback.
+- `/app/frontend/src/pages/public/PublicRadioPage.jsx` — Step 1 device-name UX, button gated on label, On-air-as badge, heartbeat carries is_playing.
+- `/app/frontend/src/pages/admin/RadioStudio.jsx` — `tuneInStatus` state, "TUNED-IN STORES" panel JSX with per-device rows.
+- `/app/backend/tests/test_radio_per_store_status.py` (NEW — 9 tests).
+- `/app/backend/tests/test_radio_offair_alerts.py` — `test_ignores_unlabelled_devices` rewritten to `test_fires_alert_for_unlabelled_devices_with_id_fallback`.
+
+
+
 ### [Jun 3, 2026 — Forked session] 🎧 Audio Mix: per-category A/B preview + live broadcast confirmation
 
 **User report**: *"There's a general preview but no preview for between music and Ads/Talks. When I adjust the volume I need to hear the comparison, can you do that, also that needs to be made sure that it's affecting the live radio volume, not just here"*.

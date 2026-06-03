@@ -597,11 +597,18 @@ export default function PublicRadioPage() {
   // in. Lets super admins see which showrooms are actually playing
   // the radio (vs the playlist merely being configured). Fire once
   // immediately on tune-in for a fast pill update; then on interval.
+  // 3 Jun 2026 — Now also reports is_playing (true if the active
+  // audio element is actually emitting audio, false if paused) so
+  // the admin Tuned-In Stores panel can show "playing" vs "paused"
+  // per device.
   const [deviceLabel, setDeviceLabelState] = useState(() => getDeviceLabel());
   useEffect(() => {
     if (!tunedIn) return undefined;
     let cancelled = false;
     const send = async () => {
+      const a = audioRefA.current;
+      const b = audioRefB.current;
+      const isPlaying = (a && !a.paused) || (b && !b.paused) || false;
       try {
         await fetch(HEARTBEAT_URL, {
           method: 'POST',
@@ -609,6 +616,7 @@ export default function PublicRadioPage() {
           body: JSON.stringify({
             device_id: getDeviceId(),
             device_label: deviceLabel || null,
+            is_playing: isPlaying,
           }),
           // keepalive lets the browser deliver the final ping even if
           // the tab is closing (best-effort; modern browsers honour it).
@@ -851,16 +859,56 @@ export default function PublicRadioPage() {
             succeeds. (3 Jun 2026.) */}
         <audio ref={audioRefA} preload="none" crossOrigin="anonymous" data-testid="public-radio-audio" />
         <audio ref={audioRefB} preload="none" crossOrigin="anonymous" data-testid="public-radio-audio-b" />
+
+        {/* Per-device label — moved ABOVE the Tune-in button on 3
+            Jun 2026 (user report: "telegram notification doesn't
+            show which store"). Naming each device makes the admin
+            Tuned-In Stores panel and off-air alerts identifiable.
+            We don't HARD-block tune-in without a label (a panicking
+            staff member at 8 a.m. shouldn't be locked out by an
+            input field), but the button is greyed + a clear warning
+            shows until a label is entered. */}
+        {!tunedIn && (
+          <div className="flex flex-col gap-1 max-w-sm w-full">
+            <label
+              htmlFor="radio-device-label"
+              className="text-[10px] uppercase tracking-wider text-amber-300 font-bold flex items-center gap-1.5"
+            >
+              <span className={`w-1.5 h-1.5 rounded-full ${deviceLabel ? 'bg-emerald-400' : 'bg-amber-400 animate-pulse'}`} />
+              Step 1 · Name this device
+            </label>
+            <input
+              id="radio-device-label"
+              type="text"
+              placeholder="e.g. Tonbridge front of house"
+              value={deviceLabel}
+              onChange={(e) => {
+                setDeviceLabelState(e.target.value);
+                setDeviceLabel(e.target.value);
+              }}
+              data-testid="public-radio-device-label"
+              className="bg-white/5 border border-amber-500/40 focus:border-amber-400 rounded-md px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none"
+              maxLength={80}
+            />
+            {!deviceLabel && (
+              <p className="text-[10px] text-amber-300/80 mt-0.5" data-testid="public-radio-device-label-warning">
+                Name your store device so off-air Telegram alerts can tell you WHICH store dropped.
+              </p>
+            )}
+          </div>
+        )}
+
         {!tunedIn ? (
           <button
             type="button"
             onClick={tuneIn}
             data-testid="public-radio-tune-in"
-            disabled={!now?.playing}
+            disabled={!now?.playing || !deviceLabel}
+            title={!deviceLabel ? 'Name this device first so Telegram alerts can identify it' : undefined}
             className="px-8 py-4 bg-gradient-to-r from-amber-400 to-orange-500 disabled:from-slate-700 disabled:to-slate-700 disabled:text-slate-500 text-slate-900 rounded-full font-extrabold text-lg shadow-2xl shadow-amber-500/20 hover:scale-105 active:scale-95 disabled:hover:scale-100 transition-transform flex items-center gap-3"
           >
             <Play className="w-6 h-6 fill-current" />
-            Tune in
+            {deviceLabel ? 'Tune in' : 'Step 2 · Name device first'}
           </button>
         ) : (
           <button
@@ -872,6 +920,15 @@ export default function PublicRadioPage() {
             <Pause className="w-4 h-4" />
             Stop
           </button>
+        )}
+        {tunedIn && deviceLabel && (
+          <div
+            className="text-[10px] uppercase tracking-wider text-emerald-400 font-bold flex items-center gap-1.5"
+            data-testid="public-radio-on-air-as"
+          >
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+            On air as {deviceLabel}
+          </div>
         )}
         {/* 2 Jun 2026 — Live volume meter. Renders only after the user
             has tuned in so the AudioContext can start without a user-
@@ -887,29 +944,31 @@ export default function PublicRadioPage() {
           and leave the tab open. All 4 stores stay in sync.
         </p>
 
-        {/* Per-device label — lets the admin status pill show
-            "Tonbridge front of house" instead of an opaque UUID. */}
-        <div className="mt-2 flex items-center gap-2 max-w-sm w-full">
-          <label
-            htmlFor="radio-device-label"
-            className="text-[10px] uppercase tracking-wider text-slate-500 font-bold whitespace-nowrap"
-          >
-            This device
-          </label>
-          <input
-            id="radio-device-label"
-            type="text"
-            placeholder="e.g. Tonbridge front of house"
-            value={deviceLabel}
-            onChange={(e) => {
-              setDeviceLabelState(e.target.value);
-              setDeviceLabel(e.target.value);
-            }}
-            data-testid="public-radio-device-label"
-            className="flex-1 bg-white/5 border border-white/10 rounded-md px-2 py-1.5 text-xs text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-amber-400/60"
-            maxLength={80}
-          />
-        </div>
+        {tunedIn && (
+          /* While playing, allow the staff to rename the device
+             without un-tuning. Re-shows the label input compactly. */
+          <div className="mt-2 flex items-center gap-2 max-w-sm w-full">
+            <label
+              htmlFor="radio-device-label-edit"
+              className="text-[10px] uppercase tracking-wider text-slate-500 font-bold whitespace-nowrap"
+            >
+              Rename
+            </label>
+            <input
+              id="radio-device-label-edit"
+              type="text"
+              placeholder="Device label"
+              value={deviceLabel}
+              onChange={(e) => {
+                setDeviceLabelState(e.target.value);
+                setDeviceLabel(e.target.value);
+              }}
+              data-testid="public-radio-device-label-edit"
+              className="flex-1 bg-white/5 border border-white/10 rounded-md px-2 py-1.5 text-xs text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-amber-400/60"
+              maxLength={80}
+            />
+          </div>
+        )}
       </div>
     </div>
   );
