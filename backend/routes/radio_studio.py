@@ -3372,6 +3372,121 @@ async def save_playlist(
 
 
 # ------------------------------------------------------------------
+# DJ MODE — Super admin "play this track now" (3 Jun 2026)
+# ------------------------------------------------------------------
+#
+# Goal: let a super admin watching /radio jump the live broadcast
+# to any specific item in the saved playlist. Use case: a customer
+# walks into the showroom and asks about something specific —
+# admin DJ's the relevant Trade Talk to the floor on-the-fly.
+#
+# Mechanism:
+#   1. Reset `started_at_epoch` so the wall-clock places the loop
+#      at the chosen idx with item_offset = 0. (offset = sum of
+#      durations BEFORE the chosen idx; anchor = now - offset.)
+#   2. Bump `jump_token` (uuid). All tuned-in clients see the new
+#      token in /live/now-playing, recognise it as different from
+#      their cached one, and resync their localIdx to the server's
+#      current_index. The currently-playing track is interrupted
+#      and the chosen item starts from the beginning.
+#
+# Only super admins can DJ — managers / store admins shouldn't be
+# able to override what plays in other stores' showrooms.
+
+class JumpToReq(BaseModel):
+    idx: int = Field(ge=0, le=999)
+
+
+@router.post("/live/jump-to")
+async def jump_to_item(
+    req: JumpToReq,
+    current_user: dict = Depends(get_current_user),
+):
+    """Super-admin-only DJ override — start playing item at `idx`
+    immediately across every tuned-in showroom.
+
+    Returns the new anchor + jump_token so the calling admin's
+    page can resync without waiting for the next poll cycle.
+    """
+    if (current_user or {}).get("role") != "super_admin":
+        raise HTTPException(
+            status_code=403,
+            detail="Only super admins can DJ the live broadcast.",
+        )
+    db = get_db()
+    playlist = await db.radio_studio_playlists.find_one(
+        {"is_active": True}, {"_id": 0},
+    )
+    if not playlist:
+        raise HTTPException(status_code=404, detail="No active playlist.")
+    items = playlist.get("items") or []
+    if not items:
+        raise HTTPException(status_code=400, detail="Playlist is empty.")
+
+    # Re-resolve so we have durations + filter items missing audio
+    # (DJ-ing to a not-yet-generated ad would land on silence).
+    ad_ids = [it["ref_id"] for it in items if it.get("type") == "ad"]
+    music_ids = [it["ref_id"] for it in items if it.get("type") == "music"]
+    ads_by_id: dict = {}
+    music_by_id: dict = {}
+    if ad_ids:
+        async for d in db.radio_studio_ads.find(
+            {"id": {"$in": ad_ids}},
+            {"_id": 0, "id": 1, "name": 1, "duration_seconds": 1, "audio_filename": 1},
+        ):
+            ads_by_id[d["id"]] = d
+    if music_ids:
+        async for d in db.radio_studio_music.find(
+            {"id": {"$in": music_ids}},
+            {"_id": 0, "id": 1, "name": 1, "duration_seconds": 1, "audio_filename": 1},
+        ):
+            music_by_id[d["id"]] = d
+    resolved = []
+    for it in items:
+        ref = (ads_by_id if it.get("type") == "ad" else music_by_id).get(it.get("ref_id"))
+        if not ref or not ref.get("audio_filename"):
+            continue
+        resolved.append({**it, "ref": ref,
+                         "duration_seconds": float(ref.get("duration_seconds") or 30.0)})
+    if not resolved:
+        raise HTTPException(
+            status_code=400,
+            detail="No items in this playlist have generated audio yet.",
+        )
+    if req.idx >= len(resolved):
+        raise HTTPException(
+            status_code=400,
+            detail=f"idx {req.idx} is out of range (playlist has {len(resolved)} playable items).",
+        )
+
+    # Compute the new anchor: wall-clock should land at offset 0
+    # within the chosen item, so anchor = now - cumulative duration
+    # of items BEFORE the chosen idx.
+    durations = [r["duration_seconds"] for r in resolved]
+    cumulative_before = sum(durations[: req.idx])
+    new_anchor = time.time() - cumulative_before
+    new_token = uuid.uuid4().hex
+
+    await db.radio_studio_playlists.update_one(
+        {"id": playlist["id"]},
+        {"$set": {
+            "started_at_epoch": new_anchor,
+            "jump_token": new_token,
+            "jumped_at": datetime.now(timezone.utc).isoformat(),
+            "jumped_by": (current_user or {}).get("email"),
+            "jumped_to_idx": req.idx,
+        }},
+    )
+    return {
+        "idx": req.idx,
+        "name": resolved[req.idx]["ref"].get("name"),
+        "type": resolved[req.idx].get("type"),
+        "jump_token": new_token,
+        "started_at_epoch": new_anchor,
+    }
+
+
+# ------------------------------------------------------------------
 # Tune-in heartbeats (31 May 2026)
 # ------------------------------------------------------------------
 #
@@ -4073,6 +4188,12 @@ async def live_now_playing():
         "upcoming": upcoming,
         "current_index": idx,
         "items_ordered": items_ordered,
+        # DJ-mode jump token (3 Jun 2026). Super admin can "play this
+        # track now" via POST /admin/radio-studio/live/jump-to. The
+        # client tracks the last-seen jump_token and resyncs its
+        # localIdx whenever it changes — interrupts whatever the
+        # listener is currently playing and starts the chosen item.
+        "jump_token": playlist.get("jump_token"),
         "playlist": {
             "total_items": len(resolved),
             "total_seconds": round(total, 1),
