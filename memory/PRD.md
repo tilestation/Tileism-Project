@@ -9,6 +9,46 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Jun 3, 2026 — Forked session] 🎧 Audio Mix: per-category A/B preview + live broadcast confirmation
+
+**User report**: *"There's a general preview but no preview for between music and Ads/Talks. When I adjust the volume I need to hear the comparison, can you do that, also that needs to be made sure that it's affecting the live radio volume, not just here"*.
+
+Two follow-up needs on the morning's Audio Mix fader:
+1. **A/B preview**: the existing "Preview here" button at the top of the Live Stream panel plays whatever's currently on-air — admin can't easily compare music vs ad loudness at the current slider values. Need a dedicated preview per category.
+2. **Live broadcast confirmation**: even though the slider DOES apply to the live `/radio` stream client-side (via `audio.volume = 10^(db/20)` in `PublicRadioPage.jsx`, re-applied on every `now.playlist.music_gain_db` change), there was no visible confirmation in the admin UI that *what you hear on this slider really is shaping what the showrooms hear*.
+
+**Fix shipped**:
+
+**Per-category preview** — Added to each slider label in the Audio Mix panel:
+- **🎵 Music level** label now has a **▶ preview** pill button.
+- **🎙️ Ads level** label has its own **▶ preview** pill (amber-themed).
+- Clicking either fetches the first item of that type from the saved playlist and plays it through a dedicated `<audio ref={previewAudioRef}>` (separate from the main "Preview here" audio so they don't interrupt each other).
+- Volume is `10^(currentSliderValue / 20)` — same formula as the live broadcast applies, so the admin's ear hears EXACTLY what the showrooms hear at the same slider value.
+- Dragging the slider DURING preview re-applies the volume in real-time — instant audible feedback.
+- Clicking the same button again toggles stop; clicking the OTHER category's preview switches to it.
+- Natural end auto-reverts the button to "▶ preview".
+- Empty-playlist case: toast error *"No ad or trade talk in the saved playlist yet — add one in the Playlist tab."*
+
+**Live broadcast confirmation** — New badge inside the Audio Mix panel header:
+- Polls `/api/admin/radio-studio/tune-in/status` every 8 s (vs 15 s for the topbar pill so it's fresher when the admin is tweaking).
+- Live state: emerald pill with pulsing green dot — *"LIVE · Affecting N stores"* (with singular/plural correctness). Tooltip: *"The sliders below are shaping the LIVE broadcast that N stores are hearing right now."*
+- Idle state: dim slate pill — *"No stores tuned in"*.
+- Functions as a visual contract: when the admin moves the slider and the badge says "LIVE · 3 stores", they KNOW the slider is affecting those 3 stores.
+
+**How the live broadcast actually receives the change** (verifying the user's worry — already implemented in this morning's fix, but documenting here for traceability):
+1. Admin drags slider → debounced 600 ms → POST `/admin/radio-studio/playlist` with new `music_gain_db` + `ads_gain_db`.
+2. Backend writes to the playlist doc in Mongo.
+3. Every tuned-in client polls `/live/now-playing` every 4 s; response carries `playlist.music_gain_db` + `playlist.ads_gain_db`.
+4. `PublicRadioPage.jsx` has a `useEffect` watching `now.playlist.music_gain_db` and `now.playlist.ads_gain_db` — fires on every change and re-applies `audio.volume = Math.pow(10, gainDb / 20)` to the active audio element.
+5. Total propagation: 600 ms debounce + ≤4 s poll = ~4.6 s worst-case from slider release to showroom volume change.
+
+**Testing**: Smoke screenshot confirms both preview buttons render, the "No stores tuned in" badge renders correctly when idle, and the explanation copy updated to "Tap each ▶ preview to A/B compare music vs ads at the current levels". All 40 backend tests from the day's sync fixes still pass — no API contract changes were needed for this update.
+
+**Files**:
+- `/app/frontend/src/pages/admin/RadioStudio.jsx` — Audio Mix panel: `previewAudioRef`, `previewType` state, `liveListenerCount` polled from `/tune-in/status`, `togglePreviewSample(type)` handler, re-apply-gain-during-preview useEffect, natural-end handler, two preview pill buttons in each slider label, LIVE/idle badge in the panel header, dedicated `<audio>` element.
+
+
+
 ### [Jun 3, 2026 — Forked session] 🎚️ Audio Mix fader (Music vs Ads balance) + Volume normaliser discoverability fix
 
 **User report**: *"I am still struggling to find the volume control system between music and ads"*.

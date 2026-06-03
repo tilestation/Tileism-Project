@@ -3118,6 +3118,17 @@ function LiveStreamPanel({ hasItems }) {
   const [mixDirty, setMixDirty] = useState(false);
   const [mixSaving, setMixSaving] = useState(false);
   const mixSaveTimerRef = React.useRef(null);
+  // Per-category A/B preview (3 Jun 2026 — user request: "When I
+  // adjust the volume I need to hear the comparison"). One dedicated
+  // audio element so a slider drag re-applies its volume live; tap
+  // the music sample, drag the music slider, hear the change in
+  // real-time, then tap the ad sample to compare.
+  const previewAudioRef = React.useRef(null);
+  const [previewType, setPreviewType] = useState(null); // null | 'music' | 'ad'
+  // Live tune-in count so we can show "● 3 stores hearing this balance"
+  // inside the Audio Mix panel — turns the slider from a blind
+  // setting into an obvious live broadcast control.
+  const [liveListenerCount, setLiveListenerCount] = useState(null);
   const audioRef = React.useRef(null);
   const currentRefRef = React.useRef(null);
 
@@ -3205,6 +3216,74 @@ function LiveStreamPanel({ hasItems }) {
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [musicGainDb, adsGainDb, mixDirty]);
+
+  // Poll the live tune-in count every 8s so the Audio Mix panel can
+  // show "● 3 stores hearing this balance" — turns the slider from
+  // a blind setting into an obvious live broadcast control. 8s vs
+  // the standard 15s for the topbar pill so the count is current
+  // when the admin tweaks the balance.
+  useEffect(() => {
+    let alive = true;
+    const tick = async () => {
+      try {
+        const r = await axios.get(`${API}/admin/radio-studio/tune-in/status`, { headers: tokenHdr() });
+        if (alive) setLiveListenerCount(r.data?.active_count ?? 0);
+      } catch (_e) {
+        // Non-fatal — show "—" rather than failing the whole panel.
+        if (alive) setLiveListenerCount(null);
+      }
+    };
+    tick();
+    const t = setInterval(tick, 8000);
+    return () => { alive = false; clearInterval(t); };
+  }, []);
+
+  // Toggle the per-category A/B preview. Plays the FIRST item of
+  // the chosen type from the saved playlist at the current slider
+  // value. Click again (or click the other type) to switch. Used
+  // by the admin to compare music vs ad loudness while dragging
+  // the balance fader.
+  const togglePreviewSample = (type) => {
+    const audio = previewAudioRef.current;
+    if (!audio) return;
+    if (previewType === type) {
+      try { audio.pause(); audio.removeAttribute('src'); audio.load(); } catch { /* ignore */ }
+      setPreviewType(null);
+      return;
+    }
+    const items = now?.items_ordered || [];
+    const sample = items.find((it) => it.type === type);
+    if (!sample) {
+      toast.error(`No ${type === 'ad' ? 'ad or trade talk' : 'music track'} in the saved playlist yet — add one in the Playlist tab.`);
+      return;
+    }
+    audio.src = `${API_URL}${sample.audio_url}`;
+    const gainDb = type === 'ad' ? adsGainDb : musicGainDb;
+    audio.volume = Math.max(0, Math.min(1, Math.pow(10, gainDb / 20)));
+    audio.play().then(() => {
+      setPreviewType(type);
+    }).catch((e) => {
+      toast.error(`Preview blocked: ${e?.message || 'tap the button again'}`);
+    });
+  };
+
+  // Re-apply gain to the preview while it plays — so dragging the
+  // slider during preview gives instant audible feedback.
+  useEffect(() => {
+    const audio = previewAudioRef.current;
+    if (!audio || previewType === null) return;
+    const gainDb = previewType === 'ad' ? adsGainDb : musicGainDb;
+    audio.volume = Math.max(0, Math.min(1, Math.pow(10, gainDb / 20)));
+  }, [previewType, adsGainDb, musicGainDb]);
+
+  // Stop the preview on natural end so the button reverts to "▶".
+  useEffect(() => {
+    const a = previewAudioRef.current;
+    if (!a) return;
+    const onEnded = () => setPreviewType(null);
+    a.addEventListener('ended', onEnded);
+    return () => a.removeEventListener('ended', onEnded);
+  }, []);
 
   // Client-orchestrated preview playback. Each store plays the
   // current item FROM THE START (we deliberately don't seek into
@@ -3472,7 +3551,14 @@ function LiveStreamPanel({ hasItems }) {
           the new gains within ~4 s via the /live/now-playing poll
           → consistent balance across all 4 stores. Sits directly
           under the Tune-in URL so it's the FIRST thing the admin
-          sees when they open Radio Studio. */}
+          sees when they open Radio Studio.
+
+          3 Jun 2026 (later): each slider now has its OWN "▶ Preview"
+          button playing the first item of that type at the current
+          slider value. Drag while previewing → instant audible
+          feedback. Plus a live "● Affecting N stores" indicator
+          so the admin can SEE the slider is shaping live broadcast,
+          not just the local preview. */}
       <div
         className="mt-4 border border-fuchsia-500/30 bg-gradient-to-br from-fuchsia-950/40 to-slate-950/60 rounded-xl p-3"
         data-testid="radio-live-audio-mix"
@@ -3483,6 +3569,26 @@ function LiveStreamPanel({ hasItems }) {
             <h3 className="text-[11px] uppercase tracking-[0.25em] font-bold text-fuchsia-200">
               Audio mix — Music vs Ads
             </h3>
+            {/* Live broadcast badge — confirms the slider really
+                does affect the showrooms, not just this admin tab. */}
+            {liveListenerCount !== null && liveListenerCount > 0 ? (
+              <span
+                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/40 text-[10px] font-bold text-emerald-300"
+                data-testid="radio-mix-live-indicator"
+                title={`The sliders below are shaping the LIVE broadcast that ${liveListenerCount} ${liveListenerCount === 1 ? 'store is' : 'stores are'} hearing right now.`}
+              >
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                LIVE · Affecting {liveListenerCount} {liveListenerCount === 1 ? 'store' : 'stores'}
+              </span>
+            ) : (
+              <span
+                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-slate-700/40 border border-slate-600/50 text-[10px] font-semibold text-slate-400"
+                data-testid="radio-mix-live-indicator"
+              >
+                <span className="w-1.5 h-1.5 rounded-full bg-slate-500" />
+                No stores tuned in
+              </span>
+            )}
           </div>
           <div className="text-[10px] text-fuchsia-200/70">
             {mixSaving
@@ -3501,6 +3607,23 @@ function LiveStreamPanel({ hasItems }) {
               <span className="flex items-center gap-1.5 text-slate-300 font-semibold">
                 <Music className="w-3 h-3 text-fuchsia-400" />
                 Music level
+                <button
+                  type="button"
+                  onClick={() => togglePreviewSample('music')}
+                  data-testid="radio-mix-preview-music"
+                  title="Play a sample music track at the current Music level — hear the slider in real time"
+                  className={`ml-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider border transition-colors ${
+                    previewType === 'music'
+                      ? 'bg-fuchsia-500/30 border-fuchsia-400/60 text-fuchsia-100 animate-pulse'
+                      : 'bg-fuchsia-500/10 border-fuchsia-400/40 text-fuchsia-200 hover:bg-fuchsia-500/20'
+                  }`}
+                >
+                  {previewType === 'music' ? (
+                    <><Pause className="w-2.5 h-2.5" /> stop</>
+                  ) : (
+                    <><Play className="w-2.5 h-2.5" /> preview</>
+                  )}
+                </button>
               </span>
               <span className="font-mono tabular-nums text-fuchsia-200" data-testid="radio-mix-music-value">
                 {musicGainDb > 0 ? '+' : ''}{musicGainDb.toFixed(1)} dB
@@ -3534,6 +3657,23 @@ function LiveStreamPanel({ hasItems }) {
               <span className="flex items-center gap-1.5 text-slate-300 font-semibold">
                 <Mic className="w-3 h-3 text-amber-400" />
                 Ads level
+                <button
+                  type="button"
+                  onClick={() => togglePreviewSample('ad')}
+                  data-testid="radio-mix-preview-ad"
+                  title="Play a sample ad / trade talk at the current Ads level — A/B compare with the music sample"
+                  className={`ml-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider border transition-colors ${
+                    previewType === 'ad'
+                      ? 'bg-amber-500/30 border-amber-400/60 text-amber-100 animate-pulse'
+                      : 'bg-amber-500/10 border-amber-400/40 text-amber-200 hover:bg-amber-500/20'
+                  }`}
+                >
+                  {previewType === 'ad' ? (
+                    <><Pause className="w-2.5 h-2.5" /> stop</>
+                  ) : (
+                    <><Play className="w-2.5 h-2.5" /> preview</>
+                  )}
+                </button>
               </span>
               <span className="font-mono tabular-nums text-amber-200" data-testid="radio-mix-ads-value">
                 {adsGainDb > 0 ? '+' : ''}{adsGainDb.toFixed(1)} dB
@@ -3564,7 +3704,7 @@ function LiveStreamPanel({ hasItems }) {
           <p className="text-[10px] text-slate-400 flex items-start gap-1.5 max-w-md">
             <Info className="w-3 h-3 mt-0.5 flex-shrink-0" />
             <span>
-              Bias music quieter (e.g. -3 dB) so spoken ads cut through, or pull both back if the room is loud.
+              Tap each <strong className="text-fuchsia-300">▶ preview</strong> to A/B compare music vs ads at the current levels.
               For one-shot equalising across the whole library, use the <strong className="text-emerald-300">Volume Balance pill</strong> in the page header.
             </span>
           </p>
@@ -3583,6 +3723,10 @@ function LiveStreamPanel({ hasItems }) {
             </button>
           )}
         </div>
+        {/* Dedicated preview audio element — kept separate from the
+            main `audioRef` so a sample preview doesn't interrupt the
+            "Preview here" live preview at the top of the panel. */}
+        <audio ref={previewAudioRef} preload="none" data-testid="radio-mix-preview-audio" />
       </div>
 
       {/* DJ MODE — Super-admin-only on-air override (3 Jun 2026).
