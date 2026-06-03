@@ -116,6 +116,11 @@ export default function PublicRadioPage() {
   // playlist together within ~one-item-length of each other.
   const currentRefRef = useRef(null);
   const crossfadeFiredRef = useRef(false);
+  // Tracks when the latest `now` was received from the server, in
+  // client-side ms. Used by seekToLiveOffset to compute clock-skew
+  // between server's `server_time` and client's `Date.now()` and
+  // extrapolate "live server now" for accurate sync (3 Jun 2026).
+  const nowReceivedAtClientMsRef = useRef(0);
 
   // DJ-mode state (3 Jun 2026) — super-admin-only override that
   // jumps the live broadcast to any item in the saved playlist.
@@ -225,6 +230,10 @@ export default function PublicRadioPage() {
       }
       const r = await fetch(POLL_URL, { cache: 'no-store' });
       const data = await r.json();
+      // Record the wall-clock moment we received the response so
+      // seekToLiveOffset can extrapolate "live server now" with
+      // clock-skew correction. (3 Jun 2026 sync fix.)
+      nowReceivedAtClientMsRef.current = Date.now();
       setNow(data);
       return data;
     } catch (_e) {
@@ -337,6 +346,67 @@ export default function PublicRadioPage() {
   // for the INITIAL position (above useEffect). Subsequent advances
   // happen LOCALLY via `onEnded` → setLocalIdx(i + 1). This stops
   // server-poll-driven mid-play cuts ("half or less playing" bug).
+  //
+  // 3 Jun 2026 (later same day) — Restored wall-clock-derived SEEK
+  // for exact multi-store sync. The backend stream endpoints now
+  // support HTTP byte-range requests, so `audio.currentTime = X`
+  // actually seeks (it used to silently fail and audio started at
+  // 0 → each store joined items at offset 0 → stores drifted apart
+  // forever). We compute the seek target client-side from the
+  // server-provided anchor + items_ordered durations, applying a
+  // clock-skew correction so all 4 stores land at the same
+  // time-point in the same item regardless of poll-cycle jitter.
+  const seekToLiveOffset = (audio, item) => {
+    if (!audio || !item) return;
+    if (!now?.items_ordered?.length) return;
+    const anchor = Number(now?.started_at_epoch);
+    if (!anchor || anchor <= 0) return;
+    const serverNow = Number(now?.server_time);
+    if (!serverNow) return;
+    const items = now.items_ordered;
+    const total = items.reduce((s, it) => s + (Number(it.duration_seconds) || 0), 0);
+    if (total <= 0) return;
+    // Clock-skew offset: server's current epoch minus client's
+    // epoch at the moment we last polled. Add (elapsed since poll)
+    // to extrapolate to "right now in server time".
+    const polledAtClientMs = nowReceivedAtClientMsRef.current || Date.now();
+    const skewSec = serverNow - polledAtClientMs / 1000;
+    const liveServerNow = Date.now() / 1000 + skewSec;
+    const loopOffset = ((liveServerNow - anchor) % total + total) % total;
+    // Locate which item the wall-clock is currently on and the
+    // elapsed within it.
+    let cum = 0;
+    let liveIdx = 0;
+    for (let i = 0; i < items.length; i += 1) {
+      const d = Number(items[i].duration_seconds) || 0;
+      if (loopOffset < cum + d) {
+        liveIdx = i;
+        break;
+      }
+      cum += d;
+    }
+    // If wall-clock says a DIFFERENT item than the one we just
+    // loaded (drift exceeded one item), bail — onEnded will advance
+    // us into the right item naturally; the next iteration will
+    // seek correctly.
+    if (liveIdx !== (localIdx % items.length)) return;
+    const liveElapsed = Math.max(0, loopOffset - cum);
+    // Only seek if the audio's metadata has loaded (duration known).
+    const apply = () => {
+      try {
+        if (audio.duration && Number.isFinite(audio.duration)) {
+          const target = Math.min(audio.duration - 0.05, liveElapsed);
+          if (target > 0.05) audio.currentTime = target;
+        }
+      } catch { /* ignore — non-seekable streams will be silent on this fix */ }
+    };
+    if (audio.readyState >= 1 && audio.duration) {
+      apply();
+    } else {
+      audio.addEventListener('loadedmetadata', apply, { once: true });
+    }
+  };
+
   useEffect(() => {
     if (!tunedIn) return;
     if (localIdx < 0) return;
@@ -355,6 +425,10 @@ export default function PublicRadioPage() {
     crossfadeFiredRef.current = false;
     audio.src = `${API_URL}${item.audio_url}`;
     audio.volume = 1.0;
+    // Seek to the wall-clock-derived elapsed offset BEFORE play()
+    // so all 4 stores land at the same time-point of this item.
+    // (3 Jun 2026 — multi-store sync fix.)
+    seekToLiveOffset(audio, item);
     audio.play().catch((e) => {
       setErr(e?.message || 'Browser blocked playback — tap Tune in again');
     });
@@ -653,9 +727,8 @@ export default function PublicRadioPage() {
             <>
               <span className="font-semibold text-emerald-200">Continuous radio (synced).</span>{' '}
               All 4 showrooms hear the same track at the same second.
-              Loop restarts from track #1 each time you click Save Playlist;
-              after that, new tune-ins join wherever the loop currently is —
-              like turning on FM radio mid-show.
+              Tune in anytime — each store seeks to the exact wall-clock
+              moment so they land on the same audio frame.
             </>
           )}
         </div>

@@ -3644,10 +3644,19 @@ async def radio_tune_in_reset(current_user: dict = Depends(get_current_user)):
 # ------------------------------------------------------------------
 
 @public_router.get("/stream/ad/{ad_id}")
-async def stream_ad(ad_id: str):
+async def stream_ad(ad_id: str, request: Request):
     """Serve an ad MP3 from MongoDB. Unauthenticated so the
     storefront <audio> tag and future in-store speakers can hit it
-    without a token."""
+    without a token.
+
+    3 Jun 2026 — Now supports HTTP byte-range requests so the public
+    `/radio` page can seek `audio.currentTime` to the wall-clock-
+    derived elapsed offset for exact multi-store sync. Without range
+    support, every store joined items at offset 0 (lagging the wall
+    clock by `initial_elapsed`) and stores tuning in at different
+    moments drifted out of sync forever. With range support, seek
+    works → all stores land at the same time-point of the same item.
+    """
     db = get_db()
     # Project audio_blob explicitly — list views exclude it for speed,
     # but the stream needs it.
@@ -3657,21 +3666,12 @@ async def stream_ad(ad_id: str):
     )
     if not ad or not ad.get("audio_blob"):
         raise HTTPException(status_code=404, detail="Ad audio not found (regenerate it)")
-    blob = ad["audio_blob"]
-    # bson.binary.Binary subclasses bytes, so this works either way.
-    return Response(
-        content=bytes(blob),
-        media_type="audio/mpeg",
-        headers={
-            "Content-Length": str(len(blob)),
-            "Cache-Control": "public, max-age=60",
-            "Accept-Ranges": "none",
-        },
-    )
+    blob = bytes(ad["audio_blob"])
+    return _audio_response(blob, request, cache_max_age=60)
 
 
 @public_router.get("/stream/music/{track_id}")
-async def stream_music(track_id: str):
+async def stream_music(track_id: str, request: Request):
     db = get_db()
     track = await db.radio_studio_music.find_one(
         {"id": track_id},
@@ -3679,14 +3679,60 @@ async def stream_music(track_id: str):
     )
     if not track or not track.get("audio_blob"):
         raise HTTPException(status_code=404, detail="Track audio not found (re-upload it)")
-    blob = track["audio_blob"]
+    blob = bytes(track["audio_blob"])
+    return _audio_response(blob, request, cache_max_age=300)
+
+
+def _audio_response(blob: bytes, request: Request, cache_max_age: int) -> Response:
+    """Build the HTTP response for an audio blob, honouring HTTP
+    Range headers so the HTML5 <audio> element can seek mid-file.
+
+    Range support is what lets all 4 in-store showrooms land at the
+    same wall-clock-derived elapsed offset of the same item — true
+    multi-store sync (3 Jun 2026 fix for "the radio is not playing
+    same in all stores"). Without it, seeking silently failed on
+    most browsers and each store started every item from byte 0.
+    """
+    total = len(blob)
+    range_header = request.headers.get("range") or request.headers.get("Range")
+    if range_header:
+        try:
+            units, _, spec = range_header.partition("=")
+            if units.strip().lower() != "bytes":
+                raise ValueError("only bytes ranges are supported")
+            start_str, _, end_str = spec.partition("-")
+            start = int(start_str) if start_str else 0
+            end = int(end_str) if end_str else total - 1
+            if start < 0 or end < start:
+                raise ValueError("invalid range")
+            end = min(end, total - 1)
+        except (ValueError, TypeError):
+            return Response(
+                status_code=416,
+                headers={
+                    "Content-Range": f"bytes */{total}",
+                    "Accept-Ranges": "bytes",
+                },
+            )
+        chunk = blob[start : end + 1]
+        return Response(
+            content=chunk,
+            status_code=206,
+            media_type="audio/mpeg",
+            headers={
+                "Content-Length": str(len(chunk)),
+                "Content-Range": f"bytes {start}-{end}/{total}",
+                "Accept-Ranges": "bytes",
+                "Cache-Control": f"public, max-age={cache_max_age}",
+            },
+        )
     return Response(
-        content=bytes(blob),
+        content=blob,
         media_type="audio/mpeg",
         headers={
-            "Content-Length": str(len(blob)),
-            "Cache-Control": "public, max-age=300",
-            "Accept-Ranges": "none",
+            "Content-Length": str(total),
+            "Cache-Control": f"public, max-age={cache_max_age}",
+            "Accept-Ranges": "bytes",
         },
     )
 
@@ -4188,6 +4234,13 @@ async def live_now_playing():
         "upcoming": upcoming,
         "current_index": idx,
         "items_ordered": items_ordered,
+        # Wall-clock anchor (UTC unix epoch). Clients use this with
+        # items_ordered durations to compute the elapsed offset they
+        # should seek to on tune-in — same anchor in Mongo = same
+        # computed offset across all 4 stores = exact multi-store
+        # sync. (3 Jun 2026 fix for "radio not playing same in all
+        # stores".)
+        "started_at_epoch": float(playlist.get("started_at_epoch") or 0.0),
         # DJ-mode jump token (3 Jun 2026). Super admin can "play this
         # track now" via POST /admin/radio-studio/live/jump-to. The
         # client tracks the last-seen jump_token and resyncs its

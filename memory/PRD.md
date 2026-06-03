@@ -9,6 +9,60 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Jun 3, 2026 — Forked session] 🔄 Restored exact multi-store sync via HTTP byte-range + wall-clock seek
+
+**User report**: *"The radio is not playing same in all stores."*
+
+**Root cause**: Earlier today's "play in full" fix made each store play every item starting at offset 0. Stores tuning in at different moments lagged the wall-clock by their respective `initial_elapsed` values, drifting out of sync forever. Specifically: Store A tunes in mid-Trade-Talk at elapsed=10s → plays Trade Talk from offset 0 → 10s behind wall-clock. Store B tunes in 30s later at elapsed=40s → plays Trade Talk from offset 0 → 40s behind wall-clock. The two stores are now 30s out of sync, and that lag persists across every subsequent item.
+
+The original architecture INTENDED to seek (the file's top comment literally describes it: *"each speaker fetches a normal FINITE MP3 from /stream/ad/{id} and seeks to the wall-clock-derived elapsed_seconds offset"*). But the seek behaviour was removed on 30 May 2026 when an earlier agent noticed `audio.currentTime = X` silently failed — the underlying reason being that the stream endpoints explicitly returned `Accept-Ranges: none`, killing the browser's ability to seek.
+
+**Fix** — restore the original architecture properly:
+
+**Backend** (`/app/backend/routes/radio_studio.py`):
+- New `_audio_response(blob, request, cache_max_age)` helper that honours HTTP `Range` headers per RFC 7233.
+- A normal GET returns 200 + the full blob + `Accept-Ranges: bytes` (advertises range support).
+- A `Range: bytes=N-M` request returns 206 Partial Content with the exact slice + `Content-Range: bytes N-M/total` header.
+- Open-ended ranges (`bytes=N-`) return everything from N to EOF.
+- Past-EOF ranges (`bytes=800-99999`) are clamped to the actual end.
+- Malformed ranges return 416 with `Content-Range: bytes */total` so browsers fall back to a full GET.
+- Both `/stream/ad/{id}` and `/stream/music/{id}` use the helper.
+- `/live/now-playing` now exposes `started_at_epoch` (the playlist's wall-clock anchor) so the client can compute the live offset locally without re-polling — same anchor in Mongo = same computed offset across all 4 stores = exact sync.
+
+**Frontend** (`/app/frontend/src/pages/public/PublicRadioPage.jsx`):
+- New `seekToLiveOffset(audio, item)` helper. Computes the live wall-clock offset using `started_at_epoch`, `server_time`, `items_ordered` durations, and a clock-skew correction (`server_time` minus `Date.now()` at receipt time). Locates the current idx + elapsed-within and sets `audio.currentTime` after `loadedmetadata` fires.
+- The audio-load useEffect now calls `seekToLiveOffset` immediately after setting `audio.src`. All 4 stores compute the same elapsed offset from the same anchor → all seek to the same audio frame → exact multi-store sync.
+- `fetchNow` records the client-side ms timestamp into `nowReceivedAtClientMsRef` so clock-skew extrapolation works regardless of poll-cycle jitter.
+- The local-index advance from this morning's fix is PRESERVED — each item still plays in full, advancing locally via `onEnded` to prevent the "half or less playing" cut bug. Sync at item boundaries is automatic because all stores end each item simultaneously (they all started at the same wall-clock-derived offset).
+- Updated banner copy: *"All 4 showrooms hear the same track at the same second. Tune in anytime — each store seeks to the exact wall-clock moment so they land on the same audio frame."*
+
+**The whole architecture now**:
+1. Server: wall-clock-modulo math determines current item + elapsed.
+2. Backend: serves audio with byte-range support, advertised via `Accept-Ranges: bytes`.
+3. Client: on tune-in, seeks to the live elapsed offset → instant sync.
+4. Client: on natural end (audio.ended), advances localIdx + 1 → next item plays from offset 0 (same as all other stores at the same wall-clock moment) → sync preserved across item boundaries.
+5. Client: on DJ jump, jump_token resyncs localIdx and the new item starts with seek-to-0 → sync preserved through manual overrides.
+
+**Tests** (12 new in `tests/test_radio_stream_byte_range.py`):
+1. Full GET returns 200 + full blob + `Accept-Ranges: bytes`.
+2. Range request returns 206 + correct byte slice + `Content-Range`.
+3. Open-ended range (`bytes=N-`) returns everything from N to EOF.
+4. Range from start (`bytes=0-N`) works.
+5. Range past EOF is clamped to actual end (no overflow, no 416).
+6. Malformed ranges return 416 with `Content-Range: bytes */total` (4 variations: non-numeric, negative start, end<start, wrong unit).
+7. Music endpoint behaves identically (uses same helper).
+8. 404 on missing audio still works (defensive — byte-range changes didn't break the not-found path).
+9. `/live/now-playing` exposes `started_at_epoch` + `server_time` for client-side seek math.
+
+**Test suite**: 28/28 tests pass across all 4 sync-related fixes shipped today (`test_radio_stream_byte_range.py` 12 + `test_radio_items_ordered.py` 4 + `test_radio_playlist_anchor_on_save.py` 5 + `test_radio_dj_jump_to.py` 7). Zero regressions.
+
+**Files**:
+- `/app/backend/routes/radio_studio.py` — `_audio_response` helper, byte-range parsing/206/416 logic on both stream endpoints, `started_at_epoch` exposed in `/live/now-playing`.
+- `/app/frontend/src/pages/public/PublicRadioPage.jsx` — `seekToLiveOffset` helper, `nowReceivedAtClientMsRef`, audio-load useEffect now seeks, banner copy update.
+- `/app/backend/tests/test_radio_stream_byte_range.py` (NEW — 9 test cases, 12 actual tests counting parameterised malformed-range cases).
+
+
+
 ### [Jun 3, 2026 — Forked session] 👑 DJ Mode: Super-admin can play any saved track on-air
 
 **User request**: *"Do the potential improvement [N of 8 counter], but only make it visible to Super Admin. Also, allow Super admin to choose and play a track from saved playlist during the live on air"*.
