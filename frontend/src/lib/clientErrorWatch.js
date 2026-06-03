@@ -73,6 +73,30 @@ const BENIGN_PATTERNS = [
   /tabs:outgoing/i,
   /No Listener:.*tabs/i,
   /^resizeobserver loop /i,
+  // 3 Jun 2026 — User report: Telegram alerts spammed with two
+  // classes of noise.
+  //
+  // (a) "Network error on …/api/website/promo-banner" — the promo
+  // banner endpoint is OPTIONAL: when it fails, the page renders
+  // without a banner. A network blip there is not a customer-
+  // visible bug. Suppress all promo-banner network errors.
+  /\/api\/website\/promo-banner/i,
+  // (b) Form validation toasts that aren't bugs. The customer typed
+  // a weak password / forgot a field — `sonner` showed them an
+  // amber/red corrective toast and they fixed it. These are NORMAL
+  // form UX, not actionable signals for the admin.
+  /^password must be at least \d+ characters/i,
+  /^email( address)? is required/i,
+  /^please enter a valid email/i,
+  /^name is required/i,
+  /^phone( number)? is required/i,
+  /^password is required/i,
+  /^please fill (in )?all required fields/i,
+  /^please complete all required/i,
+  /^you must accept the terms/i,
+  /passwords (don'?t|do not) match/i,
+  /^this field is required/i,
+  /please select( a| an)/i,
 ];
 
 function isBenign(message) {

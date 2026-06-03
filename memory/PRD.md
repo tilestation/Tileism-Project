@@ -9,6 +9,45 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Jun 3, 2026 — Forked session] 🔇 Telegram noise filters: promo-banner network errors + form-validation toasts
+
+**User report** (two Telegram screenshots): admin chat spammed every few minutes with two recurring false-positive alerts:
+1. ⚠️ *"Network error on https://tile-station-production.up.railway.app/api/website/promo-banner: Network Error"* — recurring at 12:25, 12:40, 16:49…
+2. ⚠️ *"Password must be at least 8 characters"* — fired every time a customer typed a weak password on `/shop/trade/register` and Sonner showed the corrective toast.
+
+**Root cause analysis**:
+- The promo banner is optional UI — when its endpoint fails (Cloudflare blip, CORS misroute, etc.) the page renders fine without it. But the global error watcher in `clientErrorWatch.js` captures every axios failure including this one, ships it to `/api/client-errors/log`, the digest sends a Telegram alert.
+- "Password must be at least 8 characters" is a normal Sonner validation toast. The watcher monkey-patches `toast.error()` so EVERY red toast is reported — including normal form-UX feedback. The customer sees the toast, fixes the field, and continues — but the admin gets paged.
+
+**Fix shipped** — defence-in-depth filtering at both layers:
+
+**Frontend** (`/app/frontend/src/lib/clientErrorWatch.js`):
+- Added 13 new regex patterns to `BENIGN_PATTERNS`. Anything matched is dropped at source — never even sent to the backend.
+- Pattern 1: `/\/api\/website\/promo-banner/i` — silences ALL promo-banner network errors regardless of message format.
+- Patterns 2-13: every common Sonner validation copy (password length, email required, name required, phone required, passwords don't match, must accept terms, etc.).
+- Each pattern is anchored or scoped to avoid false positives — e.g. `/^password must be at least \d+ characters/i` matches the Sonner toast but NOT a server-side error like "Password reset token expired".
+
+**Backend** (`/app/backend/routes/client_errors.py`):
+- Mirrored the same patterns in the server's `BENIGN_PATTERNS` substring list (case-insensitive substring match — simpler than regex on the server). Defence-in-depth for customers still running the older JS bundle (cached pre-3-Jun-2026 deploy).
+- Filtered hits return `{"ok": true, "skipped": "benign_browser_internal"}` and skip the Mongo insert, so neither the panel nor the digest ever sees them.
+
+**Tests** (6 new in `tests/test_client_error_noise_filters.py`, 20 actual incl. parametrised):
+1. Promo-banner network error is silently dropped (no insert, no Telegram).
+2. Password-too-short toast is silently dropped.
+3. **15 parametrised** common validation messages are all dropped (every Sonner variant: password lengths 8/12/anything, email required/address required/valid email, name/phone/password required, please-fill-all-required variants, must-accept-terms, passwords-mismatch variants, this-field-required).
+4. Real 500 errors on real endpoints (e.g. `/api/checkout/place-order`) are STILL logged — filter is not over-eager.
+5. "Password reset token expired" is STILL logged — filter doesn't false-positive on the word "password" alone.
+6. Network errors on NON-promo endpoints (e.g. `/api/checkout/place-order`) are STILL logged — exemption is endpoint-specific.
+
+**Test suite**: 29/29 client-error tests pass (20 new + 9 existing). Lint clean on both files.
+
+**Files**:
+- `/app/frontend/src/lib/clientErrorWatch.js` — 13 new regex patterns added to `BENIGN_PATTERNS`.
+- `/app/backend/routes/client_errors.py` — mirrored substring patterns added to `BENIGN_PATTERNS` in `log_client_error`.
+- `/app/backend/tests/test_client_error_noise_filters.py` (NEW — 6 test cases, 20 actual incl. parametrised).
+
+
+
 ### [Jun 3, 2026 — Forked session] 🏪 "Which store?" — Per-store visibility upgrade
 
 **User report**: *"How do I know which store is playing radio and which store has paused. I receive telegram notification but it doesn't show which store it is from"*.

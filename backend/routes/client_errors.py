@@ -139,6 +139,31 @@ async def log_client_error(payload: ClientErrorPayload, request: Request):
         # whenever an admin opens DevTools on preview.
         "/api/admin/health/active",
         "/api/shop/admin/online",
+        # 3 Jun 2026 — Suppress promo-banner network noise. The
+        # banner is OPTIONAL — page renders fine without it. User
+        # report: Telegram chat spammed with these false-positives.
+        "/api/website/promo-banner",
+        # Form validation toasts that aren't bugs. These are NORMAL
+        # corrective UX (customer typed a weak password / forgot a
+        # field) — sonner showed an amber toast and the customer
+        # fixed it. Not actionable for the admin. Defence-in-depth
+        # for older cached frontend bundles still in the wild that
+        # haven't picked up the same filter at source.
+        "password must be at least",
+        "email is required",
+        "email address is required",
+        "please enter a valid email",
+        "name is required",
+        "phone is required",
+        "phone number is required",
+        "password is required",
+        "please fill all required fields",
+        "please fill in all required fields",
+        "please complete all required",
+        "you must accept the terms",
+        "passwords don't match",
+        "passwords do not match",
+        "this field is required",
     )
     if any(p in msg_lower for p in BENIGN_PATTERNS):
         return {"ok": True, "skipped": "benign_browser_internal"}
