@@ -9,6 +9,42 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Jun 3, 2026 — Forked session] 👑 DJ Mode: Super-admin can play any saved track on-air
+
+**User request**: *"Do the potential improvement [N of 8 counter], but only make it visible to Super Admin. Also, allow Super admin to choose and play a track from saved playlist during the live on air"*.
+
+**Backend** (`/app/backend/routes/radio_studio.py`):
+- New endpoint `POST /api/admin/radio-studio/live/jump-to` with body `{idx: int}`. Super-admin-only (role check returns 403 otherwise; wrong-role tokens are explicitly tested).
+- Resets `started_at_epoch` so the wall-clock places the loop at the start of the chosen item (offset = sum of durations BEFORE the chosen idx; anchor = now − cumulative_before).
+- Bumps `jump_token` (uuid4().hex, 32 chars) on the playlist doc. Every tuned-in client polls `/live/now-playing`, sees the new token, and resyncs its local playback index.
+- `/live/now-playing` now exposes `jump_token` at top level so clients can detect changes without a separate endpoint.
+- Validates idx against the playable-items count; out-of-range returns 400.
+
+**Frontend** (`/app/frontend/src/pages/public/PublicRadioPage.jsx`):
+- `useAuth()` hook from `AuthContext` (route is already wrapped in `<AuthProvider>`) → `isSuperAdmin = user?.role === 'super_admin'`. Returns user=null for anonymous visitors → gating is invisible by default.
+- **Item counter** (`[data-testid=public-radio-position-counter]`): amber pill with crown icon showing "Item N of M" — visible only when `isSuperAdmin && haveLocal` (i.e. logged in as super_admin + tuned in + playlist resolved).
+- **DJ panel** (`[data-testid=public-radio-dj-panel]`): scrollable list of every track in the saved playlist, each with a "Play this now" button. Visible only when `isSuperAdmin && haveLocal && playlistItems.length > 0`. Currently-playing row shows "On Air" badge; clicked-but-pending row shows "Jumping…" with `animate-pulse`.
+- **Jump handler** (`jumpTo(idx)`): POSTs to `/api/admin/radio-studio/live/jump-to` with the admin's Bearer token from `localStorage`. On success, calls `fetchNow()` immediately for instant resync (no waiting for the 4-second poll).
+- **Resync useEffect** watches `now.jump_token` — when it changes, hard-cuts the current audio and snaps `localIdx` to the server's new `current_index`. Within ~4 seconds of any super admin clicking "Play now", every tuned-in showroom is playing the chosen track from the start.
+
+**Tests** (7 new in `tests/test_radio_dj_jump_to.py`):
+1. Non-super-admin roles (admin / manager / staff / None / "") all get 403.
+2. Super admin can jump to a valid idx — response carries jump_token (32-char hex) + correct anchor (now − cumulative_before).
+3. Two distinct jumps produce two distinct tokens (so clients can detect the second jump).
+4. Out-of-range idx → 400 with "out of range" detail.
+5. Empty playlist → 400.
+6. jump_token is exposed in `/live/now-playing` top level.
+7. End-to-end: after `jump_to(idx=3)`, `/live/now-playing` reports `current_index=3` with `elapsed_seconds<2s`.
+
+**Testing-agent verdict** (iteration 186): 16/16 backend unit tests green (this file + the two prior fixes' tests). All 3 frontend gating scenarios PASS (anonymous user, super_admin before Tune-in, non-super-admin all correctly hide both UI elements). Two live API tests SKIPPED due to a preview-env data-state limitation (no ads have generated audio), not a code defect — the endpoint's defensive guard correctly refuses to jump on a playlist with no audio.
+
+**Files**:
+- `/app/backend/routes/radio_studio.py` — `JumpToReq` Pydantic model, `POST /live/jump-to` endpoint, `jump_token` added to `/live/now-playing` response.
+- `/app/frontend/src/pages/public/PublicRadioPage.jsx` — `useAuth` import, `isSuperAdmin` derive, `jumpTo` callback, DJ panel + position counter render blocks, `jump_token` resync useEffect.
+- `/app/backend/tests/test_radio_dj_jump_to.py` (NEW — 7 tests).
+
+
+
 ### [Jun 3, 2026 — Forked session] 🎙️ Ads cut off mid-play ("half or less playing, jumping to next randomly")
 
 **User report**: *"Some ads/trade talks are half or less playing and jumping to next randomly. Can you fix the issue and deeply check why aren't full length playing"*
