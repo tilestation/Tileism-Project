@@ -26,9 +26,8 @@
  * connect to Bluetooth speaker, leave the tab open.
  */
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { Radio, Play, Pause, Music, Mic, Info, ListMusic, Crown, FastForward } from 'lucide-react';
+import { Radio, Play, Pause, Music, Mic, Info, ListMusic } from 'lucide-react';
 import LiveVolumeMeter from '../../components/radio/LiveVolumeMeter';
-import { useAuth } from '../../contexts/AuthContext';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${API_URL}/api`;
@@ -71,13 +70,6 @@ const setDeviceLabel = (v) => {
 };
 
 export default function PublicRadioPage() {
-  // Auth context — used to gate super-admin-only UI (item counter,
-  // DJ-mode "Play this now" panel). The /radio route is wrapped in
-  // <AuthProvider> at the App root so this works on the public page
-  // (returns user=null for non-logged-in visitors).
-  const { user } = useAuth();
-  const isSuperAdmin = (user?.role === 'super_admin');
-
   // 31 May 2026 — `?solo=1` query param switches to single-device
   // preview mode (starts from track #1, no wall-clock sync, no
   // multi-store coordination). Used by the admin "Solo preview"
@@ -121,43 +113,6 @@ export default function PublicRadioPage() {
   // between server's `server_time` and client's `Date.now()` and
   // extrapolate "live server now" for accurate sync (3 Jun 2026).
   const nowReceivedAtClientMsRef = useRef(0);
-
-  // DJ-mode state (3 Jun 2026) — super-admin-only override that
-  // jumps the live broadcast to any item in the saved playlist.
-  const [djBusyIdx, setDjBusyIdx] = useState(null); // null | idx currently being jumped to
-  const [djErr, setDjErr] = useState(null);
-  const jumpTo = useCallback(async (idx) => {
-    if (!isSuperAdmin) return;
-    setDjBusyIdx(idx);
-    setDjErr(null);
-    try {
-      const token = localStorage.getItem('token');
-      const r = await fetch(`${API}/admin/radio-studio/live/jump-to`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify({ idx }),
-      });
-      if (!r.ok) {
-        const body = await r.json().catch(() => ({}));
-        throw new Error(body.detail || `Jump failed (HTTP ${r.status})`);
-      }
-      // Force an immediate refresh — don't wait for the 4s poll. The
-      // useEffect watching jump_token will detect the new token and
-      // resync localIdx.
-      await fetchNow();
-    } catch (e) {
-      setDjErr(e?.message || 'Jump failed');
-    } finally {
-      setDjBusyIdx(null);
-    }
-    // fetchNow is captured via closure but only used inside this
-    // callback — declaring it as a dep would create a new jumpTo
-    // identity every poll which churns the DJ panel buttons.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isSuperAdmin]);
 
   // Helper to fetch the currently-active audio element.
   const getActive = () => (activeRef.current === 'A' ? audioRefA.current : audioRefB.current);
@@ -769,20 +724,6 @@ export default function PublicRadioPage() {
                   {isAd ? `Voiced by ${cur.voice_name || 'AI narrator'}` : 'Music track'}
                   {cur.bed_music_name ? ` · over ${cur.bed_music_name}` : ''}
                 </div>
-                {/* Super-admin-only item-position counter (3 Jun 2026).
-                    Lets the admin verify the local-advance behaviour
-                    is rolling through the saved order one item at a
-                    time, without exposing the implementation detail
-                    to in-store listeners. */}
-                {isSuperAdmin && haveLocal && (
-                  <div
-                    className="mt-2 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-500/15 border border-amber-400/30 text-amber-300 text-[11px] font-semibold tracking-wide"
-                    data-testid="public-radio-position-counter"
-                  >
-                    <Crown className="w-3 h-3" />
-                    Item {(localIdx % playlistItems.length) + 1} of {playlistItems.length}
-                  </div>
-                )}
               </div>
 
               <div className="w-full max-w-md">
@@ -838,80 +779,12 @@ export default function PublicRadioPage() {
                 </div>
               )}
 
-              {/* DJ panel — super-admin-only override (3 Jun 2026).
-                  Click any track to start it playing immediately
-                  across every tuned-in showroom. Used by the admin
-                  to "play that Trade Talk now" when a customer
-                  walks in asking about something specific. */}
-              {isSuperAdmin && haveLocal && playlistItems.length > 0 && (
-                <div
-                  className="w-full max-w-md mt-3 border border-amber-500/30 bg-gradient-to-br from-amber-950/40 to-slate-900/60 rounded-2xl p-3"
-                  data-testid="public-radio-dj-panel"
-                >
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-2 text-[10px] uppercase tracking-[0.25em] font-bold text-amber-300">
-                      <Crown className="w-3 h-3" />
-                      DJ mode — Super admin
-                    </div>
-                    <div className="text-[10px] text-amber-200/70">
-                      Tap any track to play now
-                    </div>
-                  </div>
-                  <ol className="space-y-1 text-left max-h-72 overflow-y-auto pr-1">
-                    {playlistItems.map((it, i) => {
-                      const isCurrent = i === (localIdx % playlistItems.length);
-                      const isJumping = djBusyIdx === i;
-                      return (
-                        <li key={`${it.type}-${it.ref_id}-${i}`}>
-                          <button
-                            type="button"
-                            onClick={() => jumpTo(i)}
-                            disabled={djBusyIdx !== null || isCurrent}
-                            data-testid={`public-radio-dj-jump-${i}`}
-                            className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg border transition-colors text-left ${
-                              isCurrent
-                                ? 'bg-amber-500/20 border-amber-400/50 cursor-default'
-                                : 'bg-slate-800/40 border-slate-700/40 hover:bg-amber-500/10 hover:border-amber-400/40'
-                            } ${djBusyIdx !== null && !isCurrent ? 'opacity-40 cursor-wait' : ''}`}
-                          >
-                            <span className="text-[10px] font-mono text-slate-500 w-6 flex-shrink-0 text-right">
-                              {String(i + 1).padStart(2, '0')}
-                            </span>
-                            <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
-                              it.type === 'ad' ? 'bg-amber-400' : 'bg-fuchsia-400'
-                            }`} />
-                            <span className="text-[10px] uppercase tracking-wider text-slate-500 font-bold w-10 flex-shrink-0">
-                              {it.type === 'ad' ? 'Ad' : 'Music'}
-                            </span>
-                            <span className="text-sm text-slate-200 truncate flex-1">{it.name}</span>
-                            {typeof it.duration_seconds === 'number' && it.duration_seconds > 0 && (
-                              <span className="text-[10px] text-slate-500 font-mono tabular-nums flex-shrink-0">
-                                {Math.floor(it.duration_seconds)}s
-                              </span>
-                            )}
-                            {isCurrent ? (
-                              <span className="text-[10px] uppercase tracking-wider text-amber-300 font-bold flex-shrink-0">
-                                On Air
-                              </span>
-                            ) : isJumping ? (
-                              <span className="text-[10px] uppercase tracking-wider text-amber-300 font-bold flex-shrink-0 animate-pulse">
-                                Jumping…
-                              </span>
-                            ) : (
-                              <FastForward className="w-3 h-3 text-amber-400/60 flex-shrink-0" />
-                            )}
-                          </button>
-                        </li>
-                      );
-                    })}
-                  </ol>
-                  {djErr && (
-                    <p className="mt-2 text-[11px] text-rose-300" data-testid="public-radio-dj-err">
-                      {djErr}
-                    </p>
-                  )}
-                </div>
-              )}
+              {/* DJ controls moved to the admin Radio Studio
+                  dashboard (LiveStreamPanel) on 3 Jun 2026 per user
+                  request — keeps customer-facing tablets free of
+                  any "change tracks" controls. The public /radio
+                  page is for in-store playback only; super admin
+                  DJs from /admin/radio-studio. */}
 
               {/* Loop position — makes the wall-clock sync model
                   visible. "You're 5 min 12 s into the 27 min loop"

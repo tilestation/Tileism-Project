@@ -9,6 +9,40 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Jun 3, 2026 — Forked session] 👑→🎛️ DJ controls relocated from public /radio to admin Radio Studio dashboard
+
+**User report** (screenshot showing the DJ MODE panel on tilestation.co.uk/radio): *"I don't want anyone to change tracks from here, Only super admin. How do I do that? I thought it was supposed to be placed under Radio Studio dashboard only visible to Super Admin"*.
+
+**Reasoning**: The earlier implementation gated the DJ panel on `user.role === 'super_admin'` in `useAuth()`, so non-admin visitors and non-super-admin users never saw the controls. But the user's point is stronger — the controls don't *belong* on a customer-facing tablet at all. Even if no one else can use them, surfacing them on `/radio` creates UX noise on devices used as in-store displays. The right home is the admin Radio Studio dashboard, which is already gated by the admin-route guard.
+
+**Changes shipped**:
+
+**Public `/radio`** (`/app/frontend/src/pages/public/PublicRadioPage.jsx`):
+- Removed the DJ MODE panel (`[data-testid=public-radio-dj-panel]`) and all its supporting state (`djBusyIdx`, `djErr`, `jumpTo`).
+- Removed the "Item N of M" position counter (`[data-testid=public-radio-position-counter]`).
+- Dropped the `useAuth` import, `isSuperAdmin` flag, and the unused `Crown` + `FastForward` lucide icons.
+- The page is now strictly a customer-facing display: brand mark, sync banner, now-playing card, up-next preview, loop position, Tune In button. Zero admin controls.
+
+**Admin Radio Studio dashboard** (`/app/frontend/src/pages/admin/RadioStudio.jsx`):
+- `LiveStreamPanel` now imports `useAuth` and computes `isSuperAdmin = user?.role === 'super_admin'`.
+- New `jumpTo(idx)` handler that POSTs to `/api/admin/radio-studio/live/jump-to` (super-admin-only on the backend, returns 403 for managers/admins/staff — already enforced + tested).
+- DJ panel (`[data-testid=radio-live-dj-panel]`) renders only when `isSuperAdmin && now.items_ordered?.length > 0`. Scrollable list of every saved item with "Play this now" button per row, the same UX as before but inside the admin tab.
+- Sits inside the existing fuchsia Live Stream panel, directly under the Tune-in URL strip — placed exactly where a super admin reviewing the live broadcast naturally looks.
+- Used `axios` + `tokenHdr()` for the POST so the existing admin auth pipeline handles the Bearer token; surfaces a `toast.success` on jump success and `toast.error` on failure.
+
+**Defence-in-depth gating** (unchanged, just re-verified):
+1. **Frontend**: DJ panel only renders for `user.role === 'super_admin'`.
+2. **Frontend route**: `/admin/radio-studio` is wrapped by the existing admin route guard, so even reaching the dashboard requires admin login.
+3. **Backend**: `POST /api/admin/radio-studio/live/jump-to` checks `current_user.role === 'super_admin'` and returns 403 otherwise. Manager/admin/staff/anonymous all rejected — proven by `tests/test_radio_dj_jump_to.py::test_jump_rejects_non_super_admin`.
+
+**Tests**: 28/28 (existing backend tests cover the jump-to API contract end-to-end; UI relocation is a presentation-layer change with no API surface change). Lint clean on both files. Smoke screenshot of `/radio` confirms the DJ panel + position counter are gone and zero JS console errors.
+
+**Files**:
+- `/app/frontend/src/pages/public/PublicRadioPage.jsx` — DJ panel + counter + supporting code removed; imports cleaned up.
+- `/app/frontend/src/pages/admin/RadioStudio.jsx` — `useAuth` import, `isSuperAdmin` flag, `jumpTo` handler, DJ panel JSX block inserted into `LiveStreamPanel` under the Tune-in URL strip.
+
+
+
 ### [Jun 3, 2026 — Forked session] 🔄 Restored exact multi-store sync via HTTP byte-range + wall-clock seek
 
 **User report**: *"The radio is not playing same in all stores."*

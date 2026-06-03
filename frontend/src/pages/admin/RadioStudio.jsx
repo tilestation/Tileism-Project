@@ -23,8 +23,9 @@ import { toast } from 'sonner';
 import {
   Radio, Mic, Music, ListMusic, Play, Pause, Trash2, RefreshCw, Loader2,
   Plus, Save, Upload, Sparkles, GripVertical, Volume2, Globe, PoundSterling,
-  BookmarkPlus, MessageCircleQuestion, Info,
+  BookmarkPlus, MessageCircleQuestion, Info, Crown, FastForward,
 } from 'lucide-react';
+import { useAuth } from '../../contexts/AuthContext';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${API_URL}/api`;
@@ -3101,9 +3102,13 @@ function PlaylistTab({ ads, music, playlist, onPlaylistChange }) {
    in a new tab (for the in-store tablet wall display).
 ---------------------------------------------------------------- */
 function LiveStreamPanel({ hasItems }) {
+  const { user } = useAuth();
+  const isSuperAdmin = (user?.role === 'super_admin');
   const [now, setNow] = useState(null);
   const [streamOpen, setStreamOpen] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [djBusyIdx, setDjBusyIdx] = useState(null);
+  const [djErr, setDjErr] = useState(null);
   const audioRef = React.useRef(null);
   const currentRefRef = React.useRef(null);
 
@@ -3182,6 +3187,40 @@ function LiveStreamPanel({ hasItems }) {
       toast.success('Stream URL copied');
       setTimeout(() => setCopied(false), 1800);
     });
+  };
+
+  // DJ-mode jump (3 Jun 2026). Super-admin-only override that starts
+  // the chosen track playing immediately across every tuned-in
+  // showroom. Backed by POST /api/admin/radio-studio/live/jump-to,
+  // which is itself super_admin-only (returns 403 otherwise — see
+  // /app/backend/tests/test_radio_dj_jump_to.py).
+  //
+  // The DJ controls live inside this admin LiveStreamPanel rather
+  // than on the public /radio page, so customer-facing tablets can
+  // never accidentally surface the override even if a super admin
+  // is logged into the same browser. (User request 3 Jun 2026:
+  // "I don't want anyone to change tracks from here, Only super
+  // admin. I thought it was supposed to be placed under Radio
+  // Studio dashboard only visible to Super Admin".)
+  const jumpTo = async (idx) => {
+    if (!isSuperAdmin) return;
+    setDjBusyIdx(idx);
+    setDjErr(null);
+    try {
+      const r = await axios.post(
+        `${API}/admin/radio-studio/live/jump-to`,
+        { idx },
+        { headers: tokenHdr() },
+      );
+      toast.success(`Now on air: ${r.data?.name || `track #${idx + 1}`}`);
+      await fetchNow();
+    } catch (e) {
+      const msg = e?.response?.data?.detail || e?.message || 'Jump failed';
+      setDjErr(msg);
+      toast.error(`Jump failed: ${msg}`);
+    } finally {
+      setDjBusyIdx(null);
+    }
   };
 
   const cur = now?.now;
@@ -3352,6 +3391,83 @@ function LiveStreamPanel({ hasItems }) {
           · Use this URL in VLC or any continuous-stream audio app. Browsers use the in-store screen page above.
         </span>
       </div>
+
+      {/* DJ MODE — Super-admin-only on-air override (3 Jun 2026).
+          Lives inside the admin LiveStreamPanel rather than the
+          public /radio page so the controls never surface on a
+          customer-facing tablet. Lets the super admin start any
+          saved track playing immediately across every tuned-in
+          showroom (e.g. customer walks in asking about efflorescence,
+          admin DJs the Trade Talk to the floor on-the-fly). */}
+      {isSuperAdmin && now?.items_ordered?.length > 0 && (
+        <div
+          className="mt-3 border border-amber-500/30 bg-gradient-to-br from-amber-950/40 to-slate-950/60 rounded-xl p-3"
+          data-testid="radio-live-dj-panel"
+        >
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-2 text-[10px] uppercase tracking-[0.25em] font-bold text-amber-300">
+              <Crown className="w-3.5 h-3.5" />
+              DJ mode — Super admin
+            </div>
+            <div className="text-[10px] text-amber-200/70">
+              Tap any track to play now in every showroom
+            </div>
+          </div>
+          <ol className="space-y-1 text-left max-h-72 overflow-y-auto pr-1">
+            {now.items_ordered.map((it, i) => {
+              const isCurrent = i === now.current_index;
+              const isJumping = djBusyIdx === i;
+              return (
+                <li key={`${it.type}-${it.ref_id}-${i}`}>
+                  <button
+                    type="button"
+                    onClick={() => jumpTo(i)}
+                    disabled={djBusyIdx !== null || isCurrent}
+                    data-testid={`radio-live-dj-jump-${i}`}
+                    className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg border transition-colors text-left ${
+                      isCurrent
+                        ? 'bg-amber-500/20 border-amber-400/50 cursor-default'
+                        : 'bg-slate-800/40 border-slate-700/40 hover:bg-amber-500/10 hover:border-amber-400/40'
+                    } ${djBusyIdx !== null && !isCurrent ? 'opacity-40 cursor-wait' : ''}`}
+                  >
+                    <span className="text-[10px] font-mono text-slate-500 w-6 flex-shrink-0 text-right">
+                      {String(i + 1).padStart(2, '0')}
+                    </span>
+                    <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
+                      it.type === 'ad' ? 'bg-amber-400' : 'bg-fuchsia-400'
+                    }`} />
+                    <span className="text-[10px] uppercase tracking-wider text-slate-500 font-bold w-10 flex-shrink-0">
+                      {it.type === 'ad' ? 'Ad' : 'Music'}
+                    </span>
+                    <span className="text-sm text-slate-200 truncate flex-1">{it.name}</span>
+                    {typeof it.duration_seconds === 'number' && it.duration_seconds > 0 && (
+                      <span className="text-[10px] text-slate-500 font-mono tabular-nums flex-shrink-0">
+                        {Math.floor(it.duration_seconds)}s
+                      </span>
+                    )}
+                    {isCurrent ? (
+                      <span className="text-[10px] uppercase tracking-wider text-amber-300 font-bold flex-shrink-0">
+                        On Air
+                      </span>
+                    ) : isJumping ? (
+                      <span className="text-[10px] uppercase tracking-wider text-amber-300 font-bold flex-shrink-0 animate-pulse">
+                        Jumping…
+                      </span>
+                    ) : (
+                      <FastForward className="w-3.5 h-3.5 text-amber-400/60 flex-shrink-0" />
+                    )}
+                  </button>
+                </li>
+              );
+            })}
+          </ol>
+          {djErr && (
+            <p className="mt-2 text-[11px] text-rose-300" data-testid="radio-live-dj-err">
+              {djErr}
+            </p>
+          )}
+        </div>
+      )}
 
       <audio ref={audioRef} preload="none" data-testid="radio-live-preview-audio" />
     </div>
