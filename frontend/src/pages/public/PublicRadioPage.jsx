@@ -379,7 +379,15 @@ export default function PublicRadioPage() {
     currentRefRef.current = refKey;
     crossfadeFiredRef.current = false;
     audio.src = `${API_URL}${item.audio_url}`;
-    audio.volume = 1.0;
+    // Apply music-vs-ads balance (3 Jun 2026 — user request:
+    // "I am still struggling to find the volume control system
+    // between music and ads"). Each store reads the playlist's
+    // music_gain_db + ads_gain_db and applies it to audio.volume
+    // here. 0 dB = unity (1.0); -6 dB ≈ 0.5; -12 dB ≈ 0.25.
+    const gainDb = item.type === 'ad'
+      ? Number(now?.playlist?.ads_gain_db ?? 0)
+      : Number(now?.playlist?.music_gain_db ?? 0);
+    audio.volume = Math.max(0, Math.min(1, Math.pow(10, gainDb / 20)));
     // Seek to the wall-clock-derived elapsed offset BEFORE play()
     // so all 4 stores land at the same time-point of this item.
     // (3 Jun 2026 — multi-store sync fix.)
@@ -388,6 +396,24 @@ export default function PublicRadioPage() {
       setErr(e?.message || 'Browser blocked playback — tap Tune in again');
     });
   }, [tunedIn, localIdx]);
+
+  // Re-apply music-vs-ads gain whenever the playlist's gain values
+  // change at the server. So the admin can drag the balance fader
+  // in the admin dashboard and hear the change LIVE on the public
+  // /radio page within one poll cycle (~4 s). 3 Jun 2026.
+  useEffect(() => {
+    if (!tunedIn) return;
+    const items = itemsRef.current;
+    if (!items.length || localIdx < 0) return;
+    const audio = getActive();
+    if (!audio) return;
+    const item = items[localIdx % items.length];
+    if (!item) return;
+    const gainDb = item.type === 'ad'
+      ? Number(now?.playlist?.ads_gain_db ?? 0)
+      : Number(now?.playlist?.music_gain_db ?? 0);
+    audio.volume = Math.max(0, Math.min(1, Math.pow(10, gainDb / 20)));
+  }, [tunedIn, localIdx, now?.playlist?.ads_gain_db, now?.playlist?.music_gain_db]);
 
   // Drive the progress bar AND the crossfade trigger off the
   // active audio element's timeupdate. When we're within

@@ -9,6 +9,59 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Jun 3, 2026 — Forked session] 🎚️ Audio Mix fader (Music vs Ads balance) + Volume normaliser discoverability fix
+
+**User report**: *"I am still struggling to find the volume control system between music and ads"*.
+
+Two distinct problems folded into one fix:
+1. **Discoverability**: the existing one-shot "Volume Balance pill" (FFmpeg loudnorm to −16 LUFS for the entire library) was in the page header but visually understated (text-xs, single-border, low contrast). User didn't realise it was the volume control.
+2. **Missing feature**: no PERSISTENT bias control between music and ads. The −16 LUFS normaliser makes everything equally loud, but the user wanted to *bias* the balance (e.g. music quieter so spoken ads cut through). This didn't exist.
+
+**Fix shipped — both (a) discoverability + (b) new feature**:
+
+**Backend** (`/app/backend/routes/radio_studio.py`):
+- `PlaylistUpdate` Pydantic model now accepts `music_gain_db: float = Field(default=0.0, ge=-12.0, le=0.0)` and `ads_gain_db` with the same range. Out-of-range values are rejected by Pydantic (no boost > 0 dB to avoid clipping; no cut < -12 dB to avoid effective mute).
+- `save_playlist` persists both fields to the playlist doc.
+- `get_playlist` defaults legacy docs to 0 dB (unity).
+- `/live/now-playing.playlist` exposes both `music_gain_db` and `ads_gain_db` so the public radio page can apply them client-side. Legacy playlists default to 0 dB.
+
+**Frontend — Public radio page** (`/app/frontend/src/pages/public/PublicRadioPage.jsx`):
+- New `useEffect` reads `now.playlist.music_gain_db` / `ads_gain_db` and applies it via `audio.volume = 10^(db/20)`. Re-fires whenever the gains change at the server, so the admin can drag the slider in `/admin/radio-studio` and hear the change LIVE within one poll cycle (~4 s).
+- Initial item load also applies the gain (so the very first track plays at the correct balance, not unity for a beat).
+
+**Frontend — Admin Radio Studio** (`/app/frontend/src/pages/admin/RadioStudio.jsx`):
+- **Audio Mix panel** added to `LiveStreamPanel` directly under the Tune-in URL strip. Fuchsia gradient card with `[data-testid=radio-live-audio-mix]`. Two sliders side-by-side:
+  - `Music level` (purple accent, Music icon): -12 to 0 dB, step 0.5
+  - `Ads level` (amber accent, Mic icon): -12 to 0 dB, step 0.5
+- Live dB readout next to each label, "Auto-saves · applies to all 4 showrooms" status indicator, debounced auto-save (600 ms after last drag → POST `/admin/radio-studio/playlist` with the new gains).
+- Inline tooltip-quality explanation: *"Bias music quieter (e.g. -3 dB) so spoken ads cut through, or pull both back if the room is loud. For one-shot equalising across the whole library, use the Volume Balance pill in the page header."*
+- "Reset to 0 dB" button appears when either gain is non-zero.
+- **Existing header pill rebranded** for discoverability — bigger (px-3.5 py-2 vs px-3 py-1.5), thicker border (border-2 vs border), bolder text (font-bold vs font-semibold), shadows, and renamed from "Volume balance" to "One-shot normaliser" / "Volumes balanced ✓ −16 LUFS" so users don't confuse the two controls. The pill normalises to a target loudness; the new fader biases the music-vs-ads balance.
+
+**Architecture**: the Audio Mix fader and the Volume Normaliser pill solve different problems and now coexist clearly:
+- **Normaliser pill** (header): one-shot loudnorm so every ad + track sits at −16 LUFS (EBU R128 broadcast standard). Use when older content sounds quieter than new uploads.
+- **Audio Mix fader** (Live Stream panel): persistent gain bias that all 4 stores apply client-side. Use to make music a bit quieter so spoken ads pop, or vice versa.
+
+**Tests** (8 new in `tests/test_radio_audio_mix.py`, 12 actual incl. parametrised cases):
+1. `PlaylistUpdate` accepts valid gain values.
+2. `PlaylistUpdate` rejects out-of-range gains (parametrised across -100, -12.5, 0.5, 1, 6 — all must fail validation).
+3. `PlaylistUpdate` defaults gains to 0 dB when not specified (legacy admin code compatibility).
+4. `save_playlist` writes the gain fields to Mongo.
+5. `get_playlist` defaults legacy docs (no gain fields) to 0 dB.
+6. `/live/now-playing.playlist` exposes both gains.
+7. `/live/now-playing.playlist` defaults legacy gains to 0 dB.
+8. End-to-end round-trip: save with custom gains → load → values match.
+
+**Test suite**: 40/40 (12 audio mix + 12 byte-range + 4 items_ordered + 5 anchor + 7 DJ jump) — all sync-related fixes shipped today, zero regressions. Frontend lint clean on both files. Smoke screenshot of `/admin/radio-studio` Playlist tab confirms the Audio Mix panel renders prominently with both sliders at 0.0 dB, the rebranded "Volume Normaliser" pill visible in the header.
+
+**Files**:
+- `/app/backend/routes/radio_studio.py` — `PlaylistUpdate` model fields, `save_playlist` write, `get_playlist` defaults, `/live/now-playing.playlist` exposure (in both main + solo paths).
+- `/app/frontend/src/pages/admin/RadioStudio.jsx` — `useAuth` import (re-used from prior DJ feature), gain state + debounced auto-save in `LiveStreamPanel`, Audio Mix UI block, header pill restyle.
+- `/app/frontend/src/pages/public/PublicRadioPage.jsx` — gain-application useEffect on item load, separate re-apply useEffect when `now.playlist.music_gain_db` / `ads_gain_db` change.
+- `/app/backend/tests/test_radio_audio_mix.py` (NEW — 8 tests, 12 actual incl. parametrised).
+
+
+
 ### [Jun 3, 2026 — Forked session] 👑→🎛️ DJ controls relocated from public /radio to admin Radio Studio dashboard
 
 **User report** (screenshot showing the DJ MODE panel on tilestation.co.uk/radio): *"I don't want anyone to change tracks from here, Only super admin. How do I do that? I thought it was supposed to be placed under Radio Studio dashboard only visible to Super Admin"*.

@@ -162,27 +162,27 @@ export default function RadioStudio() {
                   ? `All ${totalNormalised} items at −16 LUFS — ads + music sound the same volume`
                   : `${totalPending} item${totalPending === 1 ? '' : 's'} need normalising — click to fix the music-vs-ads volume mismatch in one go`
               }
-              className={`group flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all border ${
+              className={`group flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all border-2 shadow-md ${
                 allHealthy
-                  ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/15'
+                  ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-200 hover:bg-emerald-500/25 shadow-emerald-500/10'
                   : totalPending > 0
-                    ? 'bg-amber-500/10 border-amber-500/40 text-amber-200 hover:bg-amber-500/20 animate-pulse'
-                    : 'bg-slate-700/40 border-slate-600/50 text-slate-400'
+                    ? 'bg-amber-500/20 border-amber-400/60 text-amber-100 hover:bg-amber-500/30 animate-pulse shadow-amber-500/20'
+                    : 'bg-slate-700/40 border-slate-600/50 text-slate-300'
               }`}
             >
-              <Volume2 className="w-3.5 h-3.5" />
+              <Volume2 className="w-4 h-4" />
               {totalPending > 0 ? (
                 <span>
-                  <span className="opacity-80">Volume balance:</span>{' '}
-                  <span className="font-bold">{totalPending} need fixing</span>
+                  <span className="opacity-80">One-shot normaliser:</span>{' '}
+                  <span className="font-extrabold">{totalPending} need fixing</span>
                 </span>
               ) : allHealthy ? (
                 <span>
-                  <span className="opacity-80">Volume balance:</span>{' '}
-                  <span className="font-bold">✓ All at −16 LUFS</span>
+                  <span className="opacity-80">Volumes balanced:</span>{' '}
+                  <span className="font-extrabold">✓ −16 LUFS</span>
                 </span>
               ) : (
-                <span>Volume balance: no audio yet</span>
+                <span>Volume normaliser: no audio yet</span>
               )}
             </button>
           );
@@ -3109,6 +3109,15 @@ function LiveStreamPanel({ hasItems }) {
   const [copied, setCopied] = useState(false);
   const [djBusyIdx, setDjBusyIdx] = useState(null);
   const [djErr, setDjErr] = useState(null);
+  // Music-vs-ads balance fader state (3 Jun 2026 — user request).
+  // Initialised from /live/now-playing on first arrival; saved
+  // debounced to /admin/radio-studio/playlist on user input so the
+  // change propagates to every tuned-in showroom within ~4 seconds.
+  const [musicGainDb, setMusicGainDb] = useState(0);
+  const [adsGainDb, setAdsGainDb] = useState(0);
+  const [mixDirty, setMixDirty] = useState(false);
+  const [mixSaving, setMixSaving] = useState(false);
+  const mixSaveTimerRef = React.useRef(null);
   const audioRef = React.useRef(null);
   const currentRefRef = React.useRef(null);
 
@@ -3132,6 +3141,70 @@ function LiveStreamPanel({ hasItems }) {
     const t = setInterval(() => alive && fetchNow(), 4000);
     return () => { alive = false; clearInterval(t); };
   }, [fetchNow]);
+
+  // Initialise the music/ads gain sliders from the server's view
+  // the FIRST time we see a `now.playlist`. Don't keep overwriting
+  // local state on every poll — that'd fight the user mid-drag.
+  // We re-sync only when the user hasn't touched the sliders (mix
+  // is clean) AND the saved value differs (e.g. another admin
+  // changed it from a different browser).
+  const mixInitedRef = React.useRef(false);
+  useEffect(() => {
+    const m = Number(now?.playlist?.music_gain_db);
+    const a = Number(now?.playlist?.ads_gain_db);
+    if (!Number.isFinite(m) || !Number.isFinite(a)) return;
+    if (!mixInitedRef.current) {
+      setMusicGainDb(m);
+      setAdsGainDb(a);
+      mixInitedRef.current = true;
+      return;
+    }
+    // Refresh local state ONLY if the user is not currently
+    // dirtying — avoids clobbering a half-typed drag.
+    if (!mixDirty && !mixSaving) {
+      if (m !== musicGainDb) setMusicGainDb(m);
+      if (a !== adsGainDb) setAdsGainDb(a);
+    }
+  }, [now?.playlist?.music_gain_db, now?.playlist?.ads_gain_db, mixDirty, mixSaving, musicGainDb, adsGainDb]);
+
+  // Debounced save of the music/ads balance. Fires 600ms after the
+  // last slider change so we don't hammer the playlist endpoint
+  // while the admin drags. All 4 stores pick up the new gains via
+  // their /live/now-playing poll (~4 s convergence).
+  useEffect(() => {
+    if (!mixDirty) return;
+    if (mixSaveTimerRef.current) clearTimeout(mixSaveTimerRef.current);
+    mixSaveTimerRef.current = setTimeout(async () => {
+      setMixSaving(true);
+      try {
+        await axios.post(
+          `${API}/admin/radio-studio/playlist`,
+          {
+            // Preserve existing playlist shape; only the gains change.
+            name: now?.playlist?.playlist_name || 'Default Playlist',
+            items: (now?.items_ordered || []).map((it) => ({ type: it.type, ref_id: it.ref_id })),
+            is_active: true,
+            repeat: now?.playlist?.repeat !== false,
+            crossfade_seconds: Number(now?.playlist?.crossfade_seconds || 0),
+            music_gain_db: musicGainDb,
+            ads_gain_db: adsGainDb,
+          },
+          { headers: tokenHdr() },
+        );
+        setMixDirty(false);
+        toast.success(`Balance saved · music ${musicGainDb >= 0 ? '+' : ''}${musicGainDb} dB · ads ${adsGainDb >= 0 ? '+' : ''}${adsGainDb} dB`, { duration: 2500 });
+        await fetchNow();
+      } catch (e) {
+        toast.error(`Couldn't save balance: ${e?.response?.data?.detail || e.message}`);
+      } finally {
+        setMixSaving(false);
+      }
+    }, 600);
+    return () => {
+      if (mixSaveTimerRef.current) clearTimeout(mixSaveTimerRef.current);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [musicGainDb, adsGainDb, mixDirty]);
 
   // Client-orchestrated preview playback. Each store plays the
   // current item FROM THE START (we deliberately don't seek into
@@ -3390,6 +3463,126 @@ function LiveStreamPanel({ hasItems }) {
         <span className="text-slate-500 hidden md:inline">
           · Use this URL in VLC or any continuous-stream audio app. Browsers use the in-store screen page above.
         </span>
+      </div>
+
+      {/* AUDIO MIX — Music vs Ads balance fader (3 Jun 2026).
+          The persistent volume-balance control between music and
+          ads that the user has been hunting for. Two sliders, both
+          auto-save with a 600ms debounce. Every showroom picks up
+          the new gains within ~4 s via the /live/now-playing poll
+          → consistent balance across all 4 stores. Sits directly
+          under the Tune-in URL so it's the FIRST thing the admin
+          sees when they open Radio Studio. */}
+      <div
+        className="mt-4 border border-fuchsia-500/30 bg-gradient-to-br from-fuchsia-950/40 to-slate-950/60 rounded-xl p-3"
+        data-testid="radio-live-audio-mix"
+      >
+        <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
+          <div className="flex items-center gap-2">
+            <Volume2 className="w-4 h-4 text-fuchsia-300" />
+            <h3 className="text-[11px] uppercase tracking-[0.25em] font-bold text-fuchsia-200">
+              Audio mix — Music vs Ads
+            </h3>
+          </div>
+          <div className="text-[10px] text-fuchsia-200/70">
+            {mixSaving
+              ? 'Saving…'
+              : mixDirty
+                ? 'Auto-saving in 600 ms'
+                : 'Auto-saves · applies to all 4 showrooms'}
+          </div>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div>
+            <label
+              htmlFor="radio-mix-music"
+              className="flex items-center justify-between text-[11px] mb-1"
+            >
+              <span className="flex items-center gap-1.5 text-slate-300 font-semibold">
+                <Music className="w-3 h-3 text-fuchsia-400" />
+                Music level
+              </span>
+              <span className="font-mono tabular-nums text-fuchsia-200" data-testid="radio-mix-music-value">
+                {musicGainDb > 0 ? '+' : ''}{musicGainDb.toFixed(1)} dB
+              </span>
+            </label>
+            <input
+              id="radio-mix-music"
+              type="range"
+              min={-12}
+              max={0}
+              step={0.5}
+              value={musicGainDb}
+              onChange={(e) => {
+                setMusicGainDb(Number(e.target.value));
+                setMixDirty(true);
+              }}
+              data-testid="radio-mix-music-slider"
+              className="w-full accent-fuchsia-400"
+            />
+            <div className="flex justify-between text-[9px] text-slate-500 font-mono px-0.5 mt-0.5">
+              <span>-12</span>
+              <span>-6</span>
+              <span>0</span>
+            </div>
+          </div>
+          <div>
+            <label
+              htmlFor="radio-mix-ads"
+              className="flex items-center justify-between text-[11px] mb-1"
+            >
+              <span className="flex items-center gap-1.5 text-slate-300 font-semibold">
+                <Mic className="w-3 h-3 text-amber-400" />
+                Ads level
+              </span>
+              <span className="font-mono tabular-nums text-amber-200" data-testid="radio-mix-ads-value">
+                {adsGainDb > 0 ? '+' : ''}{adsGainDb.toFixed(1)} dB
+              </span>
+            </label>
+            <input
+              id="radio-mix-ads"
+              type="range"
+              min={-12}
+              max={0}
+              step={0.5}
+              value={adsGainDb}
+              onChange={(e) => {
+                setAdsGainDb(Number(e.target.value));
+                setMixDirty(true);
+              }}
+              data-testid="radio-mix-ads-slider"
+              className="w-full accent-amber-400"
+            />
+            <div className="flex justify-between text-[9px] text-slate-500 font-mono px-0.5 mt-0.5">
+              <span>-12</span>
+              <span>-6</span>
+              <span>0</span>
+            </div>
+          </div>
+        </div>
+        <div className="mt-2 flex items-center justify-between flex-wrap gap-2">
+          <p className="text-[10px] text-slate-400 flex items-start gap-1.5 max-w-md">
+            <Info className="w-3 h-3 mt-0.5 flex-shrink-0" />
+            <span>
+              Bias music quieter (e.g. -3 dB) so spoken ads cut through, or pull both back if the room is loud.
+              For one-shot equalising across the whole library, use the <strong className="text-emerald-300">Volume Balance pill</strong> in the page header.
+            </span>
+          </p>
+          {(musicGainDb !== 0 || adsGainDb !== 0) && (
+            <button
+              type="button"
+              onClick={() => {
+                setMusicGainDb(0);
+                setAdsGainDb(0);
+                setMixDirty(true);
+              }}
+              data-testid="radio-mix-reset"
+              className="px-2 py-1 text-[10px] font-bold rounded bg-slate-700/50 hover:bg-slate-700/80 text-slate-200 border border-slate-600/50"
+            >
+              Reset to 0 dB
+            </button>
+          )}
+        </div>
       </div>
 
       {/* DJ MODE — Super-admin-only on-air override (3 Jun 2026).

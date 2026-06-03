@@ -896,6 +896,16 @@ class PlaylistUpdate(BaseModel):
     # feel; 3 s is the upper sanity cap (longer than that and short
     # ads / station idents start to blur into each other).
     crossfade_seconds: float = Field(default=0.0, ge=0.0, le=3.0)
+    # 3 Jun 2026 — Persistent music-vs-ads balance fader. User
+    # request: "I am still struggling to find the volume control
+    # system between music and ads". The −16 LUFS normaliser handles
+    # per-item loudness consistency; these fields let the admin
+    # additionally BIAS the balance (e.g. music a touch quieter so
+    # voice ads pop, or vice versa). Range -12 dB … 0 dB. Applied
+    # client-side in PublicRadioPage via the HTML5 audio.volume
+    # property (volume = 10^(db/20)). Defaults to 0 dB = unity gain.
+    music_gain_db: float = Field(default=0.0, ge=-12.0, le=0.0)
+    ads_gain_db: float = Field(default=0.0, ge=-12.0, le=0.0)
 
 
 class MusicImportFromUrlReq(BaseModel):
@@ -3314,6 +3324,10 @@ async def get_playlist(current_user: dict = Depends(get_current_user)):
     playlist.setdefault("repeat", True)
     # Legacy playlists predating crossfade default to 0 (hard cut).
     playlist.setdefault("crossfade_seconds", 0.0)
+    # Legacy playlists predating the music-vs-ads balance fader
+    # (added 3 Jun 2026) default to 0 dB = unity gain on both.
+    playlist.setdefault("music_gain_db", 0.0)
+    playlist.setdefault("ads_gain_db", 0.0)
     return playlist
 
 
@@ -3335,6 +3349,12 @@ async def save_playlist(
         "is_active": req.is_active,
         "repeat": req.repeat,
         "crossfade_seconds": float(req.crossfade_seconds or 0.0),
+        # Music-vs-ads balance fader (3 Jun 2026 — user request:
+        # "I am still struggling to find the volume control system
+        # between music and ads"). Applied client-side via HTML5
+        # audio.volume so all 4 stores share the same balance.
+        "music_gain_db": float(req.music_gain_db or 0.0),
+        "ads_gain_db": float(req.ads_gain_db or 0.0),
         "created_at": (existing or {}).get("created_at") or now,
         "updated_at": now,
     }
@@ -4018,6 +4038,8 @@ async def live_playlist_preview():
             "total_seconds": round(sum(r["duration_seconds"] for r in resolved), 1),
             "crossfade_seconds": float(playlist.get("crossfade_seconds") or 0.0),
             "playlist_name": playlist.get("name") or "Default Playlist",
+            "music_gain_db": float(playlist.get("music_gain_db") or 0.0),
+            "ads_gain_db": float(playlist.get("ads_gain_db") or 0.0),
         },
     }
 
@@ -4254,6 +4276,11 @@ async def live_now_playing():
             "repeat": repeat,
             "crossfade_seconds": float(playlist.get("crossfade_seconds") or 0.0),
             "playlist_name": playlist.get("name") or "Default Playlist",
+            # Music-vs-ads balance (3 Jun 2026). Clients multiply
+            # audio.volume by 10^(db/20) before play() — 0 dB =
+            # 1.0 (unity), -6 dB ≈ 0.5, -12 dB ≈ 0.25.
+            "music_gain_db": float(playlist.get("music_gain_db") or 0.0),
+            "ads_gain_db": float(playlist.get("ads_gain_db") or 0.0),
         },
         # `server_time` lets a client extrapolate elapsed seconds
         # without re-polling — they can interpolate locally for
