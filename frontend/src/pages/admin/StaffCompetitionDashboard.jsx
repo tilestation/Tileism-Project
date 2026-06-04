@@ -24,7 +24,7 @@ import { toast } from 'sonner';
 import {
   Crown, Trophy, Flame, TrendingUp, Award, Megaphone,
   Clock, Target, Calendar, ArrowUpRight, ArrowDownRight,
-  Send, X, Sparkles, BarChart3,
+  Send, X, Sparkles, BarChart3, Eye,
 } from 'lucide-react';
 import { Card } from '../../components/ui/card';
 import { Input } from '../../components/ui/input';
@@ -547,6 +547,64 @@ export default function StaffCompetitionDashboard() {
           <p className="text-[10px] text-muted-foreground mt-2 italic">
             Message length: {highlightForm.message.length}/240 · Duration: {highlightForm.duration_hours} hours
           </p>
+
+          {/* Live preview — pixel-matches LeaderboardBanner's
+              highlight slide so the super-admin sees exactly how
+              the broadcast will render across every admin page
+              BEFORE they hit Send. Updates in real-time as they
+              type. (4 Jun 2026 — user-requested preview pane.) */}
+          <div className="mt-4" data-testid="highlight-preview-wrap">
+            <div className="flex items-center gap-2 text-[10px] uppercase tracking-[0.2em] font-bold text-muted-foreground mb-1.5">
+              <Eye className="w-3 h-3" />
+              Preview · this is what every admin will see at the top of every page
+            </div>
+            <div className="rounded-lg overflow-hidden border border-emerald-700/40 shadow-md">
+              {(highlightForm.name.trim() || highlightForm.message.trim()) ? (
+                <div
+                  data-testid="highlight-preview"
+                  className="bg-gradient-to-r from-emerald-950 via-emerald-900 to-amber-950 text-emerald-50 text-xs md:text-sm"
+                >
+                  <div className="flex items-center justify-center gap-2 px-3 md:px-6 py-1.5">
+                    <Trophy className="w-4 h-4 text-amber-300 flex-shrink-0 animate-pulse" />
+                    <div className="truncate text-center leading-snug">
+                      <span className="font-extrabold text-amber-200" data-testid="highlight-preview-name">
+                        {highlightForm.name.trim() || 'Staff name'}
+                      </span>
+                      {highlightForm.showroom_name.trim() && (
+                        <span className="text-amber-200/80"> · {highlightForm.showroom_name.trim()}</span>
+                      )}
+                      <span className="text-emerald-200">
+                        {' '}— {highlightForm.message.trim() || 'Your message will appear here…'}
+                      </span>
+                      <span className="ml-2">🎉</span>
+                    </div>
+                    <div className="hidden md:flex items-center gap-1 ml-2 flex-shrink-0">
+                      <span className="w-1.5 h-1.5 rounded-full bg-amber-300" />
+                      <span className="w-1.5 h-1.5 rounded-full bg-amber-200/30" />
+                      <span className="w-1.5 h-1.5 rounded-full bg-amber-200/30" />
+                    </div>
+                    <span className="hidden md:inline-flex items-center gap-1 ml-2 px-2 py-0.5 rounded-full bg-amber-500/20 border border-amber-300/40 text-[10px] uppercase tracking-wider font-bold text-amber-100">
+                      See full board ›
+                    </span>
+                  </div>
+                </div>
+              ) : (
+                <div
+                  data-testid="highlight-preview-empty"
+                  className="bg-muted/40 text-muted-foreground text-xs italic px-4 py-3 text-center"
+                >
+                  Start typing a staff name or message above — the live banner preview will appear here.
+                </div>
+              )}
+            </div>
+            {(highlightForm.name.trim() || highlightForm.message.trim()) && (
+              <div className="text-[10px] text-muted-foreground mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-0.5">
+                <span>👁 Broadcasts to every super-admin / admin / manager / staff browser tab.</span>
+                <span>⏱ Disappears automatically after {highlightForm.duration_hours || 24} h.</span>
+                <span>🔄 Replaces any active highlight.</span>
+              </div>
+            )}
+          </div>
         </Card>
       )}
 

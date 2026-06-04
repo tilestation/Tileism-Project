@@ -9,6 +9,21 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Jun 4, 2026 — Forked session] 🎨 Staff Competition Dashboard — light-mode legibility + Sales Leaderboard promoted + live "Highlight a hero" preview pane
+
+**User-requested follow-up (after the legibility fix)**: *"wire a tiny 'Highlight a hero' preview pane under the broadcast form so super-admins see exactly how the banner will render across every admin page before they hit Send"* — confirmed YES.
+
+**Live preview** added directly under the Send-button row in Section 7 (`StaffCompetitionDashboard.jsx`):
+- **Pixel-matches the actual `LeaderboardBanner` highlight-slide**: same emerald-950 → emerald-900 → amber-950 gradient, same Trophy icon (amber-300, pulsing), same `font-extrabold text-amber-200` for the name + `text-amber-200/80` for the showroom + `text-emerald-200` for the message + 🎉, same 3-dot slide indicators (first dot active because the highlight pre-empts the auto cycle), and the same `See full board ›` amber pill — every visual cue a super-admin sees on the actual banner.
+- Updates **in real-time** as the super-admin types in the Name / Showroom / Message inputs. Trim-aware (typing only whitespace doesn't trigger the preview).
+- **Empty state**: muted "Start typing a staff name or message above — the live banner preview will appear here." so the section never looks broken before they engage with it.
+- **Below the preview** — three plain-English bullets reinforce the contract the super-admin is about to sign: *"👁 Broadcasts to every super-admin / admin / manager / staff browser tab"* + *"⏱ Disappears automatically after {N} h"* (reads the live duration from the input) + *"🔄 Replaces any active highlight."* — so they know what hitting Send actually does without having to remember it.
+- New `data-testid`s for testing: `highlight-preview-wrap`, `highlight-preview`, `highlight-preview-name`, `highlight-preview-empty`.
+
+**Verification**: Lint clean. Smoke screenshot confirms both empty and populated states render correctly. Reuses the existing `<Eye>` icon (just imported) — no new dependencies.
+
+
+
 ### [Jun 4, 2026 — Forked session] 🎨 Staff Competition Dashboard — light-mode legibility + Sales Leaderboard promoted to hero-adjacent
 
 **User report (with screenshot)**: text on the new dashboard was invisible (light cream card background with yellow/amber-400 text), and the Sales Leaderboard was buried below streaks/showrooms instead of being near the top.
