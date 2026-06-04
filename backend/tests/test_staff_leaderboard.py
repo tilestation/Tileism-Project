@@ -537,13 +537,13 @@ def test_sales_value_falls_back_through_field_aliases():
     from routes.staff_leaderboard import _compute_leaderboard
     _reset_cache()
     invoices = [
-        {"created_by_user_id": "u_a", "order_type": "Special Order",
+        {"created_by_user_id": "u_a", "sales_person": "A", "order_type": "Special Order",
          "grand_total": 100.0, "created_at": _NOW},
-        {"created_by_user_id": "u_a", "order_type": "Special Order",
+        {"created_by_user_id": "u_a", "sales_person": "A", "order_type": "Special Order",
          "total_amount": 200.0, "created_at": _NOW},
-        {"created_by_user_id": "u_a", "order_type": "Special Order",
+        {"created_by_user_id": "u_a", "sales_person": "A", "order_type": "Special Order",
          "total": 300.0, "created_at": _NOW},
-        {"created_by_user_id": "u_a", "order_type": "Special Order",
+        {"created_by_user_id": "u_a", "sales_person": "A", "order_type": "Special Order",
          "subtotal": 400.0, "created_at": _NOW},
     ]
     users = [{"id": "u_a", "email": "a@x", "name": "A", "role": "staff",
@@ -553,6 +553,93 @@ def test_sales_value_falls_back_through_field_aliases():
         board = asyncio.run(_compute_leaderboard())
     assert board["staff"][0]["sales_value_gbp"] == 1000.0
     assert board["staff"][0]["sales_count"] == 4
+
+
+# ---------------------------------------------------------------------
+# 18. Shared store login → grouping by sales_person (4 Jun 2026).
+#     User report: banner showed "Tile Station Gravesend from
+#     Gravesend is leading" because every staff at Gravesend shares
+#     ONE auth account named "Tile Station Gravesend". Grouping by
+#     uid collapses 3+ humans into one row. Switch grouping to
+#     sales_person (the EPOS form-typed staff name) so each human
+#     gets their own leaderboard row.
+# ---------------------------------------------------------------------
+def test_shared_store_account_splits_into_individual_staff():
+    """Three quotes from three different staff (Syed, Kas, Sara) all
+    stamped to the SAME shared uid "u_store_gv". Each must get their
+    own leaderboard row keyed off `sales_person`."""
+    import asyncio
+    from routes.staff_leaderboard import _compute_leaderboard
+    _reset_cache()
+    quotes = [
+        {"created_by_user_id": "u_store_gv", "sales_person": "Syed",
+         "created_at": _NOW, "converted_at": _NOW},
+        {"created_by_user_id": "u_store_gv", "sales_person": "Kas",
+         "created_at": _NOW, "converted_at": _NOW},
+        {"created_by_user_id": "u_store_gv", "sales_person": "Syed",
+         "created_at": _NOW, "converted_at": _NOW},
+        {"created_by_user_id": "u_store_gv", "sales_person": "Sara",
+         "created_at": _NOW},  # not converted
+    ]
+    users = [
+        # The shared store account — name is the SHOWROOM name.
+        {"id": "u_store_gv", "email": "gv@tilestation.co.uk",
+         "name": "Tile Station Gravesend", "role": "staff",
+         "showroom_id": "sr_gv", "showroom_name": "Gravesend"},
+    ]
+    db = _build_db(quotes=quotes, users=users)
+    with patch("routes.staff_leaderboard.get_db", return_value=db):
+        board = asyncio.run(_compute_leaderboard())
+    by_name = {s["name"]: s for s in board["staff"]}
+    assert "Syed" in by_name, f"Syed missing — got {list(by_name.keys())}"
+    assert "Kas" in by_name
+    assert "Sara" in by_name
+    assert by_name["Syed"]["quotes_converted"] == 2
+    assert by_name["Kas"]["quotes_converted"] == 1
+    assert by_name["Sara"]["quotes_created"] == 1
+    assert by_name["Sara"]["quotes_converted"] == 0
+    # All three resolve to Gravesend via the shared user record.
+    assert by_name["Syed"]["showroom_name"] == "Gravesend"
+    assert by_name["Kas"]["showroom_name"] == "Gravesend"
+    assert by_name["Sara"]["showroom_name"] == "Gravesend"
+
+
+def test_sales_person_grouping_collapses_mixed_uid_stamps():
+    """Same human (Kas) with one quote stamped uid+sales_person, and
+    another stamped only sales_person (no uid). Both must collapse
+    into ONE row because they share the same sales_person."""
+    import asyncio
+    from routes.staff_leaderboard import _compute_leaderboard
+    _reset_cache()
+    quotes = [
+        {"created_by_user_id": "u_kas", "sales_person": "Kas",
+         "created_at": _NOW, "converted_at": _NOW},
+        {"sales_person": "Kas", "created_at": _NOW, "converted_at": _NOW},
+    ]
+    users = [{"id": "u_kas", "email": "kas@x", "name": "Kas",
+              "role": "staff", "showroom_id": "sr_t", "showroom_name": "Tonbridge"}]
+    db = _build_db(quotes=quotes, users=users)
+    with patch("routes.staff_leaderboard.get_db", return_value=db):
+        board = asyncio.run(_compute_leaderboard())
+    assert len(board["staff"]) == 1
+    assert board["staff"][0]["quotes_converted"] == 2
+
+
+def test_sales_person_grouping_preserves_canonical_user_id():
+    """The grouping key changed to sp:<name> but the row's `user_id`
+    field must still be the canonical uid (so the dashboard can
+    link to a profile + the streak/avg lookups still work)."""
+    import asyncio
+    from routes.staff_leaderboard import _compute_leaderboard
+    _reset_cache()
+    quotes = [{"created_by_user_id": "u_amy", "sales_person": "Amy",
+               "created_by": "amy@x", "created_at": _NOW, "converted_at": _NOW}]
+    users = [{"id": "u_amy", "email": "amy@x", "name": "Amy",
+              "role": "staff", "showroom_id": "sr_m", "showroom_name": "Maidstone"}]
+    db = _build_db(quotes=quotes, users=users)
+    with patch("routes.staff_leaderboard.get_db", return_value=db):
+        board = asyncio.run(_compute_leaderboard())
+    assert board["staff"][0]["user_id"] == "u_amy"
 
 
 if __name__ == "__main__":

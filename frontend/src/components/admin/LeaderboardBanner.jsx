@@ -87,6 +87,13 @@ export default function LeaderboardBanner() {
     }
     const c = data.conv_leader;
     if (c && c.quotes_converted > 0) {
+      // 4 Jun 2026 — when the row's name equals the showroom name
+      // (e.g. a legacy quote stamped to a shared store login like
+      // "Tile Station Gravesend"), avoid the redundant "Tile Station
+      // Gravesend from Gravesend" text — just show the showroom once.
+      const sameAsShowroom = c.showroom_name
+        && c.name
+        && c.name.trim().toLowerCase().includes(c.showroom_name.trim().toLowerCase());
       out.push({
         key: 'conv',
         kind: 'conversion',
@@ -94,8 +101,8 @@ export default function LeaderboardBanner() {
         copy: (
           <>
             <span className="font-extrabold text-amber-200">{c.name}</span>
-            {c.showroom_name && c.showroom_name !== 'Unassigned' && (
-              <span className="text-amber-200/80"> from {c.showroom_name}</span>
+            {c.showroom_name && c.showroom_name !== 'Unassigned' && !sameAsShowroom && (
+              <span className="text-amber-200/80"> · {c.showroom_name}</span>
             )}
             <span className="text-emerald-200"> is leading {data.month} quote conversions —{' '}</span>
             <span className="font-bold text-white">{c.quotes_converted} won</span>
@@ -109,6 +116,9 @@ export default function LeaderboardBanner() {
     }
     const s = data.sales_leader;
     if (s && s.sales_value_gbp > 0) {
+      const sameAsShowroom = s.showroom_name
+        && s.name
+        && s.name.trim().toLowerCase().includes(s.showroom_name.trim().toLowerCase());
       out.push({
         key: 'sales',
         kind: 'sales',
@@ -116,8 +126,8 @@ export default function LeaderboardBanner() {
         copy: (
           <>
             <span className="font-extrabold text-yellow-200">{s.name}</span>
-            {s.showroom_name && s.showroom_name !== 'Unassigned' && (
-              <span className="text-yellow-200/80"> from {s.showroom_name}</span>
+            {s.showroom_name && s.showroom_name !== 'Unassigned' && !sameAsShowroom && (
+              <span className="text-yellow-200/80"> · {s.showroom_name}</span>
             )}
             <span className="text-emerald-200"> tops {data.month} Special-Order sales —{' '}</span>
             <span className="font-bold text-white">

@@ -9,6 +9,51 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Jun 4, 2026 — Forked session] 🔓 Staff Competition: visible to everyone + group by sales_person (not shared-store uid)
+
+**User report (mobile screenshot at tilestation.co.uk)**: 
+1. "Couldn't load competition: Admin role required." — staff member couldn't open the dashboard at all.
+2. Banner read **"Tile Station Gravesend from Gravesend is leading"** — i.e. the *store's shared login account* was topping the leaderboard, not an actual human. User asked: *"staff names need to be visible along with Gravesend store or whoever is leading"*.
+
+**Root cause #1** (visibility): four READ-only endpoints were gated behind `super_admin / admin / manager` roles, so the entire `/admin/staff-competition` route 403'd for plain staff:
+- `GET /api/staff-leaderboard/full`
+- `GET /api/staff-leaderboard/streak/{user_key}`
+- `GET /api/staff-leaderboard/competition`
+- `GET /api/staff-leaderboard/hall-of-fame`
+
+**Root cause #2** (shared store account): every Gravesend staff signs into one shared user account literally named *"Tile Station Gravesend"*. My previous fix grouped the leaderboard by `created_by_user_id` so all 4+ humans collapsed into a single row labelled with the store-account name. The actual "who made the sale" attribution lives in the **freeform `sales_person` form field** on each quote.
+
+**Fixes**:
+
+1. **Opened the dashboard to all authenticated users** — removed the role gate on the 4 read-only endpoints above. Mutating endpoints (set targets, broadcast highlight, record bonuses, trigger snapshot) keep their `super_admin` role check.
+2. **Grouping key switched to `sales_person`** (`routes/staff_leaderboard.py`):
+   - `_staff_key()` now keys rows as `sp:<sales_person.lower()>` rather than the canonical uid. Each human typed into the EPOS form gets their own row — even when 4 staff share one auth login.
+   - `_resolve_user()` STILL runs to hydrate the row's `showroom_name` and `user_id` from the users collection (so the dashboard can still link a row to a profile + show the right showroom).
+   - Returns a 5-tuple `(key, display_name, showroom_id, showroom_name, canonical_uid)`. Callers set `entry["user_id"] = canonical_uid` so streak/avg lookups still resolve to the right person.
+   - `_compute_streak()` + `_compute_personal_avg_rate()` learnt the new `sp:` prefix in addition to the legacy `name:` / `email:` / bare-uid keys (so historical mixed-stamp quotes still match).
+3. **Banner copy de-duped** (`components/admin/LeaderboardBanner.jsx`) — when the row's name contains the showroom name (legacy data fallback), the " · {showroom}" suffix is suppressed so you never see "Tile Station Gravesend · Gravesend". Switched separator from "from" to "·" for tighter visual rhythm.
+
+**Regression tests** (3 new, all pass):
+1. `test_shared_store_account_splits_into_individual_staff` — 4 quotes from 3 different sales_persons (Syed×2, Kas×1, Sara×1) all stamped to ONE shared uid → 3 separate rows on the leaderboard, all resolving to Gravesend.
+2. `test_sales_person_grouping_collapses_mixed_uid_stamps` — same person (Kas) with one quote stamped uid+name + one stamped name-only → collapses to ONE row (sales_person is the key).
+3. `test_sales_person_grouping_preserves_canonical_user_id` — row's `user_id` field is the canonical uid (resolved from the users collection), NOT the new `sp:` key — so the dashboard can still link to a profile.
+
+Existing tests updated where fixtures had no `sales_person` (would now key to "Unknown"); the showroom-resolution tests now all carry sales_person and continue passing.
+
+**Test suite**: 51/51 pass (48 prior + 3 new). Lint clean across backend + frontend. Backend restarted.
+
+**What you should see on production once deployed**:
+- Any logged-in staff member can open `/admin/staff-competition` from mobile or desktop — no more "Admin role required" toast.
+- Banner reads **"Syed · Gravesend is leading June quote conversions — 12 won · 58% rate 📈"** instead of "Tile Station Gravesend from Gravesend is leading…".
+- Sales Leaderboard cards each show a real human (Syed / Kas / Sara) — Gravesend's 3 staff are 3 rows, not 1.
+
+**Files**:
+- `/app/backend/routes/staff_leaderboard.py` — 4 role-gate removals, `_staff_key` rewrite (5-tuple), `_compute_streak` + `_compute_personal_avg_rate` learn `sp:` prefix, 2 call sites in `_compute_leaderboard` unpack the new 5-tuple, 3 call sites in dashboards switched to `sp:` keys.
+- `/app/frontend/src/components/admin/LeaderboardBanner.jsx` — de-dup suffix when name contains showroom.
+- `/app/backend/tests/test_staff_leaderboard.py` — 3 new regression tests + existing fixtures patched with `sales_person`.
+
+
+
 ### [Jun 4, 2026 — Forked session] 💰 Invoice totals showing £0.00 — fixed across orphan picker, orphan banner, and Sales Leaderboard
 
 **User report (with screenshot)**: in the new "Link Invoice" picker, every invoice for Richard Irwin (INV-285991, INV-911458) showed **£0.00** instead of the real total. Also explains why the Sales Leaderboard was always empty even with Special-Order invoices in the DB.

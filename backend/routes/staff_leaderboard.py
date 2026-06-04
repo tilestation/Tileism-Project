@@ -216,59 +216,65 @@ async def _compute_leaderboard(month_only: bool = True) -> dict:
 
     staff_map: dict = {}  # key = stable staff-id, value = aggregated dict
 
-    def _staff_key(q: dict) -> tuple[str, str, str, str]:
-        """Return (key, display_name, showroom_id, showroom_name).
+    def _staff_key(q: dict) -> tuple[str, str, str, str, str]:
+        """Return (key, display_name, showroom_id, showroom_name, canonical_uid).
 
-        Uses _resolve_user to find the canonical user-id whenever
-        possible, so a staff member with mixed-format stamps (some
-        quotes carrying `created_by_user_id`, others only `created_by`
-        email, others only `sales_person` name) collapses into a
-        single row on the leaderboard.
+        4 Jun 2026: GROUPING KEY is now `sales_person` (the freeform
+        staff name typed into the EPOS form) — NOT the auth user id.
+        Many showrooms share a single store login (e.g. one shared
+        "Tile Station Gravesend" account that every staff uses), so
+        grouping by uid collapses 4 different humans into one row.
+        sales_person is the form-typed name on the printed quote —
+        the canonical "who actually made this sale" attribution.
 
-        Showroom: prefers the doc's own stamp; falls back to the
-        showrooms collection via the doc's showroom_id; falls back to
-        the user's stored showroom (4 Jun 2026 fix — quotations never
-        stamp showroom_name, so without this fallback every card on
-        the dashboard reads 'Unassigned')."""
+        Showroom name + canonical user-id are still resolved via
+        the users collection so:
+          - the dashboard can still link the row to a staff profile
+          - the showroom column shows the right store even when the
+            quote/invoice doc doesn't carry showroom_name
+
+        Falls back to user-record name when sales_person is blank
+        (rare — EPOS form usually requires it)."""
         uid = (q.get("created_by_user_id") or "").strip()
         sp = (q.get("sales_person") or "").strip()
         cb = (q.get("created_by") or "").strip()
         showroom_id = (q.get("showroom_id") or "").strip()
         showroom_name = (q.get("showroom_name") or "").strip()
 
-        # Hydrate name from showrooms collection if only id is on the doc.
+        # Hydrate showroom_name from the showrooms collection when
+        # the doc only carries an id.
         if showroom_id and not showroom_name:
             showroom_name = showroom_name_by_id.get(showroom_id, "")
 
-        # Resolve canonical key + user info from the users collection.
+        # Resolve canonical user info (name + showroom) from the
+        # users collection — uid first, email fallback, name fallback.
         canonical_key, resolved_name, r_sid, r_sname = _resolve_user(uid, sp, cb)
         if not showroom_id and r_sid:
             showroom_id = r_sid
         if not showroom_name and r_sname:
             showroom_name = r_sname
 
-        # Pick the best canonical key — fall back to email/name if the
-        # user couldn't be resolved against the users collection.
-        if canonical_key:
-            key = canonical_key
-        elif uid:
-            key = uid
-        elif cb:
-            key = f"email:{cb.lower()}"
-        elif sp:
-            key = f"name:{sp.lower()}"
-        else:
-            return ("", "", showroom_id, showroom_name)
+        # Pick the display name — sales_person wins; otherwise fall
+        # back to the user-record name, then the email, then Unknown.
+        display_name = sp or resolved_name or cb or "Unknown"
+        if not display_name or display_name == "Unknown":
+            return ("", "", showroom_id, showroom_name, "")
 
-        display_name = resolved_name or sp or cb or "Unknown"
-        return (key, display_name, showroom_id, showroom_name)
+        # Grouping key is the display name lowercased — that's how
+        # multiple staff sharing one auth account each get their own
+        # leaderboard row.
+        key = f"sp:{display_name.lower()}"
+        # canonical_uid is only kept when it doesn't start with the
+        # email:/name: fallback prefixes.
+        canonical_uid = canonical_key if canonical_key and not canonical_key.startswith(("email:", "name:")) else ""
+        return (key, display_name, showroom_id, showroom_name, canonical_uid)
 
     for q in quotes:
-        key, name, showroom_id, showroom_name = _staff_key(q)
+        key, name, showroom_id, showroom_name, canonical_uid = _staff_key(q)
         if not key:
             continue
         entry = staff_map.setdefault(key, {
-            "user_id": key if not key.startswith(("name:", "email:")) else None,
+            "user_id": canonical_uid or None,
             "name": name,
             "showroom_id": showroom_id,
             "showroom_name": showroom_name or "Unassigned",
@@ -285,6 +291,9 @@ async def _compute_leaderboard(month_only: bool = True) -> dict:
             entry["showroom_name"] = showroom_name
         if showroom_id and not entry["showroom_id"]:
             entry["showroom_id"] = showroom_id
+        # Promote canonical uid if we have one and the entry doesn't.
+        if canonical_uid and not entry.get("user_id"):
+            entry["user_id"] = canonical_uid
         # Update name on the latest quote so renames propagate.
         if name and (not entry["name"] or entry["name"] == "Unknown"):
             entry["name"] = name
@@ -322,11 +331,11 @@ async def _compute_leaderboard(month_only: bool = True) -> dict:
     ]).to_list(length=20000)
 
     for inv in invoices:
-        key, name, showroom_id, showroom_name = _staff_key(inv)
+        key, name, showroom_id, showroom_name, canonical_uid = _staff_key(inv)
         if not key:
             continue
         entry = staff_map.setdefault(key, {
-            "user_id": key if not key.startswith(("name:", "email:")) else None,
+            "user_id": canonical_uid or None,
             "name": name,
             "showroom_id": showroom_id,
             "showroom_name": showroom_name or "Unassigned",
@@ -340,6 +349,8 @@ async def _compute_leaderboard(month_only: bool = True) -> dict:
             entry["showroom_name"] = showroom_name
         if showroom_id and not entry["showroom_id"]:
             entry["showroom_id"] = showroom_id
+        if canonical_uid and not entry.get("user_id"):
+            entry["user_id"] = canonical_uid
         entry["sales_count"] += 1
         # Invoices store the total as `gross_total`; the other field
         # names are legacy aliases. (4 Jun 2026 fix — sales £ totals
@@ -410,7 +421,10 @@ async def _compute_streak(user_key: str, name: str) -> dict:
     # historical noise more than current momentum.
     horizon = now - timedelta(days=90)
     or_clauses: list = []
-    if user_key.startswith("name:"):
+    if user_key.startswith("sp:"):
+        # 4 Jun 2026 — primary grouping is by sales_person now.
+        or_clauses.append({"sales_person": {"$regex": f"^{user_key[3:]}$", "$options": "i"}})
+    elif user_key.startswith("name:"):
         or_clauses.append({"sales_person": {"$regex": f"^{user_key[5:]}$", "$options": "i"}})
     elif user_key.startswith("email:"):
         or_clauses.append({"created_by": {"$regex": f"^{user_key[6:]}$", "$options": "i"}})
@@ -483,7 +497,9 @@ async def _compute_personal_avg_rate(user_key: str) -> Optional[float]:
     db = get_db()
     month_start, _, _ = _month_window_utc()
     or_clauses: list = []
-    if user_key.startswith("name:"):
+    if user_key.startswith("sp:"):
+        or_clauses.append({"sales_person": {"$regex": f"^{user_key[3:]}$", "$options": "i"}})
+    elif user_key.startswith("name:"):
         or_clauses.append({"sales_person": {"$regex": f"^{user_key[5:]}$", "$options": "i"}})
     elif user_key.startswith("email:"):
         or_clauses.append({"created_by": {"$regex": f"^{user_key[6:]}$", "$options": "i"}})
@@ -551,7 +567,7 @@ async def get_leaderboard_banner():
     # only (cheap; running it for every staff would be expensive).
     streaks = []
     for s in staff[:5]:
-        key = s["user_id"] or f"name:{s['name'].lower()}"
+        key = f"sp:{s['name'].lower()}"
         st = await _compute_streak(key, s["name"])
         if st["streak_days"] >= 2:  # nothing dazzling about a 1-day "streak"
             streaks.append({**st, "showroom_name": s["showroom_name"]})
@@ -606,15 +622,18 @@ async def get_full_leaderboard(
     current_user: dict = Depends(get_current_user),
 ):
     """Per user clarification: show ALL staff (not just top 5), ranked
-    1..N for both quote-conversions and special-order sales."""
-    if (current_user or {}).get("role") not in {"super_admin", "admin", "manager"}:
-        raise HTTPException(status_code=403, detail="Admin role required.")
+    1..N for both quote-conversions and special-order sales.
+
+    4 Jun 2026: opened to every authenticated user (staff included) —
+    transparency is the entire point of the leaderboard; gating it
+    behind admin made staff unable to see their own standing on
+    mobile."""
     board = await _compute_leaderboard(month_only=True)
 
     # Decorate each staff with personal avg + current streak.
     decorated = []
     for s in board["staff"]:
-        key = s["user_id"] or f"name:{s['name'].lower()}"
+        key = f"sp:{s['name'].lower()}"
         avg_rate = await _compute_personal_avg_rate(key)
         streak = await _compute_streak(key, s["name"])
         decorated.append({
@@ -649,8 +668,8 @@ async def get_streak_for_user(
     user_key: str,
     current_user: dict = Depends(get_current_user),
 ):
-    if (current_user or {}).get("role") not in {"super_admin", "admin", "manager"}:
-        raise HTTPException(status_code=403, detail="Admin role required.")
+    # 4 Jun 2026: read-only — visible to every authenticated user so
+    # staff can see their own streak from the mobile dashboard.
     return await _compute_streak(user_key, "")
 
 
@@ -798,9 +817,13 @@ async def get_competition_dashboard(
 ):
     """One-shot endpoint that returns every section of the
     Competition dashboard. Cheaper than 6 separate calls + means
-    the dashboard renders in a single network round-trip."""
-    if (current_user or {}).get("role") not in {"super_admin", "admin", "manager"}:
-        raise HTTPException(status_code=403, detail="Admin role required.")
+    the dashboard renders in a single network round-trip.
+
+    4 Jun 2026: opened to every authenticated user (staff included)
+    — staff couldn't see the dashboard on mobile because of the
+    admin gate. The data is already public-by-design (the page is
+    a leaderboard) and the mutating endpoints (set target,
+    broadcast highlight, snapshot) keep their own role checks."""
 
     now = datetime.now(timezone.utc)
     month_start, _, month_label = _month_window_utc(now)
@@ -814,7 +837,7 @@ async def get_competition_dashboard(
     # ---- Decorate (streaks + personal avg) for every staff
     decorated = []
     for s in staff:
-        key = s["user_id"] or f"name:{s['name'].lower()}"
+        key = f"sp:{s['name'].lower()}"
         avg_rate = await _compute_personal_avg_rate(key)
         streak = await _compute_streak(key, s["name"])
         decorated.append({
@@ -942,9 +965,9 @@ async def get_hall_of_fame(
     """Past months' champions (3 Jun 2026). Backed by
     `staff_leaderboard_history` snapshots taken on the 1st of each
     month by `snapshot_previous_month()` below. We start fresh from
-    June 2026 per user direction — no backfill of older months."""
-    if (current_user or {}).get("role") not in {"super_admin", "admin", "manager"}:
-        raise HTTPException(status_code=403, detail="Admin role required.")
+    June 2026 per user direction — no backfill of older months.
+
+    4 Jun 2026: opened to all authenticated users (staff included)."""
     db = get_db()
     cursor = db.staff_leaderboard_history.find(
         {}, {"_id": 0}
