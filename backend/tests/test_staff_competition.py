@@ -43,7 +43,7 @@ def _reset_cache():
 _NOW = datetime.now(timezone.utc)
 
 
-def _db(quotes=None, invoices=None, hof_docs=None, highlight=None, target_doc=None):
+def _db(quotes=None, invoices=None, hof_docs=None, highlight=None, target_doc=None, users=None, showrooms=None):
     db = MagicMock()
     db.quotations.aggregate = MagicMock(return_value=_AggIter(quotes or []))
     db.quotations.find = MagicMock(return_value=_AsyncIter([]))
@@ -56,6 +56,12 @@ def _db(quotes=None, invoices=None, hof_docs=None, highlight=None, target_doc=No
     db.staff_highlight_broadcasts.find_one = AsyncMock(return_value=highlight)
     db.staff_highlight_broadcasts.update_one = AsyncMock()
     db.staff_highlight_broadcasts.delete_many = AsyncMock()
+    # 4 Jun 2026 — leaderboard resolves missing showroom_name via the
+    # users + showrooms collections; tests without staff still need
+    # these stubbed to avoid `MagicMock can't be used in 'await'`.
+    db.users.find = MagicMock(return_value=_AsyncIter(users or []))
+    db.users.find_one = AsyncMock(return_value=None)
+    db.showrooms.find = MagicMock(return_value=_AsyncIter(showrooms or []))
     return db
 
 

@@ -9,6 +9,38 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Jun 4, 2026 — Forked session] 🏪 "Unassigned" → real showroom resolution on Staff Leaderboard
+
+**User report (with screenshot of `/admin/star-staff` on tilestation.co.uk)**: every staff card showed *Unassigned* under the name (Syed, Kas, Ehtesham) even though each staff member has a showroom set on their profile.
+
+**Root cause**: `quotations.py` only stamps `showroom_id` (when provided) and never stamps `showroom_name`. Invoices behave similarly. The leaderboard's `_compute_leaderboard()` was reading `q.get("showroom_name")` straight off the quote/invoice — always empty → fall-through to `"Unassigned"` for everyone.
+
+**Fix** (`/app/backend/routes/staff_leaderboard.py`):
+- At the top of `_compute_leaderboard()`, pre-load **two** lookup maps in 2 Mongo round-trips:
+  1. `showroom_name_by_id` — `{ObjectId-string → showroom name}` from the `showrooms` collection.
+  2. `user_resolution` — keyed by `id` UUID, `email:<lowercased>`, AND `name:<lowercased>` so quotes/invoices stamped with any of the three formats (uid · email · display name) all resolve to the same canonical staff record. Each record carries `{showroom_id, showroom_name, name, email}`. If a user has `showroom_id` but no cached `showroom_name`, it's hydrated from the showrooms map at load time.
+- New `_resolve_user(uid, sales_person, created_by)` helper returns `(canonical_key, display_name, showroom_id, showroom_name)`. The canonical key is ALWAYS the user's `id` UUID whenever resolution succeeds — so a staff member with mixed-format stamps (uid on some quotes, email on others, name on legacy ones) collapses into a SINGLE leaderboard row instead of 2-3 duplicates.
+- `_staff_key()` now applies the resolution and uses the user's stored showroom as the fallback when the quote/invoice doc doesn't carry it.
+- Showroom-name promotion: if an entry's `showroom_name` is still `""` or `"Unassigned"` from one stamping, a later quote/invoice with the proper resolved showroom upgrades it.
+- `_compute_streak()` + `_compute_personal_avg_rate()` updated to do the same multi-stamp matching — they now look up the user's email + name from the users collection and OR-match the quote across `created_by_user_id` / `created_by` / `sales_person` so historical quotes stamped only with `created_by` email still surface in the streak count.
+
+**Tests** (4 new in `tests/test_staff_leaderboard.py`, all pass):
+1. **Showroom resolved via users collection** — quote has NO showroom fields, user doc says Syed is in Gravesend → leaderboard shows "Gravesend", not "Unassigned".
+2. **Showroom hydrated from showrooms collection** — user doc has only `showroom_id` (no cached name) → showroom name is looked up from `showrooms._id` → leaderboard shows the right name.
+3. **Resolution via email when no uid** — legacy quote stamped with only `created_by: <email>` → still resolves to the right showroom by matching the user's email.
+4. **Multi-stamp collapse** — same person with one quote stamped uid+email and another stamped email-only → leaderboard shows ONE row with `quotes_converted=2`, NOT two duplicate rows.
+
+Existing `_build_db` test helper updated to stub `db.users.find`, `db.users.find_one`, `db.showrooms.find` so the new fallback path doesn't break the 24 existing tests.
+
+**Test suite**: 28/28 tests pass (24 prior + 4 new). Lint clean.
+
+**Files**:
+- `/app/backend/routes/staff_leaderboard.py` — `_compute_leaderboard` user/showroom pre-load + `_resolve_user` helper + `_staff_key` rewrite + `_compute_streak` / `_compute_personal_avg_rate` multi-stamp matching.
+- `/app/backend/tests/test_staff_leaderboard.py` — `_build_db` accepts `users` + `showrooms`; 4 new regression tests.
+- `/app/backend/tests/test_staff_competition.py` — `_db` mirror update for the same new fixtures.
+
+
+
 ### [Jun 4, 2026 — Forked session] 🎨 Staff Competition Dashboard — light-mode legibility + Sales Leaderboard promoted + live "Highlight a hero" preview pane
 
 **User-requested follow-up (after the legibility fix)**: *"wire a tiny 'Highlight a hero' preview pane under the broadcast form so super-admins see exactly how the banner will render across every admin page before they hit Send"* — confirmed YES.

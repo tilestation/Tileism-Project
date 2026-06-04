@@ -74,6 +74,104 @@ async def _compute_leaderboard(month_only: bool = True) -> dict:
     db = get_db()
     start, now, label = _month_window_utc()
 
+    # ---- Showroom resolution maps -----------------------------------
+    # Quotations historically stamp only `showroom_id` (not name), and
+    # some legacy quotes / invoices stamp neither. To stop the dashboard
+    # showing every staff as "Unassigned", we resolve the showroom via
+    # the staff member's user doc + the showrooms collection. (4 Jun
+    # 2026 — user reported every staff card said "Unassigned" even
+    # though they have showrooms set on their profile.)
+    user_resolution: dict = {}  # key (uid/email-lower/name-lower) -> {showroom_id, showroom_name, name}
+    # Pre-load every showroom doc {ObjectId-str: name} so we can map
+    # user.showroom_id -> showroom_name in a single Mongo round trip.
+    showroom_name_by_id: dict = {}
+    async for sr in db.showrooms.find({}, {"name": 1}):
+        sid = str(sr.get("_id") or "")
+        nm = (sr.get("name") or "").strip()
+        if sid and nm:
+            showroom_name_by_id[sid] = nm
+
+    # 2. Pre-load every user that could plausibly be a staff member
+    # (everyone except customers). Build lookup maps by id, by email,
+    # and by name (lowercased) so quote/invoice docs can be resolved
+    # whatever stamp they carry (uid, created_by email, or sales_person
+    # display name).
+    async for u in db.users.find(
+        {"role": {"$in": ["super_admin", "admin", "manager", "staff"]}},
+        {"_id": 0, "id": 1, "email": 1, "name": 1, "showroom_id": 1, "showroom_name": 1},
+    ):
+        sid = (u.get("showroom_id") or "").strip()
+        sname = (u.get("showroom_name") or "").strip()
+        # If user has showroom_id but no cached name, hydrate from the
+        # showrooms collection.
+        if sid and not sname:
+            sname = showroom_name_by_id.get(sid, "")
+        record = {
+            "showroom_id": sid,
+            "showroom_name": sname,
+            "name": (u.get("name") or "").strip(),
+            "email": (u.get("email") or "").strip(),
+        }
+        uid = (u.get("id") or "").strip()
+        if uid:
+            user_resolution[uid] = record
+        email_lc = record["email"].lower()
+        if email_lc:
+            user_resolution[f"email:{email_lc}"] = record
+        name_lc = record["name"].lower()
+        if name_lc:
+            user_resolution[f"name:{name_lc}"] = record
+
+    def _resolve_user(uid: str, sp: str, created_by: str) -> tuple[str, str, str, str]:
+        """Return (canonical_key, display_name, showroom_id, showroom_name)
+        by trying the user-resolution map by uid, then by email
+        (created_by is usually the email), then by sales_person name.
+
+        Returns the user's `id` as the canonical key whenever we
+        successfully resolve — so two quotes from the same person, one
+        stamped with `created_by` (email) and another with only
+        `sales_person` (name), bucket into ONE leaderboard row instead
+        of two duplicates."""
+        # Try uid first
+        if uid and uid in user_resolution:
+            r = user_resolution[uid]
+            return uid, r["name"] or sp, r["showroom_id"], r["showroom_name"]
+        # Email fallback (most reliable — unique per user)
+        if created_by:
+            r = user_resolution.get(f"email:{created_by.lower()}")
+            if r:
+                # Walk the resolution map for the user's canonical uid.
+                # Iterate once — small set, O(n) is fine.
+                canonical_uid = next(
+                    (k for k, v in user_resolution.items()
+                     if not k.startswith(("email:", "name:"))
+                     and v.get("email", "").lower() == created_by.lower()),
+                    None,
+                )
+                return (
+                    canonical_uid or f"email:{created_by.lower()}",
+                    r["name"] or sp,
+                    r["showroom_id"],
+                    r["showroom_name"],
+                )
+        # Name fallback (last resort — display names can collide)
+        if sp:
+            r = user_resolution.get(f"name:{sp.lower()}")
+            if r:
+                canonical_uid = next(
+                    (k for k, v in user_resolution.items()
+                     if not k.startswith(("email:", "name:"))
+                     and v.get("name", "").lower() == sp.lower()),
+                    None,
+                )
+                return (
+                    canonical_uid or f"name:{sp.lower()}",
+                    sp,
+                    r["showroom_id"],
+                    r["showroom_name"],
+                )
+        return "", sp, "", ""
+
     # ---- Quote-conversion attribution -------------------------------
     # Per user choice 1a: the QUOTE CREATOR wins. We group by
     # quote.created_by_user_id (preferred) falling back to
@@ -120,24 +218,57 @@ async def _compute_leaderboard(month_only: bool = True) -> dict:
 
     def _staff_key(q: dict) -> tuple[str, str, str, str]:
         """Return (key, display_name, showroom_id, showroom_name).
-        Prefers created_by_user_id; falls back to sales_person string
-        for older quotes that pre-dated the user-id stamp."""
+
+        Uses _resolve_user to find the canonical user-id whenever
+        possible, so a staff member with mixed-format stamps (some
+        quotes carrying `created_by_user_id`, others only `created_by`
+        email, others only `sales_person` name) collapses into a
+        single row on the leaderboard.
+
+        Showroom: prefers the doc's own stamp; falls back to the
+        showrooms collection via the doc's showroom_id; falls back to
+        the user's stored showroom (4 Jun 2026 fix — quotations never
+        stamp showroom_name, so without this fallback every card on
+        the dashboard reads 'Unassigned')."""
         uid = (q.get("created_by_user_id") or "").strip()
-        sp = (q.get("sales_person") or q.get("created_by") or "").strip()
+        sp = (q.get("sales_person") or "").strip()
+        cb = (q.get("created_by") or "").strip()
         showroom_id = (q.get("showroom_id") or "").strip()
         showroom_name = (q.get("showroom_name") or "").strip()
-        if uid:
-            return (uid, sp or "Unknown", showroom_id, showroom_name)
-        if sp:
-            return (f"name:{sp.lower()}", sp, showroom_id, showroom_name)
-        return ("", "", showroom_id, showroom_name)
+
+        # Hydrate name from showrooms collection if only id is on the doc.
+        if showroom_id and not showroom_name:
+            showroom_name = showroom_name_by_id.get(showroom_id, "")
+
+        # Resolve canonical key + user info from the users collection.
+        canonical_key, resolved_name, r_sid, r_sname = _resolve_user(uid, sp, cb)
+        if not showroom_id and r_sid:
+            showroom_id = r_sid
+        if not showroom_name and r_sname:
+            showroom_name = r_sname
+
+        # Pick the best canonical key — fall back to email/name if the
+        # user couldn't be resolved against the users collection.
+        if canonical_key:
+            key = canonical_key
+        elif uid:
+            key = uid
+        elif cb:
+            key = f"email:{cb.lower()}"
+        elif sp:
+            key = f"name:{sp.lower()}"
+        else:
+            return ("", "", showroom_id, showroom_name)
+
+        display_name = resolved_name or sp or cb or "Unknown"
+        return (key, display_name, showroom_id, showroom_name)
 
     for q in quotes:
         key, name, showroom_id, showroom_name = _staff_key(q)
         if not key:
             continue
         entry = staff_map.setdefault(key, {
-            "user_id": key if not key.startswith("name:") else None,
+            "user_id": key if not key.startswith(("name:", "email:")) else None,
             "name": name,
             "showroom_id": showroom_id,
             "showroom_name": showroom_name or "Unassigned",
@@ -149,11 +280,14 @@ async def _compute_leaderboard(month_only: bool = True) -> dict:
         entry["quotes_created"] += 1
         if q.get("converted_at") or q.get("converted_to_invoice") or q.get("converted_to_invoice_id"):
             entry["quotes_converted"] += 1
-        # Update name/showroom on the latest quote so renames propagate.
-        if name and not entry["name"]:
-            entry["name"] = name
-        if showroom_name and not entry["showroom_name"]:
+        # Promote a real resolved showroom over a stale "Unassigned".
+        if showroom_name and entry["showroom_name"] in ("", "Unassigned"):
             entry["showroom_name"] = showroom_name
+        if showroom_id and not entry["showroom_id"]:
+            entry["showroom_id"] = showroom_id
+        # Update name on the latest quote so renames propagate.
+        if name and (not entry["name"] or entry["name"] == "Unknown"):
+            entry["name"] = name
 
     # ---- Special-order sales (revenue) ------------------------------
     # Per user clarification 3 Jun 2026: ONLY invoices with
@@ -190,7 +324,7 @@ async def _compute_leaderboard(month_only: bool = True) -> dict:
         if not key:
             continue
         entry = staff_map.setdefault(key, {
-            "user_id": key if not key.startswith("name:") else None,
+            "user_id": key if not key.startswith(("name:", "email:")) else None,
             "name": name,
             "showroom_id": showroom_id,
             "showroom_name": showroom_name or "Unassigned",
@@ -199,6 +333,11 @@ async def _compute_leaderboard(month_only: bool = True) -> dict:
             "sales_count": 0,
             "sales_value_gbp": 0.0,
         })
+        # Promote resolved showroom for entries first seen via invoices.
+        if showroom_name and entry["showroom_name"] in ("", "Unassigned"):
+            entry["showroom_name"] = showroom_name
+        if showroom_id and not entry["showroom_id"]:
+            entry["showroom_id"] = showroom_id
         entry["sales_count"] += 1
         # Prefer grand_total; fall back to total; ignore Nones.
         amount = inv.get("grand_total") or inv.get("total") or inv.get("total_amount") or 0
@@ -242,23 +381,48 @@ async def _compute_leaderboard(month_only: bool = True) -> dict:
 async def _compute_streak(user_key: str, name: str) -> dict:
     """Walk backwards day-by-day from today and count consecutive
     days with at least 1 quote conversion. Returns {streak_days,
-    last_conversion_at}."""
+    last_conversion_at}.
+
+    Handles three flavours of user_key:
+    - bare uid (e.g. "a3f1-...") — matches quote.created_by_user_id
+    - "email:<lower>" — matches quote.created_by (email)
+    - "name:<lower>" — matches quote.sales_person (display name)
+
+    Resolves an `email:` or bare-uid key to BOTH the uid AND the email
+    via the users collection so historical quotes stamped only with
+    `created_by` (email) still surface in the streak count."""
     db = get_db()
     now = datetime.now(timezone.utc)
 
     # Look back at most 90 days — beyond that a "streak" is
     # historical noise more than current momentum.
     horizon = now - timedelta(days=90)
-    match = {"converted_at": {"$exists": True, "$ne": None}}
-    # Allow either user_id or sales_person string match.
+    or_clauses: list = []
     if user_key.startswith("name:"):
-        match["sales_person"] = {"$regex": f"^{user_key[5:]}$", "$options": "i"}
+        or_clauses.append({"sales_person": {"$regex": f"^{user_key[5:]}$", "$options": "i"}})
+    elif user_key.startswith("email:"):
+        or_clauses.append({"created_by": {"$regex": f"^{user_key[6:]}$", "$options": "i"}})
     else:
-        match["created_by_user_id"] = user_key
-    match["$or"] = [
-        {"created_at": {"$gte": horizon}},
-        {"created_at": {"$gte": horizon.isoformat()}},
-    ]
+        # Bare uid — also pull the user's email + name so we catch
+        # historical quotes stamped only with created_by/sales_person.
+        u = await db.users.find_one({"id": user_key}, {"_id": 0, "email": 1, "name": 1})
+        or_clauses.append({"created_by_user_id": user_key})
+        if u:
+            if u.get("email"):
+                or_clauses.append({"created_by": {"$regex": f"^{u['email']}$", "$options": "i"}})
+            if u.get("name"):
+                or_clauses.append({"sales_person": {"$regex": f"^{u['name']}$", "$options": "i"}})
+
+    match = {
+        "converted_at": {"$exists": True, "$ne": None},
+        "$and": [
+            {"$or": or_clauses},
+            {"$or": [
+                {"created_at": {"$gte": horizon}},
+                {"created_at": {"$gte": horizon.isoformat()}},
+            ]},
+        ],
+    }
     quotes = await db.quotations.find(
         match,
         {"_id": 0, "converted_at": 1},
@@ -299,19 +463,36 @@ async def _compute_streak(user_key: str, name: str) -> dict:
 async def _compute_personal_avg_rate(user_key: str) -> Optional[float]:
     """Return the staff member's lifetime conversion rate (excluding
     the current month) so the UI can render "Tom 62% this month vs
-    his usual 48%". Returns None if there's no history."""
+    his usual 48%". Returns None if there's no history.
+
+    Mirrors _compute_streak's multi-stamp matching (uid + email +
+    name) so the average reflects every historical quote regardless
+    of which stamp the legacy doc carries."""
     db = get_db()
     month_start, _, _ = _month_window_utc()
-    match = {
-        "$or": [
-            {"created_at": {"$lt": month_start}},
-            {"created_at": {"$lt": month_start.isoformat()}},
-        ]
-    }
+    or_clauses: list = []
     if user_key.startswith("name:"):
-        match["sales_person"] = {"$regex": f"^{user_key[5:]}$", "$options": "i"}
+        or_clauses.append({"sales_person": {"$regex": f"^{user_key[5:]}$", "$options": "i"}})
+    elif user_key.startswith("email:"):
+        or_clauses.append({"created_by": {"$regex": f"^{user_key[6:]}$", "$options": "i"}})
     else:
-        match["created_by_user_id"] = user_key
+        u = await db.users.find_one({"id": user_key}, {"_id": 0, "email": 1, "name": 1})
+        or_clauses.append({"created_by_user_id": user_key})
+        if u:
+            if u.get("email"):
+                or_clauses.append({"created_by": {"$regex": f"^{u['email']}$", "$options": "i"}})
+            if u.get("name"):
+                or_clauses.append({"sales_person": {"$regex": f"^{u['name']}$", "$options": "i"}})
+
+    match = {
+        "$and": [
+            {"$or": or_clauses},
+            {"$or": [
+                {"created_at": {"$lt": month_start}},
+                {"created_at": {"$lt": month_start.isoformat()}},
+            ]},
+        ],
+    }
     cursor = db.quotations.find(
         match,
         {"_id": 0, "converted_at": 1, "converted_to_invoice": 1, "converted_to_invoice_id": 1},

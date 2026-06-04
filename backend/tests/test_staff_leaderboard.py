@@ -61,7 +61,7 @@ def _reset_cache():
     sl._BANNER_CACHE["data"] = None
 
 
-def _build_db(quotes=None, invoices=None, targets_doc=None):
+def _build_db(quotes=None, invoices=None, targets_doc=None, users=None, showrooms=None):
     db = MagicMock()
     db.quotations.aggregate = MagicMock(return_value=_AggIter(quotes or []))
     db.quotations.find = MagicMock(return_value=_AsyncIter([]))
@@ -72,6 +72,13 @@ def _build_db(quotes=None, invoices=None, targets_doc=None):
     # broadcast collection; tests without highlight need this stubbed.
     db.staff_highlight_broadcasts.find_one = AsyncMock(return_value=None)
     db.staff_leaderboard_history.find_one = AsyncMock(return_value=None)
+    # 4 Jun 2026 — leaderboard now resolves missing showroom info via
+    # the users + showrooms collections (so the dashboard stops
+    # painting everyone as "Unassigned"). Tests without a user
+    # roster still need these stubbed.
+    db.users.find = MagicMock(return_value=_AsyncIter(users or []))
+    db.users.find_one = AsyncMock(return_value=None)
+    db.showrooms.find = MagicMock(return_value=_AsyncIter(showrooms or []))
     return db
 
 
@@ -274,6 +281,7 @@ def test_streak_counts_consecutive_days():
     ]
     db = MagicMock()
     db.quotations.find = MagicMock(return_value=_AsyncIter(quotes))
+    db.users.find_one = AsyncMock(return_value=None)
     with patch("routes.staff_leaderboard.get_db", return_value=db):
         result = asyncio.run(_compute_streak("u_test", "Test"))
     # 3-day streak (today, today-1, today-2) — gap on day-3 breaks it
@@ -292,6 +300,7 @@ def test_streak_returns_zero_when_no_conversion_today():
     ]
     db = MagicMock()
     db.quotations.find = MagicMock(return_value=_AsyncIter(quotes))
+    db.users.find_one = AsyncMock(return_value=None)
     with patch("routes.staff_leaderboard.get_db", return_value=db):
         result = asyncio.run(_compute_streak("u_test", "Test"))
     assert result["streak_days"] == 0
@@ -368,6 +377,123 @@ def test_full_leaderboard_returns_all_staff():
         r = asyncio.run(get_full_leaderboard(current_user={"role": "super_admin", "email": "a@b"}))
     assert len(r["staff"]) == 12, \
         f"Full leaderboard must show ALL staff (got {len(r['staff'])})"
+
+
+# ---------------------------------------------------------------------
+# 12. Showroom-resolution via users collection (4 Jun 2026 regression)
+#     Quotations stamp only `showroom_id` (or sometimes nothing). The
+#     leaderboard was painting every staff as "Unassigned" because the
+#     aggregator was reading showroom_name straight from the quote
+#     doc. Fix: pre-load every staff user + every showroom doc, then
+#     resolve each leaderboard row's showroom_name through that map.
+# ---------------------------------------------------------------------
+def test_showroom_resolved_via_users_collection():
+    """Quotation has no showroom_name AND no showroom_id — but the
+    user doc says Syed is in Gravesend. The dashboard must show
+    Gravesend, NOT 'Unassigned'."""
+    import asyncio
+    from routes.staff_leaderboard import _compute_leaderboard
+    _reset_cache()
+    quotes = [{
+        "created_by_user_id": "u_syed",
+        "created_by": "syed@tilestation.co.uk",
+        "sales_person": "Syed",
+        # No showroom fields on the quote — this is the real-world
+        # production case the user reported.
+        "created_at": _NOW,
+        "converted_at": _NOW,
+    }]
+    users = [
+        {"id": "u_syed", "email": "syed@tilestation.co.uk", "name": "Syed",
+         "role": "staff", "showroom_id": "sr_gravesend", "showroom_name": "Gravesend"},
+    ]
+    showrooms = [{"_id": "sr_gravesend", "name": "Gravesend"}]
+    db = _build_db(quotes=quotes, users=users, showrooms=showrooms)
+    with patch("routes.staff_leaderboard.get_db", return_value=db):
+        board = asyncio.run(_compute_leaderboard())
+    assert len(board["staff"]) == 1
+    assert board["staff"][0]["showroom_name"] == "Gravesend", \
+        f"Expected Gravesend, got {board['staff'][0]['showroom_name']}"
+    assert board["staff"][0]["showroom_name"] != "Unassigned"
+
+
+def test_showroom_resolved_from_showrooms_collection_when_user_lacks_name():
+    """User doc has only `showroom_id` (no cached name) — we look up
+    the showroom doc to hydrate the name. Realistic scenario when
+    the user record was created before showroom_name caching was added."""
+    import asyncio
+    from routes.staff_leaderboard import _compute_leaderboard
+    _reset_cache()
+    quotes = [{
+        "created_by_user_id": "u_tom",
+        "created_by": "tom@tilestation.co.uk",
+        "sales_person": "Tom",
+        "created_at": _NOW,
+        "converted_at": _NOW,
+    }]
+    users = [
+        {"id": "u_tom", "email": "tom@tilestation.co.uk", "name": "Tom",
+         "role": "manager", "showroom_id": "sr_tonbridge"},  # No showroom_name on user
+    ]
+    showrooms = [{"_id": "sr_tonbridge", "name": "Tonbridge"}]
+    db = _build_db(quotes=quotes, users=users, showrooms=showrooms)
+    with patch("routes.staff_leaderboard.get_db", return_value=db):
+        board = asyncio.run(_compute_leaderboard())
+    assert board["staff"][0]["showroom_name"] == "Tonbridge"
+
+
+def test_showroom_resolved_via_email_when_no_user_id():
+    """Quotation stamped with only `created_by: <email>` (legacy
+    record before created_by_user_id existed). Resolution must still
+    find the right showroom by matching the email."""
+    import asyncio
+    from routes.staff_leaderboard import _compute_leaderboard
+    _reset_cache()
+    quotes = [{
+        "created_by": "amy@tilestation.co.uk",
+        "sales_person": "Amy",
+        "created_at": _NOW,
+        "converted_at": _NOW,
+    }]
+    users = [
+        {"id": "u_amy", "email": "amy@tilestation.co.uk", "name": "Amy",
+         "role": "staff", "showroom_id": "sr_maidstone", "showroom_name": "Maidstone"},
+    ]
+    db = _build_db(quotes=quotes, users=users)
+    with patch("routes.staff_leaderboard.get_db", return_value=db):
+        board = asyncio.run(_compute_leaderboard())
+    assert board["staff"][0]["showroom_name"] == "Maidstone"
+    # And the key collapses to the canonical uid so multi-stamp
+    # versions of the same person don't get split into two rows.
+    assert board["staff"][0].get("user_id") == "u_amy"
+
+
+def test_same_staff_across_email_and_uid_stamps_collapses_to_one_row():
+    """Two quotes from the same person — one with uid stamp, one with
+    only email stamp. The leaderboard must collapse them into ONE row
+    so the dashboard doesn't show duplicate cards for the same person."""
+    import asyncio
+    from routes.staff_leaderboard import _compute_leaderboard
+    _reset_cache()
+    quotes = [
+        {"created_by_user_id": "u_kas", "sales_person": "Kas",
+         "created_by": "kas@tilestation.co.uk",
+         "created_at": _NOW, "converted_at": _NOW},
+        # Same person, but only stamped with email — no uid.
+        {"created_by": "kas@tilestation.co.uk", "sales_person": "Kas",
+         "created_at": _NOW, "converted_at": _NOW},
+    ]
+    users = [
+        {"id": "u_kas", "email": "kas@tilestation.co.uk", "name": "Kas",
+         "role": "staff", "showroom_id": "sr_tn", "showroom_name": "Tunbridge"},
+    ]
+    db = _build_db(quotes=quotes, users=users)
+    with patch("routes.staff_leaderboard.get_db", return_value=db):
+        board = asyncio.run(_compute_leaderboard())
+    assert len(board["staff"]) == 1, \
+        f"Same-staff multi-stamp must collapse to one row (got {len(board['staff'])})"
+    assert board["staff"][0]["quotes_converted"] == 2
+    assert board["staff"][0]["showroom_name"] == "Tunbridge"
 
 
 if __name__ == "__main__":
