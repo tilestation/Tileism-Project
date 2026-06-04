@@ -9,6 +9,24 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Jun 3, 2026 — Forked session] 🔤 Per-ticket product-name font-size slider
+
+**User request** (with screenshot of the Price Tickets editor): *"Can you allow me to adjust the size of the product names on the tickets, like font size"*. Long names like "Ardesia Slate White 600×600 Polished" were getting visually crowded against the price block; short names looked too small relative to the layout.
+
+**Fix shipped** (`/app/frontend/src/pages/admin/PriceTickets.js`):
+- `PriceTicket` component now accepts a `nameFontPt` prop (default 28pt — the existing baseline). Both the on-screen preview and the printed HTML use the same value, so what you tune on screen is what comes off the printer.
+- New per-product slider in the "Edit Ticket Details" panel: range 18-42pt, step 1pt, amber accent. Live `28pt` readout next to the slider. "Reset" button when the value isn't default.
+- Added a **per-ticket product name TEXT INPUT** above the slider as a side-benefit — you can now correct typos or shorten "Ardesia Slate White Polished 600x600" → "Ardesia White" on a single ticket without editing the source product.
+- Duplicate-with-colours and duplicate-by-N already deep-copy via `..._cloneBase(source)` which carries `nameFontPt` forward, so a tuned tile cascades cleanly to every clone.
+- 2 ticket render sites updated (inline preview + zoomed preview); print HTML `.product-name` now inlines `style="font-size: {nameFontPt}pt"` to override the CSS default.
+
+**Files**:
+- `/app/frontend/src/pages/admin/PriceTickets.js` — `PriceTicket` prop, on-screen `<h2>` inline style, print HTML inline style, slider + name input + reset button in the Edit Ticket Details panel.
+
+**Testing**: Lint clean, no JS console errors, 76/76 backend regression tests still green (frontend-only change).
+
+
+
 ### [Jun 3, 2026 — Forked session] 🔇 Telegram noise filters: promo-banner network errors + form-validation toasts
 
 **User report** (two Telegram screenshots): admin chat spammed every few minutes with two recurring false-positive alerts:

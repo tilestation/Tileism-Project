@@ -292,7 +292,7 @@ const RangePopover = ({ product, presets, onApply, onSavePreset, onDeletePreset 
 
 
 
-const PriceTicket = ({ product, showOriginalPrice, showClearanceBadge, showThisWeekBadge, showBarcode, showQR, index, paperSize, resizable, onResize, previewScale, textScale, cornerBanner, vatMode = 'incl', tradeSpecial = false }) => {
+const PriceTicket = ({ product, showOriginalPrice, showClearanceBadge, showThisWeekBadge, showBarcode, showQR, index, paperSize, resizable, onResize, previewScale, textScale, cornerBanner, vatMode = 'incl', tradeSpecial = false, nameFontPt = 28 }) => {
   const hasDiscount = product.clearance_price && product.clearance_price < product.price;
   // VAT adjustment — our DB stores VAT-inclusive £; divide by 1.20
   // to get the ex-VAT figure when admin toggles "excl. VAT".
@@ -469,7 +469,11 @@ const PriceTicket = ({ product, showOriginalPrice, showClearanceBadge, showThisW
         marginTop: (isClearance || showThisWeekBadge) ? '8mm' : '0'
       }}>
         <h2 style={{ 
-          fontSize: '28pt',
+          // 3 Jun 2026 — Per-ticket adjustable name font (user
+          // request). Default 28pt matches the original "dominant
+          // header" baseline; slider lets the admin scale 18-42pt
+          // depending on how long the product name is.
+          fontSize: `${nameFontPt}pt`,
           fontWeight: 700,
           color: '#1a1a1a',
           margin: 0,
@@ -1899,7 +1903,7 @@ export const PriceTickets = () => {
 
         <!-- Product Name -->
         <div class="product-name-section ${hasBadge ? 'with-badge' : ''}">
-          <h2 class="product-name">${product.name}</h2>
+          <h2 class="product-name" style="font-size: ${product.nameFontPt ?? 28}pt;">${product.name}</h2>
           ${product.product_code ? `<div class="product-code">Code: ${product.product_code}</div>` : ''}
         </div>
 
@@ -3392,6 +3396,55 @@ export const PriceTickets = () => {
                     </div>
                     
                     <div className="grid grid-cols-2 gap-2 text-sm">
+                      {/* Product name (3 Jun 2026 — user request:
+                          allow per-ticket name editing + font size
+                          tuning so long names like "Ardesia Slate
+                          White 600x600" can be downsized to fit). */}
+                      <div className="col-span-2">
+                        <label className="text-xs text-muted-foreground flex items-center justify-between">
+                          <span>Product name</span>
+                          <span className="font-mono tabular-nums text-[10px] text-slate-500">
+                            {(product.nameFontPt ?? 28).toFixed(0)}pt
+                          </span>
+                        </label>
+                        <Input
+                          type="text"
+                          value={product.name ?? ''}
+                          onChange={(e) => updateProductField(product.id, 'name', e.target.value)}
+                          placeholder="e.g. Ardesia Slate White"
+                          className="h-8 text-sm"
+                          data-testid={`product-name-input-${product.id}`}
+                        />
+                        {/* Name font-size slider — 18-42pt range covers
+                            tiny labels up to single-word headline names.
+                            Default 28pt = the original baseline. */}
+                        <div className="flex items-center gap-2 mt-1.5">
+                          <span className="text-[9px] text-slate-400 font-mono w-4">18</span>
+                          <input
+                            type="range"
+                            min={18}
+                            max={42}
+                            step={1}
+                            value={product.nameFontPt ?? 28}
+                            onChange={(e) => updateProductField(product.id, 'nameFontPt', Number(e.target.value))}
+                            data-testid={`name-font-size-${product.id}`}
+                            className="flex-1 accent-amber-500"
+                            title="Drag to make the product name bigger or smaller on this ticket"
+                          />
+                          <span className="text-[9px] text-slate-400 font-mono w-4">42</span>
+                          {(product.nameFontPt ?? 28) !== 28 && (
+                            <button
+                              type="button"
+                              onClick={() => updateProductField(product.id, 'nameFontPt', 28)}
+                              className="text-[9px] uppercase tracking-wider font-bold text-slate-500 hover:text-slate-800 underline underline-offset-2"
+                              data-testid={`reset-name-font-${product.id}`}
+                              title="Reset name size to the default 28pt"
+                            >
+                              Reset
+                            </button>
+                          )}
+                        </div>
+                      </div>
                       {/* Prices — both fields explicit so it's obvious where
                           the strike-through WAS price comes from. Standard
                           price always prints; Sale price (when set lower)
@@ -3742,6 +3795,7 @@ export const PriceTickets = () => {
                       cornerBanner={cornerBanner}
                       vatMode={vatMode}
                       tradeSpecial={tradeSpecial}
+                      nameFontPt={product.nameFontPt ?? 28}
                       // Resize handle only on the FIRST ticket of the
                       // inline preview. All other copies reflow because
                       // they read the same customWidthMm/customHeightMm.
@@ -3824,6 +3878,7 @@ export const PriceTickets = () => {
                   cornerBanner={cornerBanner}
                   vatMode={vatMode}
                   tradeSpecial={tradeSpecial}
+                  nameFontPt={product.nameFontPt ?? 28}
                 />
               ))}
             </div>
