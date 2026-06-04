@@ -24,7 +24,8 @@
  */
 import React, { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
-import { Crown, Trophy, X, TrendingUp, Flame } from 'lucide-react';
+import { Link, useNavigate } from 'react-router-dom';
+import { Crown, Trophy, X, TrendingUp, Flame, ChevronRight } from 'lucide-react';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -32,6 +33,7 @@ const ROTATE_MS = 6000;
 const POLL_MS = 60000;
 
 export default function LeaderboardBanner() {
+  const navigate = useNavigate();
   const [data, setData] = useState(null);
   const [slide, setSlide] = useState(0);
   const [dismissed, setDismissed] = useState(() => {
@@ -173,11 +175,29 @@ export default function LeaderboardBanner() {
   if (dismissed || slides.length === 0) return null;
 
   const current = slides[slide % slides.length];
+  // 3 Jun 2026 — Whole banner is clickable → routes to the
+  // /admin/staff-competition dashboard. Users were finding the
+  // banner but missing the detailed view (sidebar entries were
+  // buried). Now the banner itself is the discoverable shortcut.
   return (
     <div
       data-testid="leaderboard-banner"
       data-slide-kind={current.kind}
-      className="bg-gradient-to-r from-emerald-950 via-emerald-900 to-amber-950 border-b border-emerald-700/40 text-emerald-50 text-xs md:text-sm shadow-md"
+      className="bg-gradient-to-r from-emerald-950 via-emerald-900 to-amber-950 border-b border-emerald-700/40 text-emerald-50 text-xs md:text-sm shadow-md cursor-pointer hover:from-emerald-900 hover:via-emerald-800 hover:to-amber-900 transition-colors"
+      role="link"
+      tabIndex={0}
+      onClick={(e) => {
+        // Ignore clicks that originated from the dismiss button so
+        // it can still close the banner without nav-ing away.
+        if (e.target.closest('[data-banner-skip-click]')) return;
+        navigate('/admin/staff-competition');
+      }}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          navigate('/admin/staff-competition');
+        }
+      }}
+      title="Click to open the Staff Competition dashboard"
     >
       <div className="flex items-center justify-center gap-2 px-3 md:px-6 py-1.5">
         <div className="flex-shrink-0 animate-pulse">{current.icon}</div>
@@ -198,11 +218,24 @@ export default function LeaderboardBanner() {
             ))}
           </div>
         )}
+        {/* "Open dashboard" affordance — a chevron hints the banner
+            is clickable so users actually try clicking it. */}
+        <Link
+          to="/admin/staff-competition"
+          data-banner-skip-click
+          data-testid="leaderboard-banner-open"
+          className="hidden md:inline-flex items-center gap-1 ml-2 px-2 py-0.5 rounded-full bg-amber-500/20 border border-amber-300/40 text-[10px] uppercase tracking-wider font-bold text-amber-100 hover:bg-amber-500/30 transition-colors"
+          onClick={(e) => e.stopPropagation()}
+        >
+          See full board <ChevronRight className="w-3 h-3" />
+        </Link>
         <button
           type="button"
           aria-label="Dismiss leaderboard banner"
+          data-banner-skip-click
           data-testid="leaderboard-banner-dismiss"
-          onClick={() => {
+          onClick={(e) => {
+            e.stopPropagation();
             try { sessionStorage.setItem('leaderboardBannerDismissed', '1'); } catch { /* ignore */ }
             setDismissed(true);
           }}

@@ -9,6 +9,24 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Jun 3, 2026 — Forked session] 👆 Banner → dashboard click-through
+
+**User report**: *"I don't see the leaderboard for quotes and sales anywhere apart from the top ribbon. When you allocated the leader dashboard, make sure the ribbon on top is clickable and leads to the detailed dashboard"*.
+
+**Fix** (`/app/frontend/src/components/admin/LeaderboardBanner.jsx`):
+- Entire banner is now a clickable region (`role="link"`, `cursor-pointer`, keyboard-accessible via Enter/Space) that routes to `/admin/staff-competition`.
+- Added an explicit affordance — a "**See full board →**" amber pill button on the right side (visible on `md+` screens). Tooltip + `data-testid=leaderboard-banner-open` for testability.
+- `data-banner-skip-click` attribute on the dismiss × and the See-full-board pill so they don't double-trigger the parent navigation.
+- Subtle hover-color shift on the banner gradient to confirm "this is clickable" without being noisy.
+- `useNavigate()` + `<Link>` from `react-router-dom`.
+
+**Files**:
+- `/app/frontend/src/components/admin/LeaderboardBanner.jsx` — clickable region, "See full board" pill, hover gradient, skip-click attributes on inner controls.
+
+**Verification**: Lint clean. Banner is correctly hidden in preview because June 2026 has no current data; the click-through will work in production where Syed's 2/3 conversions surface the banner. Sidebar already has the entries at the top from the previous fix.
+
+
+
 ### [Jun 3, 2026 — Forked session] 🏆 Full Staff Competition Dashboard — 7-section company-wide view
 
 **User request** (with screenshot of the live banner already showing "Syed leading June with 2 won · 33.3% rate 👏"): *"Create a full complete dashboard for staff competition across the company and show the performances as we just did, create a tab in the sidebar menu"* — confirmed all 7 sections + auto Hall-of-Fame snapshot starting June 2026 forward.
