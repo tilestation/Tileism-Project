@@ -147,47 +147,48 @@ export default function StaffCompetitionDashboard() {
   return (
     <div className="p-4 md:p-6 max-w-7xl mx-auto space-y-5" data-testid="competition-dashboard">
       {/* SECTION 1 — Live competition status */}
-      <Card className="p-5 bg-gradient-to-br from-amber-950/80 via-emerald-950/70 to-slate-900 border-amber-500/30">
+      <Card className="p-5 bg-gradient-to-br from-amber-100 to-amber-50 dark:from-amber-950/80 dark:via-emerald-950/70 dark:to-slate-900 border-amber-300 dark:border-amber-500/30">
         <SectionHeader icon={Sparkles} title={`Staff Competition · ${month}`} accent="amber">
-          <div className="flex items-center gap-2 text-xs text-amber-200/80">
+          <div className="flex items-center gap-2 text-xs text-amber-900 dark:text-amber-200/80">
             <Calendar className="w-3.5 h-3.5" />
-            Day {days_elapsed} of {days_total} · <span className="font-bold text-amber-200" data-testid="competition-days-left">{days_left} days left</span>
+            Day {days_elapsed} of {days_total} · <span className="font-bold text-amber-700 dark:text-amber-200" data-testid="competition-days-left">{days_left} days left</span>
           </div>
         </SectionHeader>
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          {/* Champion hero */}
-          <div className="lg:col-span-1 p-4 rounded-2xl bg-amber-500/15 border-2 border-amber-400/40">
+          {/* Champion hero — dark tinted card so light/dark text both
+              read clearly. */}
+          <div className="lg:col-span-1 p-4 rounded-2xl bg-gradient-to-br from-amber-600 to-orange-700 dark:from-amber-500/20 dark:to-amber-500/15 border-2 border-amber-500 dark:border-amber-400/40 text-white dark:text-amber-100">
             {champion ? (
               <div data-testid="competition-champion">
                 <div className="text-5xl">👑</div>
-                <div className="text-xs text-amber-300 font-bold uppercase tracking-[0.2em] mt-2">Current champion</div>
-                <div className="text-2xl font-extrabold text-amber-100 mt-1" data-testid="competition-champion-name">{champion.name}</div>
-                <div className="text-xs text-amber-200/80">{champion.showroom_name}</div>
+                <div className="text-xs text-amber-100 dark:text-amber-300 font-bold uppercase tracking-[0.2em] mt-2">Current champion</div>
+                <div className="text-2xl font-extrabold mt-1" data-testid="competition-champion-name">{champion.name}</div>
+                <div className="text-xs opacity-90">{champion.showroom_name}</div>
                 <div className="mt-3 flex flex-wrap gap-3 text-xs">
-                  <div><span className="font-bold text-white">{champion.quotes_converted}</span> won</div>
-                  {champion.conversion_rate > 0 && <div className="text-emerald-300">{champion.conversion_rate}% rate</div>}
+                  <div><span className="font-bold">{champion.quotes_converted}</span> won</div>
+                  {champion.conversion_rate > 0 && <div className="text-emerald-100 dark:text-emerald-300">{champion.conversion_rate}% rate</div>}
                   {champion.streak_days >= 2 && (
-                    <div className="text-orange-300 inline-flex items-center gap-1"><Flame className="w-3 h-3" />{champion.streak_days}d</div>
+                    <div className="text-orange-100 dark:text-orange-300 inline-flex items-center gap-1"><Flame className="w-3 h-3" />{champion.streak_days}d</div>
                   )}
                 </div>
-                <div className="mt-3 text-xs text-amber-300">👏 Hand of applause</div>
+                <div className="mt-3 text-xs font-semibold">👏 Hand of applause</div>
               </div>
             ) : (
-              <div className="text-amber-200/80 text-sm" data-testid="competition-no-champion">
+              <div className="text-sm" data-testid="competition-no-champion">
                 No conversions yet — the first to convert a quote this month takes the crown.
               </div>
             )}
           </div>
 
-          {/* Race-to-target */}
-          <div className="lg:col-span-2 p-4 rounded-2xl bg-slate-900/50 border border-slate-700/50">
+          {/* Race-to-target — neutral muted card readable in either theme */}
+          <div className="lg:col-span-2 p-4 rounded-2xl bg-card border border-border">
             <div className="flex items-center justify-between mb-2">
-              <div className="flex items-center gap-2 text-xs uppercase tracking-wider font-bold text-emerald-300">
+              <div className="flex items-center gap-2 text-xs uppercase tracking-wider font-bold text-emerald-700 dark:text-emerald-300">
                 <Target className="w-3.5 h-3.5" />
                 Race to target
               </div>
               {target?.value ? (
-                <div className="text-xs text-emerald-200">
+                <div className="text-xs text-emerald-700 dark:text-emerald-300">
                   Goal: <span className="font-bold">{target.metric === 'sales_gbp' ? '£' : ''}{Number(target.value).toLocaleString('en-GB')}</span>{' '}
                   {target.metric === 'sales_gbp' ? 'sales' : 'conversions'}
                 </div>
@@ -205,7 +206,7 @@ export default function StaffCompetitionDashboard() {
                         {s.name}
                         <span className="text-muted-foreground font-normal">· {s.showroom_name}</span>
                       </span>
-                      <span className={`tabular-nums ${s.pct >= 100 ? 'text-emerald-400 font-bold' : 'text-muted-foreground'}`}>
+                      <span className={`tabular-nums ${s.pct >= 100 ? 'text-emerald-700 dark:text-emerald-300 font-bold' : 'text-muted-foreground'}`}>
                         {target.metric === 'sales_gbp' ? '£' : ''}{Number(s.current).toLocaleString('en-GB')} · {s.pct}% {s.pct >= 100 && '✓'}
                       </span>
                     </div>
@@ -216,7 +217,7 @@ export default function StaffCompetitionDashboard() {
                       />
                     </div>
                     {!s.on_track && s.projected_eom > 0 && (
-                      <div className="text-[10px] text-amber-400/80 mt-0.5">
+                      <div className="text-[10px] text-amber-700 dark:text-amber-400/80 mt-0.5">
                         Projected end-of-month: {target.metric === 'sales_gbp' ? '£' : ''}{Number(s.projected_eom).toLocaleString('en-GB')} ({Math.round((s.projected_eom / target.value) * 100)}%)
                       </div>
                     )}
@@ -234,25 +235,71 @@ export default function StaffCompetitionDashboard() {
         </div>
         {active_highlight && (
           <div
-            className="mt-4 p-3 rounded-xl bg-rose-500/10 border border-rose-400/40 flex items-start gap-2"
+            className="mt-4 p-3 rounded-xl bg-rose-100 dark:bg-rose-500/10 border border-rose-300 dark:border-rose-400/40 flex items-start gap-2"
             data-testid="competition-active-highlight"
           >
-            <Megaphone className="w-4 h-4 text-rose-300 mt-0.5" />
+            <Megaphone className="w-4 h-4 text-rose-700 dark:text-rose-300 mt-0.5" />
             <div className="text-sm">
-              <span className="font-extrabold text-rose-200">{active_highlight.name}</span>
-              {active_highlight.showroom_name && <span className="text-rose-200/80"> · {active_highlight.showroom_name}</span>}
-              <span className="text-rose-100"> — {active_highlight.message}</span>
+              <span className="font-extrabold text-rose-700 dark:text-rose-200">{active_highlight.name}</span>
+              {active_highlight.showroom_name && <span className="text-rose-700/80 dark:text-rose-200/80"> · {active_highlight.showroom_name}</span>}
+              <span className="text-rose-800 dark:text-rose-100"> — {active_highlight.message}</span>
               <span className="ml-2">🎉</span>
-              <span className="block text-[10px] text-rose-300/70 mt-1">Broadcasting until {new Date(active_highlight.expires_at).toLocaleString('en-GB')}</span>
+              <span className="block text-[10px] text-rose-700/70 dark:text-rose-300/70 mt-1">Broadcasting until {new Date(active_highlight.expires_at).toLocaleString('en-GB')}</span>
             </div>
             {isSuperAdmin && (
-              <button type="button" onClick={clearHighlight} className="ml-auto text-rose-300/70 hover:text-rose-100" data-testid="competition-clear-highlight">
+              <button type="button" onClick={clearHighlight} className="ml-auto text-rose-700/70 hover:text-rose-900 dark:text-rose-300/70 dark:hover:text-rose-100" data-testid="competition-clear-highlight">
                 <X className="w-3.5 h-3.5" />
               </button>
             )}
           </div>
         )}
       </Card>
+
+      {/* SECTION 5 (PROMOTED) — Dual leaderboards visible
+          immediately after the hero (3 Jun 2026 — user couldn't
+          find the sales leaderboard; it was buried after the
+          showroom comparison + streaks). Moved up so they're the
+          first detailed view after the hero. */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4" data-testid="competition-dual-leaderboards">
+        <Card className="p-4">
+          <SectionHeader icon={Crown} title={`Quote-conversion leaderboard · ${month}`} accent="amber" />
+          <table className="w-full text-sm" data-testid="competition-conv-table">
+            <thead className="text-xs text-muted-foreground uppercase tracking-wider"><tr><th className="text-left py-1.5">#</th><th className="text-left">Staff</th><th className="text-right">Won</th><th className="text-right">Rate</th></tr></thead>
+            <tbody>
+              {(progress.length ? progress : head_to_head).length === 0 ? (
+                <tr><td colSpan={4} className="py-4 text-center text-muted-foreground italic text-xs">No quotes converted yet this month.</td></tr>
+              ) : (progress.length ? progress : head_to_head).map((s, idx) => (
+                <tr key={`fc-${s.user_key}-${idx}`} className="border-t border-border/40">
+                  <td className="py-1.5 font-mono font-bold w-8">{idx < 3 ? MEDALS[idx] : idx + 1}</td>
+                  <td><span className="font-bold">{s.name}</span> <span className="text-xs text-muted-foreground">· {s.showroom_name}</span></td>
+                  <td className="text-right font-bold text-amber-700 dark:text-amber-300 tabular-nums">{s.quotes_converted}</td>
+                  <td className="text-right tabular-nums text-emerald-700 dark:text-emerald-300">{s.conversion_rate}%</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </Card>
+        <Card className="p-4">
+          <SectionHeader icon={Trophy} title={`Sales leaderboard · ${month}`} accent="emerald">
+            <span className="text-[10px] text-muted-foreground">(Special-Order only)</span>
+          </SectionHeader>
+          <table className="w-full text-sm" data-testid="competition-sales-table">
+            <thead className="text-xs text-muted-foreground uppercase tracking-wider"><tr><th className="text-left py-1.5">#</th><th className="text-left">Staff</th><th className="text-right">£ Sold</th><th className="text-right">#</th></tr></thead>
+            <tbody>
+              {salesSorted.length === 0 ? (
+                <tr><td colSpan={4} className="py-4 text-center text-muted-foreground italic text-xs">No Special-Order sales yet this month.</td></tr>
+              ) : salesSorted.map((s, idx) => (
+                <tr key={`fs-${s.user_key}-${idx}`} className="border-t border-border/40">
+                  <td className="py-1.5 font-mono font-bold w-8">{idx < 3 ? MEDALS[idx] : idx + 1}</td>
+                  <td><span className="font-bold">{s.name}</span> <span className="text-xs text-muted-foreground">· {s.showroom_name}</span></td>
+                  <td className="text-right font-bold text-yellow-700 dark:text-yellow-300 tabular-nums">£{Number(s.sales_value_gbp).toLocaleString('en-GB', { maximumFractionDigits: 0 })}</td>
+                  <td className="text-right tabular-nums">{s.sales_count}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </Card>
+      </div>
 
       {/* SECTION 2 — Head-to-head top-3 */}
       {head_to_head.length > 0 && (
@@ -266,19 +313,19 @@ export default function StaffCompetitionDashboard() {
                 <div className="text-xs text-muted-foreground">{s.showroom_name}</div>
                 <div className="mt-3 grid grid-cols-2 gap-y-1.5 text-xs">
                   <div className="text-muted-foreground">Quotes won</div>
-                  <div className="font-bold text-right tabular-nums text-amber-400">{s.quotes_converted}</div>
+                  <div className="font-bold text-right tabular-nums text-amber-600 dark:text-amber-300">{s.quotes_converted}</div>
                   <div className="text-muted-foreground">Conv rate</div>
-                  <div className="font-bold text-right tabular-nums text-emerald-400">{s.conversion_rate}%</div>
+                  <div className="font-bold text-right tabular-nums text-emerald-600 dark:text-emerald-300">{s.conversion_rate}%</div>
                   <div className="text-muted-foreground">Sales £</div>
-                  <div className="font-bold text-right tabular-nums text-yellow-400">£{Number(s.sales_value_gbp).toLocaleString('en-GB', { maximumFractionDigits: 0 })}</div>
+                  <div className="font-bold text-right tabular-nums text-yellow-700 dark:text-yellow-300">£{Number(s.sales_value_gbp).toLocaleString('en-GB', { maximumFractionDigits: 0 })}</div>
                   <div className="text-muted-foreground">Streak</div>
                   <div className="font-bold text-right tabular-nums">
-                    {s.streak_days >= 2 ? <span className="text-orange-400 inline-flex items-center gap-0.5"><Flame className="w-3 h-3" />{s.streak_days}d</span> : '—'}
+                    {s.streak_days >= 2 ? <span className="text-orange-600 dark:text-orange-300 inline-flex items-center gap-0.5"><Flame className="w-3 h-3" />{s.streak_days}d</span> : '—'}
                   </div>
                   <div className="text-muted-foreground">vs avg</div>
                   <div className="font-bold text-right tabular-nums text-xs">
                     {s.rate_vs_avg_delta === null || s.rate_vs_avg_delta === undefined ? '—' : (
-                      <span className={s.rate_vs_avg_delta >= 0 ? 'text-emerald-400' : 'text-rose-400'}>
+                      <span className={s.rate_vs_avg_delta >= 0 ? 'text-emerald-600 dark:text-emerald-300' : 'text-rose-600 dark:text-rose-300'}>
                         {s.rate_vs_avg_delta >= 0 ? '+' : ''}{s.rate_vs_avg_delta}%
                       </span>
                     )}
@@ -296,13 +343,13 @@ export default function StaffCompetitionDashboard() {
           <SectionHeader icon={BarChart3} title="Showroom vs showroom" accent="fuchsia">
             <div className="flex flex-wrap items-center gap-2 text-xs">
               {showroom_winners?.conversions && (
-                <span className="px-2 py-1 rounded-full bg-amber-500/15 border border-amber-500/40 text-amber-300 font-bold">👑 Most wins: {showroom_winners.conversions.showroom_name}</span>
+                <span className="px-2 py-1 rounded-full bg-amber-500/15 border border-amber-500/40 text-amber-700 dark:text-amber-300 font-bold">👑 Most wins: {showroom_winners.conversions.showroom_name}</span>
               )}
               {showroom_winners?.sales_gbp && (
-                <span className="px-2 py-1 rounded-full bg-yellow-500/15 border border-yellow-500/40 text-yellow-300 font-bold">💷 Top £: {showroom_winners.sales_gbp.showroom_name}</span>
+                <span className="px-2 py-1 rounded-full bg-yellow-500/15 border border-yellow-500/40 text-yellow-700 dark:text-yellow-300 font-bold">💷 Top £: {showroom_winners.sales_gbp.showroom_name}</span>
               )}
               {showroom_winners?.conversion_rate && (
-                <span className="px-2 py-1 rounded-full bg-emerald-500/15 border border-emerald-500/40 text-emerald-300 font-bold">🎯 Best rate: {showroom_winners.conversion_rate.showroom_name}</span>
+                <span className="px-2 py-1 rounded-full bg-emerald-500/15 border border-emerald-500/40 text-emerald-700 dark:text-emerald-300 font-bold">🎯 Best rate: {showroom_winners.conversion_rate.showroom_name}</span>
               )}
             </div>
           </SectionHeader>
@@ -322,7 +369,7 @@ export default function StaffCompetitionDashboard() {
                     <div>
                       <div className="flex justify-between text-[10px] uppercase tracking-wider text-muted-foreground font-bold mb-0.5">
                         <span>Quotes won</span>
-                        <span className="text-amber-400 tabular-nums">{r.quotes_converted}</span>
+                        <span className="text-amber-700 dark:text-amber-300 tabular-nums">{r.quotes_converted}</span>
                       </div>
                       <div className="h-1.5 bg-muted rounded-full overflow-hidden">
                         <div className="h-full bg-amber-500 transition-all" style={{ width: `${convPct}%` }} />
@@ -331,7 +378,7 @@ export default function StaffCompetitionDashboard() {
                     <div>
                       <div className="flex justify-between text-[10px] uppercase tracking-wider text-muted-foreground font-bold mb-0.5">
                         <span>Special-Order sales</span>
-                        <span className="text-yellow-400 tabular-nums">£{Number(r.sales_value_gbp).toLocaleString('en-GB', { maximumFractionDigits: 0 })}</span>
+                        <span className="text-yellow-700 dark:text-yellow-300 tabular-nums">£{Number(r.sales_value_gbp).toLocaleString('en-GB', { maximumFractionDigits: 0 })}</span>
                       </div>
                       <div className="h-1.5 bg-muted rounded-full overflow-hidden">
                         <div className="h-full bg-yellow-500 transition-all" style={{ width: `${salesPct}%` }} />
@@ -356,11 +403,11 @@ export default function StaffCompetitionDashboard() {
               {active_streaks.slice(0, 5).map((s, idx) => (
                 <li key={`streak-${s.user_key}-${idx}`} className="flex items-center justify-between text-sm">
                   <span className="flex items-center gap-2">
-                    <Flame className="w-3 h-3 text-orange-400" />
+                    <Flame className="w-3 h-3 text-orange-600 dark:text-orange-400" />
                     <span className="font-bold">{s.name}</span>
                     <span className="text-muted-foreground text-xs">{s.showroom_name}</span>
                   </span>
-                  <span className="font-extrabold text-orange-400 tabular-nums">{s.streak_days}d 🔥</span>
+                  <span className="font-extrabold text-orange-600 dark:text-orange-400 tabular-nums">{s.streak_days}d 🔥</span>
                 </li>
               ))}
             </ul>
@@ -376,10 +423,10 @@ export default function StaffCompetitionDashboard() {
               {personal_best_chasers.slice(0, 5).map((s, idx) => (
                 <li key={`pb-${s.user_key}-${idx}`} className="flex items-center justify-between text-sm">
                   <span className="flex items-center gap-2">
-                    <TrendingUp className="w-3 h-3 text-emerald-400" />
+                    <TrendingUp className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
                     <span className="font-bold">{s.name}</span>
                   </span>
-                  <span className="font-bold text-emerald-400 tabular-nums text-xs">+{s.rate_vs_avg_delta}% 📈</span>
+                  <span className="font-bold text-emerald-600 dark:text-emerald-400 tabular-nums text-xs">+{s.rate_vs_avg_delta}% 📈</span>
                 </li>
               ))}
             </ul>
@@ -398,47 +445,11 @@ export default function StaffCompetitionDashboard() {
                     <span className="font-bold">{s.name}</span>
                     <span className="text-muted-foreground text-xs">{s.showroom_name}</span>
                   </span>
-                  <span className="text-xs text-cyan-400">0 → {s.quotes_converted}</span>
+                  <span className="text-xs text-cyan-700 dark:text-cyan-300">0 → {s.quotes_converted}</span>
                 </li>
               ))}
             </ul>
           )}
-        </Card>
-      </div>
-
-      {/* SECTION 5 — Full ranked tables */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <Card className="p-4">
-          <SectionHeader icon={Crown} title={`Conversions · ${month}`} accent="amber" />
-          <table className="w-full text-sm" data-testid="competition-conv-table">
-            <thead className="text-xs text-muted-foreground uppercase tracking-wider"><tr><th className="text-left py-1.5">#</th><th className="text-left">Staff</th><th className="text-right">Won</th><th className="text-right">Rate</th></tr></thead>
-            <tbody>
-              {(progress.length ? progress : head_to_head).map((s, idx) => (
-                <tr key={`fc-${s.user_key}-${idx}`} className="border-t border-border/40">
-                  <td className="py-1.5 font-mono font-bold w-8">{idx < 3 ? MEDALS[idx] : idx + 1}</td>
-                  <td><span className="font-bold">{s.name}</span> <span className="text-xs text-muted-foreground">· {s.showroom_name}</span></td>
-                  <td className="text-right font-bold text-amber-400 tabular-nums">{s.quotes_converted}</td>
-                  <td className="text-right tabular-nums text-emerald-400">{s.conversion_rate}%</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </Card>
-        <Card className="p-4">
-          <SectionHeader icon={Trophy} title={`Special-Order sales · ${month}`} accent="emerald" />
-          <table className="w-full text-sm" data-testid="competition-sales-table">
-            <thead className="text-xs text-muted-foreground uppercase tracking-wider"><tr><th className="text-left py-1.5">#</th><th className="text-left">Staff</th><th className="text-right">£ Sold</th><th className="text-right">#</th></tr></thead>
-            <tbody>
-              {salesSorted.map((s, idx) => (
-                <tr key={`fs-${s.user_key}-${idx}`} className="border-t border-border/40">
-                  <td className="py-1.5 font-mono font-bold w-8">{idx < 3 ? MEDALS[idx] : idx + 1}</td>
-                  <td><span className="font-bold">{s.name}</span> <span className="text-xs text-muted-foreground">· {s.showroom_name}</span></td>
-                  <td className="text-right font-bold text-yellow-400 tabular-nums">£{Number(s.sales_value_gbp).toLocaleString('en-GB', { maximumFractionDigits: 0 })}</td>
-                  <td className="text-right tabular-nums">{s.sales_count}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
         </Card>
       </div>
 
@@ -461,8 +472,8 @@ export default function StaffCompetitionDashboard() {
                     <div className="text-base font-extrabold mt-0.5">👑 {h.champion.name}</div>
                     <div className="text-xs text-muted-foreground">{h.champion.showroom_name}</div>
                     <div className="mt-1 text-xs">
-                      <span className="text-amber-400 font-bold">{h.champion.quotes_converted}</span> won
-                      {h.champion.conversion_rate > 0 && (<span className="text-emerald-400"> · {h.champion.conversion_rate}%</span>)}
+                      <span className="text-amber-700 dark:text-amber-300 font-bold">{h.champion.quotes_converted}</span> won
+                      {h.champion.conversion_rate > 0 && (<span className="text-emerald-700 dark:text-emerald-300"> · {h.champion.conversion_rate}%</span>)}
                     </div>
                   </>
                 ) : (
@@ -470,7 +481,7 @@ export default function StaffCompetitionDashboard() {
                 )}
                 {h.sales_champion && h.sales_champion.name !== h.champion?.name && (
                   <div className="mt-2 pt-2 border-t border-border/40 text-xs">
-                    💷 <span className="font-bold">{h.sales_champion.name}</span> · <span className="text-yellow-500 font-bold">£{Number(h.sales_champion.sales_value_gbp).toLocaleString('en-GB', { maximumFractionDigits: 0 })}</span>
+                    💷 <span className="font-bold">{h.sales_champion.name}</span> · <span className="text-yellow-700 dark:text-yellow-300 font-bold">£{Number(h.sales_champion.sales_value_gbp).toLocaleString('en-GB', { maximumFractionDigits: 0 })}</span>
                   </div>
                 )}
               </div>
@@ -481,7 +492,7 @@ export default function StaffCompetitionDashboard() {
 
       {/* SECTION 7 — Highlight a hero (super-admin) */}
       {isSuperAdmin && (
-        <Card className="p-4 border-rose-500/30 bg-gradient-to-br from-rose-950/30 to-slate-900/60">
+        <Card className="p-4 border-rose-300 dark:border-rose-500/30 bg-rose-50 dark:bg-gradient-to-br dark:from-rose-950/30 dark:to-slate-900/60">
           <SectionHeader icon={Megaphone} title="Highlight a hero · 24 h banner broadcast" accent="rose" />
           <p className="text-xs text-muted-foreground mb-3">
             Celebrate a non-monthly milestone (huge quote closed, customer 5★ review, etc.). Replaces any active highlight; appears as the FIRST slide on the leaderboard banner across every admin page.

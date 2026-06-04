@@ -135,17 +135,17 @@ export default function StarStaffPage() {
   return (
     <div className="p-4 md:p-6 space-y-5 max-w-7xl mx-auto" data-testid="star-staff-page">
       {/* Hero — top-3 podium */}
-      <Card className="p-5 bg-gradient-to-br from-amber-950/80 via-emerald-950/70 to-slate-900 border-amber-500/30">
+      <Card className="p-5 bg-gradient-to-br from-amber-100 to-amber-50 dark:from-amber-950/80 dark:via-emerald-950/70 dark:to-slate-900 border-amber-300 dark:border-amber-500/30">
         <div className="flex items-start justify-between flex-wrap gap-3">
           <div>
-            <div className="flex items-center gap-2 text-amber-300 text-[11px] uppercase tracking-[0.25em] font-bold">
+            <div className="flex items-center gap-2 text-amber-700 dark:text-amber-300 text-[11px] uppercase tracking-[0.25em] font-bold">
               <Star className="w-4 h-4" />
               Star staff · {month}
             </div>
-            <h1 className="text-2xl md:text-3xl font-extrabold text-amber-100 mt-1">
+            <h1 className="text-2xl md:text-3xl font-extrabold text-amber-900 dark:text-amber-100 mt-1">
               Quote-conversion & Special-Order sales champions
             </h1>
-            <p className="text-xs text-amber-200/70 mt-1.5 max-w-2xl">
+            <p className="text-xs text-amber-800/70 dark:text-amber-200/70 mt-1.5 max-w-2xl">
               Quote winner = the staff member who <strong>created</strong> the quote (regardless of who converted it).
               Sales rank counts <strong>Special-Order invoices only</strong> (tiles, bathroom, flooring, underfloor heating).
               Store-order material/tools are excluded.
@@ -171,27 +171,27 @@ export default function StarStaffPage() {
               <div className="text-xl font-extrabold text-foreground mt-1">{s.name}</div>
               <div className="text-xs text-muted-foreground">{s.showroom_name}</div>
               <div className="mt-3 flex items-baseline gap-1.5">
-                <span className="text-3xl font-extrabold text-amber-400 tabular-nums">{s.quotes_converted}</span>
+                <span className="text-3xl font-extrabold text-amber-700 dark:text-amber-300 tabular-nums">{s.quotes_converted}</span>
                 <span className="text-xs text-muted-foreground">quotes won</span>
               </div>
               {s.conversion_rate > 0 && (
-                <div className="text-xs text-emerald-400 font-bold mt-1">
+                <div className="text-xs text-emerald-700 dark:text-emerald-300 font-bold mt-1">
                   {s.conversion_rate}% conversion rate
                   {s.rate_vs_avg_delta !== null && s.rate_vs_avg_delta !== undefined && (
-                    <span className={s.rate_vs_avg_delta >= 0 ? 'text-emerald-300' : 'text-rose-400'}>
+                    <span className={s.rate_vs_avg_delta >= 0 ? 'text-emerald-600 dark:text-emerald-300' : 'text-rose-600 dark:text-rose-300'}>
                       {' '}({s.rate_vs_avg_delta >= 0 ? '+' : ''}{s.rate_vs_avg_delta}% vs avg)
                     </span>
                   )}
                 </div>
               )}
               {s.streak_days >= 2 && (
-                <div className="text-xs text-orange-400 font-bold mt-1 flex items-center gap-1">
+                <div className="text-xs text-orange-700 dark:text-orange-300 font-bold mt-1 flex items-center gap-1">
                   <Flame className="w-3 h-3" />
                   {s.streak_days}-day streak
                 </div>
               )}
               {idx === 0 && (
-                <div className="mt-2 text-[10px] uppercase tracking-wider text-amber-300 font-bold">
+                <div className="mt-2 text-[10px] uppercase tracking-wider text-amber-700 dark:text-amber-300 font-bold">
                   👏 Hand of applause
                 </div>
               )}
