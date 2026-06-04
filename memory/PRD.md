@@ -9,6 +9,33 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Jun 4, 2026 — Forked session] 🎨 Staff Competition Dashboard — light-mode legibility + Sales Leaderboard promoted to hero-adjacent
+
+**User report (with screenshot)**: text on the new dashboard was invisible (light cream card background with yellow/amber-400 text), and the Sales Leaderboard was buried below streaks/showrooms instead of being near the top.
+
+**Fix shipped** (`/app/frontend/src/pages/admin/StaffCompetitionDashboard.jsx` + mirrored on `/app/frontend/src/pages/admin/StarStaffPage.jsx`):
+- **Theme-aware colour pairs** — Every `text-amber-400` / `text-emerald-400` / `text-rose-400` / `text-yellow-400` / `text-cyan-400` / `text-orange-400` swapped to `text-amber-700 dark:text-amber-300` (and equivalents) so they read clearly on the cream light-mode background AND retain the bright look in dark mode.
+- **Champion hero card** — Now a solid dark amber→orange gradient with white text in light mode (`bg-gradient-to-br from-amber-600 to-orange-700 ... text-white`), keeping the muted amber tint in dark mode. The crown + "No conversions yet — first to convert takes the crown" empty state is fully readable either way.
+- **Race-to-target card** — Switched from `bg-slate-900/50` to `bg-card border border-border` so it picks up the app's neutral surface tokens (white in light, slate in dark).
+- **Highlight broadcast banner** — Rose-50 in light mode, rose-950 gradient in dark mode; close button switches `text-rose-700 → text-rose-900` on hover in light, `text-rose-300 → text-rose-100` in dark.
+- **Sales Leaderboard promoted** — Section 5 (dual leaderboards: Quote-conversion + Special-Order Sales side-by-side) moved up to render IMMEDIATELY under Section 1 (hero). User couldn't find the sales board because it was after Showrooms + Streaks; now it's the first detailed view they see. Added "Quote-conversion leaderboard" / "Sales leaderboard" titles + "(Special-Order only)" sub-label. Empty state surfaces "No quotes converted yet this month." / "No Special-Order sales yet this month." instead of an empty `<tbody>`.
+
+**Verification**: Lint clean on both files. Smoke screenshot of `/admin/staff-competition` (logged in as `admin@test.com`/`admin123`) confirms:
+- Sidebar shows "🏆 Staff Competition" entry near the top, currently highlighted.
+- Hero card "Staff Competition · June 2026" with "Day 4 of 30 · 26 days left" reads cleanly.
+- Champion hero card uses the dark amber-orange gradient with white text — fully legible.
+- Race to Target card uses neutral white surface.
+- **Quote-conversion leaderboard + Sales leaderboard render side-by-side directly below the hero** — exactly where the user asked.
+- Active streaks / Personal-best chasers / Comeback kings render below.
+- Hall of fame + Highlight-a-hero broadcast form render at the bottom.
+- Zero JS console errors.
+
+**Files**:
+- `/app/frontend/src/pages/admin/StaffCompetitionDashboard.jsx` — colour pairs, hero gradient, race-to-target neutral surface, dual leaderboards block moved up.
+- `/app/frontend/src/pages/admin/StarStaffPage.jsx` — same colour-pair migration so the two pages stay visually consistent.
+
+
+
 ### [Jun 3, 2026 — Forked session] 👆 Banner → dashboard click-through
 
 **User report**: *"I don't see the leaderboard for quotes and sales anywhere apart from the top ribbon. When you allocated the leader dashboard, make sure the ribbon on top is clickable and leads to the detailed dashboard"*.
