@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
-import { 
-  FileText, 
-  Search, 
-  Edit, 
-  Trash2, 
-  Copy, 
+import {
+  FileText,
+  Search,
+  Edit,
+  Trash2,
+  Copy,
   Eye,
   ArrowLeft,
   Filter,
@@ -18,7 +18,8 @@ import {
   Download,
   Mail,
   MessageCircle,
-  AlertTriangle
+  AlertTriangle,
+  Link2,
 } from 'lucide-react';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
@@ -64,6 +65,15 @@ export const QuotationHistory = () => {
   // Orphan audit state: quotes marked "converted" but with no linked invoice
   const [orphanAudit, setOrphanAudit] = useState({ count: 0, orphans: [] });
   const [showOrphanList, setShowOrphanList] = useState(false);
+  // Link-invoice modal state (4 Jun 2026 — manual invoice linking
+  // for orphan quotes when the invoice EXISTS but under a different
+  // number. Reverting in that case would force the staff to redo a
+  // sale they've already saved).
+  const [linkDialog, setLinkDialog] = useState({ open: false, quote: null });
+  const [linkSearch, setLinkSearch] = useState('');
+  const [linkResults, setLinkResults] = useState([]);
+  const [linkSearching, setLinkSearching] = useState(false);
+  const [linking, setLinking] = useState(false);
 
   useEffect(() => {
     fetchQuotations();
@@ -105,6 +115,64 @@ export const QuotationHistory = () => {
       console.warn('[QuotationHistory] Orphan audit unavailable:', error?.message);
     }
   };
+
+  // Open the "link existing invoice" modal for a single orphan quote.
+  const openLinkDialog = (orphan) => {
+    setLinkDialog({ open: true, quote: orphan });
+    // Pre-seed the search with the customer's name — typical case is
+    // the admin recognises the invoice by customer + total.
+    const seed = (orphan?.customer_name || '').slice(0, 40);
+    setLinkSearch(seed);
+    setLinkResults([]);
+    if (seed.length >= 2) {
+      runInvoiceSearch(seed);
+    }
+  };
+
+  const runInvoiceSearch = async (term) => {
+    if (!term || term.trim().length < 2) {
+      setLinkResults([]);
+      return;
+    }
+    setLinkSearching(true);
+    try {
+      const res = await api.searchInvoicesForLinking(term.trim(), 30);
+      setLinkResults(res.data?.invoices || []);
+    } catch (err) {
+      toast.error(`Couldn't search invoices: ${err?.response?.data?.detail || err.message}`);
+      setLinkResults([]);
+    } finally {
+      setLinkSearching(false);
+    }
+  };
+
+  const handleLinkInvoice = async (invoice) => {
+    if (!linkDialog.quote || !invoice) return;
+    setLinking(true);
+    try {
+      await api.linkInvoiceToQuotation(linkDialog.quote.id, invoice.id);
+      toast.success(
+        `Linked ${linkDialog.quote.quotation_no} → ${invoice.invoice_no}`,
+        { description: 'Sales totals will reflect this on the next refresh.' },
+      );
+      setLinkDialog({ open: false, quote: null });
+      setLinkSearch('');
+      setLinkResults([]);
+      await fetchOrphanAudit();
+      await fetchQuotations();
+    } catch (err) {
+      toast.error(`Couldn't link: ${err?.response?.data?.detail || err.message}`);
+    } finally {
+      setLinking(false);
+    }
+  };
+
+  // Debounced search as the admin types.
+  useEffect(() => {
+    if (!linkDialog.open) return undefined;
+    const t = setTimeout(() => runInvoiceSearch(linkSearch), 300);
+    return () => clearTimeout(t);
+  }, [linkSearch, linkDialog.open]);
 
   const handleEdit = (quotation) => {
     navigate('/admin/quotation', { state: { editQuotation: quotation } });
@@ -428,19 +496,30 @@ export const QuotationHistory = () => {
                         </td>
                         <td className="py-1.5 pr-3">{o.sales_person || '—'}</td>
                         <td className="py-1.5 pr-3">
-                          {isSuperAdmin ? (
+                          <div className="flex flex-wrap gap-1.5">
                             <Button
                               size="sm"
                               variant="outline"
-                              className="h-7 px-2 text-xs"
-                              onClick={() => handleRevertToActive({ id: o.id, quotation_no: o.quotation_no })}
-                              data-testid={`orphan-revert-btn-${o.quotation_no}`}
+                              className="h-7 px-2 text-xs border-emerald-300 text-emerald-700 hover:bg-emerald-50"
+                              onClick={() => openLinkDialog(o)}
+                              data-testid={`orphan-link-btn-${o.quotation_no}`}
+                              title="Link to an EXISTING invoice that was saved under a different number"
                             >
-                              <RotateCcw className="h-3 w-3 mr-1" /> Revert to Active
+                              <Link2 className="h-3 w-3 mr-1" /> Link Invoice
                             </Button>
-                          ) : (
-                            <span className="text-xs text-gray-500">Super Admin only</span>
-                          )}
+                            {isSuperAdmin && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-7 px-2 text-xs"
+                                onClick={() => handleRevertToActive({ id: o.id, quotation_no: o.quotation_no })}
+                                data-testid={`orphan-revert-btn-${o.quotation_no}`}
+                                title="Revert to Active so the staff can redo the conversion"
+                              >
+                                <RotateCcw className="h-3 w-3 mr-1" /> Revert to Active
+                              </Button>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -452,7 +531,117 @@ export const QuotationHistory = () => {
         </div>
       )}
 
-      {/* Filters */}
+      {/* Link-existing-invoice modal (4 Jun 2026) */}
+      <Dialog
+        open={linkDialog.open}
+        onOpenChange={(open) => {
+          if (!open) {
+            setLinkDialog({ open: false, quote: null });
+            setLinkSearch('');
+            setLinkResults([]);
+          }
+        }}
+      >
+        <DialogContent className="max-w-2xl" data-testid="link-invoice-dialog">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Link2 className="h-5 w-5 text-emerald-600" />
+              Link an existing invoice
+            </DialogTitle>
+            <DialogDescription>
+              {linkDialog.quote ? (
+                <>
+                  Pairing quotation <span className="font-mono font-bold">{linkDialog.quote.quotation_no}</span>
+                  {linkDialog.quote.customer_name && <> (<span className="font-semibold">{linkDialog.quote.customer_name}</span>)</>}
+                  {' '}with the invoice that was already saved. Sales totals will update on the next refresh. The pairing is reversible via &quot;Revert to Active&quot;.
+                </>
+              ) : 'Pick an invoice to link to this orphan quotation.'}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+              <Input
+                autoFocus
+                value={linkSearch}
+                onChange={(e) => setLinkSearch(e.target.value)}
+                placeholder="Search invoice number or customer name (min 2 chars)…"
+                className="pl-10"
+                data-testid="link-invoice-search"
+              />
+            </div>
+
+            <div className="border border-gray-200 rounded-md max-h-80 overflow-y-auto" data-testid="link-invoice-results">
+              {linkSearching ? (
+                <div className="p-4 text-center text-sm text-gray-500">Searching…</div>
+              ) : linkResults.length === 0 ? (
+                <div className="p-4 text-center text-sm text-gray-500">
+                  {linkSearch.trim().length < 2
+                    ? 'Type at least 2 characters to search.'
+                    : 'No matching unlinked invoices found. Try a different term, or revert the quote and re-create the invoice.'}
+                </div>
+              ) : (
+                <table className="min-w-full text-sm">
+                  <thead className="bg-gray-50 text-xs text-gray-600 uppercase tracking-wider sticky top-0">
+                    <tr>
+                      <th className="py-1.5 px-2 text-left font-medium">Invoice</th>
+                      <th className="py-1.5 px-2 text-left font-medium">Customer</th>
+                      <th className="py-1.5 px-2 text-right font-medium">Total</th>
+                      <th className="py-1.5 px-2 text-left font-medium">Date</th>
+                      <th className="py-1.5 px-2 text-left font-medium">Staff</th>
+                      <th className="py-1.5 px-2 text-right font-medium"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {linkResults.map((inv) => (
+                      <tr
+                        key={inv.id}
+                        className="border-t border-gray-100 hover:bg-emerald-50/40"
+                        data-testid={`link-invoice-row-${inv.invoice_no}`}
+                      >
+                        <td className="py-1.5 px-2 font-mono">{inv.invoice_no || '—'}</td>
+                        <td className="py-1.5 px-2">{inv.customer_name || '—'}</td>
+                        <td className="py-1.5 px-2 text-right tabular-nums">£{Number(inv.total || 0).toLocaleString('en-GB', { maximumFractionDigits: 2, minimumFractionDigits: 2 })}</td>
+                        <td className="py-1.5 px-2 text-xs text-gray-600">
+                          {inv.date ? (typeof inv.date === 'string' && inv.date.includes('/') ? inv.date : new Date(inv.date).toLocaleDateString('en-GB')) : '—'}
+                        </td>
+                        <td className="py-1.5 px-2 text-xs">{inv.sales_person || '—'}</td>
+                        <td className="py-1.5 px-2 text-right">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 px-2 text-xs border-emerald-300 text-emerald-700 hover:bg-emerald-100"
+                            disabled={linking}
+                            onClick={() => handleLinkInvoice(inv)}
+                            data-testid={`link-invoice-confirm-${inv.invoice_no}`}
+                          >
+                            {linking ? '…' : 'Link'}
+                          </Button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+            <p className="text-[11px] text-gray-500 leading-relaxed">
+              Tip: invoices already linked to another quote are hidden so you can&apos;t accidentally double-link the same one.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="ghost"
+              onClick={() => setLinkDialog({ open: false, quote: null })}
+              data-testid="link-invoice-cancel"
+            >
+              Cancel
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+
       <Card>
         <CardContent className="pt-6">
           <div className="flex flex-col md:flex-row gap-4">

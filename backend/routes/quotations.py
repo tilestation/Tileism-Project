@@ -561,6 +561,159 @@ async def revert_to_active(quotation_id: str, current_user: dict = Depends(get_c
     return {"message": "Quotation reverted to active", "quotation_no": existing.get("quotation_no")}
 
 
+# ----------------------------------------------------------------------
+# Manual invoice-linking for orphaned converted quotes (4 Jun 2026).
+#
+# User reported a banner showing 17 quotes marked Converted but missing
+# a linked invoice — the only previous action was Revert. That's wrong
+# when the invoice DOES exist but was saved under a different number;
+# reverting would re-prompt the staff to re-create the invoice they
+# already saved, double-counting revenue.
+#
+# These endpoints let a super-admin search invoices and link the right
+# one to the orphaned quote, which:
+#   • clears the orphan flag (the audit query checks
+#     `converted_to_invoice_id` first)
+#   • makes the leaderboard sales totals reflect the right staff
+#   • makes the quote → invoice trail navigable in the UI
+# ----------------------------------------------------------------------
+@router.get("/audit/search-invoices")
+async def search_invoices_for_linking(
+    q: str = "",
+    limit: int = 30,
+    current_user: dict = Depends(get_current_user),
+):
+    """Type-ahead search returning invoices that could be linked to an
+    orphan quote. Matches by invoice_no (prefix or substring) OR by
+    customer_name (substring, case-insensitive). Excludes invoices
+    that are ALREADY linked to a quote (so the admin can't double-link
+    the same invoice)."""
+    user_permissions = current_user.get("permissions", [])
+    has_access = is_admin_user(current_user) or "epos" in user_permissions
+    if not has_access:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    db = get_db()
+    needle = (q or "").strip()
+    if not needle or len(needle) < 2:
+        return {"invoices": []}
+
+    import re as _re
+    pattern = _re.escape(needle)
+    # Pull the already-linked invoice ids so we can filter them out.
+    linked_ids = set()
+    async for ql in db.quotations.find(
+        {"converted_to_invoice_id": {"$exists": True, "$ne": None}},
+        {"_id": 0, "converted_to_invoice_id": 1},
+    ):
+        v = ql.get("converted_to_invoice_id")
+        if v:
+            linked_ids.add(v)
+
+    rows = await db.invoices.find(
+        {"$or": [
+            {"invoice_no": {"$regex": pattern, "$options": "i"}},
+            {"customer_name": {"$regex": pattern, "$options": "i"}},
+        ]},
+        {"_id": 0, "id": 1, "invoice_no": 1, "customer_name": 1,
+         "grand_total": 1, "total_amount": 1, "total": 1, "date": 1,
+         "sales_person": 1, "showroom_name": 1, "created_at": 1},
+    ).sort("created_at", -1).limit(int(limit) * 2).to_list(length=int(limit) * 2)
+
+    out = []
+    for r in rows:
+        if r.get("id") in linked_ids:
+            continue
+        out.append({
+            "id": r.get("id"),
+            "invoice_no": r.get("invoice_no"),
+            "customer_name": r.get("customer_name"),
+            "total": r.get("grand_total") or r.get("total_amount") or r.get("total") or 0,
+            "date": r.get("date") or r.get("created_at"),
+            "sales_person": r.get("sales_person"),
+            "showroom_name": r.get("showroom_name"),
+        })
+        if len(out) >= int(limit):
+            break
+    return {"invoices": out}
+
+
+@router.post("/{quotation_id}/link-invoice")
+async def link_invoice_to_quotation(
+    quotation_id: str,
+    body: dict = Body(...),
+    current_user: dict = Depends(get_current_user),
+):
+    """Manually link an EXISTING invoice to a converted quotation that
+    is missing its `converted_to_invoice_id`. Admin only (super_admin
+    / admin / manager). The link is reversible by calling
+    /revert-to-active on the quote.
+
+    Body: `{ "invoice_id": "<uuid>" }`."""
+    if (current_user or {}).get("role") not in {"super_admin", "admin", "manager"}:
+        raise HTTPException(status_code=403, detail="Admin role required to link invoices.")
+
+    invoice_id = (body or {}).get("invoice_id")
+    if not invoice_id:
+        raise HTTPException(status_code=400, detail="invoice_id is required")
+
+    db = get_db()
+    quote = await db.quotations.find_one({"id": quotation_id}, {"_id": 0})
+    if not quote:
+        raise HTTPException(status_code=404, detail="Quotation not found")
+
+    invoice = await db.invoices.find_one(
+        {"id": invoice_id},
+        {"_id": 0, "id": 1, "invoice_no": 1, "customer_name": 1},
+    )
+    if not invoice:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+
+    # Reject if this invoice is already linked to a DIFFERENT quote — a
+    # safe guard so the admin doesn't accidentally cross-wire two quotes
+    # to the same invoice and inflate sales totals.
+    other = await db.quotations.find_one(
+        {"converted_to_invoice_id": invoice_id, "id": {"$ne": quotation_id}},
+        {"_id": 0, "quotation_no": 1, "id": 1},
+    )
+    if other:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invoice {invoice.get('invoice_no')} is already linked to quotation {other.get('quotation_no')}.",
+        )
+
+    now = datetime.now(timezone.utc)
+    # Flip to converted if the quote wasn't already (handles the case
+    # where an admin used this to retro-link a never-converted quote).
+    update_fields = {
+        "converted_to_invoice_id": invoice_id,
+        "manually_linked_at": now.isoformat(),
+        "manually_linked_by": current_user.get("email"),
+        "updated_at": now.isoformat(),
+    }
+    if quote.get("status") != "converted":
+        update_fields["status"] = "converted"
+        update_fields["converted_at"] = now.isoformat()
+
+    await db.quotations.update_one({"id": quotation_id}, {"$set": update_fields})
+
+    await log_audit(
+        action="LINK_INVOICE",
+        entity_type="quotation",
+        user=current_user,
+        entity_id=quotation_id,
+        entity_name=quote.get("quotation_no"),
+        details=f"Quotation {quote.get('quotation_no')} manually linked to invoice {invoice.get('invoice_no')}",
+    )
+
+    return {
+        "message": "Invoice linked to quotation",
+        "quotation_no": quote.get("quotation_no"),
+        "invoice_no": invoice.get("invoice_no"),
+        "invoice_id": invoice_id,
+    }
+
+
 
 # ============ PDF GENERATION ============
 

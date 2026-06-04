@@ -425,6 +425,18 @@ export const api = {
   
   getOrphanConvertedQuotations: () =>
     axios.get(`${API}/quotations/audit/orphans`, { headers: getAuthHeader() }),
+
+  searchInvoicesForLinking: (q, limit = 30) =>
+    axios.get(`${API}/quotations/audit/search-invoices`, {
+      params: { q, limit },
+      headers: getAuthHeader(),
+    }),
+
+  linkInvoiceToQuotation: (quotationId, invoiceId) =>
+    axios.post(`${API}/quotations/${quotationId}/link-invoice`,
+      { invoice_id: invoiceId },
+      { headers: getAuthHeader() },
+    ),
   
   downloadQuotationPdf: (id) =>
     axios.get(`${API}/quotations/${id}/pdf`, { 

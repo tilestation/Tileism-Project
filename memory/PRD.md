@@ -9,6 +9,44 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Jun 4, 2026 — Forked session] 🔗 Manual invoice-linking for orphan converted quotations
+
+**User report (with screenshot)**: production banner *"17 quotations marked Converted but missing a linked invoice"* — only action was "Revert to Active". User asked: *"Allow to link invoices manually for the quotes converted"*. Reverting is the wrong action when the invoice already EXISTS under a different number (it would force the staff to re-create an invoice they've already saved, double-counting revenue).
+
+**Backend** (`/app/backend/routes/quotations.py`):
+- `GET /api/quotations/audit/search-invoices?q=<term>&limit=30` — type-ahead invoice search. Matches by `invoice_no` (regex) OR `customer_name` (regex, case-insensitive). Requires 2+ chars (prevents wide-open dumps). Returns up to 30 unlinked invoices (already-linked ones are filtered out so the admin can't accidentally double-link the same invoice and inflate sales totals). Each row carries `{id, invoice_no, customer_name, total, date, sales_person, showroom_name}`. Admin / EPOS-permission gated.
+- `POST /api/quotations/{quotation_id}/link-invoice` body `{invoice_id}` — pairs the orphan quote with an existing invoice. Stamps `converted_to_invoice_id` + `manually_linked_at` + `manually_linked_by`. Flips `status` → `converted` if the quote wasn't already (edge case). 400 with a clear error when the chosen invoice is already linked to a different quote. 404 for missing quote or missing invoice. 400 if `invoice_id` is missing from the body. Admin / manager role gated (super_admin / admin / manager — not staff). Audit-logged via `log_audit` with `action="LINK_INVOICE"`.
+
+**Frontend** (`/app/frontend/src/pages/admin/QuotationHistory.js` + `lib/api.js`):
+- New `api.searchInvoicesForLinking(q, limit)` and `api.linkInvoiceToQuotation(quotationId, invoiceId)` axios wrappers.
+- Each orphan row in the audit banner now gets a green **"Link Invoice"** button alongside the existing "Revert to Active" — Link is visible to ALL admins; Revert stays super-admin-only.
+- Click → modal opens, search input pre-seeded with the orphan's customer name (typical workflow: admin recognises the invoice by customer + total). Debounced live search (300 ms) against `/audit/search-invoices`. Results table shows invoice_no · customer · total · date · sales_person with a "Link" button per row.
+- Success toast: *"Linked QT260505131915 → IN260507001 — Sales totals will reflect this on the next refresh."* Orphan banner auto-refreshes, the orphan disappears immediately.
+- Cancel button, empty-state copy ("No matching unlinked invoices found. Try a different term, or revert the quote and re-create the invoice."), and a tip footer explaining the auto-exclusion.
+
+**Tests** (11 new in `tests/test_quotation_link_invoice.py`, all pass):
+1. Search requires 2+ chars (returns empty list otherwise, no DB hit).
+2. Search shape includes invoice_no/customer/total/date/sales_person.
+3. Already-linked invoices are EXCLUDED from search results.
+4. Search rejects non-admin / non-EPOS users (403).
+5. Link happy path: stamps `converted_to_invoice_id` + `manually_linked_by` + `manually_linked_at`.
+6. Link flips status to "converted" when the quote was still "active" (retro-link case).
+7. Link rejects when invoice is already linked to a DIFFERENT quote (400 with the other quote's number in the error).
+8. Link returns 404 for missing invoice.
+9. Link returns 404 for missing quotation.
+10. Link rejects staff / customer / "" / None roles (403).
+11. Link returns 400 when body has no `invoice_id`.
+
+**Test suite**: 45/45 pass (28 prior + 6 attribution + 11 new link-invoice). Lint clean on backend + 2 frontend files. Smoke screenshot of `/admin/epos?tab=quotation-history` confirms zero console errors.
+
+**Files**:
+- `/app/backend/routes/quotations.py` — `search_invoices_for_linking` (~30 lines), `link_invoice_to_quotation` (~50 lines), both with full role/state guards.
+- `/app/frontend/src/lib/api.js` — 2 new wrappers.
+- `/app/frontend/src/pages/admin/QuotationHistory.js` — `linkDialog` state, `openLinkDialog` / `runInvoiceSearch` / `handleLinkInvoice` handlers, debounced search useEffect, new green "Link Invoice" button per orphan row, modal with search + results table + cancel.
+- `/app/backend/tests/test_quotation_link_invoice.py` (NEW — 11 tests).
+
+
+
 ### [Jun 4, 2026 — Forked session] 📎 Stamp `created_by_user_id` + `showroom_name` on quotations & invoices at creation time
 
 **Why**: complements the previous "Unassigned" hot-fix. The leaderboard now has a runtime fallback resolver, but stamping the attribution fields ON THE DOC ITSELF makes every downstream report (dashboards, CSV exports, audit logs, scheduled month-end snapshots) self-contained and resilient to staff transfers between showrooms. A sale closed today by Syed when he was in Gravesend STAYS attributed to Gravesend even if he transfers to Maidstone next week.
