@@ -383,6 +383,23 @@ async def get_leaderboard_banner():
         "showroom_leaders": board["showroom_leaders"],
         "total_staff": len(staff),
     }
+
+    # Manual highlight override — if super-admin pinned a custom
+    # "Highlight a hero" message, surface it on the banner so it
+    # appears as the FIRST slide (the frontend gives it priority).
+    db = get_db()
+    highlight = await db.staff_highlight_broadcasts.find_one(
+        {"expires_at": {"$gte": datetime.now(timezone.utc).isoformat()}},
+        {"_id": 0},
+        sort=[("created_at", -1)],
+    )
+    if highlight:
+        payload["highlight"] = {
+            "name": highlight.get("name"),
+            "showroom_name": highlight.get("showroom_name"),
+            "message": highlight.get("message"),
+            "expires_at": highlight.get("expires_at"),
+        }
     _BANNER_CACHE["ts"] = now_ts
     _BANNER_CACHE["data"] = payload
     return payload
@@ -524,3 +541,415 @@ async def record_bonus(
         upsert=True,
     )
     return {"ok": True, "month": month, "user_key": req.user_key, "bonus": bonuses[req.user_key]}
+
+
+# ----------------------------------------------------------------------
+# Competition dashboard — section endpoints (3 Jun 2026)
+#
+# `/competition` returns the full bundle the dashboard needs in one
+# request: time-left countdown, hero champion, head-to-head trio,
+# showroom-vs-showroom totals, active streaks, personal-best chasers,
+# comeback kings. Hall-of-Fame archive comes from /hall-of-fame; the
+# manual "highlight a hero" broadcast lives at /highlight.
+# ----------------------------------------------------------------------
+async def _showroom_totals_for_month() -> List[dict]:
+    """Aggregate quote_conversions + Special-Order sales per showroom
+    for the current month. Returns a list sorted by conversions desc."""
+    board = await _compute_leaderboard(month_only=True)
+    by_room: dict = {}
+    for s in board["staff"]:
+        sr = s.get("showroom_name") or "Unassigned"
+        bucket = by_room.setdefault(sr, {
+            "showroom_name": sr,
+            "showroom_id": s.get("showroom_id"),
+            "quotes_created": 0,
+            "quotes_converted": 0,
+            "sales_count": 0,
+            "sales_value_gbp": 0.0,
+            "staff_count": 0,
+        })
+        bucket["quotes_created"] += s["quotes_created"]
+        bucket["quotes_converted"] += s["quotes_converted"]
+        bucket["sales_count"] += s["sales_count"]
+        bucket["sales_value_gbp"] += s["sales_value_gbp"]
+        bucket["staff_count"] += 1
+    rooms = list(by_room.values())
+    for r in rooms:
+        r["sales_value_gbp"] = round(r["sales_value_gbp"], 2)
+        r["conversion_rate"] = (
+            round((r["quotes_converted"] / r["quotes_created"]) * 100, 1)
+            if r["quotes_created"] > 0 else 0.0
+        )
+    rooms.sort(key=lambda x: (x["quotes_converted"], x["sales_value_gbp"]), reverse=True)
+    return rooms
+
+
+async def _projection_at_pace(value_now: float, days_elapsed: int, days_total: int) -> float:
+    """Linear projection of where the metric lands if today's pace
+    holds: value_now * (days_total / days_elapsed). Days_elapsed
+    floors at 1 so day-1-of-month doesn't divide-by-zero."""
+    if days_elapsed <= 0:
+        return value_now
+    return round(value_now * (days_total / max(1, days_elapsed)), 2)
+
+
+def _days_in_month(d: datetime) -> int:
+    """Total days in d's calendar month."""
+    next_month = (d.replace(day=28) + timedelta(days=4)).replace(day=1)
+    return (next_month - d.replace(day=1)).days
+
+
+@router.get("/competition")
+async def get_competition_dashboard(
+    current_user: dict = Depends(get_current_user),
+):
+    """One-shot endpoint that returns every section of the
+    Competition dashboard. Cheaper than 6 separate calls + means
+    the dashboard renders in a single network round-trip."""
+    if (current_user or {}).get("role") not in {"super_admin", "admin", "manager"}:
+        raise HTTPException(status_code=403, detail="Admin role required.")
+
+    now = datetime.now(timezone.utc)
+    month_start, _, month_label = _month_window_utc(now)
+    total_days = _days_in_month(now)
+    days_elapsed = max(1, (now - month_start).days + 1)
+    days_left = max(0, total_days - days_elapsed)
+
+    board = await _compute_leaderboard(month_only=True)
+    staff = board["staff"]
+
+    # ---- Decorate (streaks + personal avg) for every staff
+    decorated = []
+    for s in staff:
+        key = s["user_id"] or f"name:{s['name'].lower()}"
+        avg_rate = await _compute_personal_avg_rate(key)
+        streak = await _compute_streak(key, s["name"])
+        decorated.append({
+            **s,
+            "user_key": key,
+            "personal_avg_conversion_rate": avg_rate,
+            "streak_days": streak["streak_days"],
+            "rate_vs_avg_delta": (
+                round(s["conversion_rate"] - avg_rate, 1) if avg_rate is not None else None
+            ),
+        })
+
+    # ---- Section 1: Hero champion + projection
+    champion = decorated[0] if decorated else None
+    target_doc = await get_db().staff_leaderboard_targets.find_one(
+        {"month": month_label}, {"_id": 0}
+    )
+    team_target = (target_doc or {}).get("team_target") or {}
+    target_value = team_target.get("value")
+    target_metric = team_target.get("metric", "conversions")
+    progress: List[dict] = []
+    if target_value is not None:
+        for s in decorated:
+            current = (
+                s["sales_value_gbp"] if target_metric == "sales_gbp"
+                else s["quotes_converted"]
+            )
+            projected = await _projection_at_pace(current, days_elapsed, total_days)
+            progress.append({
+                **s,
+                "current": current,
+                "target": float(target_value),
+                "pct": min(100, round((current / float(target_value)) * 100, 1)) if target_value else 0,
+                "projected_eom": projected,
+                "on_track": projected >= float(target_value),
+            })
+
+    # ---- Section 2: Top-3 head-to-head trio
+    h2h = decorated[:3]
+
+    # ---- Section 3: Showroom vs Showroom
+    showrooms = await _showroom_totals_for_month()
+    showroom_winners = {}
+    if showrooms:
+        showroom_winners["conversions"] = showrooms[0]
+        showroom_winners["sales_gbp"] = max(showrooms, key=lambda r: r["sales_value_gbp"])
+        rate_eligible = [r for r in showrooms if r["quotes_created"] >= 5]
+        showroom_winners["conversion_rate"] = (
+            max(rate_eligible, key=lambda r: r["conversion_rate"]) if rate_eligible else None
+        )
+
+    # ---- Section 4: Streaks, personal-best chasers, comebacks
+    active_streaks = [s for s in decorated if s["streak_days"] >= 3]
+    active_streaks.sort(key=lambda x: x["streak_days"], reverse=True)
+
+    pb_chasers = [
+        s for s in decorated
+        if s["personal_avg_conversion_rate"] is not None
+        and s["conversion_rate"] > s["personal_avg_conversion_rate"]
+        and s["quotes_created"] >= 3  # avoid noise from 1-of-1
+    ]
+    pb_chasers.sort(key=lambda x: x["rate_vs_avg_delta"], reverse=True)
+
+    # Comeback kings — staff with ≥5 conversions this month who had
+    # 0 conversions last month. We check the previous month's
+    # snapshot in `staff_leaderboard_history` (populated by the
+    # month-end snapshot task), or fall back to a live count.
+    comebacks: List[dict] = []
+    if month_start.month == 1:
+        prev_label = f"December {month_start.year - 1}"
+    else:
+        prev_label = (
+            month_start.replace(day=1) - timedelta(days=1)
+        ).strftime("%B %Y")
+    prev_hof = await get_db().staff_leaderboard_history.find_one(
+        {"month": prev_label}, {"_id": 0}
+    )
+    prev_conv_by_key: dict = {}
+    if prev_hof:
+        for s in (prev_hof.get("staff") or []):
+            prev_conv_by_key[s.get("user_key") or f"name:{(s.get('name') or '').lower()}"] = s.get("quotes_converted", 0)
+    for s in decorated:
+        if s["quotes_converted"] < 5:
+            continue
+        prev_count = prev_conv_by_key.get(s["user_key"], 0)
+        if prev_count == 0:
+            comebacks.append({**s, "previous_month_conversions": prev_count})
+
+    # ---- Section 7: Active highlight broadcast (banner override)
+    db = get_db()
+    highlight = await db.staff_highlight_broadcasts.find_one(
+        {"expires_at": {"$gte": now.isoformat()}},
+        {"_id": 0},
+        sort=[("created_at", -1)],
+    )
+
+    return {
+        "month": month_label,
+        "month_start": month_start.isoformat(),
+        "days_elapsed": days_elapsed,
+        "days_total": total_days,
+        "days_left": days_left,
+        "champion": champion,
+        "target": {
+            "metric": target_metric,
+            "value": float(target_value) if target_value is not None else None,
+        },
+        "progress": progress,
+        "head_to_head": h2h,
+        "showrooms": showrooms,
+        "showroom_winners": showroom_winners,
+        "active_streaks": active_streaks,
+        "personal_best_chasers": pb_chasers,
+        "comebacks": comebacks,
+        "active_highlight": highlight,
+        "total_staff": len(decorated),
+    }
+
+
+@router.get("/hall-of-fame")
+async def get_hall_of_fame(
+    limit: int = 24,
+    current_user: dict = Depends(get_current_user),
+):
+    """Past months' champions (3 Jun 2026). Backed by
+    `staff_leaderboard_history` snapshots taken on the 1st of each
+    month by `snapshot_previous_month()` below. We start fresh from
+    June 2026 per user direction — no backfill of older months."""
+    if (current_user or {}).get("role") not in {"super_admin", "admin", "manager"}:
+        raise HTTPException(status_code=403, detail="Admin role required.")
+    db = get_db()
+    cursor = db.staff_leaderboard_history.find(
+        {}, {"_id": 0}
+    ).sort("month_start", -1).limit(int(limit))
+    rows = []
+    async for r in cursor:
+        rows.append(r)
+    return {"history": rows, "count": len(rows)}
+
+
+# ----------------------------------------------------------------------
+# Manual "Highlight a hero" broadcast — super-admin can pin a custom
+# message to the top banner for 24 h. Banner endpoint includes the
+# highlight (if active) as the first slide so it pre-empts the
+# automatic cycle.
+# ----------------------------------------------------------------------
+class HighlightReq(BaseModel):
+    user_key: Optional[str] = Field(default=None, description="Staff key being celebrated")
+    name: str = Field(min_length=1, max_length=80)
+    message: str = Field(min_length=5, max_length=240)
+    showroom_name: Optional[str] = Field(default=None, max_length=80)
+    duration_hours: int = Field(default=24, ge=1, le=168)
+
+
+@router.post("/highlight")
+async def broadcast_highlight(
+    req: HighlightReq,
+    current_user: dict = Depends(get_current_user),
+):
+    """Super-admin only. Replaces (rather than queues) any previous
+    active highlight so a typo can be corrected instantly without
+    waiting 24 h."""
+    if (current_user or {}).get("role") != "super_admin":
+        raise HTTPException(status_code=403, detail="Only super admins can broadcast a highlight.")
+    db = get_db()
+    now = datetime.now(timezone.utc)
+    doc = {
+        "name": req.name,
+        "message": req.message,
+        "user_key": req.user_key,
+        "showroom_name": req.showroom_name,
+        "created_at": now.isoformat(),
+        "created_by": (current_user or {}).get("email"),
+        "expires_at": (now + timedelta(hours=req.duration_hours)).isoformat(),
+    }
+    # We use a fixed singleton id so a fresh broadcast supersedes the
+    # previous one — simpler UX than building a queue.
+    await db.staff_highlight_broadcasts.update_one(
+        {"id": "active"},
+        {"$set": {**doc, "id": "active"}},
+        upsert=True,
+    )
+    # Force the banner cache to refresh so the new highlight appears
+    # within seconds, not after the 30s TTL.
+    _BANNER_CACHE["ts"] = 0.0
+    _BANNER_CACHE["data"] = None
+    return {"ok": True, "highlight": doc}
+
+
+@router.delete("/highlight")
+async def clear_highlight(
+    current_user: dict = Depends(get_current_user),
+):
+    if (current_user or {}).get("role") != "super_admin":
+        raise HTTPException(status_code=403, detail="Only super admins can clear the highlight.")
+    db = get_db()
+    await db.staff_highlight_broadcasts.delete_many({"id": "active"})
+    _BANNER_CACHE["ts"] = 0.0
+    _BANNER_CACHE["data"] = None
+    return {"ok": True}
+
+
+# ----------------------------------------------------------------------
+# Hall-of-Fame snapshot — called automatically on the 1st of each
+# month (via the existing scheduler in services/scheduler.py).
+# Captures the FINAL leaderboard of the just-finished month into
+# `staff_leaderboard_history` so the dashboard can render the
+# year-long story without re-aggregating historical quotes.
+# ----------------------------------------------------------------------
+async def snapshot_previous_month() -> dict:
+    """Idempotent — re-running on the same day re-stamps the doc.
+    No-op when there's nothing to record (no conversions last month
+    means no champion). Returns the snapshot for logging."""
+    db = get_db()
+    now = datetime.now(timezone.utc)
+    # Compute the previous month's window.
+    cur_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    prev_end = cur_start - timedelta(seconds=1)
+    prev_start = prev_end.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    label = prev_start.strftime("%B %Y")
+
+    # Aggregate the previous month directly (the live leaderboard
+    # only knows about the current month).
+    quote_pipeline = [
+        {"$match": {
+            "$or": [
+                {"created_at": {"$gte": prev_start, "$lte": prev_end}},
+                {"created_at": {"$gte": prev_start.isoformat(), "$lte": prev_end.isoformat()}},
+            ]
+        }},
+        {"$project": {
+            "_id": 0, "created_by_user_id": 1, "created_by": 1, "sales_person": 1,
+            "showroom_id": 1, "showroom_name": 1, "converted_at": 1,
+            "converted_to_invoice": 1, "converted_to_invoice_id": 1,
+        }},
+    ]
+    quotes = await db.quotations.aggregate(quote_pipeline).to_list(length=50000)
+
+    invoice_pipeline = [
+        {"$match": {
+            "order_type": "Special Order",
+            "$or": [
+                {"created_at": {"$gte": prev_start, "$lte": prev_end}},
+                {"created_at": {"$gte": prev_start.isoformat(), "$lte": prev_end.isoformat()}},
+            ]
+        }},
+        {"$project": {
+            "_id": 0, "created_by_user_id": 1, "created_by": 1, "sales_person": 1,
+            "showroom_id": 1, "showroom_name": 1, "grand_total": 1, "total": 1, "total_amount": 1,
+        }},
+    ]
+    invoices = await db.invoices.aggregate(invoice_pipeline).to_list(length=50000)
+
+    staff_map: dict = {}
+    for q in quotes:
+        uid = (q.get("created_by_user_id") or "").strip()
+        sp = (q.get("sales_person") or q.get("created_by") or "").strip()
+        key = uid or (f"name:{sp.lower()}" if sp else "")
+        if not key:
+            continue
+        e = staff_map.setdefault(key, {
+            "user_key": key,
+            "name": sp or "Unknown",
+            "showroom_name": q.get("showroom_name") or "Unassigned",
+            "quotes_created": 0, "quotes_converted": 0,
+            "sales_count": 0, "sales_value_gbp": 0.0,
+        })
+        e["quotes_created"] += 1
+        if q.get("converted_at") or q.get("converted_to_invoice") or q.get("converted_to_invoice_id"):
+            e["quotes_converted"] += 1
+
+    for inv in invoices:
+        uid = (inv.get("created_by_user_id") or "").strip()
+        sp = (inv.get("sales_person") or inv.get("created_by") or "").strip()
+        key = uid or (f"name:{sp.lower()}" if sp else "")
+        if not key:
+            continue
+        e = staff_map.setdefault(key, {
+            "user_key": key,
+            "name": sp or "Unknown",
+            "showroom_name": inv.get("showroom_name") or "Unassigned",
+            "quotes_created": 0, "quotes_converted": 0,
+            "sales_count": 0, "sales_value_gbp": 0.0,
+        })
+        amount = inv.get("grand_total") or inv.get("total") or inv.get("total_amount") or 0
+        try:
+            e["sales_value_gbp"] += float(amount)
+            e["sales_count"] += 1
+        except (TypeError, ValueError):
+            pass
+
+    rows = list(staff_map.values())
+    for r in rows:
+        r["sales_value_gbp"] = round(r["sales_value_gbp"], 2)
+        r["conversion_rate"] = (
+            round((r["quotes_converted"] / r["quotes_created"]) * 100, 1)
+            if r["quotes_created"] > 0 else 0.0
+        )
+    rows.sort(key=lambda x: (x["quotes_converted"], x["sales_value_gbp"]), reverse=True)
+    champion = rows[0] if rows else None
+    sales_sorted = sorted(rows, key=lambda x: x["sales_value_gbp"], reverse=True)
+    sales_champion = sales_sorted[0] if sales_sorted and sales_sorted[0]["sales_value_gbp"] > 0 else None
+
+    if not rows:
+        return {"ok": False, "month": label, "reason": "no_activity"}
+
+    snapshot = {
+        "month": label,
+        "month_start": prev_start.isoformat(),
+        "month_end": prev_end.isoformat(),
+        "champion": champion,
+        "sales_champion": sales_champion,
+        "staff": rows,
+        "snapshotted_at": now.isoformat(),
+    }
+    await db.staff_leaderboard_history.update_one(
+        {"month": label},
+        {"$set": snapshot},
+        upsert=True,
+    )
+    return {"ok": True, "month": label, "champion": champion}
+
+
+@router.post("/snapshot-previous-month")
+async def trigger_snapshot(current_user: dict = Depends(get_current_user)):
+    """Manual trigger for the month-end snapshot. Normally fires
+    automatically via the scheduler; useful for backfilling a month
+    that the scheduler missed (e.g. server was down on the 1st)."""
+    if (current_user or {}).get("role") != "super_admin":
+        raise HTTPException(status_code=403, detail="Only super admins can trigger a snapshot.")
+    return await snapshot_previous_month()

@@ -68,6 +68,10 @@ def _build_db(quotes=None, invoices=None, targets_doc=None):
     db.invoices.aggregate = MagicMock(return_value=_AggIter(invoices or []))
     db.staff_leaderboard_targets.find_one = AsyncMock(return_value=targets_doc)
     db.staff_leaderboard_targets.update_one = AsyncMock()
+    # 3 Jun 2026 — banner endpoint also reads from the highlight
+    # broadcast collection; tests without highlight need this stubbed.
+    db.staff_highlight_broadcasts.find_one = AsyncMock(return_value=None)
+    db.staff_leaderboard_history.find_one = AsyncMock(return_value=None)
     return db
 
 

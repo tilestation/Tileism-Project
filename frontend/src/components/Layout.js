@@ -371,6 +371,7 @@ export const Layout = () => {
         { to: '/admin/permissions', icon: Shield, label: 'Permissions', permission: 'permissions_admin', legacyPermission: 'user_management', superAdminOnly: true },
         { to: '/admin/staff-pins', icon: KeyRound, label: 'Staff PINs', permission: 'staff_pins', legacyPermission: 'user_management', superAdminOnly: true },
         { to: '/admin/star-staff', icon: Crown, label: '⭐ Star Staff', permission: 'dashboard', legacyPermission: 'dashboard' },
+        { to: '/admin/staff-competition', icon: Trophy, label: '🏆 Staff Competition', permission: 'dashboard', legacyPermission: 'dashboard' },
         { to: '/admin/expired-quotes', icon: Clock, label: 'Expired Quotes', permission: 'quotations', legacyPermission: 'quotes' },
         { to: '/admin/staff-invites', icon: Link2, label: 'Staff Invites', permission: 'staff_invites', legacyPermission: 'user_management', superAdminOnly: true },
         { to: '/admin/trash', icon: Trash2, label: 'Trash', permission: 'trash', legacyPermission: 'user_management', superAdminOnly: true },

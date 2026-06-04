@@ -9,6 +9,71 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Jun 3, 2026 — Forked session] 🏆 Full Staff Competition Dashboard — 7-section company-wide view
+
+**User request** (with screenshot of the live banner already showing "Syed leading June with 2 won · 33.3% rate 👏"): *"Create a full complete dashboard for staff competition across the company and show the performances as we just did, create a tab in the sidebar menu"* — confirmed all 7 sections + auto Hall-of-Fame snapshot starting June 2026 forward.
+
+**Backend extensions** (`/app/backend/routes/staff_leaderboard.py`):
+- `GET /api/staff-leaderboard/competition` — one-shot endpoint returning every dashboard section in one network round-trip:
+  - `champion` + `total_staff` + day-of-month countdown (`days_elapsed` / `days_total` / `days_left`)
+  - `target` (metric + value) + `progress` (per-staff race vs target with linear EOM `projected_eom` and `on_track` boolean)
+  - `head_to_head` (top-3 trio)
+  - `showrooms` (per-showroom aggregates) + `showroom_winners` (most conversions / top £ / best rate)
+  - `active_streaks` (≥3 days), `personal_best_chasers` (above lifetime avg), `comebacks` (0 last month → ≥5 this month)
+  - `active_highlight` (super-admin's pinned message)
+- `GET /api/staff-leaderboard/hall-of-fame?limit=24` — past-month champions from `staff_leaderboard_history` collection
+- `POST /api/staff-leaderboard/highlight` — super-admin broadcasts a 1-168 hour custom message (e.g. "🎉 Maria just closed her biggest quote ever — £18,420!"). Replaces the previous active highlight (singleton id="active") rather than queueing — simpler UX, typos correctable instantly. Forces `_BANNER_CACHE` invalidation so the banner shows the new highlight within seconds, not after the 30s TTL.
+- `DELETE /api/staff-leaderboard/highlight` — super-admin clears the active broadcast.
+- `POST /api/staff-leaderboard/snapshot-previous-month` — super-admin manual trigger; the scheduler also fires this automatically on the 1st of each month.
+- `snapshot_previous_month()` — async function that aggregates the just-finished month's quotes + Special-Order invoices into a `staff_leaderboard_history` doc with `champion`, `sales_champion`, `staff[]`. Idempotent (re-running same day re-stamps); no-op if there was zero activity.
+- `/banner` endpoint now ALSO returns `highlight` payload when a super-admin broadcast is active. The frontend banner adds it as the FIRST slide in the cycle.
+
+**Scheduler** (`/app/backend/services/scheduler.py`):
+- New cron job `staff_leaderboard_hof_snapshot` fires at **00:30 UTC on day-1 of every month**. Calls `snapshot_previous_month()` so the just-finished month is preserved BEFORE any quotes filed in the new month can contaminate the totals. 1-hour misfire grace so a deploy at 00:25 doesn't lose the snapshot.
+
+**Frontend — StaffCompetitionDashboard page** (`/app/frontend/src/pages/admin/StaffCompetitionDashboard.jsx`):
+- **Section 1 — Live status hero** — golden champion card (or "first to convert takes the crown" empty state), Race-to-Target panel showing every staff's progress with linear projection. Projection bar amber when off-pace, fuchsia when on-pace, emerald when ≥100%.
+- **Section 2 — Top-3 head-to-head** — 3 medal cards side-by-side with conversions, rate, sales £, streak, vs-avg delta.
+- **Section 3 — Showroom vs showroom** — per-showroom card with horizontal bars for conversions + sales, plus winner pills at the top ("👑 Most wins: Tonbridge · 💷 Top £: Gravesend · 🎯 Best rate: Maidstone").
+- **Section 4 — Streaks / PB chasers / Comebacks** — 3 mini cards with sorted lists.
+- **Section 5 — Full ranked tables** — same data as Star Staff page, conversions table + sales table side-by-side.
+- **Section 6 — Hall of Fame** — grid of past-month cards with champion 👑 name/showroom/wins/rate + sales champion if different.
+- **Section 7 — Highlight a hero** (super-admin only) — name + showroom + 240-char message + 1-168 hour duration → broadcasts to the banner across every admin page.
+- Auto-refresh every 60 s.
+- Mounted at `/admin/staff-competition`; sidebar entry **"🏆 Staff Competition"** with Trophy icon (already imported on line 42).
+
+**Frontend — Leaderboard banner** (`/app/frontend/src/components/admin/LeaderboardBanner.jsx`):
+- `slides` memo now prepends a `highlight` slide as the FIRST item when `data.highlight` exists. Pre-empts the automatic cycle so the manual celebration is the very first thing every admin sees.
+
+**Tests** (12 new in `tests/test_staff_competition.py`):
+1. `/competition` returns all 14 section keys even with no data (empty-state contract).
+2. Champion correctly identified (Syed with 5 wins beats Tom with 2).
+3. Race-to-target projection computes (5 wins · 20 target = 25% with `projected_eom` populated).
+4. Per-showroom winners surface (Gravesend wins conversions, Tonbridge wins sales £).
+5. Active highlight surfaces in `/competition`.
+6. Active highlight surfaces in `/banner`.
+7-8. Highlight broadcast requires super_admin; saves correctly.
+9. Snapshot returns `no_activity` when last month had nothing.
+10. Snapshot captures champion + counts.
+11. Snapshot manual-trigger endpoint requires super_admin.
+12. Hall-of-Fame archive endpoint returns history correctly.
+
+Plus `_AsyncIter.to_list()` helper added to the new test file (and the existing `_build_db` in `tests/test_staff_leaderboard.py` was updated with `staff_highlight_broadcasts` + `staff_leaderboard_history` stubs so the banner endpoint's new branches don't crash older tests).
+
+**Test suite**: 114/114 tests pass across all sync + feature work today (12 new + 102 prior). Zero regressions. Frontend lint clean. Smoke screenshot of `/admin/staff-competition` confirms all 7 sections render: champion hero · race-to-target · streaks/PB/comebacks trio · conversions + sales tables · Hall of Fame · highlight-a-hero broadcast form. Empty states all friendly ("first to convert takes the crown", "first snapshot will be on the 1st of next month", etc.).
+
+**Files**:
+- `/app/backend/routes/staff_leaderboard.py` — `/competition`, `/hall-of-fame`, `/highlight` (POST/DELETE), `snapshot-previous-month`, `snapshot_previous_month()` async function, banner highlight-merging.
+- `/app/backend/services/scheduler.py` — monthly HoF snapshot cron at 00:30 day-1.
+- `/app/frontend/src/pages/admin/StaffCompetitionDashboard.jsx` (NEW — 467 lines).
+- `/app/frontend/src/components/admin/LeaderboardBanner.jsx` — highlight slide prepended to cycle.
+- `/app/frontend/src/App.js` — `/admin/staff-competition` route.
+- `/app/frontend/src/components/Layout.js` — sidebar entry (Trophy icon already imported on line 42, re-used).
+- `/app/backend/tests/test_staff_competition.py` (NEW — 12 tests).
+- `/app/backend/tests/test_staff_leaderboard.py` — `_build_db` updated for new banner branches.
+
+
+
 ### [Jun 3, 2026 — Forked session] 🏆 Staff Leaderboard + Expired-Quote Recovery feature pack
 
 **User request stack** (after the quote-features clarification round):

@@ -988,6 +988,38 @@ async def initialize_scheduler():
         except Exception as sr_err:
             logger.warning(f"Could not add Stripe orphan-reconcile job: {sr_err}")
 
+        # Monthly hall-of-fame snapshot (3 Jun 2026 — per user
+        # request to start tracking from June 2026 onwards).
+        # Fires at 00:30 on day-1 of each month so the just-finished
+        # month's final leaderboard is preserved before any new
+        # quotes for the new month can be filed.
+        try:
+            from routes.staff_leaderboard import snapshot_previous_month
+
+            async def _staff_hof_snapshot_tick():
+                try:
+                    result = await snapshot_previous_month()
+                    if result.get("ok"):
+                        logger.info(
+                            "Staff Hall-of-Fame snapshot taken for %s: champion=%s",
+                            result.get("month"),
+                            (result.get("champion") or {}).get("name"),
+                        )
+                except Exception as snap_err:
+                    logger.warning("Staff HoF snapshot failed: %s", snap_err)
+
+            sched.add_job(
+                _staff_hof_snapshot_tick,
+                trigger=CronTrigger(day=1, hour=0, minute=30),
+                id="staff_leaderboard_hof_snapshot",
+                name="Monthly Staff Hall-of-Fame snapshot",
+                replace_existing=True,
+                misfire_grace_time=3600,
+            )
+            logger.info("Added monthly Staff HoF snapshot job (1st @ 00:30 UTC)")
+        except Exception as snap_err:
+            logger.warning("Could not add Staff HoF snapshot job: %s", snap_err)
+
         # Nightly announcement-ribbon leak scrubber — belt + braces safety
         # net after the 30-Apr-2026 TEST_PRESERVE_fields incident. Even if
         # a future test file forgets to clean up, any `TEST_*` / `_E1_TEST_*`

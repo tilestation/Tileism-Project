@@ -63,6 +63,26 @@ export default function LeaderboardBanner() {
   const slides = useMemo(() => {
     if (!data) return [];
     const out = [];
+    // Manual super-admin "Highlight a hero" broadcast — appears as
+    // the FIRST slide and disappears automatically when expires_at
+    // passes. Pre-empts the auto cycle.
+    if (data.highlight) {
+      out.push({
+        key: 'highlight',
+        kind: 'highlight',
+        icon: <Trophy className="w-4 h-4 text-amber-300" />,
+        copy: (
+          <>
+            <span className="font-extrabold text-amber-200">{data.highlight.name}</span>
+            {data.highlight.showroom_name && (
+              <span className="text-amber-200/80"> · {data.highlight.showroom_name}</span>
+            )}
+            <span className="text-emerald-200"> — {data.highlight.message}</span>
+            <span className="ml-2">🎉</span>
+          </>
+        ),
+      });
+    }
     const c = data.conv_leader;
     if (c && c.quotes_converted > 0) {
       out.push({
