@@ -165,7 +165,8 @@ async def get_orphan_converted_quotations(current_user: dict = Depends(get_curre
     
     converted = await db.quotations.find(
         {"status": "converted", "deleted_at": {"$exists": False}},
-        {"_id": 0, "id": 1, "quotation_no": 1, "customer_name": 1, "total": 1,
+        {"_id": 0, "id": 1, "quotation_no": 1, "customer_name": 1,
+         "gross_total": 1, "total": 1, "subtotal": 1,
          "converted_at": 1, "converted_to_invoice_id": 1, "sales_person": 1,
          "showroom_id": 1, "showroom_name": 1}
     ).sort("converted_at", -1).to_list(5000)
@@ -188,11 +189,21 @@ async def get_orphan_converted_quotations(current_user: dict = Depends(get_curre
             )
             if inv:
                 continue
+        # Quotations store totals as `gross_total`; legacy docs may
+        # have `total` or just `subtotal`. (4 Jun 2026 fix — UI was
+        # showing £0.00 for every orphan because we only projected
+        # `total`.)
+        orphan_total = (
+            q.get("gross_total")
+            or q.get("total")
+            or q.get("subtotal")
+            or 0
+        )
         orphans.append({
             "id": q.get("id"),
             "quotation_no": q.get("quotation_no"),
             "customer_name": q.get("customer_name"),
-            "total": q.get("total"),
+            "total": orphan_total,
             "converted_at": q.get("converted_at"),
             "sales_person": q.get("sales_person"),
             "showroom_name": q.get("showroom_name"),
@@ -616,7 +627,7 @@ async def search_invoices_for_linking(
             {"customer_name": {"$regex": pattern, "$options": "i"}},
         ]},
         {"_id": 0, "id": 1, "invoice_no": 1, "customer_name": 1,
-         "grand_total": 1, "total_amount": 1, "total": 1, "date": 1,
+         "gross_total": 1, "grand_total": 1, "total_amount": 1, "total": 1, "date": 1,
          "sales_person": 1, "showroom_name": 1, "created_at": 1},
     ).sort("created_at", -1).limit(int(limit) * 2).to_list(length=int(limit) * 2)
 
@@ -624,11 +635,23 @@ async def search_invoices_for_linking(
     for r in rows:
         if r.get("id") in linked_ids:
             continue
+        # Invoices actually store the total as `gross_total`; the
+        # other field names are legacy aliases used by some imports.
+        # Falling back through all of them keeps historical data
+        # visible in the picker. (4 Jun 2026 fix — totals were
+        # showing £0.00 because we only projected the aliases.)
+        total = (
+            r.get("gross_total")
+            or r.get("grand_total")
+            or r.get("total_amount")
+            or r.get("total")
+            or 0
+        )
         out.append({
             "id": r.get("id"),
             "invoice_no": r.get("invoice_no"),
             "customer_name": r.get("customer_name"),
-            "total": r.get("grand_total") or r.get("total_amount") or r.get("total") or 0,
+            "total": total,
             "date": r.get("date") or r.get("created_at"),
             "sales_person": r.get("sales_person"),
             "showroom_name": r.get("showroom_name"),

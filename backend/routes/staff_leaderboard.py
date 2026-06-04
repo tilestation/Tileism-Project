@@ -311,9 +311,11 @@ async def _compute_leaderboard(month_only: bool = True) -> dict:
                 "sales_person": 1,
                 "showroom_id": 1,
                 "showroom_name": 1,
+                "gross_total": 1,
                 "total": 1,
                 "grand_total": 1,
                 "total_amount": 1,
+                "subtotal": 1,
                 "created_at": 1,
             }
         },
@@ -339,8 +341,18 @@ async def _compute_leaderboard(month_only: bool = True) -> dict:
         if showroom_id and not entry["showroom_id"]:
             entry["showroom_id"] = showroom_id
         entry["sales_count"] += 1
-        # Prefer grand_total; fall back to total; ignore Nones.
-        amount = inv.get("grand_total") or inv.get("total") or inv.get("total_amount") or 0
+        # Invoices store the total as `gross_total`; the other field
+        # names are legacy aliases. (4 Jun 2026 fix — sales £ totals
+        # on the leaderboard were always 0 because we only checked
+        # the alias fields.)
+        amount = (
+            inv.get("gross_total")
+            or inv.get("grand_total")
+            or inv.get("total_amount")
+            or inv.get("total")
+            or inv.get("subtotal")
+            or 0
+        )
         try:
             entry["sales_value_gbp"] += float(amount)
         except (TypeError, ValueError):
@@ -1051,7 +1063,8 @@ async def snapshot_previous_month() -> dict:
         }},
         {"$project": {
             "_id": 0, "created_by_user_id": 1, "created_by": 1, "sales_person": 1,
-            "showroom_id": 1, "showroom_name": 1, "grand_total": 1, "total": 1, "total_amount": 1,
+            "showroom_id": 1, "showroom_name": 1,
+            "gross_total": 1, "grand_total": 1, "total": 1, "total_amount": 1, "subtotal": 1,
         }},
     ]
     invoices = await db.invoices.aggregate(invoice_pipeline).to_list(length=50000)
@@ -1087,7 +1100,14 @@ async def snapshot_previous_month() -> dict:
             "quotes_created": 0, "quotes_converted": 0,
             "sales_count": 0, "sales_value_gbp": 0.0,
         })
-        amount = inv.get("grand_total") or inv.get("total") or inv.get("total_amount") or 0
+        amount = (
+            inv.get("gross_total")
+            or inv.get("grand_total")
+            or inv.get("total_amount")
+            or inv.get("total")
+            or inv.get("subtotal")
+            or 0
+        )
         try:
             e["sales_value_gbp"] += float(amount)
             e["sales_count"] += 1

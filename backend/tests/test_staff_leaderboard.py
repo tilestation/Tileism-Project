@@ -496,5 +496,64 @@ def test_same_staff_across_email_and_uid_stamps_collapses_to_one_row():
     assert board["staff"][0]["showroom_name"] == "Tunbridge"
 
 
+# ---------------------------------------------------------------------
+# 16. Sales £ reads from `gross_total` (4 Jun 2026 regression).
+#     User screenshot: every invoice showed £0.00 because the
+#     leaderboard aggregator only checked `grand_total` / `total` /
+#     `total_amount`. The actual invoice schema stores totals as
+#     `gross_total`. Confirm the fix.
+# ---------------------------------------------------------------------
+def test_sales_value_reads_from_gross_total_field():
+    import asyncio
+    from routes.staff_leaderboard import _compute_leaderboard
+    _reset_cache()
+    quotes = []
+    invoices = [{
+        "created_by_user_id": "u_shaz",
+        "sales_person": "Shaz",
+        "order_type": "Special Order",
+        # Only gross_total is set — exactly like real production.
+        "gross_total": 4275.40,
+        "created_at": _NOW,
+    }]
+    users = [
+        {"id": "u_shaz", "email": "shaz@tilestation.co.uk", "name": "Shaz",
+         "role": "staff", "showroom_id": "sr_g", "showroom_name": "Gravesend"},
+    ]
+    db = _build_db(quotes=quotes, invoices=invoices, users=users)
+    with patch("routes.staff_leaderboard.get_db", return_value=db):
+        board = asyncio.run(_compute_leaderboard())
+    assert len(board["staff"]) == 1
+    assert board["staff"][0]["sales_value_gbp"] == 4275.40, \
+        f"Expected £4275.40 from gross_total, got £{board['staff'][0]['sales_value_gbp']}"
+    assert board["staff"][0]["sales_count"] == 1
+
+
+def test_sales_value_falls_back_through_field_aliases():
+    """Defence: when invoices were imported with legacy names
+    (grand_total, total_amount, total, subtotal), they still need
+    to sum on the leaderboard."""
+    import asyncio
+    from routes.staff_leaderboard import _compute_leaderboard
+    _reset_cache()
+    invoices = [
+        {"created_by_user_id": "u_a", "order_type": "Special Order",
+         "grand_total": 100.0, "created_at": _NOW},
+        {"created_by_user_id": "u_a", "order_type": "Special Order",
+         "total_amount": 200.0, "created_at": _NOW},
+        {"created_by_user_id": "u_a", "order_type": "Special Order",
+         "total": 300.0, "created_at": _NOW},
+        {"created_by_user_id": "u_a", "order_type": "Special Order",
+         "subtotal": 400.0, "created_at": _NOW},
+    ]
+    users = [{"id": "u_a", "email": "a@x", "name": "A", "role": "staff",
+              "showroom_id": "sr_1", "showroom_name": "S1"}]
+    db = _build_db(invoices=invoices, users=users)
+    with patch("routes.staff_leaderboard.get_db", return_value=db):
+        board = asyncio.run(_compute_leaderboard())
+    assert board["staff"][0]["sales_value_gbp"] == 1000.0
+    assert board["staff"][0]["sales_count"] == 4
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

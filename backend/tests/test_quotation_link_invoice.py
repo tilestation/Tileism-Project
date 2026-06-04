@@ -91,10 +91,10 @@ def test_search_invoices_matches_by_invoice_no_and_customer():
     from routes.quotations import search_invoices_for_linking
     invoices = [
         {"id": "i_1", "invoice_no": "IN260601001", "customer_name": "Alex Lloyd",
-         "grand_total": 1500.50, "date": "31/03/2026", "sales_person": "Shaz",
+         "gross_total": 1500.50, "date": "31/03/2026", "sales_person": "Shaz",
          "showroom_name": "Gravesend"},
         {"id": "i_2", "invoice_no": "IN260601002", "customer_name": "Mario",
-         "grand_total": 800.00, "date": "27/04/2026", "sales_person": "Ali"},
+         "gross_total": 800.00, "date": "27/04/2026", "sales_person": "Ali"},
     ]
     with patch("routes.quotations.get_db", return_value=_db(invoices=invoices)):
         r = asyncio.run(search_invoices_for_linking(
@@ -108,7 +108,33 @@ def test_search_invoices_matches_by_invoice_no_and_customer():
     assert "invoice_no" in out
     assert "customer_name" in out
     assert "total" in out
+    # CRITICAL: the total must come from `gross_total` (the real
+    # field invoices store), NOT show as 0. (4 Jun 2026 regression
+    # — user reported £0.00 in the picker.)
     assert out["total"] in (1500.50, 800.00)
+    assert out["total"] != 0
+
+
+def test_search_invoices_reads_total_from_gross_total_field():
+    """The real invoices collection stores totals as `gross_total`,
+    not `grand_total` / `total` / `total_amount`. Regression: search
+    results MUST surface gross_total."""
+    import asyncio
+    from routes.quotations import search_invoices_for_linking
+    invoices = [{
+        "id": "i_real",
+        "invoice_no": "INV-911458",
+        "customer_name": "Richard Irwin",
+        # Only gross_total is set — exactly like real production invoices.
+        "gross_total": 9550.00,
+    }]
+    with patch("routes.quotations.get_db", return_value=_db(invoices=invoices)):
+        r = asyncio.run(search_invoices_for_linking(
+            q="Richard", limit=30,
+            current_user={"role": "super_admin", "permissions": ["epos"]},
+        ))
+    assert r["invoices"][0]["total"] == 9550.00, \
+        f"Total must be read from gross_total (got {r['invoices'][0]['total']})"
 
 
 def test_search_invoices_excludes_already_linked():

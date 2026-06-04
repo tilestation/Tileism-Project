@@ -9,6 +9,39 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Jun 4, 2026 — Forked session] 💰 Invoice totals showing £0.00 — fixed across orphan picker, orphan banner, and Sales Leaderboard
+
+**User report (with screenshot)**: in the new "Link Invoice" picker, every invoice for Richard Irwin (INV-285991, INV-911458) showed **£0.00** instead of the real total. Also explains why the Sales Leaderboard was always empty even with Special-Order invoices in the DB.
+
+**Root cause**: invoices store the total in the field `gross_total` (confirmed in `routes/invoices.py::create_invoice`). The orphan list, the link-invoice search, and the leaderboard aggregator were all projecting + reading `grand_total` / `total` / `total_amount` only — none of which exist on real invoices → every total resolved to 0.
+
+**Fix** (3 places):
+1. `routes/quotations.py::search_invoices_for_linking` — added `gross_total` to the projection and the fallback chain (gross_total → grand_total → total_amount → total → 0). Real invoice totals now appear in the picker so admins can pick by amount.
+2. `routes/quotations.py::get_orphan_converted_quotations` — quotations store totals as `gross_total` too. Projection + result mapping updated. The orphan banner table now shows £9,550 etc. instead of £0.00.
+3. `routes/staff_leaderboard.py::_compute_leaderboard` AND `routes/staff_leaderboard.py::snapshot_previous_month` — invoice projection and the `sales_value_gbp` accumulator now read `gross_total` first. Sales Leaderboard will populate with real revenue going forward; Hall of Fame snapshots for past months will also be correct.
+
+**Regression tests** (3 new, all pass):
+1. `test_quotation_link_invoice.py::test_search_invoices_reads_total_from_gross_total_field` — only `gross_total` on the invoice (real production shape) → search returns the right amount.
+2. `test_staff_leaderboard.py::test_sales_value_reads_from_gross_total_field` — single invoice with only `gross_total=4275.40` → leaderboard row reports £4275.40, sales_count=1.
+3. `test_staff_leaderboard.py::test_sales_value_falls_back_through_field_aliases` — 4 invoices each using a DIFFERENT legacy field (grand_total / total_amount / total / subtotal) → leaderboard sums to £1000, sales_count=4. Defends against historical imports.
+
+**Existing tests updated**: `test_search_invoices_matches_by_invoice_no_and_customer` now uses `gross_total` in the fixture + asserts `total != 0` explicitly.
+
+**Test suite**: 48/48 pass (45 prior + 3 new regression). Lint clean. Backend restarted.
+
+**What you should see on production once deployed**:
+- "Link Invoice" modal — every invoice shows its real total (Richard Irwin's INV-911458 will display £9,550 or whatever the real number is).
+- Audit banner orphan table — totals populated for all 17 orphans.
+- Sales Leaderboard — real Special-Order revenue per staff member, no longer all £0.
+
+**Files**:
+- `/app/backend/routes/quotations.py` — orphan list + search projection / fallback chain.
+- `/app/backend/routes/staff_leaderboard.py` — `_compute_leaderboard` + `snapshot_previous_month` projection / fallback chain.
+- `/app/backend/tests/test_quotation_link_invoice.py` — 1 new + 1 strengthened test.
+- `/app/backend/tests/test_staff_leaderboard.py` — 2 new tests.
+
+
+
 ### [Jun 4, 2026 — Forked session] 🔗 Manual invoice-linking for orphan converted quotations
 
 **User report (with screenshot)**: production banner *"17 quotations marked Converted but missing a linked invoice"* — only action was "Revert to Active". User asked: *"Allow to link invoices manually for the quotes converted"*. Reverting is the wrong action when the invoice already EXISTS under a different number (it would force the staff to re-create an invoice they've already saved, double-counting revenue).
