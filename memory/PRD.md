@@ -9,6 +9,42 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Jun 4, 2026 — Forked session] 📎 Stamp `created_by_user_id` + `showroom_name` on quotations & invoices at creation time
+
+**Why**: complements the previous "Unassigned" hot-fix. The leaderboard now has a runtime fallback resolver, but stamping the attribution fields ON THE DOC ITSELF makes every downstream report (dashboards, CSV exports, audit logs, scheduled month-end snapshots) self-contained and resilient to staff transfers between showrooms. A sale closed today by Syed when he was in Gravesend STAYS attributed to Gravesend even if he transfers to Maidstone next week.
+
+**New service helper** (`/app/backend/services/staff_attribution.py`):
+- `resolve_staff_attribution(current_user, input_showroom_id, input_showroom_name) -> {created_by_user_id, showroom_id, showroom_name}` with this resolution order:
+  1. Explicit `input.showroom_name` if the form carried one.
+  2. Explicit `input.showroom_id` → look up showrooms collection.
+  3. The staff member's stored `showroom_name` on their user profile.
+  4. The staff member's stored `showroom_id` → look up showrooms collection.
+  5. Empty string (leaderboard's runtime resolver remains as a safety net).
+- All fields default to "" never None — downstream code never has to handle None on a stamped doc.
+- Handles both ObjectId-style and string-id showroom lookups so it works regardless of how the showroom was created.
+
+**Wired into**:
+- `/app/backend/routes/quotations.py::create_quotation` — adds `created_by_user_id` + `showroom_name` to the quotation doc, prefers attribution showroom over input.
+- `/app/backend/routes/invoices.py::create_invoice` — adds `created_by_user_id`, keeps using input showroom but falls back to attribution if input is empty.
+
+**Tests** (6 new in `tests/test_staff_attribution.py`, all pass):
+1. Form-passed `showroom_name` stamped as-is.
+2. Falls back to user-profile showroom when form is empty.
+3. Hydrates showroom_name from showrooms collection when user profile has only id.
+4. No user id on the current_user dict → returns empty strings, not None.
+5. Empty-string form input doesn't override a populated user profile.
+6. Form input WINS over profile (staff covering another store mid-shift).
+
+**Test suite**: 34/34 pass (28 prior + 6 new). Lint clean across all 3 changed files.
+
+**Files**:
+- `/app/backend/services/staff_attribution.py` (NEW — 75 lines).
+- `/app/backend/routes/quotations.py` — call into resolver, stamp 3 fields.
+- `/app/backend/routes/invoices.py` — call into resolver, stamp `created_by_user_id` + fall-back showroom.
+- `/app/backend/tests/test_staff_attribution.py` (NEW — 6 tests).
+
+
+
 ### [Jun 4, 2026 — Forked session] 🏪 "Unassigned" → real showroom resolution on Staff Leaderboard
 
 **User report (with screenshot of `/admin/star-staff` on tilestation.co.uk)**: every staff card showed *Unassigned* under the name (Syed, Kas, Ehtesham) even though each staff member has a showroom set on their profile.

@@ -247,13 +247,23 @@ async def create_quotation(input: QuotationCreate, current_user: dict = Depends(
         quotation_date = datetime.now(timezone.utc)
     
     expiry_date = quotation_date + timedelta(days=input.validity_days)
-    
+
+    # Stamp attribution fields (4 Jun 2026) so downstream reports stay
+    # correct after a staff transfer between showrooms.
+    from services.staff_attribution import resolve_staff_attribution
+    attribution = await resolve_staff_attribution(
+        current_user,
+        input_showroom_id=input.showroom_id,
+        input_showroom_name=None,
+    )
+
     quotation_dict = {
         "id": quotation_id,
         "quotation_no": input.quotation_no,
         "date": input.date,
         "time": input.time,
-        "showroom_id": input.showroom_id,
+        "showroom_id": attribution["showroom_id"] or input.showroom_id,
+        "showroom_name": attribution["showroom_name"],
         "customer_name": input.customer_name,
         "customer_phone": input.customer_phone,
         "customer_email": input.customer_email,
@@ -270,6 +280,7 @@ async def create_quotation(input: QuotationCreate, current_user: dict = Depends(
         "company_info": input.company_info.model_dump() if input.company_info else None,
         "status": "active",
         "created_by": current_user.get("email"),
+        "created_by_user_id": attribution["created_by_user_id"],
         "created_at": datetime.now(timezone.utc).isoformat(),
         "updated_at": datetime.now(timezone.utc).isoformat()
     }

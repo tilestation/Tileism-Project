@@ -1108,6 +1108,15 @@ async def save_invoice(input: InvoiceCreate, current_user: dict = Depends(get_cu
         profit_margin = None
         total_cost = None
     
+    # Stamp attribution fields (4 Jun 2026) so downstream reports stay
+    # correct after a staff transfer between showrooms.
+    from services.staff_attribution import resolve_staff_attribution
+    attribution = await resolve_staff_attribution(
+        current_user,
+        input_showroom_id=input.showroom_id,
+        input_showroom_name=input.showroom_name,
+    )
+
     # Save invoice
     invoice_dict = {
         "id": str(uuid.uuid4()),
@@ -1125,8 +1134,8 @@ async def save_invoice(input: InvoiceCreate, current_user: dict = Depends(get_cu
         "payment_method": input.payment_method,
         "payment_methods": [pm.model_dump() for pm in input.payment_methods] if input.payment_methods else [],
         "order_type": input.order_type,
-        "showroom_id": input.showroom_id,
-        "showroom_name": input.showroom_name,
+        "showroom_id": attribution["showroom_id"] or input.showroom_id,
+        "showroom_name": attribution["showroom_name"] or input.showroom_name,
         "deposits": [d.model_dump() for d in input.deposits] if input.deposits else [],
         "line_items": line_items_with_cost,
         "subtotal": input.subtotal,
@@ -1135,6 +1144,7 @@ async def save_invoice(input: InvoiceCreate, current_user: dict = Depends(get_cu
         "total_savings": input.total_savings,
         "apply_vat": input.apply_vat,  # False for cash quotation conversions (0% VAT)
         "created_by": current_user["email"],
+        "created_by_user_id": attribution["created_by_user_id"],
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
 
