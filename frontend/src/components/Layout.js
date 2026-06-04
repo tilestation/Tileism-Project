@@ -255,6 +255,13 @@ export const Layout = () => {
           external: true,
           accent: true,
         },
+        // Top-level staff-recognition shortcuts (3 Jun 2026 — user
+        // report "where is the champions dashboard?"; previously
+        // these lived under Admin Settings → easy to miss). Visible
+        // to every role with dashboard access so the whole team can
+        // see who's leading.
+        { to: '/admin/staff-competition', icon: Trophy, label: '🏆 Staff Competition', permission: 'dashboard', legacyPermission: 'dashboard', accent: true },
+        { to: '/admin/star-staff', icon: Crown, label: '⭐ Star Staff', permission: 'dashboard', legacyPermission: 'dashboard' },
       ]
     },
     {
@@ -370,8 +377,6 @@ export const Layout = () => {
         { to: '/admin/users', icon: Shield, label: 'User Management', permission: 'user_management', legacyPermission: 'user_management', superAdminOnly: true },
         { to: '/admin/permissions', icon: Shield, label: 'Permissions', permission: 'permissions_admin', legacyPermission: 'user_management', superAdminOnly: true },
         { to: '/admin/staff-pins', icon: KeyRound, label: 'Staff PINs', permission: 'staff_pins', legacyPermission: 'user_management', superAdminOnly: true },
-        { to: '/admin/star-staff', icon: Crown, label: '⭐ Star Staff', permission: 'dashboard', legacyPermission: 'dashboard' },
-        { to: '/admin/staff-competition', icon: Trophy, label: '🏆 Staff Competition', permission: 'dashboard', legacyPermission: 'dashboard' },
         { to: '/admin/expired-quotes', icon: Clock, label: 'Expired Quotes', permission: 'quotations', legacyPermission: 'quotes' },
         { to: '/admin/staff-invites', icon: Link2, label: 'Staff Invites', permission: 'staff_invites', legacyPermission: 'user_management', superAdminOnly: true },
         { to: '/admin/trash', icon: Trash2, label: 'Trash', permission: 'trash', legacyPermission: 'user_management', superAdminOnly: true },
