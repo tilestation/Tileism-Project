@@ -9,6 +9,81 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Jun 3, 2026 — Forked session] 🏆 Staff Leaderboard + Expired-Quote Recovery feature pack
+
+**User request stack** (after the quote-features clarification round):
+1. **Expired-quote discount codes** — admin-set % per code (option 2c).
+2. **Top-converter staff widget** with 👏 applause on the dashboard.
+3. **Showroom + Company leaderboard** banner visible on every admin page.
+4. **Monthly competition** — bragging rights + trackable targets + optional cash bonus (option 4d).
+5. **Daily-streak tracking**.
+6. **Per-staff conversion-rate vs personal avg**.
+
+User-clarified rules:
+- **Attribution**: the **quote CREATOR** wins on conversion (option 1a).
+- **Sales metric**: only invoices with `order_type = "Special Order"` count (tiles/bathroom/flooring/underfloor heating). `Store Order` (material/tools) is EXCLUDED.
+- **Leaderboard size**: show ALL staff 1..N, not capped at top-5.
+- **Banner location**: top of every admin page (no separate showroom-TV page needed — no physical TVs).
+
+**Backend** (3 new modules):
+- `/app/backend/routes/staff_leaderboard.py` (NEW) — `_compute_leaderboard()` aggregates `quotations` + `invoices` (filtered to Special Order) into a per-staff record carrying quotes_created/converted/sales_count/sales_value_gbp; sorts by conversions desc with sales as tie-breaker. `_compute_streak()` walks backwards day-by-day for consecutive conversion days. `_compute_personal_avg_rate()` returns lifetime conversion % excluding the current month. 30s in-memory cache on `/banner` so the cycling top-strip on every open admin tab doesn't hammer Mongo. Endpoints:
+  - `GET /api/staff-leaderboard/banner` — no-auth, 30s-cached cycle payload.
+  - `GET /api/staff-leaderboard/full` — admin-only full ranked list 1..N with streak + personal-avg deltas + target progress + bonuses.
+  - `GET /api/staff-leaderboard/streak/{user_key}` — single-staff streak details.
+  - `POST /api/staff-leaderboard/target` — super-admin sets monthly team target (conversions or £).
+  - `POST /api/staff-leaderboard/bonus` — super-admin records optional cash bonus per winner.
+- `/app/backend/routes/quote_recovery.py` (NEW) — `GET /api/quote-recovery/expired-quotes` (lists non-converted quotes >30 days old) and `POST /api/quote-recovery/send-recovery` (mints a 1-use code `WB{pct}-{quote#}-{hex}` on `shop_discount_codes`, sends Resend email with the customer's name + quote # + savings calc + a `?promo={code}` redeem link, logs the attempt on the quote doc). Admin picks the % (1-50) per send.
+- Routers registered in `/app/backend/routes/__init__.py`.
+
+**Frontend** (3 new pages/components):
+- `/app/frontend/src/components/admin/LeaderboardBanner.jsx` (NEW) — top-of-page emerald/amber gradient strip. Cycles every 6s through up to 4 slides (quote-conversion leader · sales-revenue leader · runner-up gap · top streak), with dot indicators + dismiss × stored per-sessionStorage. Polls `/banner` every 60s. Mounted in `Layout.js` ABOVE the topbar, only on admin layouts.
+- `/app/frontend/src/pages/admin/StarStaffPage.jsx` (NEW) — full leaderboard dashboard. Top-3 podium (👑🥈🥉 cards with "Hand of applause 👏" badge for the leader, conversion rate vs personal-avg delta, streak count). Monthly-target setter (metric + value). Dual leaderboards (Quote Conversions + Special-Order Sales) showing ALL staff. Per-showroom leaders grid. Cash-bonus recorder (super-admin only) with note + amount fields and a "Bonuses this month" list. Auto-progress bars per staff when a team target is set (filled emerald when ≥100%).
+- `/app/frontend/src/pages/admin/ExpiredQuotesPage.jsx` (NEW) — table of every expired quote with customer name + email + value + age + count of previous recovery sends. "Send Recovery" button per row opens a modal where the admin picks `% off` from a dropdown (5/7/10/12/15/20/25/30), sets validity days, and adds an optional personal message. Mints code via the backend, shows toast with the code + customer email on success.
+- Routes registered in `App.js`: `/admin/star-staff` and `/admin/expired-quotes`. Sidebar entries added in `Layout.js` with Crown + Clock icons (gated by `dashboard` and `quotations` permissions respectively).
+
+**Tests** (3 new test files, 26 tests):
+- `tests/test_staff_leaderboard.py` (12 tests):
+  1. Empty DB → banner returns nulls (UI hides).
+  2. Quote attribution: CREATOR wins (not converter) — Syed creates 5 quotes, 3 convert → Syed leads with 3.
+  3. Sales metric: only Special Order invoices count. Mocked-mock test plus a defence-in-depth test that introspects the aggregate pipeline to confirm `order_type: "Special Order"` is literally in `$match`.
+  4. Conversion rate computation (Amy: 4 won of 10 = 40%).
+  5. Per-showroom leader rollup.
+  6. Streak counts consecutive days (3-day streak with a gap on day-3 breaks correctly).
+  7. Streak returns 0 when no conversion today.
+  8. Target requires super_admin (admin/manager/staff/None all get 403).
+  9. Target saved with `metric: "sales_gbp"` + value.
+  10. Bonus saved.
+  11. Full leaderboard returns ALL staff (12 of 12, not capped).
+- `tests/test_quote_recovery.py` (14 tests):
+  1. Listing excludes converted quotes + quotes younger than 30 days.
+  2. age_days field included in response.
+  3. send-recovery mints code with correct percent, max_uses=1, email-locked, source=quote_recovery, logged on quote.
+  4. Rejects quote without customer email.
+  5. Both endpoints require admin role.
+  6. Pydantic rejects out-of-range percents (0, -5, 51, 100).
+  7. Code prefix encodes percent for traceability (5%, 10%, 20%, 30% all produce `WB5-`, `WB10-`, etc.).
+
+**Test suite**: 102/102 tests pass across all 9 sync-related fixes + the new quote/leaderboard feature pack (26 quote+leaderboard + 76 prior radio/client-error). Zero regressions. All 6 frontend files lint-clean.
+
+**Smoke screenshot verified**:
+- `/admin/star-staff` renders: hero card with "Quote-conversion & Special-Order sales champions" title + the explanatory blurb confirming creator-attribution + Special-Order-only sales rule; Monthly target setter; both leaderboard tables; Cash Bonus tracker.
+- `/admin/expired-quotes` renders: "Expired Quotes — Win Back" header + "No expired quotes!" empty state.
+- Banner correctly hidden when no data (graceful-empty).
+
+**Files**:
+- `/app/backend/routes/staff_leaderboard.py` (NEW — 451 lines).
+- `/app/backend/routes/quote_recovery.py` (NEW — 230 lines).
+- `/app/backend/routes/__init__.py` — 2 routers registered.
+- `/app/frontend/src/components/admin/LeaderboardBanner.jsx` (NEW — 195 lines).
+- `/app/frontend/src/pages/admin/StarStaffPage.jsx` (NEW — 405 lines).
+- `/app/frontend/src/pages/admin/ExpiredQuotesPage.jsx` (NEW — 240 lines).
+- `/app/frontend/src/components/Layout.js` — Crown + Clock icons imported, sidebar entries, `<LeaderboardBanner />` mounted above the topbar.
+- `/app/frontend/src/App.js` — 2 lazy routes added.
+- `/app/backend/tests/test_staff_leaderboard.py` (NEW — 12 tests).
+- `/app/backend/tests/test_quote_recovery.py` (NEW — 14 tests).
+
+
+
 ### [Jun 3, 2026 — Forked session] 🔤 Per-ticket product-name font-size slider
 
 **User request** (with screenshot of the Price Tickets editor): *"Can you allow me to adjust the size of the product names on the tickets, like font size"*. Long names like "Ardesia Slate White 600×600 Polished" were getting visually crowded against the price block; short names looked too small relative to the layout.

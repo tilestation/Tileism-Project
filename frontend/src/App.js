@@ -111,6 +111,8 @@ const SyncHub = React.lazy(() => import('./pages/admin/SyncHub'));
 const ProductsHub = React.lazy(() => import('./pages/admin/ProductsHub'));
 const SalesHub = React.lazy(() => import('./pages/admin/SalesHub'));
 const StaffPerformanceDashboard = React.lazy(() => import('./pages/admin/StaffPerformanceDashboard'));
+const StarStaffPage = React.lazy(() => import('./pages/admin/StarStaffPage'));
+const ExpiredQuotesPage = React.lazy(() => import('./pages/admin/ExpiredQuotesPage'));
 const LoyaltyDashboard = React.lazy(() => import('./pages/admin/LoyaltyDashboard'));
 const ManageCategories = React.lazy(() => import('./pages/admin/ManageCategories'));
 const ReorderSuggestions = React.lazy(() => import('./pages/admin/ReorderSuggestions'));
@@ -513,6 +515,8 @@ function App() {
             <Route path="staff-invites" element={<StaffInvites />} />
             <Route path="analytics" element={<Analytics />} />
             <Route path="staff-performance" element={<StaffPerformanceDashboard />} />
+            <Route path="star-staff" element={<StarStaffPage />} />
+            <Route path="expired-quotes" element={<ExpiredQuotesPage />} />
             <Route path="loyalty" element={<LoyaltyDashboard />} />
             <Route path="reorder-suggestions" element={<ReorderSuggestions />} />
             <Route path="stock-transfers" element={<StockTransfers />} />

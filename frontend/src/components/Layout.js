@@ -9,6 +9,7 @@ import OutageBanner from './admin/OutageBanner';
 import SchemaDriftBanner from './admin/SchemaDriftBanner';
 import CommandPalette from './admin/CommandPalette';
 import RadioStatusPill from './admin/RadioStatusPill';
+import LeaderboardBanner from './admin/LeaderboardBanner';
 import { 
   Package, 
   LayoutDashboard, 
@@ -83,6 +84,8 @@ import {
   ShieldAlert,
   ShieldCheck,
   Target,
+  Crown,
+  Clock,
   Search as SearchIcon
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
@@ -367,6 +370,8 @@ export const Layout = () => {
         { to: '/admin/users', icon: Shield, label: 'User Management', permission: 'user_management', legacyPermission: 'user_management', superAdminOnly: true },
         { to: '/admin/permissions', icon: Shield, label: 'Permissions', permission: 'permissions_admin', legacyPermission: 'user_management', superAdminOnly: true },
         { to: '/admin/staff-pins', icon: KeyRound, label: 'Staff PINs', permission: 'staff_pins', legacyPermission: 'user_management', superAdminOnly: true },
+        { to: '/admin/star-staff', icon: Crown, label: '⭐ Star Staff', permission: 'dashboard', legacyPermission: 'dashboard' },
+        { to: '/admin/expired-quotes', icon: Clock, label: 'Expired Quotes', permission: 'quotations', legacyPermission: 'quotes' },
         { to: '/admin/staff-invites', icon: Link2, label: 'Staff Invites', permission: 'staff_invites', legacyPermission: 'user_management', superAdminOnly: true },
         { to: '/admin/trash', icon: Trash2, label: 'Trash', permission: 'trash', legacyPermission: 'user_management', superAdminOnly: true },
         { to: '/admin/settings', icon: Settings, label: 'Settings', permission: 'general_settings', legacyPermission: 'dashboard' },
@@ -659,6 +664,11 @@ export const Layout = () => {
   return (
     <div className="flex h-screen overflow-hidden bg-secondary">
       <div className={cn('flex-1 flex flex-col duration-300 min-w-0', collapsed ? 'md:mr-20' : 'md:mr-64')}>
+        {/* Leaderboard banner — visible only on admin layouts (the whole
+            file is gated behind `isAdmin` shape anyway). Sits ABOVE
+            the topbar so it's the first thing the eye lands on when
+            anyone opens any admin page. (3 Jun 2026 — user req.) */}
+        {isAdmin && <LeaderboardBanner />}
         <header className="h-14 md:h-16 bg-card border-b border-border flex items-center justify-between px-4 md:px-6 sticky top-0 z-30" data-testid="topbar">
           <div className="text-xs md:text-sm font-mono text-muted-foreground">
             {new Date().toLocaleDateString('en-US', { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' })}

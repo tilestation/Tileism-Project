@@ -44,6 +44,8 @@ from .sync_staging import router as sync_staging_router
 from .abandoned_carts import router as abandoned_carts_router
 from .recommendations import router as recommendations_router
 from .conversion_analytics import router as conversion_analytics_router
+from .staff_leaderboard import router as staff_leaderboard_router
+from .quote_recovery import router as quote_recovery_router
 from .reviews import router as reviews_router
 from .recently_viewed import router as recently_viewed_router
 from .staff_performance import router as staff_performance_router
@@ -164,6 +166,8 @@ api_router.include_router(sync_staging_router)
 api_router.include_router(abandoned_carts_router)
 api_router.include_router(recommendations_router)
 api_router.include_router(conversion_analytics_router)
+api_router.include_router(staff_leaderboard_router)
+api_router.include_router(quote_recovery_router)
 api_router.include_router(reviews_router)
 api_router.include_router(recently_viewed_router)
 api_router.include_router(staff_performance_router)
