@@ -100,10 +100,17 @@ STATIC_URLS: list[tuple[str, str, str]] = [
 
 
 def _canonical_host() -> str:
+    # 5 Jun 2026 — switched default from `https://tilestation.co.uk` to
+    # the www version. Ahrefs flagged the homepage as "Non-canonical
+    # page receives organic traffic" because Google ranks the www host
+    # (47 inlinks, 19 organic, #4 for "tiles tonbridge") but every
+    # canonical we emitted pointed at non-www. Single source of truth —
+    # mirrored in frontend SeoHead.jsx + server-seo.js + server.js
+    # PUBLIC_SITE_URL.
     return (
         os.environ.get("SHOP_WEBSITE_URL")
         or os.environ.get("PUBLIC_SITE_URL")
-        or "https://tilestation.co.uk"
+        or "https://www.tilestation.co.uk"
     ).rstrip("/")
 
 

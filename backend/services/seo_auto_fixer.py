@@ -290,6 +290,18 @@ async def auto_fix_from_latest_crawl() -> dict[str, Any]:
     # ── 5. Duplicate titles — flag the loser (longest URL) as noindex ──
     # This stops Google from picking the wrong one. The "winner" stays
     # indexed; the others get a one-click revert in admin.
+    #
+    # 5 Jun 2026 — added ALWAYS_INDEXABLE safe-list. The autofixer was
+    # over-firing on category pages that legitimately share a title
+    # pattern with the homepage; specifically /new-collection ended up
+    # flagged as noindex even though it had 51 inlinks from the main
+    # nav. Mirror the same safe-list lives in frontend/server-seo.js as
+    # a belt-and-braces second layer.
+    ALWAYS_INDEXABLE_PATHS = {
+        "/", "/new-collection", "/clearance", "/shop", "/tiles",
+        "/contact", "/about", "/showrooms", "/showroom-signup",
+        "/blog", "/faq", "/shop/faq",
+    }
     dup_pipeline = [
         {"$match": {"title": {"$ne": ""}, "issues.kind": {"$ne": "fallback_title"}}},
         {"$group": {
@@ -310,6 +322,8 @@ async def auto_fix_from_latest_crawl() -> dict[str, Any]:
             path = urlparse(url).path
             if not path:
                 continue
+            if path in ALWAYS_INDEXABLE_PATHS:
+                continue  # Never auto-noindex critical landing pages
             await db[NOINDEX_FLAGS_COLLECTION].update_one(
                 {"_id": path},
                 {
@@ -406,4 +420,36 @@ async def delete_noindex_flag(path: str) -> int:
     res = await db[NOINDEX_FLAGS_COLLECTION].delete_one({"_id": path})
     if res.deleted_count:
         await _log_action("seo_noindex_cleared", path=path)
+    return res.deleted_count
+
+
+
+# 5 Jun 2026 — keep the safe-list of always-indexable paths in a single
+# module-level constant. Both the autofixer (`run_auto_fixer`) and the
+# boot-time cleanup (`purge_safelist_noindex_flags`) read from this so
+# they can never drift out of sync. Mirror in frontend/server-seo.js.
+ALWAYS_INDEXABLE_PATHS = {
+    "/", "/new-collection", "/clearance", "/shop", "/tiles",
+    "/contact", "/about", "/showrooms", "/showroom-signup",
+    "/blog", "/faq", "/shop/faq",
+}
+
+
+async def purge_safelist_noindex_flags() -> int:
+    """Remove any noindex flags accidentally written for safe-listed
+    paths. Called once on backend boot so production self-heals from
+    the over-firing autofixer bug (Ahrefs reported /new-collection
+    flagged noindex on 5 Jun 2026 despite 51 internal links).
+
+    Idempotent — safe to call on every boot."""
+    db = get_db()
+    res = await db[NOINDEX_FLAGS_COLLECTION].delete_many(
+        {"_id": {"$in": list(ALWAYS_INDEXABLE_PATHS)}}
+    )
+    if res.deleted_count:
+        await _log_action(
+            "seo_noindex_safelist_purged",
+            count=res.deleted_count,
+            paths=list(ALWAYS_INDEXABLE_PATHS),
+        )
     return res.deleted_count

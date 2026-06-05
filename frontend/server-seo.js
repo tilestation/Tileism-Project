@@ -32,7 +32,13 @@
  * variants as duplicates without canonical).
  */
 
-const SITE_URL = process.env.PUBLIC_SITE_URL || 'https://tilestation.co.uk';
+// 5 Jun 2026 — switched default canonical host to `www.` after Ahrefs
+// flagged the homepage as "Non-canonical page receives organic
+// traffic" (47 inlinks + ranking #4 for "tiles tonbridge" on the www
+// version, while canonical pointed at non-www). Single source of
+// truth — mirrored in SeoHead.jsx, server.js (PUBLIC_SITE_URL), and
+// backend routes/seo_public.py (_canonical_host).
+const SITE_URL = process.env.PUBLIC_SITE_URL || 'https://www.tilestation.co.uk';
 const BRAND = 'Tile Station';
 
 // Prettify a slug like "spanish-floor-tiles-60x60" → "Spanish Floor Tiles 60x60"
@@ -536,7 +542,28 @@ function resolveSeo(rawPath) {
       if (ov.jsonld) meta.jsonld = ov.jsonld;
       meta.override_applied = ov.auto_fix_reason || true;
     }
-    if (isNoindexPath(normalised)) {
+    // 5 Jun 2026 — Auto-fixer (db.seo_noindex_flags) can flag pages as
+    // noindex when it detects duplicate titles. But certain pages are
+    // critical for SEO and must NEVER be auto-noindex'd (the autofixer's
+    // duplicate-title heuristic over-fires on category pages that
+    // legitimately share a title pattern with the homepage). The list
+    // below is the explicit "always-indexable" safe list. The auto-fixer
+    // can still flag everything else.
+    const ALWAYS_INDEXABLE = new Set([
+      '/',
+      '/new-collection',
+      '/clearance',
+      '/shop',
+      '/tiles',
+      '/contact',
+      '/about',
+      '/showrooms',
+      '/showroom-signup',
+      '/blog',
+      '/faq',
+      '/shop/faq',
+    ]);
+    if (isNoindexPath(normalised) && !ALWAYS_INDEXABLE.has(normalised)) {
       meta.noindex = true;
     }
   } catch (_e) {

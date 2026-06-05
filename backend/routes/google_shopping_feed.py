@@ -44,7 +44,7 @@ async def google_shopping_xml() -> Response:
     cable accessories, builds one <item> per product. Cacheable for
     1 hour at the CDN — Google polls daily so this is plenty."""
     db = get_db()
-    base = (os.environ.get("FRONTEND_BASE_URL") or "https://tilestation.co.uk").rstrip("/")
+    base = (os.environ.get("FRONTEND_BASE_URL") or "https://www.tilestation.co.uk").rstrip("/")
 
     cur = db.tiles.find(
         {

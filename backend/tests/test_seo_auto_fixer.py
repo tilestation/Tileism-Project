@@ -124,3 +124,56 @@ def test_jsonld_for_path_shape():
     assert payload["isPartOf"]["@type"] == "WebSite"
     assert payload["publisher"]["@type"] == "Organization"
     assert payload["inLanguage"] == "en-GB"
+
+
+
+# ─────────────────────────────────────────────────────────────────────
+# 5 Jun 2026 — Safelist regression. The autofixer used to over-fire on
+# /new-collection (51 inlinks, in the main nav) when it briefly shared
+# a title pattern with another page. The safelist + boot-time purge
+# below stops critical landing pages from getting stuck noindex'd.
+# ─────────────────────────────────────────────────────────────────────
+def test_safelist_includes_critical_landing_pages():
+    """The ALWAYS_INDEXABLE_PATHS set must include every page Google
+    is currently ranking or has heavy inbound links — i.e. /, /shop,
+    /new-collection (51 inlinks), /clearance (in main nav), /tiles."""
+    from services.seo_auto_fixer import ALWAYS_INDEXABLE_PATHS
+    must_include = {
+        "/", "/new-collection", "/clearance", "/shop", "/tiles",
+        "/contact", "/about", "/showrooms",
+    }
+    missing = must_include - ALWAYS_INDEXABLE_PATHS
+    assert not missing, f"Safelist missing critical paths: {missing}"
+
+
+@pytest.mark.asyncio
+async def test_purge_safelist_noindex_flags_clears_only_safelisted_paths():
+    """Boot-time purge must delete noindex flags ONLY for safe-listed
+    paths — never touch flags the autofixer correctly set on
+    less-important duplicates like /shop/info/.../v2."""
+    from unittest.mock import patch, AsyncMock, MagicMock
+    from services.seo_auto_fixer import (
+        purge_safelist_noindex_flags,
+        ALWAYS_INDEXABLE_PATHS,
+        NOINDEX_FLAGS_COLLECTION,
+    )
+
+    db = MagicMock()
+    delete_many = AsyncMock(return_value=MagicMock(deleted_count=2))
+    db.__getitem__.return_value.delete_many = delete_many
+
+    with patch("services.seo_auto_fixer.get_db", return_value=db), \
+         patch("services.seo_auto_fixer._log_action", new=AsyncMock()):
+        deleted = await purge_safelist_noindex_flags()
+
+    assert deleted == 2
+    # Verify the delete query only targets safelisted paths
+    args, _ = delete_many.call_args
+    query = args[0]
+    assert "_id" in query
+    assert "$in" in query["_id"]
+    targeted = set(query["_id"]["$in"])
+    assert targeted == ALWAYS_INDEXABLE_PATHS, \
+        "Purge must target exactly the safelist — nothing more, nothing less."
+    # Sanity check that the collection name is right
+    db.__getitem__.assert_called_with(NOINDEX_FLAGS_COLLECTION)

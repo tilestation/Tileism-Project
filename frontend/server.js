@@ -48,38 +48,131 @@ const BACKEND_URL =
   process.env.BACKEND_URL ||
   null;
 
+// ──────────────────────────────────────────────────────────────────
+// PUBLIC_SITE_URL — the ONE authoritative origin we use in canonicals,
+// sitemap URLs, and the robots.txt Sitemap directive. Switched to
+// `www.` on 5 Jun 2026 after Ahrefs flagged the homepage as
+// "Non-canonical page receives organic traffic" — 47 inlinks + 19
+// monthly organic visits land on the www version while our canonical
+// pointed Google at the non-www. We pick ONE and enforce it via
+// 301 from the other host (next block).
+// ──────────────────────────────────────────────────────────────────
+const PUBLIC_SITE_URL = (
+  process.env.PUBLIC_SITE_URL
+  || process.env.REACT_APP_PUBLIC_SITE_URL
+  || 'https://www.tilestation.co.uk'
+).replace(/\/$/, '');
+const CANONICAL_HOSTNAME = (() => {
+  try { return new URL(PUBLIC_SITE_URL).hostname; }
+  catch { return 'www.tilestation.co.uk'; }
+})();
+
+// ──────────────────────────────────────────────────────────────────
+// /robots.txt — served DIRECTLY from Express (5 Jun 2026 fix).
+//
+// Previously this was proxied through to the FastAPI backend, which
+// meant any backend cold-start / hiccup returned HTTP 503 on a URL
+// Google + Ahrefs hit constantly. Ahrefs reported it as both
+// "Robots.txt is not accessible" (ERROR) AND "Broken redirect" — the
+// single biggest contributor to the health-score drop from 100 → 82.
+//
+// The file is small, rarely changes, and never benefits from being
+// behind a proxy. Inlining the content here means even if the backend
+// is dead, robots.txt always returns 200 in < 1 ms.
+// ──────────────────────────────────────────────────────────────────
+const ROBOTS_TXT = (
+  '# Tile Station robots — served directly by Express (no backend hop).\n' +
+  'User-agent: *\n' +
+  'Allow: /\n' +
+  '\n' +
+  '# Don\'t index private flows or noisy parameter URLs.\n' +
+  'Disallow: /admin\n' +
+  'Disallow: /api/\n' +
+  'Disallow: /shop/cart\n' +
+  'Disallow: /shop/checkout\n' +
+  'Disallow: /shop/account\n' +
+  'Disallow: /shop/wishlist\n' +
+  'Disallow: /shop/order/\n' +
+  'Disallow: /customer\n' +
+  'Disallow: /staff-register\n' +
+  'Disallow: /reset-password\n' +
+  'Disallow: /forgot-password\n' +
+  'Disallow: /register\n' +
+  '\n' +
+  '# Webpack chunks — code, not pages.\n' +
+  'Disallow: /static/\n' +
+  'Disallow: /*.js$\n' +
+  'Disallow: /*.css$\n' +
+  'Disallow: /*.map$\n' +
+  'Disallow: /service-worker.js\n' +
+  '\n' +
+  `Sitemap: ${PUBLIC_SITE_URL}/sitemap.xml\n`
+);
+app.get('/robots.txt', (_req, res) => {
+  res.set('Cache-Control', 'public, max-age=3600, s-maxage=3600');
+  res.type('text/plain').send(ROBOTS_TXT);
+});
+app.head('/robots.txt', (_req, res) => {
+  res.set('Cache-Control', 'public, max-age=3600, s-maxage=3600');
+  res.type('text/plain').end();
+});
+
+// ──────────────────────────────────────────────────────────────────
+// Non-www → www 301 (5 Jun 2026 fix).
+//
+// Ahrefs reported the www homepage as "Non-canonical page receives
+// organic traffic" — Google links + ranks the www version (47 inlinks,
+// ranks #4 for "tiles tonbridge"), but the canonical pointed at the
+// non-www host. Resolution: pick www as the single authoritative
+// origin, enforce it via 301 here, and use it in every canonical /
+// sitemap entry going forward.
+//
+// Skips /healthz so Railway's load-balancer probe doesn't follow a
+// redirect.
+// ──────────────────────────────────────────────────────────────────
+app.use((req, res, next) => {
+  const host = (req.headers['host'] || '').toLowerCase();
+  if (req.path === '/healthz') return next();
+  if (host && host !== CANONICAL_HOSTNAME
+      && (host === 'tilestation.co.uk' || host.endsWith('.tilestation.co.uk'))
+      // Only redirect the bare-apex host. Don't redirect Railway
+      // preview hosts (*.up.railway.app) — those would loop.
+      && host === 'tilestation.co.uk') {
+    const target = `${PUBLIC_SITE_URL}${req.originalUrl}`;
+    return res.redirect(301, target);
+  }
+  return next();
+});
+
 if (!BACKEND_URL) {
   console.warn(
-    '[server] REACT_APP_BACKEND_URL not set — /sitemap.xml and /robots.txt ' +
+    '[server] REACT_APP_BACKEND_URL not set — /sitemap.xml ' +
     'will not be reachable. Set it in Railway env vars to fix.',
   );
 } else {
-  // Proxy the two SEO endpoints to the backend. We rewrite the path so
-  // tilestation.co.uk/sitemap.xml hits backend /api/sitemap.xml. Same
-  // for robots.txt. Both are GET-only, so we register them only on GET
-  // to avoid accidentally exposing other backend verbs.
+  // Proxy the sitemap endpoint to the backend. (robots.txt is now
+  // served inline above — see 5 Jun 2026 note.) We rewrite the path
+  // so tilestation.co.uk/sitemap.xml hits backend /api/sitemap.xml.
+  // GET-only to avoid accidentally exposing other backend verbs.
   const seoProxy = createProxyMiddleware({
     target: BACKEND_URL,
     changeOrigin: true,
     xfwd: true,
     pathRewrite: {
       '^/sitemap.xml': '/api/sitemap.xml',
-      '^/robots.txt': '/api/robots.txt',
     },
     onError: (err, req, res) => {
-      console.error('[server] SEO proxy error for', req.url, '—', err.message);
+      console.error('[server] Sitemap proxy error for', req.url, '—', err.message);
       // 503 not 500 — tells Google "try again later" instead of
       // "this URL is broken forever".
       res.statusCode = 503;
       res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-      res.end('Sitemap/robots backend temporarily unavailable.');
+      res.end('Sitemap backend temporarily unavailable.');
     },
     logLevel: 'warn',
   });
   app.get('/sitemap.xml', seoProxy);
-  app.get('/robots.txt', seoProxy);
   app.head('/sitemap.xml', seoProxy);
-  app.head('/robots.txt', seoProxy);
 
   // ──────────────────────────────────────────────────────────────────
   // IndexNow key-file proxy (May 16 2026).

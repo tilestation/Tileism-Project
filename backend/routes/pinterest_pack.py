@@ -39,7 +39,7 @@ router = APIRouter()
 COMPANY_WEBSITE = (
     os.environ.get("COMPANY_WEBSITE")
     or os.environ.get("SHOP_WEBSITE_URL")
-    or "https://tilestation.co.uk"
+    or "https://www.tilestation.co.uk"
 )
 
 

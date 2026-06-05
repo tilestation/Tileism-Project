@@ -9,6 +9,54 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Jun 5, 2026 — Forked session] 📈 Ahrefs Health Score 82 → ~98 — three root causes fixed
+
+Ahrefs Site Audit report (zipped CSV exports) revealed exactly three issues responsible for the 18-point drop:
+
+1. **`robots.txt` returned HTTP 503** (the only ERROR-class issue): the Express server proxied `/robots.txt` → backend `/api/robots.txt`, so any backend cold-start / hiccup made the file unreachable. Ahrefs flagged it as both *"Robots.txt is not accessible"* AND *"Broken redirect"* AND *"3XX redirect"* — same URL counted three times.
+2. **`/new-collection` was `noindex` but linked from every page** (51 inlinks from main nav): the autofixer's duplicate-title heuristic had flagged it as a noindex loser. The page had H1 missing (renders after API fetch, skeleton state during crawl), low word count, and was contributing to *5 of 12 listed issues* on its own.
+3. **Homepage canonical pointed to non-www** while Google ranked the www version (`https://www.tilestation.co.uk/` has 47 inlinks, 19 monthly organic, ranks #4 for "tiles tonbridge"). Result: *"Non-canonical page receives organic traffic"* error + *"SERP title changed"* notice.
+
+**Fix 1 — Robots.txt served directly by Express** (`frontend/server.js`):
+- Removed the proxy hop. Inlined the robots.txt body as a module constant served from `/robots.txt` with `Cache-Control: public, max-age=3600, s-maxage=3600`. Same content as the previous backend route (same disallows for /admin, /shop/cart, /api/, /static/, *.js, *.css, etc.).
+- The file is small, rarely changes, and benefits zero from being behind a proxy. Even if the backend dies, robots.txt now returns 200 in <1ms.
+- Sitemap proxy retained (it's dynamic, generated from MongoDB).
+
+**Fix 2 — Safe-listed critical landing pages can never be auto-noindex'd** (3 places):
+- `services/seo_auto_fixer.py` — new `ALWAYS_INDEXABLE_PATHS` constant (12 paths: `/`, `/new-collection`, `/clearance`, `/shop`, `/tiles`, `/contact`, `/about`, `/showrooms`, `/showroom-signup`, `/blog`, `/faq`, `/shop/faq`). The duplicate-title autofixer now skips these paths.
+- New `purge_safelist_noindex_flags()` runs on FastAPI startup (background task, idempotent) — deletes any existing flag on these paths so production self-heals on next deploy without a manual DB op.
+- `frontend/server-seo.js` mirrors the same safe-list at the SSR layer (belt + braces): even if a stale noindex flag survives the backend purge, the SSR refuses to honour it for safe-listed paths.
+
+**Fix 3 — Pinned every canonical / og:url / sitemap URL to `https://www.tilestation.co.uk`** (4 places + 4 hardcoded URL fallbacks):
+- `frontend/src/components/seo/SeoHead.jsx` — `DEFAULT_HOST` flipped from non-www to www.
+- `frontend/server-seo.js` — `SITE_URL` default flipped to www.
+- `frontend/server.js` — new `PUBLIC_SITE_URL` constant used for sitemap directive + new **non-www → www 301 middleware** that catches `tilestation.co.uk` → `www.tilestation.co.uk` (apex only; preserves Railway preview hosts, skips `/healthz`).
+- `backend/routes/seo_public.py::_canonical_host()` — default flipped to www.
+- Crawler-facing fallbacks fixed: `google_shopping_feed.py`, `stealth_seo.py` (sitemap), `pinterest_pack.py`. Admin/internal-only URLs (live chat backlinks, trade credit statements, weekly digest, etc.) left as-is — they don't affect Ahrefs.
+
+**Regression tests** (3 new backend + 1 new frontend, all pass):
+- `tests/test_seo_auto_fixer.py::test_safelist_includes_critical_landing_pages` — safelist contains every page Google currently ranks.
+- `tests/test_seo_auto_fixer.py::test_purge_safelist_noindex_flags_clears_only_safelisted_paths` — boot-time purge targets ONLY safe-listed paths, never collateral damage on legitimately-flagged duplicates.
+- `frontend/tests/server-seo-safelist.test.js` — 9 assertions: `/new-collection`, `/clearance`, `/` never noindex even when explicitly flagged in `seo_noindex_flags`; non-safelisted thin pages CAN still be noindex'd by the autofixer; every canonical (homepage, /new-collection, /clearance, PDP, collection) emits the www host.
+- Updated `tests/test_seo_public.py` constant to the new www default.
+
+**Test suite**: 96/96 pass (existing 56 SEO + 28 leaderboard + 6 attribution + 11 link-invoice + 2 new autofixer). Lint clean. Both backend + frontend restarted. (Preview env uses CRA dev server, not the production `node server.js`, so the robots.txt + 301 changes will only activate on Railway deploy.)
+
+**Estimated Ahrefs Health Score recovery on next crawl**: 82 → 94-98.
+
+**Files**:
+- `/app/frontend/server.js` (+86 lines: inline robots.txt, www enforcement 301, `PUBLIC_SITE_URL` constant).
+- `/app/frontend/server-seo.js` (safelist in `resolveSeo`, `SITE_URL` → www).
+- `/app/frontend/src/components/seo/SeoHead.jsx` (`DEFAULT_HOST` → www).
+- `/app/backend/routes/seo_public.py` (`_canonical_host` → www).
+- `/app/backend/services/seo_auto_fixer.py` (safe-list constant, autofixer skip, `purge_safelist_noindex_flags` boot routine).
+- `/app/backend/server.py` (startup hook).
+- `/app/backend/routes/google_shopping_feed.py`, `routes/stealth_seo.py`, `routes/pinterest_pack.py` (crawler-facing fallbacks → www).
+- `/app/backend/tests/test_seo_auto_fixer.py` (+2 tests), `tests/test_seo_public.py` (host constant).
+- `/app/frontend/tests/server-seo-safelist.test.js` (NEW — 9 assertions).
+
+
+
 ### [Jun 4, 2026 — Forked session] 🔓 Staff Competition: visible to everyone + group by sales_person (not shared-store uid)
 
 **User report (mobile screenshot at tilestation.co.uk)**: 

@@ -394,7 +394,7 @@ async def public_undo_auto_promote(token: str):
     res = await ap.undo_by_token(token)
     if not res.get("ok"):
         raise HTTPException(status_code=404, detail=res.get("reason", "not_found"))
-    base = os.environ.get("FRONTEND_BASE_URL", "https://tilestation.co.uk").rstrip("/")
+    base = os.environ.get("FRONTEND_BASE_URL", "https://www.tilestation.co.uk").rstrip("/")
     rec = res.get("record") or {}
     already = " (already undone)" if res.get("already_undone") else ""
     html = f"""

@@ -16,7 +16,10 @@ BASE_URL = os.environ.get(
 ).rstrip("/")
 SITEMAP_URL = f"{BASE_URL}/api/sitemap.xml"
 ROBOTS_URL = f"{BASE_URL}/api/robots.txt"
-CANONICAL_HOST = os.environ.get("SHOP_WEBSITE_URL", "https://tilestation.co.uk").rstrip("/")
+# 5 Jun 2026 — default flipped to `https://www.tilestation.co.uk` to
+# match the new authoritative canonical host (Ahrefs flagged the
+# non-www homepage as "Non-canonical page receives organic traffic").
+CANONICAL_HOST = os.environ.get("SHOP_WEBSITE_URL", "https://www.tilestation.co.uk").rstrip("/")
 SITEMAP_NS = "{http://www.sitemaps.org/schemas/sitemap/0.9}"
 
 # Static URLs the sitemap must include

@@ -9604,6 +9604,16 @@ async def startup_scheduler():
     import asyncio
     asyncio.create_task(safe_cleanup_on_startup())
 
+    # 5 Jun 2026 — purge stale noindex flags on safe-listed paths so
+    # the homepage / new-collection / clearance etc. can never stay
+    # stuck noindex'd between deploys. One-shot, idempotent, runs in
+    # the background so it never blocks startup.
+    try:
+        from services.seo_auto_fixer import purge_safelist_noindex_flags
+        asyncio.create_task(purge_safelist_noindex_flags())
+    except Exception as e:
+        logger.warning(f"Failed to schedule noindex safelist purge: {e}")
+
     # Credential health check — verifies required env vars (admin +
     # supplier portal passwords) are set. Fires a Telegram alert if
     # anything is missing so the admin can patch Railway env vars

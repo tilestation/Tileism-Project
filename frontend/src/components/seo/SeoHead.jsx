@@ -47,7 +47,14 @@ import React, { useLayoutEffect } from 'react';
 
 const DEFAULT_HOST = (
   process.env.REACT_APP_PUBLIC_SITE_URL ||
-  'https://tilestation.co.uk'
+  // 5 Jun 2026 — flipped from `https://tilestation.co.uk` to the www
+  // version. Ahrefs flagged the homepage as "Non-canonical page
+  // receives organic traffic" — Google ranks the www host (47 inlinks,
+  // 19 monthly organic, #4 for "tiles tonbridge") but our canonicals
+  // pointed at non-www. We pick ONE authoritative origin and stick to
+  // it across SSR (server-seo.js), client (this file), backend
+  // sitemap/robots (routes/seo_public.py), and a 301 in server.js.
+  'https://www.tilestation.co.uk'
 ).replace(/\/$/, '');
 
 const DEFAULT_DESCRIPTION =
