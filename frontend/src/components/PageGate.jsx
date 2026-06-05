@@ -56,6 +56,7 @@ const ROUTE_PERMISSIONS = {
   '/admin/order-management': 'order_management',
   '/admin/delivery-management': 'delivery_management',
   '/admin/online-orders': 'online_orders',
+  '/admin/sample-orders': 'online_orders',
   '/admin/deposit-orders': 'orders',
 
   // Products & Suppliers

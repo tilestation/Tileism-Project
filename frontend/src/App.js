@@ -85,6 +85,7 @@ const TradeAccounts = React.lazy(() => import('./pages/admin/TradeAccounts'));
 const TradeAccountSettings = React.lazy(() => import('./pages/admin/TradeAccountSettings'));
 const CheckoutSettings = React.lazy(() => import('./pages/admin/CheckoutSettings'));
 const OnlineOrders = React.lazy(() => import('./pages/admin/OnlineOrders'));
+const SampleOrders = React.lazy(() => import('./pages/admin/SampleOrders'));
 const LiveVisitors = React.lazy(() => import('./pages/admin/LiveVisitors'));
 const CustomerAccountSettings = React.lazy(() => import('./pages/admin/CustomerAccountSettings'));
 const TasksNotes = React.lazy(() => import('./pages/admin/TasksNotes'));
@@ -615,6 +616,7 @@ function App() {
             <Route path="trade-account-settings" element={<TradeAccountSettings />} />
             <Route path="checkout-settings" element={<CheckoutSettings />} />
             <Route path="online-orders" element={<OnlineOrders />} />
+            <Route path="sample-orders" element={<SampleOrders />} />
             <Route path="live-visitors" element={<LiveVisitors />} />
             <Route path="customer-account-settings" element={<CustomerAccountSettings />} />
             <Route path="contact-page-settings" element={<ShowroomsManager />} />

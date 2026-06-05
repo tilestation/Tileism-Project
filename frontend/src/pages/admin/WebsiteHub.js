@@ -3,7 +3,7 @@ import HubPage from '../../components/HubPage';
 import { toast } from 'sonner';
 import { 
   Globe, Eye, Home, Menu, LayoutGrid, Filter, Zap,
-  ShoppingBag, FileEdit, Palette, Image, Upload, Cloud, Calculator, LayoutDashboard, Settings, Compass, Layers, MapPin, Building2, User, ShoppingCart, RefreshCw, FileText, Wrench, Megaphone, MessageCircle, Mail
+  ShoppingBag, FileEdit, Palette, Image, Upload, Cloud, Calculator, LayoutDashboard, Settings, Compass, Layers, MapPin, Building2, User, ShoppingCart, RefreshCw, FileText, Wrench, Megaphone, MessageCircle, Mail, Beaker
 } from 'lucide-react';
 
 export default function WebsiteHub() {
@@ -78,6 +78,14 @@ export default function WebsiteHub() {
           link: '/admin/online-orders',
           color: 'bg-emerald-600',
           tabs: ['All Orders', 'Pending', 'Processing', 'Shipped', 'Delivered']
+        },
+        {
+          title: 'Sample Orders',
+          description: 'Paid sample-postage orders (SMP-…) — dispatch, tracking & notes',
+          icon: Beaker,
+          link: '/admin/sample-orders',
+          color: 'bg-emerald-500',
+          tabs: ['Paid', 'Ready', 'Shipped', 'Delivered']
         },
         {
           title: 'Live Visitors',

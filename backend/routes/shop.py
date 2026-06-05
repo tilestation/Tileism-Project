@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 import asyncio
 from datetime import datetime, timezone, timedelta
 from typing import Optional, List, Dict, Any
-from fastapi import APIRouter, HTTPException, Depends, Query, Request
+from fastapi import APIRouter, HTTPException, Depends, Query, Request, Body
 from pydantic import BaseModel, EmailStr, Field, ConfigDict
 
 from config import get_db
@@ -3730,6 +3730,42 @@ async def track_order_suggest(email: str, limit: int = 3):
             "delivery_method": o.get("delivery_method", ""),
         })
 
+    # 5 Jun 2026 — also surface paid sample orders so the "Did you
+    # mean…?" recovery card on the public tracking page works for
+    # SMP-… numbers too. Sample orders use `paid_at` rather than
+    # payment_status='paid', so match on either marker. Cap the
+    # union to `limit` newest entries across both collections.
+    sample_cursor = db.sample_orders.find(
+        {
+            "customer_email": em_re,
+            "$or": [
+                {"payment_status": {"$in": ["paid", "completed"]}},
+                {"paid_at": {"$exists": True, "$ne": None}},
+            ],
+        },
+        {
+            "_id": 0,
+            "order_number": 1,
+            "status": 1,
+            "total": 1,
+            "created_at": 1,
+        },
+    ).sort("created_at", -1).limit(max(1, min(limit, 5)))
+
+    async for s in sample_cursor:
+        suggestions.append({
+            "order_number": s.get("order_number"),
+            "status": s.get("status", "pending"),
+            "total": s.get("total", 0) or 0,
+            "created_at": s.get("created_at"),
+            "delivery_method": "delivery",
+            "order_kind": "sample",
+        })
+
+    # Re-sort newest-first across both kinds, cap at `limit`.
+    suggestions.sort(key=lambda x: x.get("created_at") or "", reverse=True)
+    suggestions = suggestions[:max(1, min(limit, 5))]
+
     return {"suggestions": suggestions}
 
 
@@ -3759,6 +3795,58 @@ async def track_order_public(order_number: str, email: str):
         {"order_number": on_re, "customer_email": em_re},
         {"_id": 0, "stripe_session_id": 0}
     )
+
+    # 5 Jun 2026 — sample orders (SMP-…) live in a SEPARATE collection
+    # (`db.sample_orders`) with a slightly different schema. Customers
+    # were getting "Order not found" when trying to track a sample
+    # order because we only looked in shop_orders. Fall through to
+    # sample_orders, then SHAPE the response so the frontend doesn't
+    # need to branch.
+    if not order:
+        sample = await db.sample_orders.find_one(
+            {"order_number": on_re, "customer_email": em_re},
+            {"_id": 0, "stripe_session_id": 0},
+        )
+        if sample:
+            # Build a tracking-shaped response from a sample-order doc.
+            # Sample orders only carry: status, products (with name +
+            # price), total, postage_fee, delivery_address, created_at,
+            # plus optional dispatched/tracking fields once shipped.
+            sample_items = []
+            for p in sample.get("products", []) or []:
+                sample_items.append({
+                    "name": p.get("product_name") or p.get("name") or "Sample",
+                    "image": p.get("image_url") or p.get("image"),
+                    "quantity": 1,
+                    "unit_price": p.get("price_gbp", 0) or 0,
+                    "line_total": p.get("price_gbp", 0) or 0,
+                    "is_sample": True,
+                })
+            # Sample addresses are stored as a single string in
+            # `delivery_address`. Hand the frontend a tiny "Delivery
+            # to" object it can render without choking on shape diff.
+            addr_string = sample.get("delivery_address") or ""
+            return {
+                "order_number": sample["order_number"],
+                "order_kind": "sample",
+                "status": sample.get("status", "pending"),
+                "payment_status": sample.get("payment_status",
+                                            "paid" if sample.get("paid_at") else "pending"),
+                "delivery_method": "delivery",
+                "store_name": None,
+                "tracking": sample.get("tracking", {}),
+                "status_history": sample.get("status_history", []),
+                "items": sample_items,
+                "subtotal": sample.get("samples_subtotal", 0) or 0,
+                "vat": 0,
+                "delivery_fee": sample.get("postage_fee", 0) or 0,
+                "total": sample.get("total", 0) or 0,
+                "created_at": sample.get("created_at"),
+                "estimated_delivery": sample.get("estimated_delivery"),
+                "delivery_address_lines": [
+                    line for line in addr_string.split("\n") if line.strip()
+                ] if addr_string else [],
+            }
 
     if not order:
         raise HTTPException(status_code=404, detail="Order not found. Please check your order number and email.")
@@ -7144,6 +7232,277 @@ async def get_sample_info():
             "Postage is non-refundable",
         ],
     }
+
+
+# ============ ADMIN: SAMPLE ORDERS MANAGEMENT ============
+# 5 Jun 2026 — A `/admin/online-orders` page existed for shop_orders
+# (TS-…) but paid sample orders (SMP-…) had no home in the admin UI.
+# These endpoints mirror the online-orders shape so the new
+# `SampleOrdersPage.jsx` can reuse the same components.
+
+_SAMPLE_VALID_STATUSES = (
+    "pending_payment",  # checkout started, payment not finalised
+    "paid",             # payment confirmed, awaiting dispatch
+    "ready",            # picked, waiting at showroom for collection
+    "shipped",          # in the post (Royal Mail / courier)
+    "delivered",        # marked delivered (manually or via webhook)
+    "completed",        # delivered + customer follow-up done
+    "cancelled",        # cancelled by admin (refunded separately)
+)
+
+
+@router.get("/admin/sample-orders")
+async def admin_list_sample_orders(
+    status: Optional[str] = None,
+    payment_status: Optional[str] = None,
+    search: Optional[str] = None,
+    include_unpaid: bool = False,
+    limit: int = 50,
+    skip: int = 0,
+    current_user: dict = Depends(get_current_user),
+):
+    """Paginated list of paid sample orders for the admin
+    `Sample Orders` page (5 Jun 2026).
+
+    By default UNPAID rows (`status == 'pending_payment'` and no
+    `paid_at`) are hidden so the team isn't flooded with cart-stage
+    drafts. Pass `include_unpaid=true` to surface them.
+
+    Filters mirror the shop_orders endpoint:
+      • `status`         — exact match against status field
+      • `payment_status` — paid / pending / completed
+      • `search`         — order_number / customer_email / customer_name (regex, ci)
+    """
+    if current_user.get("role") not in ["super_admin", "admin", "manager"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    db = get_db()
+    query: dict = {}
+    if status and status != "all":
+        query["status"] = status
+    if payment_status and payment_status != "all":
+        query["payment_status"] = payment_status
+
+    if not include_unpaid:
+        # Real (paid) orders only. Sample orders carry either a
+        # status of "paid"+ or a populated `paid_at` timestamp once
+        # Stripe confirms. Excluding "pending_payment" rows hides
+        # the silent-cart abandons that have their own dedicated
+        # admin page (`/admin/abandoned-sample-baskets`).
+        query["$or"] = [
+            {"status": {"$in": ["paid", "ready", "shipped", "delivered", "completed"]}},
+            {"paid_at": {"$exists": True, "$ne": None}},
+        ]
+
+    if search:
+        s = search.strip()
+        if s:
+            query["$and"] = (query.get("$and") or []) + [{
+                "$or": [
+                    {"order_number": {"$regex": s, "$options": "i"}},
+                    {"customer_email": {"$regex": s, "$options": "i"}},
+                    {"customer_name": {"$regex": s, "$options": "i"}},
+                    {"customer_phone": {"$regex": s, "$options": "i"}},
+                ]
+            }]
+
+    total = await db.sample_orders.count_documents(query)
+    cursor = (
+        db.sample_orders.find(query, {"_id": 0, "stripe_session_id": 0})
+        .sort("created_at", -1)
+        .skip(max(0, int(skip)))
+        .limit(min(200, max(1, int(limit))))
+    )
+    rows = await cursor.to_list(length=limit)
+
+    # Trim to the columns the list view actually renders.
+    summary = []
+    for o in rows:
+        products = o.get("products") or []
+        summary.append({
+            "id": o.get("id"),
+            "order_number": o.get("order_number"),
+            "customer_name": o.get("customer_name"),
+            "customer_email": o.get("customer_email"),
+            "customer_phone": o.get("customer_phone"),
+            "delivery_address": o.get("delivery_address"),
+            "sample_count": o.get("sample_count") or len(products),
+            "free_sample_count": o.get("free_sample_count"),
+            "paid_sample_count": o.get("paid_sample_count"),
+            "samples_subtotal": o.get("samples_subtotal", 0),
+            "postage_fee": o.get("postage_fee", 0),
+            "total": o.get("total", 0),
+            "status": o.get("status", "pending_payment"),
+            "payment_status": (
+                o.get("payment_status")
+                or ("paid" if o.get("paid_at") else "pending")
+            ),
+            "tracking": o.get("tracking", {}),
+            "paid_at": o.get("paid_at"),
+            "created_at": o.get("created_at"),
+            "products": [
+                {
+                    "name": p.get("product_name") or p.get("name"),
+                    "image": p.get("image_url") or p.get("image"),
+                    "price_gbp": p.get("price_gbp", 0) or 0,
+                }
+                for p in products
+            ],
+        })
+
+    return {"total": total, "skip": skip, "limit": limit, "orders": summary}
+
+
+@router.get("/admin/sample-orders/stats")
+async def admin_sample_orders_stats(
+    current_user: dict = Depends(get_current_user),
+):
+    """Top-line counters for the Sample Orders page hero strip.
+
+    Mirrors the shape returned by `/admin/online-orders/stats` so
+    the same StatCard component renders both pages."""
+    if current_user.get("role") not in ["super_admin", "admin", "manager"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    db = get_db()
+    now = datetime.now(timezone.utc)
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+    two_days_ago = (now - timedelta(days=2)).isoformat()
+
+    paid_filter = {"$or": [
+        {"status": {"$in": ["paid", "ready", "shipped", "delivered", "completed"]}},
+        {"paid_at": {"$exists": True, "$ne": None}},
+    ]}
+
+    orders_today = await db.sample_orders.count_documents({
+        **paid_filter,
+        "created_at": {"$gte": today_start},
+    })
+    pending_dispatch = await db.sample_orders.count_documents({
+        **paid_filter,
+        "status": "paid",   # paid but not yet ready/shipped
+    })
+    awaiting_collection = await db.sample_orders.count_documents({
+        **paid_filter,
+        "status": "ready",
+    })
+    overdue = await db.sample_orders.count_documents({
+        **paid_filter,
+        "status": "paid",
+        "created_at": {"$lt": two_days_ago},
+    })
+
+    # Revenue today = sum of `total` on today's paid orders.
+    revenue_pipe = [
+        {"$match": {**paid_filter, "created_at": {"$gte": today_start}}},
+        {"$group": {"_id": None, "sum": {"$sum": "$total"}}},
+    ]
+    rev_rows = await db.sample_orders.aggregate(revenue_pipe).to_list(length=1)
+    revenue_today = float(rev_rows[0]["sum"]) if rev_rows else 0.0
+
+    return {
+        "orders_today": orders_today,
+        "revenue_today": round(revenue_today, 2),
+        "pending_dispatch": pending_dispatch,
+        "awaiting_collection": awaiting_collection,
+        "overdue": overdue,
+    }
+
+
+@router.get("/admin/sample-orders/{order_id}")
+async def admin_get_sample_order(
+    order_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """Full sample-order doc for the admin detail-drawer."""
+    if current_user.get("role") not in ["super_admin", "admin", "manager"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    db = get_db()
+    order = await db.sample_orders.find_one(
+        {"$or": [{"id": order_id}, {"order_number": order_id}]},
+        {"_id": 0, "stripe_session_id": 0},
+    )
+    if not order:
+        raise HTTPException(status_code=404, detail="Sample order not found")
+    return order
+
+
+@router.patch("/admin/sample-orders/{order_id}")
+async def admin_update_sample_order(
+    order_id: str,
+    body: dict = Body(...),
+    current_user: dict = Depends(get_current_user),
+):
+    """Update an admin-mutable field on a sample order. Accepts:
+      • `status`   — must be in _SAMPLE_VALID_STATUSES
+      • `tracking` — `{carrier, tracking_number, url}` dict
+      • `notes`    — freeform admin note (appended to a history list)
+    """
+    if current_user.get("role") not in ["super_admin", "admin", "manager"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    db = get_db()
+    order = await db.sample_orders.find_one(
+        {"$or": [{"id": order_id}, {"order_number": order_id}]},
+        {"_id": 0, "order_number": 1, "status": 1, "id": 1},
+    )
+    if not order:
+        raise HTTPException(status_code=404, detail="Sample order not found")
+
+    set_fields: dict = {"updated_at": datetime.now(timezone.utc).isoformat()}
+    push_fields: dict = {}
+
+    new_status = (body or {}).get("status")
+    if new_status is not None:
+        if new_status not in _SAMPLE_VALID_STATUSES:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid status. Must be one of: {', '.join(_SAMPLE_VALID_STATUSES)}",
+            )
+        set_fields["status"] = new_status
+        push_fields["status_history"] = {
+            "status": new_status,
+            "at": datetime.now(timezone.utc).isoformat(),
+            "by": current_user.get("email") or current_user.get("id"),
+        }
+
+    tracking = (body or {}).get("tracking")
+    if tracking is not None:
+        if not isinstance(tracking, dict):
+            raise HTTPException(status_code=400, detail="tracking must be an object")
+        set_fields["tracking"] = {
+            "carrier": (tracking.get("carrier") or "").strip(),
+            "tracking_number": (tracking.get("tracking_number") or "").strip(),
+            "url": (tracking.get("url") or "").strip(),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "updated_by": current_user.get("email") or current_user.get("id"),
+        }
+
+    notes = (body or {}).get("notes")
+    if notes:
+        push_fields["admin_notes"] = {
+            "note": str(notes).strip(),
+            "at": datetime.now(timezone.utc).isoformat(),
+            "by": current_user.get("email") or current_user.get("id"),
+        }
+
+    update_doc: dict = {"$set": set_fields}
+    if push_fields:
+        update_doc["$push"] = push_fields
+
+    res = await db.sample_orders.update_one(
+        {"$or": [{"id": order_id}, {"order_number": order_id}]},
+        update_doc,
+    )
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Sample order not found")
+
+    updated = await db.sample_orders.find_one(
+        {"$or": [{"id": order_id}, {"order_number": order_id}]},
+        {"_id": 0, "stripe_session_id": 0},
+    )
+    return {"message": "Sample order updated", "order": updated}
 
 
 # ============ CONTENT MANAGEMENT ENDPOINTS ============

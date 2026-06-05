@@ -9,6 +9,58 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Jun 5, 2026 — Forked session] 📦 Sample-order tracking 404 + new Sample Orders admin page
+
+**User reports** (with two screenshots):
+1. Public order-tracking page (`/shop/track`) returns **"Order not found"** for sample-order `SMP-260526-81C96A` even though the order is paid (£2.99, Stripe receipt + admin notification email confirm it exists).
+2. Admin sidebar has `/admin/online-orders` (regular `TS-…` orders) but **no equivalent page for paid sample orders** — they were silently piling up with no admin workflow.
+
+**Root cause**:
+- Sample orders live in a SEPARATE collection (`db.sample_orders`) from regular orders (`db.shop_orders`). The public track endpoint at `routes/shop.py::track_order_public` only queried `shop_orders` → 404 for every SMP-… number.
+- An admin endpoint for listing/managing sample orders simply didn't exist. Only `/admin/abandoned-sample-baskets` (cart-stage drafts) was implemented.
+
+**Fix A — Public tracking page fall-through** (`routes/shop.py`):
+- After the `shop_orders.find_one` miss, `track_order_public` now also queries `sample_orders` (case-insensitive on order_number + email, same as the existing shop-orders matcher). On a hit, the sample-order doc is shaped into the same response contract the frontend already expects: `items`, `subtotal`, `vat`, `delivery_fee`, `total`, `status`, `payment_status`, plus a new `order_kind: "sample"` discriminator + `delivery_address_lines[]` so the existing tracking page renders without branching.
+- `track_order_suggest` (the "Did you mean…?" recovery helper) also extended to include paid sample orders. Union is re-sorted by `created_at` desc and capped at `limit`.
+
+**Fix B — New `/admin/sample-orders` page** (backend + frontend):
+- **4 backend endpoints** (`routes/shop.py`):
+  - `GET /api/shop/admin/sample-orders` — paginated list, filters by `status` / `payment_status` / `search` (matches order_number / email / name / phone, regex ci). `include_unpaid=false` by default — hides `pending_payment` drafts.
+  - `GET /api/shop/admin/sample-orders/stats` — top-strip counters: orders today, revenue today (today's `total` sum), pending dispatch, awaiting collection, overdue (>2 days, paid, no dispatch).
+  - `GET /api/shop/admin/sample-orders/{order_id}` — full doc for the detail drawer (matches by id OR order_number).
+  - `PATCH /api/shop/admin/sample-orders/{order_id}` — admin-mutable fields: `status` (closed enum: paid → ready / shipped / delivered / completed / cancelled), `tracking` `{carrier, tracking_number, url}`, `notes` (freeform, appended to `admin_notes[]` with author + timestamp). Status changes also push to `status_history[]` for audit.
+  - All gated to `super_admin / admin / manager`. `Body` added to the route's `fastapi` import.
+- **New frontend page** `/app/frontend/src/pages/admin/SampleOrders.jsx` (~410 lines, deliberately leaner than `OnlineOrders.jsx`):
+  - Hero stat strip (5 cards).
+  - Search + status filter + "Include unpaid drafts" toggle.
+  - Paginated table (25 per page) with status pills (7 statuses with Lucide icons + colour pairs).
+  - Side-drawer on row click: customer block, delivery address, items list with thumbnails + price, postage/total breakdown, status dropdown, tracking inputs (carrier / number / URL), admin-notes textarea, recent notes history.
+  - All interactive elements carry `data-testid` (e.g. `sample-orders-page`, `sample-order-row-{order_no}`, `sample-order-drawer-status`, `sample-order-drawer-save`).
+- **Wired in**: `App.js` (lazy import + `/admin/sample-orders` route), `WebsiteHub.js` (new card with `Beaker` icon + "Paid / Ready / Shipped / Delivered" tabs hint), `PageGate.jsx` (permission key reused from `online_orders`).
+
+**`.env` update**: `SHOP_WEBSITE_URL` flipped from non-www to `https://www.tilestation.co.uk` to match the 5 Jun 2026 canonical decision (sitemap + tracking emails now consistently use www).
+
+**Regression tests** (14 new in `tests/test_sample_orders_admin.py`, all pass):
+- 3 tracking fallback tests (sample-order hit, case-insensitive, 404 for unknown).
+- 4 admin list tests (role guard, response shape, unpaid filter query structure).
+- 5 admin detail/update tests (404 paths, status enum validation, history stamping, tracking persistence, role guard).
+- 2 stats endpoint tests (counter shape, role guard).
+
+**Test suite**: 14/14 sample-orders tests pass + 95/96 in the broader regression run. (One unrelated flaky sitemap-cache test — pre-existing). Lint clean on the new file + only my `Body` import added to `shop.py`; the existing 10 lint issues in `shop.py` are unrelated pre-existing problems (PayPal vars, bare-except, ambiguous `l`, undefined `db` in CreditBack code).
+
+**Smoke screenshot verified**: `/admin/sample-orders` renders correctly — stat cards populated, filter dropdown works, the existing paid sample `#SMP-260502-DDFB41` (£2.99, "Paid · awaiting dispatch") shows in the table.
+
+**Files**:
+- `/app/backend/routes/shop.py` — `Body` import, `track_order_public` + `track_order_suggest` fall-through, 4 new admin endpoints (~290 lines).
+- `/app/backend/.env` — `SHOP_WEBSITE_URL` → www.
+- `/app/frontend/src/pages/admin/SampleOrders.jsx` (NEW — 410 lines).
+- `/app/frontend/src/App.js` — lazy import + route.
+- `/app/frontend/src/pages/admin/WebsiteHub.js` — new card + `Beaker` icon import.
+- `/app/frontend/src/components/PageGate.jsx` — permission key.
+- `/app/backend/tests/test_sample_orders_admin.py` (NEW — 14 tests).
+
+
+
 ### [Jun 5, 2026 — Forked session] 📈 Ahrefs Health Score 82 → ~98 — three root causes fixed
 
 Ahrefs Site Audit report (zipped CSV exports) revealed exactly three issues responsible for the 18-point drop:
