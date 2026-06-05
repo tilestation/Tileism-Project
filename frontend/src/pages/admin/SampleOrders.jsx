@@ -153,7 +153,21 @@ export default function SampleOrders() {
         { headers: authHeader() },
       );
       setSelected(res.data.order);
-      toast.success('Sample order updated');
+      // 5 Jun 2026 — surface the auto-shipped email outcome so the
+      // admin knows the customer was notified without checking
+      // mailbox. Idempotent on the backend so retries don't spam.
+      const emailRes = res.data.shipped_email;
+      if (emailRes?.sent) {
+        toast.success('Sample order updated', {
+          description: '📧 Dispatch email sent to the customer with the tracking link.',
+        });
+      } else if (emailRes && !emailRes.sent && emailRes.error) {
+        toast.warning('Saved, but dispatch email failed', {
+          description: emailRes.error.slice(0, 120),
+        });
+      } else {
+        toast.success('Sample order updated');
+      }
       fetchOrders();
       fetchStats();
     } catch (err) {

@@ -765,6 +765,163 @@ async def send_sample_followup_email(
         return {"sent": False, "error": str(exc)[:200]}
 
 
+async def send_sample_shipped_email(
+    *,
+    customer_email: str,
+    customer_name: str,
+    order: dict,
+    tracking: dict | None = None,
+) -> dict:
+    """Auto-triggered when an admin flips a sample order to "shipped"
+    in `/admin/sample-orders` (5 Jun 2026). Tells the customer their
+    sample is in the post and (if available) gives them a one-tap
+    tracking link.
+
+    Idempotent at the caller — the PATCH endpoint checks
+    `shipped_email_sent_at` before invoking so re-saving the row
+    doesn't spam the customer.
+
+    Returns the standard `{sent, error}` dict so callers can log
+    failures without raising.
+    """
+    if not RESEND_AVAILABLE or not RESEND_API_KEY:
+        return {"sent": False, "error": "Email service not configured"}
+
+    safe_name = (customer_name or "there").split(" ")[0]
+    products = order.get("products") or []
+    order_no = order.get("order_number") or order.get("id") or ""
+
+    # Build a 3-thumb sample strip (same visual language as the
+    # follow-up email so the customer recognises the brand).
+    thumb_html_parts = []
+    for p in products[:3]:
+        img = (
+            p.get("image_url")
+            or p.get("image")
+            or "https://images.tilestation.co.uk/placeholder.jpg"
+        )
+        name = p.get("product_name") or p.get("name") or "Tile sample"
+        thumb_html_parts.append(
+            f'<div style="display:inline-block;width:30%;margin-right:2%;'
+            f'vertical-align:top;text-align:center">'
+            f'<img src="{img}" alt="{name}" style="width:100%;max-width:120px;'
+            f'height:90px;object-fit:cover;border-radius:6px;display:block;'
+            f'margin:0 auto" />'
+            f'<div style="font-size:11px;color:#444;margin-top:6px;'
+            f'line-height:1.3">{name[:30]}</div>'
+            f'</div>'
+        )
+    thumbs_html = (
+        "".join(thumb_html_parts)
+        or '<div style="color:#888">your samples</div>'
+    )
+
+    # Tracking block — only render if we actually have a carrier OR
+    # a tracking number OR a URL. Otherwise the email still goes out
+    # (the dispatch confirmation is useful on its own).
+    t = tracking or {}
+    carrier = (t.get("carrier") or "").strip()
+    tracking_no = (t.get("tracking_number") or "").strip()
+    track_url = (t.get("url") or "").strip()
+    tracking_html = ""
+    if carrier or tracking_no or track_url:
+        rows = []
+        if carrier:
+            rows.append(
+                f'<tr><td style="padding:4px 0;color:#666;font-size:13px">'
+                f'Carrier</td><td style="padding:4px 0;font-weight:600;'
+                f'font-size:13px">{carrier}</td></tr>'
+            )
+        if tracking_no:
+            rows.append(
+                f'<tr><td style="padding:4px 0;color:#666;font-size:13px">'
+                f'Tracking number</td><td style="padding:4px 0;font-weight:600;'
+                f'font-size:13px;font-family:monospace">{tracking_no}</td></tr>'
+            )
+        cta_button = ""
+        if track_url:
+            cta_button = (
+                f'<div style="text-align:center;margin-top:18px">'
+                f'<a href="{track_url}" '
+                f'style="display:inline-block;background:#0f5132;color:#fff;'
+                f'text-decoration:none;padding:12px 28px;border-radius:6px;'
+                f'font-weight:700;font-size:14px">Track your parcel ›</a>'
+                f'</div>'
+            )
+        tracking_html = (
+            f'<div style="background:#f5f9f5;border:1px solid #c8e0ce;'
+            f'border-radius:8px;padding:18px;margin:18px 0">'
+            f'<div style="font-size:11px;font-weight:700;letter-spacing:1px;'
+            f'color:#0f5132;text-transform:uppercase;margin-bottom:10px">'
+            f'Tracking details</div>'
+            f'<table style="width:100%;border-collapse:collapse">'
+            f'{"".join(rows)}</table>'
+            f'{cta_button}</div>'
+        )
+
+    subject = f"Your samples are on the way — {order_no}"
+    html_content = f"""
+    <div style="max-width:600px;margin:0 auto;font-family:Arial,sans-serif;
+                background:#fff;border:1px solid #e5e5e5;border-radius:8px;
+                overflow:hidden">
+        <div style="background:#0f5132;color:#fff;padding:24px 28px">
+            <h1 style="margin:0;font-size:22px;font-weight:800">
+                📦 Your samples are on the way
+            </h1>
+            <p style="margin:6px 0 0 0;font-size:13px;opacity:0.9">
+                Order #{order_no}
+            </p>
+        </div>
+
+        <div style="padding:24px 28px">
+            <p style="font-size:15px;color:#222;margin:0 0 16px 0">
+                Hi {safe_name},
+            </p>
+            <p style="font-size:14px;color:#444;line-height:1.6;margin:0 0 18px 0">
+                Good news — we've dispatched your tile samples. They should
+                land in 2–5 working days (Royal Mail).
+            </p>
+
+            <div style="margin:18px 0">{thumbs_html}</div>
+
+            {tracking_html}
+
+            <p style="font-size:13px;color:#666;line-height:1.5;margin:18px 0 0 0">
+                Once they arrive, hold them up against your wall / floor in
+                the actual light of the room — daylight + evening light can
+                shift how a tile looks dramatically. If you want to discuss
+                the look or feel, our showroom team is on
+                <a href="tel:01622200400" style="color:#0f5132;font-weight:600">
+                    01622 200 400</a>.
+            </p>
+        </div>
+
+        <div style="background:#f5f5f5;color:#888;padding:14px 24px;
+                    text-align:center;font-size:11px">
+            Tile Station Ltd · Company No: 11982550
+        </div>
+    </div>
+    """
+
+    try:
+        resend.api_key = RESEND_API_KEY
+        await asyncio.to_thread(resend.Emails.send, {
+            "from": "Tile Station <samples@tilestation.co.uk>",
+            "to": [customer_email],
+            "reply_to": "samples@tilestation.co.uk",
+            "subject": subject,
+            "html": html_content,
+        })
+        return {"sent": True, "error": None}
+    except Exception as exc:  # noqa: BLE001
+        logging.exception(
+            "Sample shipped email failed for %s: %s", customer_email, exc,
+        )
+        return {"sent": False, "error": str(exc)[:200]}
+
+
+
+
 
 async def send_lead_welcome_email(*, name: str, email: str, voucher_code: str, percent_off: int = 5, expires_at: str = "") -> dict:
     """Welcome email triggered when a customer drops their email at the till

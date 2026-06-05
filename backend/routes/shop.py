@@ -7502,7 +7502,51 @@ async def admin_update_sample_order(
         {"$or": [{"id": order_id}, {"order_number": order_id}]},
         {"_id": 0, "stripe_session_id": 0},
     )
-    return {"message": "Sample order updated", "order": updated}
+
+    # 5 Jun 2026 — auto-dispatch email on status → "shipped". Only
+    # fires when:
+    #   • status JUST flipped to "shipped" on THIS request (not a
+    #     re-save of an already-shipped order), AND
+    #   • we have a customer email, AND
+    #   • we haven't already sent the email for this order
+    #     (`shipped_email_sent_at` is the idempotency guard).
+    # Failures are logged but never block the admin save — the
+    # status change is what's authoritative; the email is a courtesy.
+    email_result = None
+    if (
+        new_status == "shipped"
+        and (order.get("status") != "shipped")
+        and (updated or {}).get("customer_email")
+        and not (updated or {}).get("shipped_email_sent_at")
+    ):
+        try:
+            from services.email import send_sample_shipped_email
+            email_result = await send_sample_shipped_email(
+                customer_email=updated["customer_email"],
+                customer_name=updated.get("customer_name") or "",
+                order=updated,
+                tracking=updated.get("tracking") or set_fields.get("tracking"),
+            )
+            if email_result.get("sent"):
+                # Stamp the idempotency marker so a re-save of the
+                # same shipped order doesn't fire a second email.
+                now_iso = datetime.now(timezone.utc).isoformat()
+                await db.sample_orders.update_one(
+                    {"$or": [{"id": order_id}, {"order_number": order_id}]},
+                    {"$set": {"shipped_email_sent_at": now_iso}},
+                )
+                # Refresh the in-memory copy so the response reflects it.
+                updated["shipped_email_sent_at"] = now_iso
+        except Exception as e:  # noqa: BLE001
+            # Don't fail the PATCH — the admin's status save is the
+            # source of truth. Surface in logs only.
+            email_result = {"sent": False, "error": str(e)[:200]}
+
+    return {
+        "message": "Sample order updated",
+        "order": updated,
+        "shipped_email": email_result,
+    }
 
 
 # ============ CONTENT MANAGEMENT ENDPOINTS ============

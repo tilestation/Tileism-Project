@@ -9,6 +9,40 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Jun 5, 2026 — Forked session] 📧 Auto-dispatch email when sample order flips to "shipped"
+
+**Follow-on from the Sample Orders admin page** — user said yes to the offered improvement. When an admin flips a sample order to `shipped` in the side-drawer, the customer now automatically gets a beautifully-branded dispatch confirmation email with the carrier, tracking number, and a big green "Track your parcel ›" CTA button.
+
+**Backend**:
+- New `services/email.py::send_sample_shipped_email(customer_email, customer_name, order, tracking)` — Resend integration, matches the visual language of the existing `send_sample_followup_email` (Tile Station green header, sample-thumb strip, signature footer). The tracking block (carrier row + tracking-number monospaced row + CTA button) is conditionally rendered — only appears if at least one of `carrier / tracking_number / url` is set. Falls back to a clean "your samples are in the post" email otherwise.
+- `routes/shop.py::admin_update_sample_order` now triggers the email **only when ALL of**:
+  1. The PATCH request sets `status` to `"shipped"`.
+  2. The order's previous status was NOT already `"shipped"` (re-saving a tracking-number tweak on an already-shipped order won't spam the customer).
+  3. The order has a `customer_email` (defensive — legacy / mocked orders sometimes don't).
+  4. There's no existing `shipped_email_sent_at` idempotency marker on the doc.
+- On send success, the endpoint stamps `shipped_email_sent_at` on the order so a force re-PATCH ("admin clicked save twice") doesn't fire a second email.
+- Email failures are **logged but never bubble up** — the admin's status save is authoritative. Response carries a `shipped_email: {sent, error}` dict so the UI can surface the outcome.
+
+**Frontend** (`SampleOrders.jsx`):
+- The drawer's save handler now reads `res.data.shipped_email` and surfaces three distinct toasts:
+  - ✅ *"Sample order updated · 📧 Dispatch email sent to the customer with the tracking link."*
+  - ⚠️ *"Saved, but dispatch email failed"* (error message preview).
+  - Plain *"Sample order updated"* if no email was triggered (e.g. status flip to a different state).
+
+**Regression tests** (8 new in `tests/test_sample_orders_admin.py`, all pass):
+- 5 PATCH-endpoint tests: fires once on first shipped-flip, NOT re-sent on subsequent edits (idempotency), skipped when customer_email missing, save still succeeds when Resend throws, NOT triggered for status-changes to anything other than "shipped".
+- 3 `send_sample_shipped_email` template tests: returns gracefully when Resend not configured, rendered HTML carries SMP order number / carrier / tracking number / track URL / "Track your parcel" CTA / "Hi Evie" greeting / correct subject line / correct `to` + `from` headers, AND works without a tracking URL (no empty CTA leaked).
+
+**Test suite**: 22/22 sample-orders tests pass + 103/104 in the wider regression run (the one failure is the pre-existing sitemap-cache flakiness from yesterday, unrelated). Backend restarted, endpoint health 401 (expected for unauthenticated calls).
+
+**Files**:
+- `/app/backend/services/email.py` (+148 lines: `send_sample_shipped_email`).
+- `/app/backend/routes/shop.py` — PATCH endpoint extended with the four-guard send + idempotency stamp + non-blocking error handler.
+- `/app/frontend/src/pages/admin/SampleOrders.jsx` — three-way toast based on `shipped_email` outcome.
+- `/app/backend/tests/test_sample_orders_admin.py` (+8 tests, +1 new section).
+
+
+
 ### [Jun 5, 2026 — Forked session] 📦 Sample-order tracking 404 + new Sample Orders admin page
 
 **User reports** (with two screenshots):

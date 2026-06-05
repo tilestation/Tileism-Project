@@ -322,7 +322,125 @@ def test_admin_update_sample_order_requires_admin_role():
 
 
 # ─────────────────────────────────────────────────────────────────
-# 4. Stats endpoint
+# 4. Auto-dispatch email on status → "shipped" (5 Jun 2026)
+# ─────────────────────────────────────────────────────────────────
+def test_shipped_status_fires_dispatch_email_once():
+    """When admin flips status to 'shipped' for the first time, the
+    auto-email is invoked AND `shipped_email_sent_at` is stamped so
+    a re-save doesn't spam the customer."""
+    import asyncio
+    from routes.shop import admin_update_sample_order
+
+    samples = [{
+        "id": "s1", "order_number": "SMP-1", "status": "paid",
+        "customer_email": "e@x.com", "customer_name": "Evie",
+        "products": [{"product_name": "X", "image_url": "https://i/x.jpg"}],
+        "tracking": {"carrier": "Royal Mail", "tracking_number": "RM1", "url": "https://rm/1"},
+    }]
+    db = _db(samples=samples)
+
+    sent_mock = AsyncMock(return_value={"sent": True, "error": None})
+    with patch("routes.shop.get_db", return_value=db), \
+         patch("services.email.send_sample_shipped_email", new=sent_mock):
+        out = asyncio.run(admin_update_sample_order(
+            "s1", body={"status": "shipped"},
+            current_user={"role": "admin", "email": "admin@x"},
+        ))
+    sent_mock.assert_awaited_once()
+    assert out["shipped_email"]["sent"] is True
+    # Stamp call: status flip ($set status + $push history) AND the
+    # follow-up `shipped_email_sent_at` stamp.
+    assert db.sample_orders.update_one.await_count == 2
+
+
+def test_shipped_email_not_resent_when_already_marked_shipped():
+    """Editing tracking on an already-shipped order must NOT re-fire
+    the email — `shipped_email_sent_at` blocks the second send."""
+    import asyncio
+    from routes.shop import admin_update_sample_order
+
+    samples = [{
+        "id": "s1", "order_number": "SMP-1", "status": "shipped",  # already shipped
+        "customer_email": "e@x.com",
+        "shipped_email_sent_at": "2026-06-04T10:00:00+00:00",
+    }]
+    db = _db(samples=samples)
+    sent_mock = AsyncMock(return_value={"sent": True})
+    with patch("routes.shop.get_db", return_value=db), \
+         patch("services.email.send_sample_shipped_email", new=sent_mock):
+        out = asyncio.run(admin_update_sample_order(
+            "s1", body={"status": "shipped", "tracking": {"carrier": "DPD"}},
+            current_user={"role": "admin", "email": "admin@x"},
+        ))
+    # Status didn't change (paid→shipped → shipped→shipped is a no-op
+    # for the email trigger) and the idempotency guard is already set.
+    sent_mock.assert_not_awaited()
+    # `shipped_email` not invoked → field None
+    assert out.get("shipped_email") is None
+
+
+def test_shipped_email_skipped_when_customer_email_missing():
+    """Defence: legacy orders may not have a customer_email. Don't
+    crash, just don't try to email."""
+    import asyncio
+    from routes.shop import admin_update_sample_order
+    samples = [{"id": "s1", "order_number": "SMP-1", "status": "paid"}]
+    db = _db(samples=samples)
+    sent_mock = AsyncMock(return_value={"sent": True})
+    with patch("routes.shop.get_db", return_value=db), \
+         patch("services.email.send_sample_shipped_email", new=sent_mock):
+        asyncio.run(admin_update_sample_order(
+            "s1", body={"status": "shipped"},
+            current_user={"role": "admin", "email": "admin@x"},
+        ))
+    sent_mock.assert_not_awaited()
+
+
+def test_shipped_email_failure_does_not_break_save():
+    """If Resend is down, the admin's status save MUST still succeed.
+    The email is a courtesy; the status change is authoritative."""
+    import asyncio
+    from routes.shop import admin_update_sample_order
+
+    samples = [{
+        "id": "s1", "order_number": "SMP-1", "status": "paid",
+        "customer_email": "e@x.com",
+    }]
+    db = _db(samples=samples)
+    err_mock = AsyncMock(side_effect=RuntimeError("resend timeout"))
+    with patch("routes.shop.get_db", return_value=db), \
+         patch("services.email.send_sample_shipped_email", new=err_mock):
+        out = asyncio.run(admin_update_sample_order(
+            "s1", body={"status": "shipped"},
+            current_user={"role": "admin", "email": "admin@x"},
+        ))
+    # Status WAS updated (no HTTPException raised)
+    assert out["message"] == "Sample order updated"
+    # Email payload reports the failure
+    assert out["shipped_email"]["sent"] is False
+    assert "resend" in out["shipped_email"]["error"].lower()
+
+
+def test_shipped_email_skipped_when_status_change_is_not_to_shipped():
+    """status: paid → delivered, paid → ready, etc. must not fire
+    the dispatch email."""
+    import asyncio
+    from routes.shop import admin_update_sample_order
+    samples = [{"id": "s1", "order_number": "SMP-1", "status": "paid",
+                "customer_email": "e@x.com"}]
+    db = _db(samples=samples)
+    sent_mock = AsyncMock(return_value={"sent": True})
+    with patch("routes.shop.get_db", return_value=db), \
+         patch("services.email.send_sample_shipped_email", new=sent_mock):
+        asyncio.run(admin_update_sample_order(
+            "s1", body={"status": "delivered"},
+            current_user={"role": "admin", "email": "admin@x"},
+        ))
+    sent_mock.assert_not_awaited()
+
+
+# ─────────────────────────────────────────────────────────────────
+# 5. Email template builder (`send_sample_shipped_email`)
 # ─────────────────────────────────────────────────────────────────
 def test_admin_sample_orders_stats_returns_counters():
     import asyncio
@@ -351,6 +469,85 @@ def test_admin_sample_orders_stats_requires_admin_role():
                 current_user={"role": "customer"},
             ))
         assert exc.value.status_code == 403
+
+
+# ─────────────────────────────────────────────────────────────────
+# 6. send_sample_shipped_email — template rendering
+# ─────────────────────────────────────────────────────────────────
+def test_send_sample_shipped_email_no_resend_returns_unconfigured():
+    """If Resend isn't installed/configured (preview env, dev), the
+    function returns gracefully — never crashes."""
+    import asyncio
+    from services import email as email_module
+    with patch.object(email_module, "RESEND_AVAILABLE", False), \
+         patch.object(email_module, "RESEND_API_KEY", ""):
+        out = asyncio.run(email_module.send_sample_shipped_email(
+            customer_email="e@x.com",
+            customer_name="Evie",
+            order={"order_number": "SMP-1", "products": []},
+            tracking=None,
+        ))
+    assert out["sent"] is False
+    assert "not configured" in out["error"].lower()
+
+
+def test_send_sample_shipped_email_includes_tracking_link_when_url_provided():
+    """The tracking CTA must be present in the rendered HTML when a
+    URL is provided — that's the whole point of this email."""
+    import asyncio
+    from services import email as email_module
+    captured = {}
+    async def fake_to_thread(fn, payload):
+        captured["payload"] = payload
+        return MagicMock(id="msg_1")
+    with patch.object(email_module, "RESEND_AVAILABLE", True), \
+         patch.object(email_module, "RESEND_API_KEY", "key_test"), \
+         patch.object(email_module, "resend", MagicMock()), \
+         patch("services.email.asyncio.to_thread", side_effect=fake_to_thread):
+        asyncio.run(email_module.send_sample_shipped_email(
+            customer_email="e@x.com",
+            customer_name="Evie Taylor",
+            order={"order_number": "SMP-260605-ABC",
+                   "products": [{"product_name": "Marble Cream", "image_url": "https://i/m.jpg"}]},
+            tracking={"carrier": "Royal Mail",
+                      "tracking_number": "RM123GB",
+                      "url": "https://www.royalmail.com/track/RM123"},
+        ))
+    html = captured["payload"]["html"]
+    assert "SMP-260605-ABC" in html
+    assert "Royal Mail" in html
+    assert "RM123GB" in html
+    assert "https://www.royalmail.com/track/RM123" in html
+    assert "Track your parcel" in html
+    # Customer name first-name truncated for the greeting
+    assert "Hi Evie" in html
+    # Subject line carries the order number
+    assert captured["payload"]["subject"] == "Your samples are on the way — SMP-260605-ABC"
+    assert captured["payload"]["to"] == ["e@x.com"]
+
+
+def test_send_sample_shipped_email_works_without_tracking_url():
+    """Tracking is optional — a dispatch confirmation without a URL
+    is still valuable. Must not include an empty <a href=""> button."""
+    import asyncio
+    from services import email as email_module
+    captured = {}
+    async def fake_to_thread(fn, payload):
+        captured["payload"] = payload
+        return MagicMock(id="msg_1")
+    with patch.object(email_module, "RESEND_AVAILABLE", True), \
+         patch.object(email_module, "RESEND_API_KEY", "key_test"), \
+         patch.object(email_module, "resend", MagicMock()), \
+         patch("services.email.asyncio.to_thread", side_effect=fake_to_thread):
+        asyncio.run(email_module.send_sample_shipped_email(
+            customer_email="e@x.com",
+            customer_name="Evie",
+            order={"order_number": "SMP-2", "products": []},
+            tracking=None,
+        ))
+    html = captured["payload"]["html"]
+    assert "Track your parcel" not in html
+    assert "SMP-2" in html
 
 
 if __name__ == "__main__":
