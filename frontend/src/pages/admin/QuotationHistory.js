@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { toast } from 'sonner';
 import {
   FileText,
@@ -44,11 +44,21 @@ const toTitleCase = (str) => {
 
 export const QuotationHistory = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const { user } = useAuth();
   const isSuperAdmin = user?.role === 'super_admin';
   const [quotations, setQuotations] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [searchTerm, setSearchTerm] = useState('');
+  // 6 Jun 2026 — deep-link support. When the page mounts with
+  // `?search=QT-XXXX` (e.g. from a Staff Competition Dashboard
+  // drawer row), seed the search term so the admin lands directly
+  // on the quote they clicked.
+  const [searchTerm, setSearchTerm] = useState(() => {
+    try {
+      const params = new URLSearchParams(location?.search || window.location.search);
+      return params.get('search') || '';
+    } catch { return ''; }
+  });
   const [statusFilter, setStatusFilter] = useState('all');
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [quotationToDelete, setQuotationToDelete] = useState(null);

@@ -9,6 +9,27 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Jun 6, 2026 — Forked session] 🔗 Deep-link drawer rows → QuotationHistory & InvoiceHistory
+
+**Why**: completes the audit chain. Click Syed's row on the leaderboard → drawer shows his 4 quotes + 1 invoice → click any of those rows → page jumps directly to that quote/invoice with the search pre-populated. End-to-end drill-down from headline number to source document, zero hops.
+
+**Implementation**:
+- `StaffRecentDrawer` (in `StaffCompetitionDashboard.jsx`) now gets `useNavigate`. New `goToQuote(quote_no)` and `goToInvoice(invoice_no)` handlers close the drawer first, then navigate to the canonical history pages with `?search=<doc_no>` URL param.
+- Each row inside the drawer is now `cursor-pointer` with hover tint matching the table accent (amber for quotes, yellow for invoices), an emerald-coloured doc-number column to read as a link, and a `title` attribute hinting *"Open QT-XXXX in Quotation History"*. New `data-testid` on each row.
+- **Receiving pages updated to honour the deep-link param**:
+  - `QuotationHistory.js` — switched `searchTerm` to a lazy `useState` initializer that reads `?search=` from the URL on mount. Added `useLocation` import. Single source of truth, no separate useEffect, no ESLint hooks-rules complications.
+  - `InvoiceHistory.js` — same lazy-init pattern via a private `_initialSearch` constant computed once. Also wires the same value into `invoiceSearchTerm` AND clears the default-to-today `dateFilter` when arriving via deep-link (so an invoice from May still surfaces when clicked from a June leaderboard).
+- Lint clean on my diffs — pre-existing errors in unrelated lines (1175/2442/3267 etc.) untouched and confirmed by `git diff`.
+
+**Smoke-tested**: visiting `/admin/invoice-history?search=IN-DEMO` and `/admin/quotation-history?search=QT-TEST` directly loads the page with the search box pre-filled. Screenshot confirms `IN-DEMO` populated in the Invoice History search input plus the date filter cleared.
+
+**Files**:
+- `/app/frontend/src/pages/admin/StaffCompetitionDashboard.jsx` — `useNavigate` import, `goToQuote` / `goToInvoice` handlers, both row-types now clickable with new `data-testid`s.
+- `/app/frontend/src/pages/admin/QuotationHistory.js` — `useLocation` import, lazy `useState` initializer reading `?search`.
+- `/app/frontend/src/pages/admin/InvoiceHistory.js` — `_initialSearch` constant, wired to both `searchTerm` + `invoiceSearchTerm`, conditional `dateFilter` initial.
+
+
+
 ### [Jun 6, 2026 — Forked session] 🔍 Clickable leaderboard rows → audit-trail drawer
 
 **Why**: enables one-click verification of leaderboard numbers. The team can answer *"where does Syed's £9,607 actually come from?"* without leaving the page.

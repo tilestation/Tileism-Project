@@ -20,6 +20,7 @@
  */
 import React, { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
+import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import {
   Crown, Trophy, Flame, TrendingUp, Award, Megaphone,
@@ -691,6 +692,7 @@ export default function StaffCompetitionDashboard() {
 // styling tokens and there's no plan to reuse it elsewhere yet.
 // ─────────────────────────────────────────────────────────────────
 function StaffRecentDrawer({ staff, data, loading, onClose }) {
+  const navigate = useNavigate();
   const quotes = data?.quotes || [];
   const invoices = data?.invoices || [];
   const totalQuotes = data?.total_quotes ?? quotes.length;
@@ -708,6 +710,21 @@ function StaffRecentDrawer({ staff, data, loading, onClose }) {
   const fmtGBP = (n) => `£${Number(n || 0).toLocaleString('en-GB', {
     minimumFractionDigits: 2, maximumFractionDigits: 2,
   })}`;
+
+  // 6 Jun 2026 — deep-link rows to the canonical history pages
+  // (each carries the deep-link search-param shim added on the
+  // same date). Close the drawer first so the admin lands on
+  // the new page with the drawer out of the way.
+  const goToQuote = (quote_no) => {
+    if (!quote_no) return;
+    onClose();
+    navigate(`/admin/quotation-history?search=${encodeURIComponent(quote_no)}`);
+  };
+  const goToInvoice = (invoice_no) => {
+    if (!invoice_no) return;
+    onClose();
+    navigate(`/admin/invoice-history?search=${encodeURIComponent(invoice_no)}`);
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex" data-testid="staff-recent-drawer">
@@ -777,8 +794,14 @@ function StaffRecentDrawer({ staff, data, loading, onClose }) {
                     </thead>
                     <tbody>
                       {quotes.map((q) => (
-                        <tr key={q.id || q.quotation_no} className="border-t border-border/40">
-                          <td className="py-1.5 px-2 font-mono">{q.quotation_no || '—'}</td>
+                        <tr
+                          key={q.id || q.quotation_no}
+                          className="border-t border-border/40 cursor-pointer hover:bg-amber-50/40 dark:hover:bg-amber-900/10 transition-colors"
+                          onClick={() => goToQuote(q.quotation_no)}
+                          data-testid={`staff-recent-quote-row-${q.quotation_no}`}
+                          title={`Open ${q.quotation_no} in Quotation History`}
+                        >
+                          <td className="py-1.5 px-2 font-mono text-emerald-700 dark:text-emerald-300 underline-offset-2 group-hover:underline">{q.quotation_no || '—'}</td>
                           <td className="truncate max-w-[140px]">{q.customer_name}</td>
                           <td className="text-right tabular-nums">{fmtGBP(q.total)}</td>
                           <td className="text-center">
@@ -826,8 +849,14 @@ function StaffRecentDrawer({ staff, data, loading, onClose }) {
                     </thead>
                     <tbody>
                       {invoices.map((inv) => (
-                        <tr key={inv.id || inv.invoice_no} className="border-t border-border/40">
-                          <td className="py-1.5 px-2 font-mono">{inv.invoice_no || '—'}</td>
+                        <tr
+                          key={inv.id || inv.invoice_no}
+                          className="border-t border-border/40 cursor-pointer hover:bg-yellow-50/40 dark:hover:bg-yellow-900/10 transition-colors"
+                          onClick={() => goToInvoice(inv.invoice_no)}
+                          data-testid={`staff-recent-invoice-row-${inv.invoice_no}`}
+                          title={`Open ${inv.invoice_no} in Invoice History`}
+                        >
+                          <td className="py-1.5 px-2 font-mono text-emerald-700 dark:text-emerald-300">{inv.invoice_no || '—'}</td>
                           <td className="truncate max-w-[160px]">{inv.customer_name}</td>
                           <td className="text-right tabular-nums font-bold text-yellow-700 dark:text-yellow-300">{fmtGBP(inv.total)}</td>
                           <td className="text-right pr-2 text-muted-foreground tabular-nums">{fmtDate(inv.created_at)}</td>

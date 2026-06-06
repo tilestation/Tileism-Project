@@ -64,7 +64,17 @@ export const InvoiceHistory = () => {
   const [staffList, setStaffList] = useState([]);
   const [showrooms, setStores] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [searchTerm, setSearchTerm] = useState('');
+  // 6 Jun 2026 — deep-link support. When the page mounts with
+  // `?search=IN-XXXX` (e.g. from a Staff Competition Dashboard
+  // drawer row), seed the search term so the admin lands directly
+  // on the invoice they clicked.
+  const _initialSearch = (() => {
+    try {
+      const params = new URLSearchParams(location?.search || window.location.search);
+      return params.get('search') || '';
+    } catch { return ''; }
+  })();
+  const [searchTerm, setSearchTerm] = useState(_initialSearch);
   const [staffFilter, setStaffFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [showroomFilter, setStoreFilter] = useState('');
@@ -141,7 +151,7 @@ export const InvoiceHistory = () => {
   const [refundMethod, setRefundMethod] = useState('original_payment');
   
   // Invoice search state
-  const [invoiceSearchTerm, setInvoiceSearchTerm] = useState('');
+  const [invoiceSearchTerm, setInvoiceSearchTerm] = useState(_initialSearch);
   const [showInvoiceSearch, setShowInvoiceSearch] = useState(false);
   
   // Bulk selection state
@@ -151,9 +161,10 @@ export const InvoiceHistory = () => {
   // Get current user role from localStorage
   const [currentUser, setCurrentUser] = useState(null);
   
-  // Date filter - default to today
+  // Date filter - default to today (cleared when arriving via
+  // ?search=… deep-link so cross-month invoices remain findable).
   const today = new Date().toISOString().split('T')[0];
-  const [dateFilter, setDateFilter] = useState(today);
+  const [dateFilter, setDateFilter] = useState(_initialSearch ? '' : today);
   const [allInvoices, setAllInvoices] = useState([]); // Store all invoices for revenue calculations
   const [allRefunds, setAllRefunds] = useState([]); // Store all refunds for revenue calculations
   const [dataVersion, setDataVersion] = useState(0); // Used to force re-renders when data changes
