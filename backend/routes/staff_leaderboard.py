@@ -946,6 +946,13 @@ async def get_competition_dashboard(
             "value": float(target_value) if target_value is not None else None,
         },
         "progress": progress,
+        # 6 Jun 2026 — `progress` is populated ONLY when a team target
+        # is set; the frontend Sales/Conversion leaderboard tables
+        # need the FULL staff list regardless. Expose `staff` so the
+        # tables stop showing "No Special-Order sales yet this month."
+        # when the data clearly exists (head_to_head shows £9,607
+        # while the table reads empty). Same data, no extra DB hit.
+        "staff": decorated,
         "head_to_head": h2h,
         "showrooms": showrooms,
         "showroom_winners": showroom_winners,

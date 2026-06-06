@@ -9,6 +9,46 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Jun 6, 2026 — Forked session] 💰 Sales leaderboard fix — was empty despite having data
+
+**User screenshot**: same page showed three contradictory facts:
+- Banner: *"Syed · Gravesend tops June 2026 Special-Order sales — £9,60…"*
+- Top-3 head-to-head card: Syed with **Sales £9,607**
+- Sales leaderboard table: *"No Special-Order sales yet this month."*
+
+**Root cause** (`routes/staff_leaderboard.py:862`): the `progress[]` array (which the Sales table reads from) was populated ONLY when a `team_target` was set:
+
+```python
+if target_value is not None:
+    for s in decorated:
+        progress.append({...})
+```
+
+No team target set → `progress = []` → empty table. Meanwhile the head-to-head card read from `decorated[:3]` directly, so it always had data. The Conversion leaderboard had a `(progress.length ? progress : head_to_head)` fallback so it limped along showing top-3 only; the Sales leaderboard had no fallback at all → fully empty.
+
+**Fix**:
+- Backend (`routes/staff_leaderboard.py`) now exposes a new `staff` field in the competition response — the FULL `decorated` list regardless of target state. Same data, no extra DB hit. `progress` continues to carry projection fields (only when a target is set — that's correct behaviour for the race-to-target card).
+- Frontend (`StaffCompetitionDashboard.jsx`) now sorts BOTH leaderboards from a single `fullStaff = data.staff || data.progress` memoized list. New `conversionSorted` and `salesSorted` memos. Old `(progress.length ? progress : head_to_head)` fallback removed since `staff` is always populated.
+- Fixed a pre-existing ESLint apostrophe escape (`Couldn't` → `Couldn&apos;t`) flagged at the same time.
+
+**Regression tests** (2 new in `tests/test_staff_competition.py`, both pass):
+- `test_competition_exposes_full_staff_list_without_target` — invoice with £9,607 sales + NO team target. The fix's exact bug condition. Asserts `staff[]` is populated with Syed's £9,607.50 + 4 conversions, while `progress[]` stays empty (correct historical behaviour).
+- `test_competition_staff_list_populated_when_target_is_set_too` — both arrays populated when target IS set, both list the same staff (same source data, different sections).
+
+**What you should see on production**:
+- Sales leaderboard card now lists EVERY staff with sales, ranked by £ Sold (Syed at top with £9,607).
+- Conversion leaderboard now lists EVERY staff with conversions (not just top-3).
+- The contradiction between the banner / head-to-head / table is gone.
+
+**Test suite**: 14/14 competition tests pass + 33/33 leaderboard + competition combined. Lint reduced to one pre-existing react-hooks warning on line 90 (broadcast handler — not introduced by my edit, confirmed via `git diff`). Backend restarted.
+
+**Files**:
+- `/app/backend/routes/staff_leaderboard.py` — `+staff` field in `get_competition_dashboard` return.
+- `/app/frontend/src/pages/admin/StaffCompetitionDashboard.jsx` — new `fullStaff` / `conversionSorted` / `salesSorted` memos, table sources switched, apostrophe escape.
+- `/app/backend/tests/test_staff_competition.py` (+2 tests).
+
+
+
 ### [Jun 5, 2026 — Forked session] 📧 Auto-dispatch email when sample order flips to "shipped"
 
 **Follow-on from the Sample Orders admin page** — user said yes to the offered improvement. When an admin flips a sample order to `shipped` in the side-drawer, the customer now automatically gets a beautifully-branded dispatch confirmation email with the carrier, tracking number, and a big green "Track your parcel ›" CTA button.

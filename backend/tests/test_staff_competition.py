@@ -143,6 +143,83 @@ def test_competition_projection_at_pace():
 
 
 # ---------------------------------------------------------------------
+# 3b. Sales leaderboard works WITHOUT a team target (6 Jun 2026)
+# User report: "Sales leaderboard is not working. There are plenty
+# invoices saved under Special Order. But none showing." Banner +
+# head-to-head card showed Syed's £9,607 sales but the Sales table
+# was empty. Root cause: the table read `data.progress`, which is
+# only populated when a team target is set. Fix: response now also
+# exposes `staff` containing the FULL decorated list regardless of
+# target state.
+# ---------------------------------------------------------------------
+def test_competition_exposes_full_staff_list_without_target():
+    """Even when there's NO team_target set, the response must
+    expose `staff` so the Sales / Conversion leaderboards can render."""
+    import asyncio
+    from routes.staff_leaderboard import get_competition_dashboard
+    _reset_cache()
+    quotes = [
+        {"created_by_user_id": "u_syed", "sales_person": "Syed",
+         "showroom_name": "Gravesend", "created_at": _NOW,
+         "converted_at": _NOW if i < 4 else None}
+        for i in range(6)
+    ]
+    invoices = [
+        {"created_by_user_id": "u_syed", "sales_person": "Syed",
+         "order_type": "Special Order", "gross_total": 9607.50,
+         "created_at": _NOW},
+    ]
+    user = {"role": "super_admin", "email": "a@b"}
+    # NO target_doc passed — this is the real-world case the bug hit
+    db = _db(quotes=quotes, invoices=invoices, target_doc=None)
+    with patch("routes.staff_leaderboard.get_db", return_value=db):
+        r = asyncio.run(get_competition_dashboard(current_user=user))
+
+    # `staff` MUST be populated even without a target
+    assert "staff" in r, "Response must expose `staff` field"
+    assert len(r["staff"]) >= 1, "staff list must include the user with sales"
+    syed = next((s for s in r["staff"] if s["name"] == "Syed"), None)
+    assert syed is not None, f"Syed not in staff list — got {[s['name'] for s in r['staff']]}"
+    # The sales £ MUST be visible in the staff row (the whole point
+    # of this fix — the bug was the table showed £0).
+    assert syed["sales_value_gbp"] == 9607.50
+    assert syed["quotes_converted"] == 4
+    # `progress` should still be empty when there's no target (correct
+    # historical behaviour — that's NOT the bug).
+    assert r.get("progress") == []
+
+
+def test_competition_staff_list_populated_when_target_is_set_too():
+    """When a target IS set, the response continues to expose
+    `progress` (for the race-to-target card) AND `staff` (for the
+    leaderboard tables). They overlap but serve different sections."""
+    import asyncio
+    from routes.staff_leaderboard import get_competition_dashboard
+    _reset_cache()
+    invoices = [
+        {"created_by_user_id": "u_syed", "sales_person": "Syed",
+         "order_type": "Special Order", "gross_total": 1000.0,
+         "created_at": _NOW},
+        {"created_by_user_id": "u_amy", "sales_person": "Amy",
+         "order_type": "Special Order", "gross_total": 800.0,
+         "created_at": _NOW},
+    ]
+    target_doc = {"month": "_", "team_target": {"metric": "sales_gbp", "value": 5000}}
+    user = {"role": "super_admin", "email": "a@b"}
+    db = _db(invoices=invoices, target_doc=target_doc)
+    with patch("routes.staff_leaderboard.get_db", return_value=db):
+        r = asyncio.run(get_competition_dashboard(current_user=user))
+
+    # Both arrays must be populated
+    assert len(r["staff"]) == 2
+    assert len(r["progress"]) == 2
+    # Both list the same staff (same source data)
+    staff_names = {s["name"] for s in r["staff"]}
+    progress_names = {p["name"] for p in r["progress"]}
+    assert staff_names == progress_names == {"Syed", "Amy"}
+
+
+# ---------------------------------------------------------------------
 # 4. Showroom totals + winners
 # ---------------------------------------------------------------------
 def test_showroom_vs_showroom_winners():

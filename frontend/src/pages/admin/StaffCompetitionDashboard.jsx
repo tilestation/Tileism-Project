@@ -125,16 +125,30 @@ export default function StaffCompetitionDashboard() {
   };
 
   // Pre-computed groups for the sections.
-  const salesSorted = useMemo(() => {
-    if (!data?.progress?.length) return [];
-    return [...data.progress].sort((a, b) => b.sales_value_gbp - a.sales_value_gbp);
+  // 6 Jun 2026 — `progress` is only populated when a team target is
+  // set; we want the full staff list whether or not a target exists,
+  // so source from `staff` (added to the API response on the same
+  // date). Falls back to `progress` for older API versions in the
+  // wild during the deploy window.
+  const fullStaff = useMemo(() => {
+    if (!data) return [];
+    const list = (data.staff && data.staff.length) ? data.staff : (data.progress || []);
+    return list;
   }, [data]);
+
+  const conversionSorted = useMemo(() => {
+    return [...fullStaff].sort((a, b) => (b.quotes_converted || 0) - (a.quotes_converted || 0));
+  }, [fullStaff]);
+
+  const salesSorted = useMemo(() => {
+    return [...fullStaff].sort((a, b) => (b.sales_value_gbp || 0) - (a.sales_value_gbp || 0));
+  }, [fullStaff]);
 
   if (loading) {
     return <div className="p-6 text-center text-muted-foreground" data-testid="competition-loading">Loading competition dashboard…</div>;
   }
   if (!data) {
-    return <div className="p-6 text-center text-rose-500">Couldn't load — try refresh.</div>;
+    return <div className="p-6 text-center text-rose-500">Couldn&apos;t load — try refresh.</div>;
   }
 
   const {
@@ -266,9 +280,9 @@ export default function StaffCompetitionDashboard() {
           <table className="w-full text-sm" data-testid="competition-conv-table">
             <thead className="text-xs text-muted-foreground uppercase tracking-wider"><tr><th className="text-left py-1.5">#</th><th className="text-left">Staff</th><th className="text-right">Won</th><th className="text-right">Rate</th></tr></thead>
             <tbody>
-              {(progress.length ? progress : head_to_head).length === 0 ? (
+              {conversionSorted.length === 0 ? (
                 <tr><td colSpan={4} className="py-4 text-center text-muted-foreground italic text-xs">No quotes converted yet this month.</td></tr>
-              ) : (progress.length ? progress : head_to_head).map((s, idx) => (
+              ) : conversionSorted.map((s, idx) => (
                 <tr key={`fc-${s.user_key}-${idx}`} className="border-t border-border/40">
                   <td className="py-1.5 font-mono font-bold w-8">{idx < 3 ? MEDALS[idx] : idx + 1}</td>
                   <td><span className="font-bold">{s.name}</span> <span className="text-xs text-muted-foreground">· {s.showroom_name}</span></td>
