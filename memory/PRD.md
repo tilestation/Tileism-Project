@@ -9,6 +9,55 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Jun 6, 2026 — Forked session] 🏆 Personal store targets + two-section race + composite sales score
+
+**User feedback** (three concrete asks):
+1. *"That accumulated target of all stores makes it confused for staff from different stores. All targets need to set against their stores but keep the winner chosen by %"* — drop the £195k aggregate auto-sum; each staff races against their OWN store's target.
+2. *"Targets are looking all mixed up Quotes and Sales leaderboard — can you organise them in proper 2 different sections"* — split Race-to-Target into a Sales £ card and a Quote-wins count card, visually distinct.
+3. *"In Sales leaderboard, higher volume of sales do matter but number of sales are as important — staff put effort to close sales even when they are small"* — composite score: 50% volume + 50% number of sales.
+
+**Fix #1 — Personal sales target per staff** (`routes/staff_leaderboard.py::_compute_leaderboard`):
+- After computing `staff_map`, each row now carries:
+  - `personal_sales_target` = their showroom's `monthly_target` from `db.sales_targets` (0 if none set).
+  - `personal_pct_of_target` = sales_value_gbp ÷ personal_sales_target × 100.
+- Two staff at the same store SHARE the same target — that's intentional. The leaderboard ranks by % contribution, so the harder-working person at each store still leads.
+- The previous `sales_targets_sum` aggregate auto-sum is REMOVED from `get_competition_dashboard` (`target_source = "competition"` when set, else `"none"` — never the misleading `"sales_targets_sum"` again).
+
+**Fix #2 — Two-section race-to-target** (frontend + backend):
+- Backend now returns TWO arrays alongside the legacy `progress`:
+  - `progress_sales[]` — every staff with a store target set, racing £ against THEIR store target. Sorted by % desc.
+  - `progress_conversions[]` — every staff vs the optional team conversions target (only populated when `team_target.metric === "conversions"`).
+- Frontend renders TWO side-by-side cards in the hero row instead of one mixed card:
+  - **"RACE TO SALES TARGET"** (per store · £) with yellow accent. Each row: rank + name · store · "£X · 13.3% ✓" right-aligned, bar, "of £75k (Gravesend target)" subline.
+  - **"RACE TO QUOTE-WINS TARGET"** (team · count) with amber accent. Same shape but in counts.
+- Empty states clearly point the admin where to configure each target ("Set monthly sales targets per store on the dashboard" / "Set a team conversions target on the Star Staff page").
+
+**Fix #3 — Composite sales score** (`routes/staff_leaderboard.py`):
+- New `sales_composite_score = round((£_normalized + count_normalized) / 2, 1)` field on every staff row. Where `£_normalized = sales_value_gbp / max_sales × 100` and `count_normalized = sales_count / max_count × 100`.
+- Worked example: 1 sale of £10,000 vs 10 sales of £400 each. Whale gets composite ≈55 (100% volume + 10% count), Closer gets composite ≈70 (40% volume + 100% count). **Closer wins** — consistent effort rewarded.
+- Frontend Sales leaderboard now:
+  - Sorted by `sales_composite_score` desc (falls back to raw £ if backend hasn't sent composite — graceful during deploy window).
+  - New **Score** column (5th column, emerald, bold).
+  - Explainer line above the table: *"Ranked by composite score — 50% volume + 50% number of sales. Closing 11 small sales beats 9 big ones if their combined effort outscores."*
+
+**Regression tests** (5 new + 2 rewritten in `tests/test_staff_competition.py`, all pass):
+- `test_competition_no_longer_aggregates_store_targets` — exact user-scenario regression: 3 store targets set + no competition target → `response.target.value == None`, `target.source == "none"`. Personal progress STILL populated with each staff's store target.
+- `test_competition_keeps_explicit_target_in_progress_conversions` — explicit team `metric: "conversions"` target → `progress_conversions[]` populated with race-to-count rows.
+- `test_composite_score_rewards_volume_and_count_equally` — Whale (1×£10k) vs Closer (10×£400) → Closer's score (≈70) outranks Whale's (≈55). Closing small sales WINS over closing one big sale.
+- `test_composite_score_handles_zero_sales_gracefully` — no sales anywhere → composite = 0, no division-by-zero crash.
+- `test_personal_sales_target_uses_staff_showroom_not_aggregate` — Syed at Gravesend (£75k target) + Tom at Tonbridge (£55k target) → each carries their own `personal_sales_target` correctly, NOT a £130k composite.
+
+Plus 2 rewrites of the obsolete `sales_targets_sum` tests that no longer match the new contract.
+
+**Test suite**: 47/47 staff_leaderboard + staff_competition tests pass. Lint clean (only pre-existing react-hooks false-positive on `broadcastHighlight` event handler, untouched by my edit). Backend restarted; smoke screenshot confirms both race cards render with proper guidance text.
+
+**Files**:
+- `/app/backend/routes/staff_leaderboard.py` — `_compute_leaderboard` extended (personal target + composite score), `get_competition_dashboard` split into `progress_sales` + `progress_conversions`, auto-sum logic removed.
+- `/app/frontend/src/pages/admin/StaffCompetitionDashboard.jsx` — destructure new arrays, two race-cards block, Sales leaderboard composite sort + Score column + explainer.
+- `/app/backend/tests/test_staff_competition.py` (+5 new, 2 rewrites, 1 deletion).
+
+
+
 ### [Jun 6, 2026 — Forked session] 🎯 Sales-target integration + fair % comparison across showrooms
 
 **User reports** (with three dashboard screenshots):

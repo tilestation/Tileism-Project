@@ -174,7 +174,18 @@ export default function StaffCompetitionDashboard() {
   }, [fullStaff]);
 
   const salesSorted = useMemo(() => {
-    return [...fullStaff].sort((a, b) => (b.sales_value_gbp || 0) - (a.sales_value_gbp || 0));
+    // 6 Jun 2026 — user feedback: "higher volume of sales do matter
+    // but number of sales are as important — staff put effort to
+    // close small sales too". Sort by composite score (50% £
+    // normalized + 50% # normalized) so a staff with 11 small sales
+    // can outrank one with 9 big sales. Falls back to raw £ if the
+    // backend hasn't sent composite (older deploys).
+    return [...fullStaff].sort((a, b) => {
+      const aScore = a.sales_composite_score ?? null;
+      const bScore = b.sales_composite_score ?? null;
+      if (aScore !== null && bScore !== null) return bScore - aScore;
+      return (b.sales_value_gbp || 0) - (a.sales_value_gbp || 0);
+    });
   }, [fullStaff]);
 
   if (loading) {
@@ -186,7 +197,8 @@ export default function StaffCompetitionDashboard() {
 
   const {
     month, days_elapsed, days_total, days_left,
-    champion, target, progress, head_to_head, showrooms,
+    champion, target, progress, progress_sales = [], progress_conversions = [],
+    head_to_head, showrooms,
     showroom_winners, active_streaks, personal_best_chasers,
     comebacks, active_highlight, total_staff,
   } = data;
@@ -227,60 +239,96 @@ export default function StaffCompetitionDashboard() {
             )}
           </div>
 
-          {/* Race-to-target — neutral muted card readable in either theme */}
-          <div className="lg:col-span-2 p-4 rounded-2xl bg-card border border-border">
-            <div className="flex items-center justify-between mb-2">
-              <div className="flex items-center gap-2 text-xs uppercase tracking-wider font-bold text-emerald-700 dark:text-emerald-300">
-                <Target className="w-3.5 h-3.5" />
-                Race to target
+          {/* Two-section race-to-target — SALES vs QUOTES, kept
+              visually distinct so staff at different stores never
+              see a confusing aggregate target. (6 Jun 2026 — user
+              feedback: "All targets need to set against their stores",
+              "Targets are looking all mixed up Quotes and Sales".) */}
+          <div className="lg:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-3">
+
+            {/* SALES race — per-store £ target, one row per staff */}
+            <div className="p-4 rounded-2xl bg-card border border-border" data-testid="race-sales-card">
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2 text-xs uppercase tracking-wider font-bold text-yellow-700 dark:text-yellow-300">
+                  <Target className="w-3.5 h-3.5" />
+                  Race to sales target
+                </div>
+                <div className="text-[10px] text-muted-foreground italic">per store · £</div>
               </div>
-              {target?.value ? (
-                <div className="text-xs text-emerald-700 dark:text-emerald-300 text-right">
-                  <div>Goal: <span className="font-bold">{target.metric === 'sales_gbp' ? '£' : ''}{Number(target.value).toLocaleString('en-GB')}</span>{' '}
-                  {target.metric === 'sales_gbp' ? 'sales' : 'conversions'}</div>
-                  {target.source === 'sales_targets_sum' && (
-                    <div className="text-[10px] opacity-70 italic">auto-summed from per-store targets</div>
-                  )}
+              {progress_sales.length > 0 ? (
+                <div className="space-y-2" data-testid="race-sales">
+                  {progress_sales.slice(0, 10).map((s, idx) => (
+                    <div key={`rs-${s.user_key}-${idx}`}>
+                      <div className="flex items-center justify-between text-xs mb-0.5">
+                        <span className="font-semibold flex items-center gap-1.5 min-w-0">
+                          <span className="text-muted-foreground w-5 font-mono shrink-0">{idx < 3 ? MEDALS[idx] : `#${idx + 1}`}</span>
+                          <span className="truncate">{s.name}</span>
+                          <span className="text-muted-foreground font-normal truncate">· {s.showroom_name}</span>
+                        </span>
+                        <span className={`tabular-nums shrink-0 ${s.pct >= 100 ? 'text-emerald-700 dark:text-emerald-300 font-bold' : 'text-muted-foreground'}`}>
+                          £{Number(s.current).toLocaleString('en-GB', { maximumFractionDigits: 0 })} · {s.pct}% {s.pct >= 100 && '✓'}
+                        </span>
+                      </div>
+                      <div className="h-2 bg-muted rounded-full overflow-hidden">
+                        <div
+                          className={`h-full transition-all ${s.pct >= 100 ? 'bg-emerald-500' : s.on_track ? 'bg-yellow-500' : 'bg-amber-500'}`}
+                          style={{ width: `${Math.min(100, s.pct)}%` }}
+                        />
+                      </div>
+                      <div className="text-[10px] text-muted-foreground mt-0.5">
+                        of £{Number(s.target).toLocaleString('en-GB', { maximumFractionDigits: 0 })} ({s.showroom_name} target)
+                      </div>
+                    </div>
+                  ))}
                 </div>
               ) : (
-                <div className="text-xs text-muted-foreground italic">No team target set</div>
+                <div className="text-xs text-muted-foreground py-3 text-center" data-testid="race-sales-empty">
+                  Set monthly sales targets per store on the dashboard to see live progress here.
+                </div>
               )}
             </div>
-            {target?.value && progress.length > 0 ? (
-              <div className="space-y-2" data-testid="competition-race">
-                {progress.slice(0, 10).map((s, idx) => (
-                  <div key={`race-${s.user_key}-${idx}`}>
-                    <div className="flex items-center justify-between text-xs mb-0.5">
-                      <span className="font-semibold flex items-center gap-1.5">
-                        <span className="text-muted-foreground w-5 font-mono">{idx < 3 ? MEDALS[idx] : `#${idx + 1}`}</span>
-                        {s.name}
-                        <span className="text-muted-foreground font-normal">· {s.showroom_name}</span>
-                      </span>
-                      <span className={`tabular-nums ${s.pct >= 100 ? 'text-emerald-700 dark:text-emerald-300 font-bold' : 'text-muted-foreground'}`}>
-                        {target.metric === 'sales_gbp' ? '£' : ''}{Number(s.current).toLocaleString('en-GB')} · {s.pct}% {s.pct >= 100 && '✓'}
-                      </span>
-                    </div>
-                    <div className="h-2 bg-muted rounded-full overflow-hidden">
-                      <div
-                        className={`h-full transition-all ${s.pct >= 100 ? 'bg-emerald-500' : s.on_track ? 'bg-fuchsia-500' : 'bg-amber-500'}`}
-                        style={{ width: `${Math.min(100, s.pct)}%` }}
-                      />
-                    </div>
-                    {!s.on_track && s.projected_eom > 0 && (
-                      <div className="text-[10px] text-amber-700 dark:text-amber-400/80 mt-0.5">
-                        Projected end-of-month: {target.metric === 'sales_gbp' ? '£' : ''}{Number(s.projected_eom).toLocaleString('en-GB')} ({Math.round((s.projected_eom / target.value) * 100)}%)
+
+            {/* QUOTES race — team conversions count target (optional) */}
+            <div className="p-4 rounded-2xl bg-card border border-border" data-testid="race-quotes-card">
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2 text-xs uppercase tracking-wider font-bold text-amber-700 dark:text-amber-300">
+                  <Trophy className="w-3.5 h-3.5" />
+                  Race to quote-wins target
+                </div>
+                <div className="text-[10px] text-muted-foreground italic">team · count</div>
+              </div>
+              {progress_conversions.length > 0 ? (
+                <div className="space-y-2" data-testid="race-quotes">
+                  {progress_conversions.slice(0, 10).map((s, idx) => (
+                    <div key={`rq-${s.user_key}-${idx}`}>
+                      <div className="flex items-center justify-between text-xs mb-0.5">
+                        <span className="font-semibold flex items-center gap-1.5 min-w-0">
+                          <span className="text-muted-foreground w-5 font-mono shrink-0">{idx < 3 ? MEDALS[idx] : `#${idx + 1}`}</span>
+                          <span className="truncate">{s.name}</span>
+                          <span className="text-muted-foreground font-normal truncate">· {s.showroom_name}</span>
+                        </span>
+                        <span className={`tabular-nums shrink-0 ${s.pct >= 100 ? 'text-emerald-700 dark:text-emerald-300 font-bold' : 'text-muted-foreground'}`}>
+                          {s.current} · {s.pct}% {s.pct >= 100 && '✓'}
+                        </span>
                       </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="text-xs text-muted-foreground py-3 text-center" data-testid="competition-no-target">
-                {target?.value
-                  ? 'No staff progress yet.'
-                  : 'Set a monthly target on the Star Staff page to see live race progress here.'}
-              </div>
-            )}
+                      <div className="h-2 bg-muted rounded-full overflow-hidden">
+                        <div
+                          className={`h-full transition-all ${s.pct >= 100 ? 'bg-emerald-500' : s.on_track ? 'bg-amber-500' : 'bg-rose-400'}`}
+                          style={{ width: `${Math.min(100, s.pct)}%` }}
+                        />
+                      </div>
+                      <div className="text-[10px] text-muted-foreground mt-0.5">
+                        of {s.target} won (team target)
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-xs text-muted-foreground py-3 text-center" data-testid="race-quotes-empty">
+                  Set a team conversions target on the Star Staff page to enable this race.
+                </div>
+              )}
+            </div>
           </div>
         </div>
         {active_highlight && (
@@ -339,23 +387,27 @@ export default function StaffCompetitionDashboard() {
           <SectionHeader icon={Trophy} title={`Sales leaderboard · ${month}`} accent="emerald">
             <span className="text-[10px] text-muted-foreground">(Special-Order only)</span>
           </SectionHeader>
+          <p className="text-[11px] text-muted-foreground italic mb-2">
+            Ranked by <span className="font-bold">composite score</span> — 50% volume + 50% number of sales. Closing 11 small sales beats 9 big ones if their combined effort outscores.
+          </p>
           <table className="w-full text-sm" data-testid="competition-sales-table">
-            <thead className="text-xs text-muted-foreground uppercase tracking-wider"><tr><th className="text-left py-1.5">#</th><th className="text-left">Staff</th><th className="text-right">£ Sold</th><th className="text-right">#</th></tr></thead>
+            <thead className="text-xs text-muted-foreground uppercase tracking-wider"><tr><th className="text-left py-1.5">#</th><th className="text-left">Staff</th><th className="text-right">£ Sold</th><th className="text-right">Sales</th><th className="text-right">Score</th></tr></thead>
             <tbody>
               {salesSorted.length === 0 ? (
-                <tr><td colSpan={4} className="py-4 text-center text-muted-foreground italic text-xs">No Special-Order sales yet this month.</td></tr>
+                <tr><td colSpan={5} className="py-4 text-center text-muted-foreground italic text-xs">No Special-Order sales yet this month.</td></tr>
               ) : salesSorted.map((s, idx) => (
                 <tr
                   key={`fs-${s.user_key}-${idx}`}
                   className="border-t border-border/40 cursor-pointer hover:bg-emerald-50/40 dark:hover:bg-emerald-900/10 transition-colors"
                   onClick={() => openDrawer(s)}
                   data-testid={`competition-sales-row-${s.name}`}
-                  title={`Click to see ${s.name}'s recent invoices`}
+                  title={`Click to see ${s.name}'s recent invoices · Composite score ${s.sales_composite_score ?? '—'}`}
                 >
                   <td className="py-1.5 font-mono font-bold w-8">{idx < 3 ? MEDALS[idx] : idx + 1}</td>
                   <td><span className="font-bold">{s.name}</span> <span className="text-xs text-muted-foreground">· {s.showroom_name}</span></td>
                   <td className="text-right font-bold text-yellow-700 dark:text-yellow-300 tabular-nums">£{Number(s.sales_value_gbp).toLocaleString('en-GB', { maximumFractionDigits: 0 })}</td>
                   <td className="text-right tabular-nums">{s.sales_count}</td>
+                  <td className="text-right tabular-nums text-emerald-700 dark:text-emerald-300 font-bold">{(s.sales_composite_score ?? 0).toFixed(1)}</td>
                 </tr>
               ))}
             </tbody>

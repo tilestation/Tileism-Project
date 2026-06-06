@@ -195,31 +195,84 @@ def test_competition_exposes_full_staff_list_without_target():
 def test_competition_staff_list_populated_when_target_is_set_too():
     """When a target IS set, the response continues to expose
     `progress` (for the race-to-target card) AND `staff` (for the
-    leaderboard tables). They overlap but serve different sections."""
+    leaderboard tables). They overlap but serve different sections.
+
+    6 Jun 2026: `progress` is now driven by `progress_sales` (each
+    staff's £ vs their store's monthly_target), so a target_doc on
+    `staff_leaderboard_targets` alone is no longer enough — we also
+    need the store target rows to drive the personal progress."""
     import asyncio
     from routes.staff_leaderboard import get_competition_dashboard
     _reset_cache()
     invoices = [
         {"created_by_user_id": "u_syed", "sales_person": "Syed",
+         "showroom_id": "sr_gv", "showroom_name": "Gravesend",
          "order_type": "Special Order", "gross_total": 1000.0,
          "created_at": _NOW},
         {"created_by_user_id": "u_amy", "sales_person": "Amy",
+         "showroom_id": "sr_tn", "showroom_name": "Tonbridge",
          "order_type": "Special Order", "gross_total": 800.0,
          "created_at": _NOW},
     ]
+    sales_targets = [
+        {"showroom_id": "sr_gv", "monthly_target": 75000, "target_type": "sales"},
+        {"showroom_id": "sr_tn", "monthly_target": 55000, "target_type": "sales"},
+    ]
     target_doc = {"month": "_", "team_target": {"metric": "sales_gbp", "value": 5000}}
     user = {"role": "super_admin", "email": "a@b"}
-    db = _db(invoices=invoices, target_doc=target_doc)
+    db = _db(invoices=invoices, target_doc=target_doc, sales_targets=sales_targets)
     with patch("routes.staff_leaderboard.get_db", return_value=db):
         r = asyncio.run(get_competition_dashboard(current_user=user))
 
-    # Both arrays must be populated
+    # `staff` carries everyone with sales
     assert len(r["staff"]) == 2
+    # `progress_sales` carries everyone with a personal store target
+    assert len(r["progress_sales"]) == 2
+    # `progress` (legacy mirror) prefers sales
     assert len(r["progress"]) == 2
-    # Both list the same staff (same source data)
     staff_names = {s["name"] for s in r["staff"]}
-    progress_names = {p["name"] for p in r["progress"]}
+    progress_names = {p["name"] for p in r["progress_sales"]}
     assert staff_names == progress_names == {"Syed", "Amy"}
+
+
+def test_competition_no_longer_aggregates_store_targets():
+    """6 Jun 2026 — explicit user request: "That accumulated target
+    of all stores makes it confused for staff from different stores.
+    All targets need to set against their stores".
+
+    Verify the auto-sum logic is GONE: even with 3 store targets and
+    NO competition target, response.target.value stays None and the
+    Race-to-Target source is 'none' (not 'sales_targets_sum').
+
+    Personal progress STILL works — each staff's `progress_sales`
+    entry races against their own store's target."""
+    import asyncio
+    from routes.staff_leaderboard import get_competition_dashboard
+    _reset_cache()
+    invoices = [
+        {"sales_person": "X", "showroom_id": "sr_gv", "showroom_name": "Gravesend",
+         "order_type": "Special Order", "gross_total": 10000.0, "created_at": _NOW},
+    ]
+    sales_targets = [
+        {"showroom_id": "sr_gv", "monthly_target": 75000, "target_type": "sales"},
+        {"showroom_id": "sr_tn", "monthly_target": 55000, "target_type": "sales"},
+        {"showroom_id": "sr_cf", "monthly_target": 65000, "target_type": "sales"},
+    ]
+    # NO target_doc
+    db = _db(invoices=invoices, sales_targets=sales_targets, target_doc=None)
+    user = {"role": "super_admin", "email": "a@b"}
+    with patch("routes.staff_leaderboard.get_db", return_value=db):
+        r = asyncio.run(get_competition_dashboard(current_user=user))
+    # NO aggregate target
+    target = r["target"]
+    assert target["value"] is None, \
+        f"Aggregate target value should be None, not {target['value']} — staff at one store should not see a £195k target"
+    assert target["source"] == "none"
+    # Personal progress still populated — staff at sr_gv races £10k of £75k
+    assert len(r["progress_sales"]) == 1
+    assert r["progress_sales"][0]["target"] == 75000.0
+    assert r["progress_sales"][0]["current"] == 10000.0
+    assert r["progress_sales"][0]["pct"] == 13.3  # 10k/75k = 13.3%
 
 
 # ---------------------------------------------------------------------
@@ -406,55 +459,113 @@ def test_showroom_without_target_renders_with_zero_pct():
     assert rooms[0]["remaining_to_target"] == 0
 
 
-def test_competition_falls_back_to_summed_store_targets_for_race_to_target():
-    """User report: dashboard shows Gravesend £75k + Tonbridge £55k
-    + Chingford £65k targets, but the Staff Competition page reads
-    "No team target set". Fix: when no team_target is set on
-    `staff_leaderboard_targets`, sum the per-store targets and use
-    that as the Race-to-Target value, marking source='sales_targets_sum'."""
+def test_competition_keeps_explicit_target_in_progress_conversions():
+    """If the team has explicitly set a CONVERSIONS team target on
+    /admin/star-staff, the new `progress_conversions` array fills
+    out with each staff racing against that count target."""
     import asyncio
     from routes.staff_leaderboard import get_competition_dashboard
     _reset_cache()
+    quotes = [
+        {"sales_person": "Syed", "showroom_name": "Gravesend",
+         "created_at": _NOW, "converted_at": _NOW},
+        {"sales_person": "Syed", "showroom_name": "Gravesend",
+         "created_at": _NOW, "converted_at": _NOW},
+    ]
+    target_doc = {"month": "_", "team_target": {"metric": "conversions", "value": 10}}
+    db = _db(quotes=quotes, target_doc=target_doc)
+    user = {"role": "super_admin", "email": "a@b"}
+    with patch("routes.staff_leaderboard.get_db", return_value=db):
+        r = asyncio.run(get_competition_dashboard(current_user=user))
+    assert r["target"]["value"] == 10
+    assert r["target"]["source"] == "competition"
+    assert len(r["progress_conversions"]) == 1
+    assert r["progress_conversions"][0]["target"] == 10.0
+    assert r["progress_conversions"][0]["current"] == 2
+    assert r["progress_conversions"][0]["pct"] == 20.0
+
+
+# ---------------------------------------------------------------------
+# 6. Composite SALES score (6 Jun 2026 — user feedback):
+#    "higher volume of sales do matter but number of sales are as
+#    important — staff put effort to close sales even when small."
+# ---------------------------------------------------------------------
+def test_composite_score_rewards_volume_and_count_equally():
+    """Two staff:
+    - Whale: £10,000 in 1 sale (max £, min count)
+    - Closer: £4,000 in 10 sales (low £, max count)
+    Composite should be ~50% each because each leads exactly one
+    half of the formula."""
+    import asyncio
+    from routes.staff_leaderboard import _compute_leaderboard
+    _reset_cache()
+    invoices = (
+        # Whale — 1 large
+        [{"sales_person": "Whale", "order_type": "Special Order",
+          "gross_total": 10000.0, "created_at": _NOW}]
+        +
+        # Closer — 10 small (totalling £4,000)
+        [{"sales_person": "Closer", "order_type": "Special Order",
+          "gross_total": 400.0, "created_at": _NOW} for _ in range(10)]
+    )
+    db = _db(invoices=invoices)
+    with patch("routes.staff_leaderboard.get_db", return_value=db):
+        board = asyncio.run(_compute_leaderboard())
+    whale = next(s for s in board["staff"] if s["name"] == "Whale")
+    closer = next(s for s in board["staff"] if s["name"] == "Closer")
+    # Whale: 100% volume + 10% count → composite 55.0
+    # Closer: 40% volume + 100% count → composite 70.0
+    # So Closer should outscore Whale (consistent effort wins).
+    assert closer["sales_composite_score"] > whale["sales_composite_score"]
+    assert 50.0 <= whale["sales_composite_score"] <= 60.0
+    assert 65.0 <= closer["sales_composite_score"] <= 75.0
+
+
+def test_composite_score_handles_zero_sales_gracefully():
+    """If no one has any sales, composite is 0 — no division by zero."""
+    import asyncio
+    from routes.staff_leaderboard import _compute_leaderboard
+    _reset_cache()
+    db = _db(invoices=[])
+    with patch("routes.staff_leaderboard.get_db", return_value=db):
+        board = asyncio.run(_compute_leaderboard())
+    # Empty staff list — but the helper shouldn't crash either way
+    for s in board["staff"]:
+        assert s["sales_composite_score"] == 0.0
+
+
+def test_personal_sales_target_uses_staff_showroom_not_aggregate():
+    """Each staff's personal_sales_target = THEIR store's monthly_target.
+    Two staff at the same store share that target (both race the same
+    £75k); two staff at different stores have different targets.
+
+    The 6 Jun 2026 user feedback was: "All targets need to set
+    against their stores" — i.e. don't sum them across stores."""
+    import asyncio
+    from routes.staff_leaderboard import _compute_leaderboard
+    _reset_cache()
     invoices = [
-        {"sales_person": "X", "showroom_id": "sr_gv", "showroom_name": "Gravesend",
+        {"sales_person": "Syed", "showroom_id": "sr_gv", "showroom_name": "Gravesend",
          "order_type": "Special Order", "gross_total": 10000.0, "created_at": _NOW},
+        {"sales_person": "Tom", "showroom_id": "sr_tn", "showroom_name": "Tonbridge",
+         "order_type": "Special Order", "gross_total": 5000.0, "created_at": _NOW},
     ]
     sales_targets = [
         {"showroom_id": "sr_gv", "monthly_target": 75000, "target_type": "sales"},
         {"showroom_id": "sr_tn", "monthly_target": 55000, "target_type": "sales"},
-        {"showroom_id": "sr_cf", "monthly_target": 65000, "target_type": "sales"},
     ]
-    # NO target_doc — that's the exact bug condition
-    db = _db(invoices=invoices, sales_targets=sales_targets, target_doc=None)
-    user = {"role": "super_admin", "email": "a@b"}
+    db = _db(invoices=invoices, sales_targets=sales_targets)
     with patch("routes.staff_leaderboard.get_db", return_value=db):
-        r = asyncio.run(get_competition_dashboard(current_user=user))
-    target = r["target"]
-    assert target["value"] == 195000.0, \
-        f"Expected 75k + 55k + 65k = 195k; got {target['value']}"
-    assert target["metric"] == "sales_gbp"
-    assert target["source"] == "sales_targets_sum"
-    # `progress` is populated — Section 1 hero no longer dead.
-    assert len(r["progress"]) >= 1
-
-
-def test_competition_keeps_explicit_target_over_sales_targets_sum():
-    """If the team has explicitly set a competition target via
-    /set-monthly-target, that's authoritative and overrides the
-    auto-summed store targets."""
-    import asyncio
-    from routes.staff_leaderboard import get_competition_dashboard
-    _reset_cache()
-    sales_targets = [
-        {"showroom_id": "sr_gv", "monthly_target": 75000, "target_type": "sales"},
-    ]
-    target_doc = {"month": "_", "team_target": {"metric": "sales_gbp", "value": 100000}}
-    db = _db(target_doc=target_doc, sales_targets=sales_targets)
-    user = {"role": "super_admin", "email": "a@b"}
-    with patch("routes.staff_leaderboard.get_db", return_value=db):
-        r = asyncio.run(get_competition_dashboard(current_user=user))
-    assert r["target"]["value"] == 100000
-    assert r["target"]["source"] == "competition"
+        board = asyncio.run(_compute_leaderboard())
+    by_name = {s["name"]: s for s in board["staff"]}
+    assert by_name["Syed"]["personal_sales_target"] == 75000.0
+    assert by_name["Tom"]["personal_sales_target"] == 55000.0
+    # Personal %: Syed 10k/75k = 13.3%, Tom 5k/55k = 9.1%
+    assert by_name["Syed"]["personal_pct_of_target"] == 13.3
+    assert by_name["Tom"]["personal_pct_of_target"] == 9.1
+    # No aggregate target — both staff have INDIVIDUAL £75k or £55k,
+    # not a confused £130k composite.
+    assert by_name["Syed"]["personal_sales_target"] != by_name["Tom"]["personal_sales_target"]
 
 
 def test_showroom_targets_query_carries_correct_filters():

@@ -378,6 +378,35 @@ async def _compute_leaderboard(month_only: bool = True) -> dict:
         entry["sales_value_gbp"] = round(entry["sales_value_gbp"], 2)
         staff_list.append(entry)
 
+    # 6 Jun 2026 — personal sales target.
+    # Each staff now races against their OWN store's target (not the
+    # aggregate of all stores — which the user found confusing).
+    # `personal_sales_target` = that staff's showroom's monthly target.
+    # If two staff share a store, they share the target — the
+    # leaderboard sorts by % of target contribution.
+    targets_by_showroom = await _showroom_targets_for_month()
+    for entry in staff_list:
+        sid = (entry.get("showroom_id") or "").strip()
+        tgt = float(targets_by_showroom.get(sid) or 0)
+        entry["personal_sales_target"] = tgt
+        entry["personal_pct_of_target"] = (
+            round((entry["sales_value_gbp"] / tgt) * 100, 1) if tgt > 0 else 0.0
+        )
+
+    # 6 Jun 2026 — composite SALES score.
+    # User feedback: "higher volume of sales do matter but number of
+    # sales are as important — staff do put some effort to close
+    # sales even when they are small. So take that into consideration
+    # too." Composite = average of (£ normalized vs top) and (count
+    # normalized vs top). Range 0-100. Rewards both whales AND
+    # consistent closers. Used for the Sales leaderboard ranking.
+    max_sales = max((s["sales_value_gbp"] for s in staff_list), default=0) or 1
+    max_count = max((s["sales_count"] for s in staff_list), default=0) or 1
+    for entry in staff_list:
+        pct_value = (entry["sales_value_gbp"] / max_sales) * 100
+        pct_count = (entry["sales_count"] / max_count) * 100
+        entry["sales_composite_score"] = round((pct_value + pct_count) / 2, 1)
+
     # Sort by conversions DESC, then by sales DESC as tie-breaker.
     staff_list.sort(
         key=lambda x: (x["quotes_converted"], x["sales_value_gbp"], x["sales_count"]),
@@ -1097,39 +1126,64 @@ async def get_competition_dashboard(
     team_target = (target_doc or {}).get("team_target") or {}
     target_value = team_target.get("value")
     target_metric = team_target.get("metric", "conversions")
+    target_source = "competition" if target_value is not None else "none"
 
-    # 6 Jun 2026 — if no explicit competition target is set on
-    # `staff_leaderboard_targets`, fall back to the SUM of every
-    # showroom's monthly_target from `db.sales_targets`. User
-    # report: dashboard clearly shows £75k Gravesend + £55k
-    # Tonbridge + £65k Chingford targets set, but the page read
-    # "No team target set" because it only looked at the
-    # competition-specific collection. This auto-uses what's
-    # already there.
-    target_source = "competition"
-    if target_value is None:
-        per_store_targets = await _showroom_targets_for_month()
-        store_total = per_store_targets.get("_total") or 0.0
-        if store_total > 0:
-            target_value = store_total
-            target_metric = "sales_gbp"
-            target_source = "sales_targets_sum"
-    progress: List[dict] = []
-    if target_value is not None:
+    # 6 Jun 2026 — TWO separate progress arrays so the UI can render
+    # clearly distinct "Race to SALES target" and "Race to QUOTE-WIN
+    # target" sections (user feedback: "Targets are looking all
+    # mixed up Quotes and Sales — can you organise them in proper
+    # two different sections").
+    #
+    # `progress_sales`        — every staff's £ progress vs THEIR
+    #                            store's monthly_target. No aggregate;
+    #                            staff at different stores have
+    #                            different targets. Empty rows
+    #                            (no store target set) carry tgt=0.
+    # `progress_conversions`  — every staff's quote-conversion count
+    #                            vs the optional team target set on
+    #                            /admin/star-staff (count-based).
+    #                            Only populated when an explicit
+    #                            team_target with metric=conversions
+    #                            is set — derived targets here are
+    #                            meaningless.
+    # `progress` (legacy)     — kept for back-compat; mirrors whichever
+    #                            of the two has data, prefers sales.
+    progress_sales: List[dict] = []
+    for s in decorated:
+        tgt = float(s.get("personal_sales_target") or 0)
+        if tgt <= 0:
+            continue  # No store target set → skip from the race
+        current = s["sales_value_gbp"]
+        projected = await _projection_at_pace(current, days_elapsed, total_days)
+        progress_sales.append({
+            **s,
+            "current": current,
+            "target": tgt,
+            "pct": min(200, round((current / tgt) * 100, 1)),  # cap at 200% for chart sanity
+            "projected_eom": projected,
+            "on_track": projected >= tgt,
+        })
+    # Sort by % of target DESC so the leader is at the top of the race.
+    progress_sales.sort(key=lambda x: x["pct"], reverse=True)
+
+    progress_conversions: List[dict] = []
+    if target_value is not None and target_metric == "conversions":
         for s in decorated:
-            current = (
-                s["sales_value_gbp"] if target_metric == "sales_gbp"
-                else s["quotes_converted"]
-            )
+            current = s["quotes_converted"]
             projected = await _projection_at_pace(current, days_elapsed, total_days)
-            progress.append({
+            progress_conversions.append({
                 **s,
                 "current": current,
                 "target": float(target_value),
-                "pct": min(100, round((current / float(target_value)) * 100, 1)) if target_value else 0,
+                "pct": min(200, round((current / float(target_value)) * 100, 1)),
                 "projected_eom": projected,
                 "on_track": projected >= float(target_value),
             })
+        progress_conversions.sort(key=lambda x: x["pct"], reverse=True)
+
+    # Back-compat single `progress` array (older clients during deploy
+    # window). Prefers sales since that's the primary view now.
+    progress = progress_sales or progress_conversions
 
     # ---- Section 2: Top-3 head-to-head trio
     h2h = decorated[:3]
@@ -1218,6 +1272,12 @@ async def get_competition_dashboard(
             "source": target_source,
         },
         "progress": progress,
+        # 6 Jun 2026 — split races: sales (per-store target) +
+        # conversions (optional team target). Frontend renders these
+        # as TWO clearly-separated sections so staff stop seeing
+        # "your target is £195k" when their actual target is £75k.
+        "progress_sales": progress_sales,
+        "progress_conversions": progress_conversions,
         # 6 Jun 2026 — `progress` is populated ONLY when a team target
         # is set; the frontend Sales/Conversion leaderboard tables
         # need the FULL staff list regardless. Expose `staff` so the
