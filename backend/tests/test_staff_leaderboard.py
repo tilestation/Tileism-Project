@@ -61,7 +61,7 @@ def _reset_cache():
     sl._BANNER_CACHE["data"] = None
 
 
-def _build_db(quotes=None, invoices=None, targets_doc=None, users=None, showrooms=None):
+def _build_db(quotes=None, invoices=None, targets_doc=None, users=None, showrooms=None, sales_targets=None):
     db = MagicMock()
     db.quotations.aggregate = MagicMock(return_value=_AggIter(quotes or []))
     db.quotations.find = MagicMock(return_value=_AsyncIter([]))
@@ -79,6 +79,8 @@ def _build_db(quotes=None, invoices=None, targets_doc=None, users=None, showroom
     db.users.find = MagicMock(return_value=_AsyncIter(users or []))
     db.users.find_one = AsyncMock(return_value=None)
     db.showrooms.find = MagicMock(return_value=_AsyncIter(showrooms or []))
+    # 6 Jun 2026 — per-store monthly targets feed the showroom league + Race-to-Target.
+    db.sales_targets.find = MagicMock(return_value=_AsyncIter(sales_targets or []))
     return db
 
 

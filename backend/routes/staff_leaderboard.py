@@ -764,10 +764,61 @@ async def record_bonus(
 # comeback kings. Hall-of-Fame archive comes from /hall-of-fame; the
 # manual "highlight a hero" broadcast lives at /highlight.
 # ----------------------------------------------------------------------
+async def _showroom_targets_for_month() -> dict:
+    """Pull the active month's per-showroom `monthly_target` from
+    `db.sales_targets` so the leaderboard can rank showrooms by
+    PERCENTAGE OF TARGET HIT instead of raw £ sold.
+
+    User request (6 Jun 2026): "Gravesend target £75k, Tonbridge
+    target £55k — obviously Gravesend has more customers, so the
+    competition needs to be based on targets". Returns a dict
+    `{showroom_id: target_amount}` plus a special `_total` key
+    summing every set target (used as the Race-to-Target fallback
+    when no explicit competition target is set on staff_leaderboard_targets).
+    """
+    db = get_db()
+    now = datetime.now(timezone.utc)
+    targets: dict = {}
+    total = 0.0
+    cursor = db.sales_targets.find(
+        {
+            "month": now.month,
+            "year": now.year,
+            # Per-store sales targets only — skip company-level / bonus rows
+            "showroom_id": {"$ne": None},
+            # `target_type` may legitimately be missing on older docs;
+            # only EXCLUDE explicit non-sales types.
+            "$or": [
+                {"target_type": "sales"},
+                {"target_type": {"$exists": False}},
+                {"target_type": None},
+                {"target_type": ""},
+            ],
+        },
+        {"_id": 0, "showroom_id": 1, "monthly_target": 1},
+    )
+    async for t in cursor:
+        sid = (t.get("showroom_id") or "").strip()
+        amt = float(t.get("monthly_target") or 0)
+        if sid and amt > 0:
+            targets[sid] = amt
+            total += amt
+    targets["_total"] = total
+    return targets
+
+
 async def _showroom_totals_for_month() -> List[dict]:
     """Aggregate quote_conversions + Special-Order sales per showroom
-    for the current month. Returns a list sorted by conversions desc."""
+    for the current month. Each row carries the monthly sales target
+    (from `db.sales_targets`) plus a fair-comparison `pct_of_target`
+    field so we can rank showrooms by *target achievement*, not
+    raw £ Sold.
+
+    Default sort is `pct_of_target` desc (6 Jun 2026 — user request:
+    "Tonbridge hitting 63% beats Gravesend hitting 53% even if
+    Gravesend's raw £ is higher")."""
     board = await _compute_leaderboard(month_only=True)
+    targets = await _showroom_targets_for_month()
     by_room: dict = {}
     for s in board["staff"]:
         sr = s.get("showroom_name") or "Unassigned"
@@ -792,7 +843,21 @@ async def _showroom_totals_for_month() -> List[dict]:
             round((r["quotes_converted"] / r["quotes_created"]) * 100, 1)
             if r["quotes_created"] > 0 else 0.0
         )
-    rooms.sort(key=lambda x: (x["quotes_converted"], x["sales_value_gbp"]), reverse=True)
+        # Per-store monthly target
+        sid = (r.get("showroom_id") or "").strip()
+        target = float(targets.get(sid) or 0)
+        r["monthly_target"] = target
+        # Fair-comparison metric: % of monthly target hit.
+        # Rounded to one decimal. 0 (not None) when target unset so
+        # the frontend never sees null vs 0 inconsistency.
+        r["pct_of_target"] = (
+            round((r["sales_value_gbp"] / target) * 100, 1)
+            if target > 0 else 0.0
+        )
+        r["remaining_to_target"] = round(max(target - r["sales_value_gbp"], 0), 2)
+    # Rank by % of target hit (fair). Tie-break by raw £ so two
+    # showrooms with the same % don't shuffle randomly.
+    rooms.sort(key=lambda x: (x["pct_of_target"], x["sales_value_gbp"]), reverse=True)
     return rooms
 
 
@@ -1032,6 +1097,23 @@ async def get_competition_dashboard(
     team_target = (target_doc or {}).get("team_target") or {}
     target_value = team_target.get("value")
     target_metric = team_target.get("metric", "conversions")
+
+    # 6 Jun 2026 — if no explicit competition target is set on
+    # `staff_leaderboard_targets`, fall back to the SUM of every
+    # showroom's monthly_target from `db.sales_targets`. User
+    # report: dashboard clearly shows £75k Gravesend + £55k
+    # Tonbridge + £65k Chingford targets set, but the page read
+    # "No team target set" because it only looked at the
+    # competition-specific collection. This auto-uses what's
+    # already there.
+    target_source = "competition"
+    if target_value is None:
+        per_store_targets = await _showroom_targets_for_month()
+        store_total = per_store_targets.get("_total") or 0.0
+        if store_total > 0:
+            target_value = store_total
+            target_metric = "sales_gbp"
+            target_source = "sales_targets_sum"
     progress: List[dict] = []
     if target_value is not None:
         for s in decorated:
@@ -1056,12 +1138,22 @@ async def get_competition_dashboard(
     showrooms = await _showroom_totals_for_month()
     showroom_winners = {}
     if showrooms:
-        showroom_winners["conversions"] = showrooms[0]
+        # 6 Jun 2026 — winners block. "conversions" now correctly
+        # picks the most wins (was wrongly using showrooms[0] which
+        # used to be conversions-sorted, but is now pct_of_target-sorted).
+        showroom_winners["conversions"] = max(showrooms, key=lambda r: r["quotes_converted"])
         showroom_winners["sales_gbp"] = max(showrooms, key=lambda r: r["sales_value_gbp"])
         rate_eligible = [r for r in showrooms if r["quotes_created"] >= 5]
         showroom_winners["conversion_rate"] = (
             max(rate_eligible, key=lambda r: r["conversion_rate"]) if rate_eligible else None
         )
+        # Fair-comparison winner — highest % of monthly target hit.
+        # Only includes showrooms that ACTUALLY have a target set
+        # (otherwise zero-target stores would tie at 0% and the
+        # winner would be picked arbitrarily).
+        target_eligible = [r for r in showrooms if (r.get("monthly_target") or 0) > 0]
+        if target_eligible:
+            showroom_winners["pct_of_target"] = max(target_eligible, key=lambda r: r["pct_of_target"])
 
     # ---- Section 4: Streaks, personal-best chasers, comebacks
     active_streaks = [s for s in decorated if s["streak_days"] >= 3]
@@ -1118,6 +1210,12 @@ async def get_competition_dashboard(
         "target": {
             "metric": target_metric,
             "value": float(target_value) if target_value is not None else None,
+            # 6 Jun 2026 — `source` lets the UI tell the user where
+            # the target came from. "competition" = explicit team
+            # target set on /admin/star-staff; "sales_targets_sum"
+            # = auto-computed from the per-store sales_targets they
+            # already manage on the analytics dashboard.
+            "source": target_source,
         },
         "progress": progress,
         # 6 Jun 2026 — `progress` is populated ONLY when a team target

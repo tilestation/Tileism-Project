@@ -43,7 +43,7 @@ def _reset_cache():
 _NOW = datetime.now(timezone.utc)
 
 
-def _db(quotes=None, invoices=None, hof_docs=None, highlight=None, target_doc=None, users=None, showrooms=None):
+def _db(quotes=None, invoices=None, hof_docs=None, highlight=None, target_doc=None, users=None, showrooms=None, sales_targets=None):
     db = MagicMock()
     db.quotations.aggregate = MagicMock(return_value=_AggIter(quotes or []))
     db.quotations.find = MagicMock(return_value=_AsyncIter([]))
@@ -62,6 +62,9 @@ def _db(quotes=None, invoices=None, hof_docs=None, highlight=None, target_doc=No
     db.users.find = MagicMock(return_value=_AsyncIter(users or []))
     db.users.find_one = AsyncMock(return_value=None)
     db.showrooms.find = MagicMock(return_value=_AsyncIter(showrooms or []))
+    # 6 Jun 2026 — per-store monthly sales targets feed the showroom
+    # league's % of target hit + the Race-to-Target fallback.
+    db.sales_targets.find = MagicMock(return_value=_AsyncIter(sales_targets or []))
     return db
 
 
@@ -341,6 +344,149 @@ def test_staff_recent_returns_empty_for_unknown_user():
             user_key="sp:nonexistent", limit=5, current_user=user,
         ))
     assert r == {"quotes": [], "invoices": [], "total_quotes": 0, "total_invoices": 0}
+
+
+# ---------------------------------------------------------------------
+# 5. Per-store sales targets feed showroom league + race-to-target
+#    (6 Jun 2026 — user reports "Sales targets set but not showing
+#    on leaderboard" + asks for fair % comparison across stores).
+# ---------------------------------------------------------------------
+def test_showroom_league_ranks_by_pct_of_target():
+    """Even though Gravesend's £40k > Tonbridge's £35k, Tonbridge's
+    63.6% target hit beats Gravesend's 53.3% — that's the fair
+    comparison the user asked for."""
+    import asyncio
+    from routes.staff_leaderboard import _showroom_totals_for_month
+    _reset_cache()
+    invoices = [
+        {"sales_person": "Syed", "showroom_name": "Gravesend",
+         "showroom_id": "sr_gv", "order_type": "Special Order",
+         "gross_total": 40000.0, "created_at": _NOW},
+        {"sales_person": "Tom", "showroom_name": "Tonbridge",
+         "showroom_id": "sr_tn", "order_type": "Special Order",
+         "gross_total": 35000.0, "created_at": _NOW},
+    ]
+    sales_targets = [
+        {"showroom_id": "sr_gv", "monthly_target": 75000, "target_type": "sales"},
+        {"showroom_id": "sr_tn", "monthly_target": 55000, "target_type": "sales"},
+    ]
+    db = _db(invoices=invoices, sales_targets=sales_targets)
+    with patch("routes.staff_leaderboard.get_db", return_value=db):
+        rooms = asyncio.run(_showroom_totals_for_month())
+    # Fair ranking: Tonbridge first (63.6%) > Gravesend (53.3%)
+    assert rooms[0]["showroom_name"] == "Tonbridge", \
+        f"Tonbridge (63.6% of £55k) must rank above Gravesend (53.3% of £75k). Got order: {[r['showroom_name'] for r in rooms]}"
+    assert rooms[0]["pct_of_target"] > rooms[1]["pct_of_target"]
+    # Targets carried through
+    assert rooms[0]["monthly_target"] == 55000
+    assert rooms[1]["monthly_target"] == 75000
+    # `remaining_to_target` populated
+    assert rooms[0]["remaining_to_target"] == 20000.0  # 55k - 35k
+    assert rooms[1]["remaining_to_target"] == 35000.0  # 75k - 40k
+
+
+def test_showroom_without_target_renders_with_zero_pct():
+    """A showroom missing a target_type='sales' row in sales_targets
+    must still render — pct_of_target = 0, monthly_target = 0 —
+    so the UI can show "No target set" instead of crashing."""
+    import asyncio
+    from routes.staff_leaderboard import _showroom_totals_for_month
+    _reset_cache()
+    invoices = [
+        {"sales_person": "X", "showroom_name": "NoTargetRoom",
+         "showroom_id": "sr_x", "order_type": "Special Order",
+         "gross_total": 5000.0, "created_at": _NOW},
+    ]
+    db = _db(invoices=invoices, sales_targets=[])
+    with patch("routes.staff_leaderboard.get_db", return_value=db):
+        rooms = asyncio.run(_showroom_totals_for_month())
+    assert len(rooms) == 1
+    assert rooms[0]["monthly_target"] == 0
+    assert rooms[0]["pct_of_target"] == 0.0
+    assert rooms[0]["remaining_to_target"] == 0
+
+
+def test_competition_falls_back_to_summed_store_targets_for_race_to_target():
+    """User report: dashboard shows Gravesend £75k + Tonbridge £55k
+    + Chingford £65k targets, but the Staff Competition page reads
+    "No team target set". Fix: when no team_target is set on
+    `staff_leaderboard_targets`, sum the per-store targets and use
+    that as the Race-to-Target value, marking source='sales_targets_sum'."""
+    import asyncio
+    from routes.staff_leaderboard import get_competition_dashboard
+    _reset_cache()
+    invoices = [
+        {"sales_person": "X", "showroom_id": "sr_gv", "showroom_name": "Gravesend",
+         "order_type": "Special Order", "gross_total": 10000.0, "created_at": _NOW},
+    ]
+    sales_targets = [
+        {"showroom_id": "sr_gv", "monthly_target": 75000, "target_type": "sales"},
+        {"showroom_id": "sr_tn", "monthly_target": 55000, "target_type": "sales"},
+        {"showroom_id": "sr_cf", "monthly_target": 65000, "target_type": "sales"},
+    ]
+    # NO target_doc — that's the exact bug condition
+    db = _db(invoices=invoices, sales_targets=sales_targets, target_doc=None)
+    user = {"role": "super_admin", "email": "a@b"}
+    with patch("routes.staff_leaderboard.get_db", return_value=db):
+        r = asyncio.run(get_competition_dashboard(current_user=user))
+    target = r["target"]
+    assert target["value"] == 195000.0, \
+        f"Expected 75k + 55k + 65k = 195k; got {target['value']}"
+    assert target["metric"] == "sales_gbp"
+    assert target["source"] == "sales_targets_sum"
+    # `progress` is populated — Section 1 hero no longer dead.
+    assert len(r["progress"]) >= 1
+
+
+def test_competition_keeps_explicit_target_over_sales_targets_sum():
+    """If the team has explicitly set a competition target via
+    /set-monthly-target, that's authoritative and overrides the
+    auto-summed store targets."""
+    import asyncio
+    from routes.staff_leaderboard import get_competition_dashboard
+    _reset_cache()
+    sales_targets = [
+        {"showroom_id": "sr_gv", "monthly_target": 75000, "target_type": "sales"},
+    ]
+    target_doc = {"month": "_", "team_target": {"metric": "sales_gbp", "value": 100000}}
+    db = _db(target_doc=target_doc, sales_targets=sales_targets)
+    user = {"role": "super_admin", "email": "a@b"}
+    with patch("routes.staff_leaderboard.get_db", return_value=db):
+        r = asyncio.run(get_competition_dashboard(current_user=user))
+    assert r["target"]["value"] == 100000
+    assert r["target"]["source"] == "competition"
+
+
+def test_showroom_targets_query_carries_correct_filters():
+    """`db.sales_targets` can hold rows of `target_type` "bonus" or
+    "company". The Mongo query MUST filter to sales (or unset, for
+    back-compat). This test inspects the query directly because the
+    test-mock returns all rows regardless of filter — production
+    Mongo does the actual filtering."""
+    import asyncio
+    from routes.staff_leaderboard import _showroom_targets_for_month
+    _reset_cache()
+    captured = {}
+    def capture_find(query, projection=None, **kw):
+        captured["query"] = query
+        return _AsyncIter([])
+    db = _db()
+    db.sales_targets.find = MagicMock(side_effect=capture_find)
+    with patch("routes.staff_leaderboard.get_db", return_value=db):
+        asyncio.run(_showroom_targets_for_month())
+    q = captured["query"]
+    # Must filter to current month + year + non-null showroom_id
+    assert "month" in q
+    assert "year" in q
+    assert q["showroom_id"] == {"$ne": None}
+    # Must filter to target_type sales/missing/null/empty
+    type_or = q["$or"]
+    type_values = {clause.get("target_type") if "target_type" in clause and not isinstance(clause["target_type"], dict) else "missing" for clause in type_or}
+    assert "sales" in type_values
+    # Must include the missing/null/empty back-compat branches
+    assert "missing" in type_values  # {"target_type": {"$exists": False}}
+    assert None in type_values
+    assert "" in type_values
 
 
 # ---------------------------------------------------------------------

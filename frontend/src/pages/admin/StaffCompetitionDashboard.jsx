@@ -235,9 +235,12 @@ export default function StaffCompetitionDashboard() {
                 Race to target
               </div>
               {target?.value ? (
-                <div className="text-xs text-emerald-700 dark:text-emerald-300">
-                  Goal: <span className="font-bold">{target.metric === 'sales_gbp' ? '£' : ''}{Number(target.value).toLocaleString('en-GB')}</span>{' '}
-                  {target.metric === 'sales_gbp' ? 'sales' : 'conversions'}
+                <div className="text-xs text-emerald-700 dark:text-emerald-300 text-right">
+                  <div>Goal: <span className="font-bold">{target.metric === 'sales_gbp' ? '£' : ''}{Number(target.value).toLocaleString('en-GB')}</span>{' '}
+                  {target.metric === 'sales_gbp' ? 'sales' : 'conversions'}</div>
+                  {target.source === 'sales_targets_sum' && (
+                    <div className="text-[10px] opacity-70 italic">auto-summed from per-store targets</div>
+                  )}
                 </div>
               ) : (
                 <div className="text-xs text-muted-foreground italic">No team target set</div>
@@ -396,11 +399,14 @@ export default function StaffCompetitionDashboard() {
         </Card>
       )}
 
-      {/* SECTION 3 — Showroom vs showroom */}
+      {/* SECTION 3 — Showroom vs showroom (fair: % of target hit) */}
       {showrooms.length > 0 && (
         <Card className="p-4">
-          <SectionHeader icon={BarChart3} title="Showroom vs showroom" accent="fuchsia">
+          <SectionHeader icon={BarChart3} title="Showroom league — % of target hit" accent="fuchsia">
             <div className="flex flex-wrap items-center gap-2 text-xs">
+              {showroom_winners?.pct_of_target && (
+                <span className="px-2 py-1 rounded-full bg-fuchsia-500/15 border border-fuchsia-500/40 text-fuchsia-700 dark:text-fuchsia-300 font-bold">📊 Target leader: {showroom_winners.pct_of_target.showroom_name} ({showroom_winners.pct_of_target.pct_of_target}%)</span>
+              )}
               {showroom_winners?.conversions && (
                 <span className="px-2 py-1 rounded-full bg-amber-500/15 border border-amber-500/40 text-amber-700 dark:text-amber-300 font-bold">👑 Most wins: {showroom_winners.conversions.showroom_name}</span>
               )}
@@ -412,37 +418,59 @@ export default function StaffCompetitionDashboard() {
               )}
             </div>
           </SectionHeader>
-          <div className="space-y-2">
-            {showrooms.map((r) => {
-              const maxConv = Math.max(...showrooms.map((x) => x.quotes_converted), 1);
-              const maxSales = Math.max(...showrooms.map((x) => x.sales_value_gbp), 1);
-              const convPct = (r.quotes_converted / maxConv) * 100;
-              const salesPct = (r.sales_value_gbp / maxSales) * 100;
+          <p className="text-[11px] text-muted-foreground italic mb-2">
+            Ranked by <span className="font-bold">% of monthly sales target reached</span> — fair across all stores regardless of size.
+            <span className="block opacity-70 mt-0.5">Tip: targets come from the dashboard you already manage (per-store monthly sales target).</span>
+          </p>
+          <div className="space-y-2" data-testid="showroom-league">
+            {showrooms.map((r, idx) => {
+              const hasTarget = (r.monthly_target || 0) > 0;
+              const pctTarget = r.pct_of_target || 0;
+              // Cap the bar visually at 110% so an over-target store
+              // doesn't pin the bar fully right and hide other stores'
+              // bars losing nuance. The exact % is shown numerically.
+              const barWidth = Math.min(110, pctTarget);
+              const barColor =
+                pctTarget >= 100 ? 'bg-emerald-500'
+                : pctTarget >= 75 ? 'bg-fuchsia-500'
+                : pctTarget >= 50 ? 'bg-amber-500'
+                : 'bg-rose-400';
               return (
                 <div key={r.showroom_name} data-testid={`showroom-row-${r.showroom_name}`} className="p-3 rounded-lg border border-border bg-muted/20">
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="font-bold">{r.showroom_name} <span className="text-xs text-muted-foreground font-normal">· {r.staff_count} staff</span></div>
-                    <div className="text-xs text-muted-foreground">{r.conversion_rate}% rate</div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <div className="font-bold flex items-center gap-1.5">
+                      <span className="font-mono text-muted-foreground w-5">{idx < 3 ? MEDALS[idx] : `#${idx + 1}`}</span>
+                      {r.showroom_name}
+                      <span className="text-xs text-muted-foreground font-normal">· {r.staff_count} staff</span>
+                    </div>
+                    <div className="text-right">
+                      {hasTarget ? (
+                        <div className={`text-sm font-extrabold tabular-nums ${pctTarget >= 100 ? 'text-emerald-700 dark:text-emerald-300' : pctTarget >= 75 ? 'text-fuchsia-700 dark:text-fuchsia-300' : 'text-amber-700 dark:text-amber-400'}`}>
+                          {pctTarget.toFixed(1)}% {pctTarget >= 100 && '✓'}
+                        </div>
+                      ) : (
+                        <div className="text-[10px] text-muted-foreground italic">No target set</div>
+                      )}
+                    </div>
                   </div>
-                  <div className="space-y-1.5">
-                    <div>
-                      <div className="flex justify-between text-[10px] uppercase tracking-wider text-muted-foreground font-bold mb-0.5">
-                        <span>Quotes won</span>
-                        <span className="text-amber-700 dark:text-amber-300 tabular-nums">{r.quotes_converted}</span>
-                      </div>
-                      <div className="h-1.5 bg-muted rounded-full overflow-hidden">
-                        <div className="h-full bg-amber-500 transition-all" style={{ width: `${convPct}%` }} />
-                      </div>
+                  {hasTarget && (
+                    <div className="h-2 bg-muted rounded-full overflow-hidden mb-1.5">
+                      <div className={`h-full transition-all ${barColor}`} style={{ width: `${barWidth}%` }} />
                     </div>
-                    <div>
-                      <div className="flex justify-between text-[10px] uppercase tracking-wider text-muted-foreground font-bold mb-0.5">
-                        <span>Special-Order sales</span>
-                        <span className="text-yellow-700 dark:text-yellow-300 tabular-nums">£{Number(r.sales_value_gbp).toLocaleString('en-GB', { maximumFractionDigits: 0 })}</span>
-                      </div>
-                      <div className="h-1.5 bg-muted rounded-full overflow-hidden">
-                        <div className="h-full bg-yellow-500 transition-all" style={{ width: `${salesPct}%` }} />
-                      </div>
-                    </div>
+                  )}
+                  <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+                    <span>
+                      <span className="text-yellow-700 dark:text-yellow-300 font-bold tabular-nums">£{Number(r.sales_value_gbp).toLocaleString('en-GB', { maximumFractionDigits: 0 })}</span>
+                      {hasTarget && (
+                        <span> of <span className="font-semibold">£{Number(r.monthly_target).toLocaleString('en-GB', { maximumFractionDigits: 0 })}</span></span>
+                      )}
+                    </span>
+                    {hasTarget && r.remaining_to_target > 0 && (
+                      <span className="text-rose-700 dark:text-rose-400">£{Number(r.remaining_to_target).toLocaleString('en-GB', { maximumFractionDigits: 0 })} to go</span>
+                    )}
+                    <span className="text-amber-700 dark:text-amber-300">
+                      🏆 {r.quotes_converted}/{r.quotes_created} won · {r.conversion_rate}%
+                    </span>
                   </div>
                 </div>
               );

@@ -9,6 +9,56 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Jun 6, 2026 — Forked session] 🎯 Sales-target integration + fair % comparison across showrooms
+
+**User reports** (with three dashboard screenshots):
+1. *"Sales targets are set, but not showing on leaderboard"* — dashboard clearly shows £75k Gravesend, £55k Tonbridge, £65k Chingford monthly sales targets configured, but the Staff Competition page reads *"No team target set"*.
+2. *"It needs to ratio out among all stores"* — Gravesend's £40k vs Tonbridge's £35k is misleading; the FAIR comparison is Gravesend 53.3% of target vs Tonbridge 63.6% (so Tonbridge is actually winning proportionally).
+
+**Root cause**: two disconnected target systems.
+- `db.sales_targets` — per-store monthly £ targets (set on the analytics dashboard `target_type: "sales"`).
+- `db.staff_leaderboard_targets` — competition-specific team target (only set on `/admin/star-staff`).
+
+The Staff Competition page only read from the second; the first was invisible to it. And showroom rankings compared raw £ (not % of target) — meaning bigger stores always "won" regardless of actual performance.
+
+**Fix #1 — Race-to-Target auto-uses summed store targets** (`routes/staff_leaderboard.py`):
+- New `_showroom_targets_for_month()` helper pulls every current-month per-store target where `target_type: "sales"` (or unset, for back-compat). Returns `{showroom_id → amount}` plus a special `_total` key.
+- `get_competition_dashboard()` now falls back to that `_total` when no explicit competition target is set — assigned to `target.value` with `target.source = "sales_targets_sum"`. The Race-to-Target card stops showing "No team target set" the moment any per-store target is configured.
+- Explicit competition targets still win (source = `"competition"`) — admins can override the auto-sum on the Star Staff page if they want a different number.
+
+**Fix #2 — Showroom league ranked by % of target** (`routes/staff_leaderboard.py` + frontend rewrite):
+- `_showroom_totals_for_month()` now attaches per-showroom `monthly_target`, `pct_of_target` (= sales_value / target × 100), and `remaining_to_target` to every row. Ranking is `(pct_of_target desc, sales_value_gbp desc)` — fair across stores of any size.
+- New `showroom_winners.pct_of_target` field — picks the showroom with the highest % hit (only counts stores with a target actually set, so zero-target rooms don't tie at 0%).
+- Frontend `Showroom league — % of target hit` section completely rewritten:
+  - Each row shows: rank badge + showroom name + staff count → big `%` number (emerald ≥100%, fuchsia ≥75%, amber ≥50%, rose <50%) → progress bar (capped visually at 110% to keep nuance) → raw `£ Sold of £ Target · £ remaining to go · wins/created · rate%`.
+  - Helper line above: *"Ranked by % of monthly sales target reached — fair across all stores regardless of size."*
+  - Showrooms without a target render with a small `"No target set"` italic chip instead of crashing.
+- Race-to-Target card now shows a small italic *"auto-summed from per-store targets"* hint when the value came from the sales_targets fallback.
+
+**Regression tests** (5 new in `tests/test_staff_competition.py`, all pass):
+1. `test_showroom_league_ranks_by_pct_of_target` — exact user scenario: Gravesend £40k of £75k (53.3%), Tonbridge £35k of £55k (63.6%) → Tonbridge ranks first, monthly_target + remaining_to_target carried through.
+2. `test_showroom_without_target_renders_with_zero_pct` — empty `sales_targets` collection → showroom still renders with `monthly_target=0`, `pct_of_target=0` instead of crashing.
+3. `test_competition_falls_back_to_summed_store_targets_for_race_to_target` — exact bug condition: three store targets (75k + 55k + 65k) set, no competition target → response carries `target.value=195000`, `target.source="sales_targets_sum"`, `progress[]` populated.
+4. `test_competition_keeps_explicit_target_over_sales_targets_sum` — explicit team target overrides the auto-sum (source returns to `"competition"`).
+5. `test_showroom_targets_query_carries_correct_filters` — Mongo query inspected: month/year set, `showroom_id != null`, and `$or` includes sales + missing + null + empty (defensive back-compat for older rows that pre-dated the `target_type` field).
+
+Both `_db` test helpers updated with a `sales_targets` parameter so existing tests pass.
+
+**Test suite**: 23/23 staff_competition + 30/30 staff_leaderboard + 84/84 across today's full domain — zero regressions. Lint clean. Backend restarted.
+
+**What you should see on production**:
+- Race-to-Target card auto-populates with the £195k (75+55+65) sum of your store targets — the "No team target set" copy disappears.
+- New **"Showroom league — % of target hit"** section. Tonbridge could rank above Gravesend with lower absolute £, depending on target ratios. Each row shows %, bar, £ progress, £ remaining.
+- A new "📊 Target leader" badge appears in the winners' pill row.
+
+**Files**:
+- `/app/backend/routes/staff_leaderboard.py` — `_showroom_targets_for_month` helper, `_showroom_totals_for_month` extended with target / pct_of_target / remaining_to_target, `get_competition_dashboard` fallback to `sales_targets_sum`, `showroom_winners.pct_of_target`, new `target.source` field.
+- `/app/frontend/src/pages/admin/StaffCompetitionDashboard.jsx` — Showroom-vs-Showroom section rewritten to "% of target" UI, new "📊 Target leader" pill, Race-to-Target card source hint.
+- `/app/backend/tests/test_staff_competition.py` (+5 tests, _db helper extended).
+- `/app/backend/tests/test_staff_leaderboard.py` (_build_db helper extended).
+
+
+
 ### [Jun 6, 2026 — Forked session] 🔗 Deep-link drawer rows → QuotationHistory & InvoiceHistory
 
 **Why**: completes the audit chain. Click Syed's row on the leaderboard → drawer shows his 4 quotes + 1 invoice → click any of those rows → page jumps directly to that quote/invoice with the search pre-populated. End-to-end drill-down from headline number to source document, zero hops.
