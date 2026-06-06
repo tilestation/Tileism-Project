@@ -24,7 +24,7 @@ import { toast } from 'sonner';
 import {
   Crown, Trophy, Flame, TrendingUp, Award, Megaphone,
   Clock, Target, Calendar, ArrowUpRight, ArrowDownRight,
-  Send, X, Sparkles, BarChart3, Eye,
+  Send, X, Sparkles, BarChart3, Eye, CheckCircle2,
 } from 'lucide-react';
 import { Card } from '../../components/ui/card';
 import { Input } from '../../components/ui/input';
@@ -67,6 +67,38 @@ export default function StaffCompetitionDashboard() {
   const [loading, setLoading] = useState(true);
   const [highlightForm, setHighlightForm] = useState({ user_key: '', name: '', showroom_name: '', message: '', duration_hours: 24 });
   const [broadcasting, setBroadcasting] = useState(false);
+  // Audit drawer (6 Jun 2026) — click a leaderboard row to see the
+  // staff member's this-month quotes + invoices, so the sales £
+  // and conversion-count can be verified at a glance.
+  const [drawerStaff, setDrawerStaff] = useState(null);
+  const [drawerData, setDrawerData] = useState(null);
+  const [drawerLoading, setDrawerLoading] = useState(false);
+
+  const openDrawer = async (staff) => {
+    if (!staff) return;
+    setDrawerStaff(staff);
+    setDrawerData(null);
+    setDrawerLoading(true);
+    try {
+      const key = staff.user_key || (staff.name ? `sp:${staff.name.toLowerCase()}` : '');
+      if (!key) {
+        toast.error('Cannot resolve staff member.');
+        setDrawerStaff(null);
+        return;
+      }
+      const res = await axios.get(
+        `${API}/staff-leaderboard/staff/${encodeURIComponent(key)}/recent?limit=5`,
+        { headers: tokenHdr() },
+      );
+      setDrawerData(res.data);
+    } catch (e) {
+      toast.error(`Couldn't load recent activity: ${e?.response?.data?.detail || e.message}`);
+    } finally {
+      setDrawerLoading(false);
+    }
+  };
+
+  const closeDrawer = () => { setDrawerStaff(null); setDrawerData(null); };
 
   const refresh = async () => {
     setLoading(true);
@@ -283,7 +315,13 @@ export default function StaffCompetitionDashboard() {
               {conversionSorted.length === 0 ? (
                 <tr><td colSpan={4} className="py-4 text-center text-muted-foreground italic text-xs">No quotes converted yet this month.</td></tr>
               ) : conversionSorted.map((s, idx) => (
-                <tr key={`fc-${s.user_key}-${idx}`} className="border-t border-border/40">
+                <tr
+                  key={`fc-${s.user_key}-${idx}`}
+                  className="border-t border-border/40 cursor-pointer hover:bg-amber-50/40 dark:hover:bg-amber-900/10 transition-colors"
+                  onClick={() => openDrawer(s)}
+                  data-testid={`competition-conv-row-${s.name}`}
+                  title={`Click to see ${s.name}'s recent activity`}
+                >
                   <td className="py-1.5 font-mono font-bold w-8">{idx < 3 ? MEDALS[idx] : idx + 1}</td>
                   <td><span className="font-bold">{s.name}</span> <span className="text-xs text-muted-foreground">· {s.showroom_name}</span></td>
                   <td className="text-right font-bold text-amber-700 dark:text-amber-300 tabular-nums">{s.quotes_converted}</td>
@@ -303,7 +341,13 @@ export default function StaffCompetitionDashboard() {
               {salesSorted.length === 0 ? (
                 <tr><td colSpan={4} className="py-4 text-center text-muted-foreground italic text-xs">No Special-Order sales yet this month.</td></tr>
               ) : salesSorted.map((s, idx) => (
-                <tr key={`fs-${s.user_key}-${idx}`} className="border-t border-border/40">
+                <tr
+                  key={`fs-${s.user_key}-${idx}`}
+                  className="border-t border-border/40 cursor-pointer hover:bg-emerald-50/40 dark:hover:bg-emerald-900/10 transition-colors"
+                  onClick={() => openDrawer(s)}
+                  data-testid={`competition-sales-row-${s.name}`}
+                  title={`Click to see ${s.name}'s recent invoices`}
+                >
                   <td className="py-1.5 font-mono font-bold w-8">{idx < 3 ? MEDALS[idx] : idx + 1}</td>
                   <td><span className="font-bold">{s.name}</span> <span className="text-xs text-muted-foreground">· {s.showroom_name}</span></td>
                   <td className="text-right font-bold text-yellow-700 dark:text-yellow-300 tabular-nums">£{Number(s.sales_value_gbp).toLocaleString('en-GB', { maximumFractionDigits: 0 })}</td>
@@ -626,6 +670,181 @@ export default function StaffCompetitionDashboard() {
         <Clock className="w-3 h-3 inline mr-1" />
         Showing {total_staff} staff across all showrooms · auto-refresh every 60 s
       </div>
+
+      {/* Staff recent-activity drawer (6 Jun 2026) — click a row
+          to verify the £ Sold + # Won counts against the actual
+          quotes/invoices that fed them. Read-only audit trail. */}
+      {drawerStaff && (
+        <StaffRecentDrawer
+          staff={drawerStaff}
+          data={drawerData}
+          loading={drawerLoading}
+          onClose={closeDrawer}
+        />
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Drawer component — kept inside the same file because it shares
+// styling tokens and there's no plan to reuse it elsewhere yet.
+// ─────────────────────────────────────────────────────────────────
+function StaffRecentDrawer({ staff, data, loading, onClose }) {
+  const quotes = data?.quotes || [];
+  const invoices = data?.invoices || [];
+  const totalQuotes = data?.total_quotes ?? quotes.length;
+  const totalInvoices = data?.total_invoices ?? invoices.length;
+
+  const fmtDate = (iso) => {
+    if (!iso) return '—';
+    try {
+      return new Date(iso).toLocaleDateString('en-GB', {
+        day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit',
+      });
+    } catch { return iso; }
+  };
+
+  const fmtGBP = (n) => `£${Number(n || 0).toLocaleString('en-GB', {
+    minimumFractionDigits: 2, maximumFractionDigits: 2,
+  })}`;
+
+  return (
+    <div className="fixed inset-0 z-50 flex" data-testid="staff-recent-drawer">
+      <div className="flex-1 bg-black/40" onClick={onClose} />
+      <aside className="w-full max-w-xl bg-background border-l border-border overflow-y-auto shadow-2xl">
+        <header className="sticky top-0 bg-background border-b border-border p-4 flex items-center justify-between z-10">
+          <div>
+            <div className="text-xs text-muted-foreground uppercase tracking-wider">Recent activity</div>
+            <div className="text-xl font-extrabold mt-0.5">{staff.name}</div>
+            {staff.showroom_name && (
+              <div className="text-xs text-muted-foreground">{staff.showroom_name}</div>
+            )}
+          </div>
+          <button type="button" onClick={onClose} className="text-muted-foreground hover:text-foreground" data-testid="staff-recent-drawer-close">
+            <X className="w-5 h-5" />
+          </button>
+        </header>
+
+        <div className="p-4 space-y-5">
+          {/* Top-of-drawer totals match the leaderboard so the admin
+              can cross-check at a glance. */}
+          <div className="grid grid-cols-3 gap-2">
+            <div className="rounded-md border border-amber-200 dark:border-amber-700/40 bg-amber-50/50 dark:bg-amber-900/20 p-2 text-center">
+              <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Quotes won</div>
+              <div className="text-lg font-extrabold text-amber-700 dark:text-amber-300 tabular-nums">{staff.quotes_converted ?? 0}</div>
+              <div className="text-[10px] text-muted-foreground">of {staff.quotes_created ?? 0} created</div>
+            </div>
+            <div className="rounded-md border border-emerald-200 dark:border-emerald-700/40 bg-emerald-50/50 dark:bg-emerald-900/20 p-2 text-center">
+              <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Rate</div>
+              <div className="text-lg font-extrabold text-emerald-700 dark:text-emerald-300 tabular-nums">{staff.conversion_rate ?? 0}%</div>
+            </div>
+            <div className="rounded-md border border-yellow-200 dark:border-yellow-700/40 bg-yellow-50/50 dark:bg-yellow-900/20 p-2 text-center">
+              <div className="text-[10px] uppercase tracking-wider text-muted-foreground">£ Sold</div>
+              <div className="text-lg font-extrabold text-yellow-700 dark:text-yellow-300 tabular-nums">£{Number(staff.sales_value_gbp || 0).toLocaleString('en-GB', { maximumFractionDigits: 0 })}</div>
+              <div className="text-[10px] text-muted-foreground">{staff.sales_count ?? 0} invoices</div>
+            </div>
+          </div>
+
+          {loading ? (
+            <div className="py-12 text-center text-muted-foreground text-sm">Loading recent activity…</div>
+          ) : (
+            <>
+              {/* Quotes table */}
+              <section data-testid="staff-recent-quotes">
+                <div className="flex items-center justify-between mb-1.5">
+                  <h3 className="text-xs uppercase tracking-wider font-bold text-amber-700 dark:text-amber-300">
+                    Recent quotes
+                  </h3>
+                  <span className="text-[10px] text-muted-foreground">
+                    Showing {quotes.length} of {totalQuotes} this month
+                  </span>
+                </div>
+                {quotes.length === 0 ? (
+                  <div className="py-4 text-center text-xs italic text-muted-foreground border border-dashed border-border rounded-md">
+                    No quotes from {staff.name} this month.
+                  </div>
+                ) : (
+                  <table className="w-full text-xs border border-border rounded-md overflow-hidden">
+                    <thead className="bg-muted/40 text-muted-foreground uppercase tracking-wider text-[10px]">
+                      <tr>
+                        <th className="text-left py-1.5 px-2">Quote #</th>
+                        <th className="text-left">Customer</th>
+                        <th className="text-right">Total</th>
+                        <th className="text-center">Status</th>
+                        <th className="text-right pr-2">Created</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {quotes.map((q) => (
+                        <tr key={q.id || q.quotation_no} className="border-t border-border/40">
+                          <td className="py-1.5 px-2 font-mono">{q.quotation_no || '—'}</td>
+                          <td className="truncate max-w-[140px]">{q.customer_name}</td>
+                          <td className="text-right tabular-nums">{fmtGBP(q.total)}</td>
+                          <td className="text-center">
+                            {q.converted ? (
+                              <span className="inline-flex items-center gap-1 text-emerald-700 dark:text-emerald-300 font-semibold">
+                                <CheckCircle2 className="w-3 h-3" /> Converted
+                              </span>
+                            ) : q.status === 'expired' ? (
+                              <span className="text-rose-700 dark:text-rose-300 font-semibold">Expired</span>
+                            ) : (
+                              <span className="text-amber-700 dark:text-amber-300">{q.status || 'Active'}</span>
+                            )}
+                          </td>
+                          <td className="text-right pr-2 text-muted-foreground tabular-nums">{fmtDate(q.created_at)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </section>
+
+              {/* Invoices table */}
+              <section data-testid="staff-recent-invoices">
+                <div className="flex items-center justify-between mb-1.5">
+                  <h3 className="text-xs uppercase tracking-wider font-bold text-yellow-700 dark:text-yellow-300">
+                    Recent Special-Order invoices
+                  </h3>
+                  <span className="text-[10px] text-muted-foreground">
+                    Showing {invoices.length} of {totalInvoices} this month
+                  </span>
+                </div>
+                {invoices.length === 0 ? (
+                  <div className="py-4 text-center text-xs italic text-muted-foreground border border-dashed border-border rounded-md">
+                    No Special-Order invoices from {staff.name} this month.
+                  </div>
+                ) : (
+                  <table className="w-full text-xs border border-border rounded-md overflow-hidden">
+                    <thead className="bg-muted/40 text-muted-foreground uppercase tracking-wider text-[10px]">
+                      <tr>
+                        <th className="text-left py-1.5 px-2">Invoice #</th>
+                        <th className="text-left">Customer</th>
+                        <th className="text-right">Total</th>
+                        <th className="text-right pr-2">Created</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {invoices.map((inv) => (
+                        <tr key={inv.id || inv.invoice_no} className="border-t border-border/40">
+                          <td className="py-1.5 px-2 font-mono">{inv.invoice_no || '—'}</td>
+                          <td className="truncate max-w-[160px]">{inv.customer_name}</td>
+                          <td className="text-right tabular-nums font-bold text-yellow-700 dark:text-yellow-300">{fmtGBP(inv.total)}</td>
+                          <td className="text-right pr-2 text-muted-foreground tabular-nums">{fmtDate(inv.created_at)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </section>
+
+              <p className="text-[10px] text-muted-foreground italic">
+                Tip: this drawer reads from the same source as the leaderboard — if a number looks off, check whether the staff member typed their name consistently on the EPOS form.
+              </p>
+            </>
+          )}
+        </div>
+      </aside>
     </div>
   );
 }

@@ -9,6 +9,45 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Jun 6, 2026 — Forked session] 🔍 Clickable leaderboard rows → audit-trail drawer
+
+**Why**: enables one-click verification of leaderboard numbers. The team can answer *"where does Syed's £9,607 actually come from?"* without leaving the page.
+
+**Backend** (`routes/staff_leaderboard.py`):
+- New `GET /api/staff-leaderboard/staff/{user_key}/recent?limit=5` — returns the staff member's this-month quotes + Special-Order invoices (mirrors the leaderboard's filter so the rows reconcile with the header £ Sold).
+- Supports all four user-key flavours (`sp:` ← primary new format, `name:` / `email:` / bare-uid for back-compat). Uses the same multi-stamp OR-clause logic `_compute_streak` already uses — historical quotes stamped only with `created_by` (email) still surface.
+- `limit` clamped to 1–25 (defence against accidental large fetches).
+- Returns `total_quotes` + `total_invoices` (count of EVERY matching doc this month, not just the slice) so the drawer can show *"Showing 5 of 12"*.
+- Read-only, gated to authenticated users (any role can see the same data they'd see on the leaderboard).
+- Each row carries id / number / customer_name / showroom_name / total / created_at / status. Quotes also carry a `converted: bool` flag derived from `converted_at OR converted_to_invoice_id OR status === "converted"` so the UI can show a Converted/Active/Expired pill.
+
+**Frontend** (`StaffCompetitionDashboard.jsx`):
+- Both leaderboard tables (Quote-conversion + Sales) — every row now has `cursor-pointer`, hover-tint matching the table's accent (amber for conversions, emerald for sales), and a `title` attribute hinting *"Click to see X's recent activity"*. `data-testid` per row for tests.
+- Click handler fetches the new endpoint and opens a new `StaffRecentDrawer` side-drawer (max-w-xl, right side):
+  - Sticky header with staff name + showroom.
+  - 3-up stat strip matching the leaderboard: Quotes Won (won/created), Conversion Rate, £ Sold (count). Confirms the headline numbers being audited.
+  - **Recent quotes** table (top 5 newest this month): quote#, customer, total, status pill (Converted / Active / Expired with colours), created timestamp. Header shows *"Showing N of M this month"*.
+  - **Recent Special-Order invoices** table: invoice#, customer, total (yellow, bold), created. Same showing-of-total header.
+  - Footer tip: *"if a number looks off, check whether the staff member typed their name consistently on the EPOS form"* — gentle hint pointing at the most common data-quality issue.
+  - Loading state, both empty states, dark-mode parity, close button (`X` icon), backdrop click to close.
+
+**Regression tests** (4 new in `tests/test_staff_competition.py`, all pass):
+- `test_staff_recent_returns_quotes_and_invoices_for_sp_key` — sp: key resolves, converted flag derived correctly, gross_total used for invoice totals.
+- `test_staff_recent_excludes_store_orders_from_invoices` — verifies the Mongo query carries `order_type: "Special Order"` (matches leaderboard's £ Sold scope).
+- `test_staff_recent_clamps_limit_to_25` — sending `limit=999` is silently capped at 25.
+- `test_staff_recent_returns_empty_for_unknown_user` — unknown user_key returns the empty contract dict, doesn't crash.
+
+**Test suite**: 18/18 staff_competition tests + 30/30 staff_leaderboard + 79/79 across today's full domain (no regressions). Lint clean on backend; frontend lint reports one pre-existing react-hooks false-positive on `broadcastHighlight` event handler (line 122 — confirmed via `git diff` to be untouched by my changes, and the project's own `yarn eslint` doesn't flag it).
+
+**Smoke screenshot** verified the dashboard still renders correctly. Preview env has no staff data so no clickable rows to demo, but the endpoint is loaded (401 on auth-rejected fake token), and the 4 unit tests cover the full contract.
+
+**Files**:
+- `/app/backend/routes/staff_leaderboard.py` — `+155 lines` (new endpoint).
+- `/app/frontend/src/pages/admin/StaffCompetitionDashboard.jsx` — drawer state + click handlers + `StaffRecentDrawer` component (+186 lines), `CheckCircle2` icon import.
+- `/app/backend/tests/test_staff_competition.py` (+4 tests).
+
+
+
 ### [Jun 6, 2026 — Forked session] 💰 Sales leaderboard fix — was empty despite having data
 
 **User screenshot**: same page showed three contradictory facts:

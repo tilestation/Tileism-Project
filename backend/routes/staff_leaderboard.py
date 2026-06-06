@@ -811,6 +811,180 @@ def _days_in_month(d: datetime) -> int:
     return (next_month - d.replace(day=1)).days
 
 
+@router.get("/staff/{user_key:path}/recent")
+async def get_staff_recent_activity(
+    user_key: str,
+    limit: int = 5,
+    current_user: dict = Depends(get_current_user),
+):
+    """Audit-trail drawer for a single staff member (6 Jun 2026).
+
+    Returns this-month's recent quotes + invoices for the staff row
+    the admin just clicked on the leaderboard, so they can verify
+    e.g. "Syed's £9,607 — show me the 4 invoices".
+
+    `user_key` follows the same grouping convention as the
+    leaderboard rows:
+      • `sp:<sales_person.lower()>`   ← primary (form-typed name)
+      • `name:<sales_person.lower()>` ← legacy
+      • `email:<created_by.lower()>`  ← legacy
+      • `<uid>`                       ← legacy
+
+    Builds a multi-stamp OR-clause via the users collection so
+    legacy quotes stamped only with `created_by` (email) still
+    surface — same logic _compute_streak uses.
+    """
+    db = get_db()
+    month_start, _, _ = _month_window_utc()
+
+    # Build the multi-stamp matcher
+    or_clauses: list = []
+    if user_key.startswith("sp:"):
+        # %-escape the name so regex specials in display names (rare
+        # but possible — "O'Brien") don't blow up.
+        import re as _re
+        escaped = _re.escape(user_key[3:])
+        or_clauses.append({"sales_person": {"$regex": f"^{escaped}$", "$options": "i"}})
+    elif user_key.startswith("name:"):
+        import re as _re
+        or_clauses.append({"sales_person": {"$regex": f"^{_re.escape(user_key[5:])}$", "$options": "i"}})
+    elif user_key.startswith("email:"):
+        import re as _re
+        or_clauses.append({"created_by": {"$regex": f"^{_re.escape(user_key[6:])}$", "$options": "i"}})
+    else:
+        u = await db.users.find_one(
+            {"id": user_key},
+            {"_id": 0, "email": 1, "name": 1},
+        )
+        or_clauses.append({"created_by_user_id": user_key})
+        if u:
+            import re as _re
+            if u.get("email"):
+                or_clauses.append({"created_by": {"$regex": f"^{_re.escape(u['email'])}$", "$options": "i"}})
+            if u.get("name"):
+                or_clauses.append({"sales_person": {"$regex": f"^{_re.escape(u['name'])}$", "$options": "i"}})
+
+    if not or_clauses:
+        return {"quotes": [], "invoices": [], "total_quotes": 0, "total_invoices": 0}
+
+    # Cap limit to a sane range so the drawer stays snappy
+    limit = max(1, min(int(limit or 5), 25))
+
+    month_match: dict = {
+        "$and": [
+            {"$or": or_clauses},
+            {"$or": [
+                {"created_at": {"$gte": month_start}},
+                {"created_at": {"$gte": month_start.isoformat()}},
+            ]},
+        ],
+    }
+
+    # --- Quotes (this month) ---
+    quote_cursor = db.quotations.find(
+        month_match,
+        {
+            "_id": 0,
+            "id": 1,
+            "quotation_no": 1,
+            "customer_name": 1,
+            "gross_total": 1,
+            "total": 1,
+            "subtotal": 1,
+            "showroom_name": 1,
+            "status": 1,
+            "created_at": 1,
+            "converted_at": 1,
+            "converted_to_invoice_id": 1,
+        },
+    ).sort("created_at", -1).limit(limit)
+    quotes_rows = await quote_cursor.to_list(length=limit)
+
+    quote_results = []
+    for q in quotes_rows:
+        amount = q.get("gross_total") or q.get("total") or q.get("subtotal") or 0
+        is_converted = bool(
+            q.get("converted_at")
+            or q.get("converted_to_invoice_id")
+            or q.get("status") == "converted",
+        )
+        quote_results.append({
+            "id": q.get("id"),
+            "quotation_no": q.get("quotation_no"),
+            "customer_name": q.get("customer_name") or "—",
+            "showroom_name": q.get("showroom_name"),
+            "total": float(amount) if amount else 0.0,
+            "status": q.get("status", "active"),
+            "converted": is_converted,
+            "created_at": q.get("created_at"),
+            "converted_at": q.get("converted_at"),
+        })
+
+    # --- Invoices (this month, ONLY Special Orders to match the
+    #     leaderboard's £ Sold column) ---
+    invoice_match: dict = {
+        "$and": [
+            {"$or": or_clauses},
+            {"order_type": "Special Order"},
+            {"$or": [
+                {"created_at": {"$gte": month_start}},
+                {"created_at": {"$gte": month_start.isoformat()}},
+            ]},
+        ],
+    }
+    invoice_cursor = db.invoices.find(
+        invoice_match,
+        {
+            "_id": 0,
+            "id": 1,
+            "invoice_no": 1,
+            "customer_name": 1,
+            "gross_total": 1,
+            "total": 1,
+            "grand_total": 1,
+            "total_amount": 1,
+            "subtotal": 1,
+            "showroom_name": 1,
+            "order_type": 1,
+            "created_at": 1,
+        },
+    ).sort("created_at", -1).limit(limit)
+    invoice_rows = await invoice_cursor.to_list(length=limit)
+
+    invoice_results = []
+    for inv in invoice_rows:
+        amount = (
+            inv.get("gross_total")
+            or inv.get("grand_total")
+            or inv.get("total_amount")
+            or inv.get("total")
+            or inv.get("subtotal")
+            or 0
+        )
+        invoice_results.append({
+            "id": inv.get("id"),
+            "invoice_no": inv.get("invoice_no"),
+            "customer_name": inv.get("customer_name") or "—",
+            "showroom_name": inv.get("showroom_name"),
+            "total": float(amount) if amount else 0.0,
+            "order_type": inv.get("order_type", "Special Order"),
+            "created_at": inv.get("created_at"),
+        })
+
+    # Totals for the drawer header — count ALL quotes / invoices
+    # this month, not just the slice we returned, so the admin can
+    # see "showing 5 of 12" hint.
+    total_quotes = await db.quotations.count_documents(month_match)
+    total_invoices = await db.invoices.count_documents(invoice_match)
+
+    return {
+        "quotes": quote_results,
+        "invoices": invoice_results,
+        "total_quotes": total_quotes,
+        "total_invoices": total_invoices,
+    }
+
+
 @router.get("/competition")
 async def get_competition_dashboard(
     current_user: dict = Depends(get_current_user),

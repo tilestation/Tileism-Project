@@ -220,6 +220,130 @@ def test_competition_staff_list_populated_when_target_is_set_too():
 
 
 # ---------------------------------------------------------------------
+# 4. /staff/{user_key}/recent — audit-drawer endpoint (6 Jun 2026)
+# ---------------------------------------------------------------------
+def test_staff_recent_returns_quotes_and_invoices_for_sp_key():
+    """Click a sales_person row → drawer fetches recent month
+    quotes + invoices. The new `sp:<name>` grouping key from the
+    earlier shared-store-login fix must be supported."""
+    import asyncio
+    from routes.staff_leaderboard import get_staff_recent_activity
+    _reset_cache()
+    quotes = [
+        {"id": "q1", "sales_person": "Syed", "quotation_no": "QT-1",
+         "customer_name": "John", "gross_total": 1500.0,
+         "status": "converted", "converted_at": _NOW.isoformat(),
+         "created_at": _NOW.isoformat()},
+        {"id": "q2", "sales_person": "Syed", "quotation_no": "QT-2",
+         "customer_name": "Sara", "gross_total": 2000.0,
+         "status": "active", "created_at": _NOW.isoformat()},
+    ]
+    invoices = [
+        {"id": "i1", "sales_person": "Syed", "invoice_no": "IN-1",
+         "customer_name": "John", "gross_total": 1500.0,
+         "order_type": "Special Order", "created_at": _NOW.isoformat()},
+    ]
+    db = _db()
+    # Override the cursors to feed our fixtures
+    db.quotations.find = MagicMock(return_value=_AsyncIter(quotes))
+    db.invoices.find = MagicMock(return_value=_AsyncIter(invoices))
+    db.quotations.count_documents = AsyncMock(return_value=2)
+    db.invoices.count_documents = AsyncMock(return_value=1)
+    user = {"role": "super_admin", "email": "a@b"}
+    with patch("routes.staff_leaderboard.get_db", return_value=db):
+        r = asyncio.run(get_staff_recent_activity(
+            user_key="sp:syed", limit=5, current_user=user,
+        ))
+    assert r["total_quotes"] == 2
+    assert r["total_invoices"] == 1
+    assert len(r["quotes"]) == 2
+    # Conversion flag set from converted_at
+    converted_quote = next(q for q in r["quotes"] if q["quotation_no"] == "QT-1")
+    assert converted_quote["converted"] is True
+    not_converted = next(q for q in r["quotes"] if q["quotation_no"] == "QT-2")
+    assert not_converted["converted"] is False
+    # Invoice total comes from gross_total (5 Jun 2026 fix)
+    assert r["invoices"][0]["total"] == 1500.0
+
+
+def test_staff_recent_excludes_store_orders_from_invoices():
+    """The leaderboard counts only Special-Order invoices toward
+    £ Sold. The drawer must mirror that exactly, otherwise the
+    detail rows wouldn't add up to the header totals."""
+    import asyncio
+    from routes.staff_leaderboard import get_staff_recent_activity
+    _reset_cache()
+    # Capture the invoice query to verify the filter
+    captured = {}
+    def capture_find(query, projection=None, **kw):
+        captured["query"] = query
+        return _AsyncIter([])
+    db = _db()
+    db.invoices.find = MagicMock(side_effect=capture_find)
+    db.invoices.count_documents = AsyncMock(return_value=0)
+    db.quotations.find = MagicMock(return_value=_AsyncIter([]))
+    db.quotations.count_documents = AsyncMock(return_value=0)
+    user = {"role": "super_admin", "email": "a@b"}
+    with patch("routes.staff_leaderboard.get_db", return_value=db):
+        asyncio.run(get_staff_recent_activity(
+            user_key="sp:syed", limit=5, current_user=user,
+        ))
+    # The query must include the Special Order filter
+    q = captured["query"]
+    flat = str(q)
+    assert "Special Order" in flat, \
+        "Invoice query must filter to order_type=Special Order"
+
+
+def test_staff_recent_clamps_limit_to_25():
+    """Defence against accidental large fetches — even if the UI
+    passes limit=999, the backend caps at 25."""
+    import asyncio
+    from routes.staff_leaderboard import get_staff_recent_activity
+    _reset_cache()
+    db = _db()
+    captured_limit = {}
+    def capture_quotes_find(query, projection=None, **kw):
+        cursor = _AsyncIter([])
+        original_limit = cursor.limit
+        def track(n):
+            captured_limit["q"] = n
+            return original_limit(n)
+        cursor.limit = track
+        return cursor
+    db.quotations.find = MagicMock(side_effect=capture_quotes_find)
+    db.invoices.find = MagicMock(return_value=_AsyncIter([]))
+    db.quotations.count_documents = AsyncMock(return_value=0)
+    db.invoices.count_documents = AsyncMock(return_value=0)
+    user = {"role": "super_admin", "email": "a@b"}
+    with patch("routes.staff_leaderboard.get_db", return_value=db):
+        asyncio.run(get_staff_recent_activity(
+            user_key="sp:syed", limit=999, current_user=user,
+        ))
+    assert captured_limit.get("q") == 25
+
+
+def test_staff_recent_returns_empty_for_unknown_user():
+    """If the user_key resolves to no clauses (shouldn't happen
+    with the new sp: prefix but defensive), return empties cleanly
+    instead of crashing."""
+    import asyncio
+    from routes.staff_leaderboard import get_staff_recent_activity
+    _reset_cache()
+    db = _db()
+    db.quotations.find = MagicMock(return_value=_AsyncIter([]))
+    db.invoices.find = MagicMock(return_value=_AsyncIter([]))
+    db.quotations.count_documents = AsyncMock(return_value=0)
+    db.invoices.count_documents = AsyncMock(return_value=0)
+    user = {"role": "super_admin", "email": "a@b"}
+    with patch("routes.staff_leaderboard.get_db", return_value=db):
+        r = asyncio.run(get_staff_recent_activity(
+            user_key="sp:nonexistent", limit=5, current_user=user,
+        ))
+    assert r == {"quotes": [], "invoices": [], "total_quotes": 0, "total_invoices": 0}
+
+
+# ---------------------------------------------------------------------
 # 4. Showroom totals + winners
 # ---------------------------------------------------------------------
 def test_showroom_vs_showroom_winners():
