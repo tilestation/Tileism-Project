@@ -395,21 +395,56 @@ export default function StaffCompetitionDashboard() {
             <tbody>
               {salesSorted.length === 0 ? (
                 <tr><td colSpan={5} className="py-4 text-center text-muted-foreground italic text-xs">No Special-Order sales yet this month.</td></tr>
-              ) : salesSorted.map((s, idx) => (
+              ) : salesSorted.map((s, idx) => {
+                const pctTarget = s.personal_pct_of_target ?? 0;
+                const hasTarget = (s.personal_sales_target || 0) > 0;
+                // Pill colour reflects how close to target — same
+                // band logic as the Showroom league so the visual
+                // language stays consistent across the page.
+                const pillTone =
+                  pctTarget >= 100 ? 'bg-emerald-100 text-emerald-800 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-300 dark:border-emerald-800'
+                  : pctTarget >= 75  ? 'bg-fuchsia-100 text-fuchsia-800 border-fuchsia-200 dark:bg-fuchsia-900/30 dark:text-fuchsia-300 dark:border-fuchsia-800'
+                  : pctTarget >= 50  ? 'bg-amber-100 text-amber-800 border-amber-200 dark:bg-amber-900/30 dark:text-amber-300 dark:border-amber-800'
+                  :                    'bg-rose-100 text-rose-800 border-rose-200 dark:bg-rose-900/30 dark:text-rose-300 dark:border-rose-800';
+                return (
                 <tr
                   key={`fs-${s.user_key}-${idx}`}
                   className="border-t border-border/40 cursor-pointer hover:bg-emerald-50/40 dark:hover:bg-emerald-900/10 transition-colors"
                   onClick={() => openDrawer(s)}
                   data-testid={`competition-sales-row-${s.name}`}
-                  title={`Click to see ${s.name}'s recent invoices · Composite score ${s.sales_composite_score ?? '—'}`}
+                  title={hasTarget
+                    ? `Click to see ${s.name}'s recent invoices · ${pctTarget}% of £${Number(s.personal_sales_target).toLocaleString('en-GB')} ${s.showroom_name} target · Composite ${s.sales_composite_score ?? '—'}`
+                    : `Click to see ${s.name}'s recent invoices · Composite ${s.sales_composite_score ?? '—'}`}
                 >
                   <td className="py-1.5 font-mono font-bold w-8">{idx < 3 ? MEDALS[idx] : idx + 1}</td>
-                  <td><span className="font-bold">{s.name}</span> <span className="text-xs text-muted-foreground">· {s.showroom_name}</span></td>
+                  <td>
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="font-bold">{s.name}</span>
+                      <span className="text-xs text-muted-foreground">· {s.showroom_name}</span>
+                      {hasTarget ? (
+                        <span
+                          className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full border text-[10px] font-bold leading-none tabular-nums ${pillTone}`}
+                          data-testid={`competition-sales-pct-${s.name}`}
+                          title={`${pctTarget}% of £${Number(s.personal_sales_target).toLocaleString('en-GB')} (${s.showroom_name} target)`}
+                        >
+                          🎯 {pctTarget}%{pctTarget >= 100 && ' ✓'}
+                        </span>
+                      ) : (
+                        <span
+                          className="inline-flex items-center px-1.5 py-0.5 rounded-full border border-dashed border-muted-foreground/30 text-[10px] text-muted-foreground italic leading-none"
+                          title={`${s.showroom_name} has no monthly target set yet`}
+                        >
+                          no target
+                        </span>
+                      )}
+                    </div>
+                  </td>
                   <td className="text-right font-bold text-yellow-700 dark:text-yellow-300 tabular-nums">£{Number(s.sales_value_gbp).toLocaleString('en-GB', { maximumFractionDigits: 0 })}</td>
                   <td className="text-right tabular-nums">{s.sales_count}</td>
                   <td className="text-right tabular-nums text-emerald-700 dark:text-emerald-300 font-bold">{(s.sales_composite_score ?? 0).toFixed(1)}</td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </Card>

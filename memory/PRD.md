@@ -9,6 +9,30 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Jun 6, 2026 — Forked session] 🎯 % to target pill on the Sales leaderboard
+
+Each Sales-leaderboard row now carries a small **`🎯 13.3%`** pill right next to the staff name, showing their % of their store's monthly target — so the personal-target idea is visible *in the table itself* without scrolling back up to the Race-to-Target card.
+
+**Implementation** (`/app/frontend/src/pages/admin/StaffCompetitionDashboard.jsx`):
+- Pill reads `personal_pct_of_target` (already on the backend response since this morning).
+- Colour bands match the Showroom league + Race-to-Target cards for consistent visual language:
+  - emerald ≥100% (with a ✓ tick)
+  - fuchsia ≥75%
+  - amber ≥50%
+  - rose <50%
+- Stores without a target render a small dashed-border *"no target"* italic chip instead — never a fake 0% (which would look like underperformance).
+- Row `title` attribute extended to include the personal target context: *"…58.3% of £75,000 Gravesend target · Composite 67.2"* so hover surfaces the full picture.
+- New `data-testid="competition-sales-pct-{name}"` per pill for testing.
+
+**No backend changes** — `personal_pct_of_target` was already returned by `/competition` since the earlier per-store target work. Pure UI surfacing.
+
+**Lint clean** on my diff (only the pre-existing react-hooks false-positive on `broadcastHighlight` event handler remains, untouched). Smoke screenshot confirms the dashboard still renders end-to-end with no console errors.
+
+**Files**:
+- `/app/frontend/src/pages/admin/StaffCompetitionDashboard.jsx` — added pill rendering inside the `salesSorted.map` body of the Sales leaderboard table; converted the row arrow-fn to a brace body so we can compute `pctTarget` + `pillTone` per row.
+
+
+
 ### [Jun 6, 2026 — Forked session] 🏆 Personal store targets + two-section race + composite sales score
 
 **User feedback** (three concrete asks):
