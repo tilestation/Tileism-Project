@@ -490,38 +490,115 @@ def test_competition_keeps_explicit_target_in_progress_conversions():
 #    "higher volume of sales do matter but number of sales are as
 #    important — staff put effort to close sales even when small."
 # ---------------------------------------------------------------------
-def test_composite_score_70_30_volume_weighted():
-    """Two staff:
-    - Whale: £10,000 in 1 sale (max £, min count)
-    - Closer: £4,000 in 10 sales (low £, max count)
-    Composite = 70% volume + 30% count (6 Jun 2026 weight tweak).
-      Whale:  100% × 0.70 + 10%  × 0.30 = 70 + 3 = 73.0
-      Closer: 40%  × 0.70 + 100% × 0.30 = 28 + 30 = 58.0
-    With volume-weighted scoring the Whale now ranks above the
-    Closer — but the Closer still earns substantial credit (58
-    not 28) for closing 10 invoices."""
+def test_composite_score_70_30_target_relative_volume():
+    """Volume metric is % of OWN store target (fair across stores),
+    NOT % of top peer's £. Count metric is peer-relative.
+
+    Two staff at DIFFERENT stores with DIFFERENT targets:
+    - Whale @ Gravesend (£75k target): £15,000 in 1 sale
+        → personal_pct_of_target = 20.0
+    - Closer @ Tonbridge (£55k target): £11,000 in 10 sales
+        → personal_pct_of_target = 20.0  (identical % of target!)
+
+    Same % of target but the Tonbridge person used 10 sales to get
+    there — count metric should push them ahead.
+
+    max_pct_target = 20.0 (both tied)
+      Whale volume = 20/20 × 100 = 100
+      Closer volume = 20/20 × 100 = 100
+    max_count = 10
+      Whale count = 1/10 × 100 = 10
+      Closer count = 10/10 × 100 = 100
+    Composite (70/30):
+      Whale  = 100×0.70 + 10×0.30  = 70 + 3   = 73.0
+      Closer = 100×0.70 + 100×0.30 = 70 + 30  = 100.0
+    """
     import asyncio
     from routes.staff_leaderboard import _compute_leaderboard
     _reset_cache()
     invoices = (
-        # Whale — 1 large
-        [{"sales_person": "Whale", "order_type": "Special Order",
-          "gross_total": 10000.0, "created_at": _NOW}]
+        [{"sales_person": "Whale", "showroom_id": "sr_gv", "showroom_name": "Gravesend",
+          "order_type": "Special Order", "gross_total": 15000.0, "created_at": _NOW}]
         +
-        # Closer — 10 small (totalling £4,000)
-        [{"sales_person": "Closer", "order_type": "Special Order",
-          "gross_total": 400.0, "created_at": _NOW} for _ in range(10)]
+        [{"sales_person": "Closer", "showroom_id": "sr_tn", "showroom_name": "Tonbridge",
+          "order_type": "Special Order", "gross_total": 1100.0, "created_at": _NOW} for _ in range(10)]
     )
-    db = _db(invoices=invoices)
+    sales_targets = [
+        {"showroom_id": "sr_gv", "monthly_target": 75000, "target_type": "sales"},
+        {"showroom_id": "sr_tn", "monthly_target": 55000, "target_type": "sales"},
+    ]
+    db = _db(invoices=invoices, sales_targets=sales_targets)
     with patch("routes.staff_leaderboard.get_db", return_value=db):
         board = asyncio.run(_compute_leaderboard())
     whale = next(s for s in board["staff"] if s["name"] == "Whale")
     closer = next(s for s in board["staff"] if s["name"] == "Closer")
-    # Whale outranks Closer — volume now dominates.
-    assert whale["sales_composite_score"] > closer["sales_composite_score"]
-    # Exact maths sanity check
+    # Both hit 20% of their respective targets → tied on volume
+    assert whale["personal_pct_of_target"] == 20.0
+    assert closer["personal_pct_of_target"] == 20.0
+    # Count breaks the tie — Closer wins
+    assert closer["sales_composite_score"] > whale["sales_composite_score"]
     assert whale["sales_composite_score"] == 73.0
-    assert closer["sales_composite_score"] == 58.0
+    assert closer["sales_composite_score"] == 100.0
+
+
+def test_composite_score_fairness_across_stores_of_different_sizes():
+    """Specifically the scenario the user keeps describing:
+    - Big store with bigger target — closing more £ to hit same %
+    - Small store with smaller target — closing less £ to hit same %
+    Under the OLD peer-£ formula, big-store staff always dominated.
+    Under the NEW target-relative formula, both can compete fairly."""
+    import asyncio
+    from routes.staff_leaderboard import _compute_leaderboard
+    _reset_cache()
+    # Both at 20% of their own target — should tie on volume.
+    invoices = [
+        {"sales_person": "Big", "showroom_id": "sr_big", "showroom_name": "Big",
+         "order_type": "Special Order", "gross_total": 15000.0, "created_at": _NOW},
+        {"sales_person": "Small", "showroom_id": "sr_small", "showroom_name": "Small",
+         "order_type": "Special Order", "gross_total": 4000.0, "created_at": _NOW},
+    ]
+    sales_targets = [
+        {"showroom_id": "sr_big", "monthly_target": 75000, "target_type": "sales"},
+        {"showroom_id": "sr_small", "monthly_target": 20000, "target_type": "sales"},
+    ]
+    db = _db(invoices=invoices, sales_targets=sales_targets)
+    with patch("routes.staff_leaderboard.get_db", return_value=db):
+        board = asyncio.run(_compute_leaderboard())
+    big = next(s for s in board["staff"] if s["name"] == "Big")
+    small = next(s for s in board["staff"] if s["name"] == "Small")
+    # Both at 20% — tied on volume (both 100% normalized) and both
+    # at 1 sale (tied on count). So composite is identical.
+    assert big["personal_pct_of_target"] == 20.0
+    assert small["personal_pct_of_target"] == 20.0
+    assert big["sales_composite_score"] == small["sales_composite_score"]
+
+
+def test_composite_score_falls_back_to_peer_relative_when_no_target():
+    """Staff at a store with NO monthly_target set must still get a
+    score (not be silently zero-scored). Falls back to peer-relative
+    £ vs the top seller's £."""
+    import asyncio
+    from routes.staff_leaderboard import _compute_leaderboard
+    _reset_cache()
+    invoices = [
+        {"sales_person": "Targeted", "showroom_id": "sr_t", "showroom_name": "Targeted",
+         "order_type": "Special Order", "gross_total": 10000.0, "created_at": _NOW},
+        {"sales_person": "Untargeted", "showroom_id": "sr_u", "showroom_name": "Untargeted",
+         "order_type": "Special Order", "gross_total": 5000.0, "created_at": _NOW},
+    ]
+    sales_targets = [
+        {"showroom_id": "sr_t", "monthly_target": 50000, "target_type": "sales"},
+        # NB no target for sr_u
+    ]
+    db = _db(invoices=invoices, sales_targets=sales_targets)
+    with patch("routes.staff_leaderboard.get_db", return_value=db):
+        board = asyncio.run(_compute_leaderboard())
+    untargeted = next(s for s in board["staff"] if s["name"] == "Untargeted")
+    # Untargeted must NOT be zero — fallback kicks in.
+    assert untargeted["sales_composite_score"] > 0
+    # Untargeted has 50% of top seller's £ → 50 volume, 100% of count → 100
+    # 50 × 0.70 + 100 × 0.30 = 35 + 30 = 65
+    assert untargeted["sales_composite_score"] == 65.0
 
 
 def test_composite_score_handles_zero_sales_gracefully():

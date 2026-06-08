@@ -394,23 +394,49 @@ async def _compute_leaderboard(month_only: bool = True) -> dict:
         )
 
     # 6 Jun 2026 — composite SALES score.
-    # User feedback: "higher volume of sales do matter but number of
-    # sales are as important — staff do put some effort to close
-    # sales even when they are small. So take that into consideration
-    # too." Composite = weighted average of (£ normalized vs top) and
-    # (count normalized vs top). 70% volume + 30% count (tweaked from
-    # 50/50 on 6 Jun 2026 — user wanted volume to dominate while
-    # still rewarding consistent closers). Range 0-100. Used for the
-    # Sales leaderboard ranking.
+    # User feedback (in order they were given):
+    #  1. "competition needs to be based on targets / ratio out among
+    #     all stores" — so VOLUME is measured as % of OWN store target,
+    #     not raw £. This makes smaller stores fair against bigger ones.
+    #  2. "number of sales are as important — staff put effort even on
+    #     small sales" — so count contributes too.
+    #  3. "Weight it Volume = 70% and count = 30%".
+    #
+    # Final formula:
+    #   volume_score = (personal_pct_of_target / max_pct_of_target) × 100
+    #     ↳ If a staff lacks a store target, fall back to peer-relative
+    #       £ vs the top seller's £ so untargeted staff aren't zero-scored.
+    #   count_score  = (sales_count / max_count) × 100
+    #   composite    = volume × 0.70 + count × 0.30
+    #
+    # Range 0–100 with rare over-target staff legitimately above 100.
+    # Worked example with real production data:
+    #   Syed @ Gravesend (£10k of £75k = 13.4% of target, 9 sales)
+    #     → volume 100, count 81.8 → composite 94.5
+    #   Ali  @ Chingford (£4.5k of £65k = 6.9% of target, 11 sales)
+    #     → volume 51.5 (6.9/13.4×100), count 100 → composite 66.1
+    #     (was 61.3 under the peer-£-only formula — bumped up because
+    #      his smaller store target gives him proportional credit)
     SALES_VOLUME_WEIGHT = 0.70
     SALES_COUNT_WEIGHT = 0.30
     max_sales = max((s["sales_value_gbp"] for s in staff_list), default=0) or 1
     max_count = max((s["sales_count"] for s in staff_list), default=0) or 1
+    max_pct_target = max(
+        (s["personal_pct_of_target"] for s in staff_list if s.get("personal_sales_target", 0) > 0),
+        default=0,
+    ) or 1
     for entry in staff_list:
-        pct_value = (entry["sales_value_gbp"] / max_sales) * 100
+        if entry.get("personal_sales_target", 0) > 0:
+            # Target-relative — fair across stores of any size.
+            volume_metric = (entry["personal_pct_of_target"] / max_pct_target) * 100
+        else:
+            # Peer-relative fallback — only triggers for staff whose
+            # store has no monthly target set. Keeps them in the
+            # ranking instead of zero-scoring them out of it.
+            volume_metric = (entry["sales_value_gbp"] / max_sales) * 100
         pct_count = (entry["sales_count"] / max_count) * 100
         entry["sales_composite_score"] = round(
-            (pct_value * SALES_VOLUME_WEIGHT) + (pct_count * SALES_COUNT_WEIGHT), 1
+            (volume_metric * SALES_VOLUME_WEIGHT) + (pct_count * SALES_COUNT_WEIGHT), 1
         )
 
     # Sort by conversions DESC, then by sales DESC as tie-breaker.

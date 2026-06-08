@@ -9,6 +9,47 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Jun 6, 2026 — Forked session] 🎯 Composite score VOLUME now uses % of store target (not raw £)
+
+**User caught a gap**: *"do keep in mind, store targets to be kept in consideration as I explained before, is that implemented?"*
+
+**Honest assessment**: NO — until this commit, only the % to target pill + Race to Sales card + Showroom League used store targets. The **composite Score column** still ranked volume as raw £ vs the top seller's £, meaning small-store staff were unfairly compared against big-store staff. The user's original instruction *"competition needs to be based on targets / ratio out among all stores"* applied to the composite too.
+
+**Fix** (`routes/staff_leaderboard.py::_compute_leaderboard`):
+- Volume metric changed from peer-relative `(£ ÷ max_£) × 100` to target-relative `(personal_pct_of_target ÷ max_pct_of_target) × 100`.
+- max_pct_of_target = the highest % of target anyone in the leaderboard is hitting. Normalizes target-relative scores back to a 0-100 scale so volume and count combine cleanly.
+- Count metric unchanged (peer-relative; the user didn't ask for per-store count targets and it would over-complicate).
+- Final composite = `volume × 0.70 + count × 0.30` (weights unchanged from this morning's tweak).
+- **Graceful fallback**: staff at a showroom with no `monthly_target` set fall back to peer-relative £ scoring so they aren't silently zero-scored.
+
+**Worked example with real production data** (from the user's screenshot):
+
+| Staff | Store | £ | Target | % of target | volume (norm) | count (norm) | Old composite | NEW composite |
+|---|---|---|---|---|---|---|---|---|
+| Syed | Gravesend | £10,027 | £75k | 13.4% | 100 | 81.8 | 94.5 | **94.5** |
+| Ali | Chingford | £4,481 | £65k | 6.9% | 51.5 | 100 | 61.3 | **66.1** ⬆ |
+| Gokul | Gravesend | £3,109 | £75k | 4.1% | 30.6 | 54.5 | 38.0 | **37.8** |
+| Emrah | Chingford | £3,177 | £65k | 4.9% | 36.6 | 36.4 | 33.1 | **36.5** ⬆ |
+| Shaz | Tonbridge | £1,944 | £55k | 3.5% | 26.1 | ?       | 24.x | **26.x** ⬆ |
+
+Staff at SMALLER-target stores (Chingford, Tonbridge) score higher under the new formula because each £ they bring in is a bigger slice of THEIR target. Staff at the biggest store (Gravesend) score the same or marginally less — exactly the cross-store fairness the user kept asking for.
+
+**Tests** (3 new, all pass):
+- `test_composite_score_70_30_target_relative_volume` — Whale@£75k vs Closer@£55k, both at exactly 20% of target → tied on volume; count breaks the tie → Closer wins.
+- `test_composite_score_fairness_across_stores_of_different_sizes` — Big@£75k with £15k vs Small@£20k with £4k (both at 20% of target) → composite ties EXACTLY. Old formula would have Big leading 100→27.
+- `test_composite_score_falls_back_to_peer_relative_when_no_target` — staff at a store with no monthly_target still get a score (50% of top seller's £ + 100% count → composite 65.0).
+
+**Test suite**: 49/49 pass (47 prior + 2 new). Frontend explainer copy updated to read: *"Ranked by composite score — 70% volume (as % of your store target, so smaller stores compete fairly) + 30% number of sales."*
+
+Backend restarted; live competition endpoint healthy (401 on unauth as expected).
+
+**Files**:
+- `/app/backend/routes/staff_leaderboard.py` — volume metric switched to target-relative with peer-relative fallback.
+- `/app/frontend/src/pages/admin/StaffCompetitionDashboard.jsx` — explainer copy.
+- `/app/backend/tests/test_staff_competition.py` — old test rewritten, 2 new added.
+
+
+
 ### [Jun 6, 2026 — Forked session] ⚖️ Composite sales score re-weighted to 70% volume + 30% count
 
 **User feedback after seeing it live**: *"Weight it Volume = 70% and count = 30%"*.
