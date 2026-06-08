@@ -176,10 +176,11 @@ export default function StaffCompetitionDashboard() {
   const salesSorted = useMemo(() => {
     // 6 Jun 2026 — user feedback: "higher volume of sales do matter
     // but number of sales are as important — staff put effort to
-    // close small sales too". Sort by composite score (50% £
-    // normalized + 50% # normalized) so a staff with 11 small sales
-    // can outrank one with 9 big sales. Falls back to raw £ if the
-    // backend hasn't sent composite (older deploys).
+    // close small sales too". Sort by composite score (70% £
+    // normalized + 30% # normalized) so a staff with consistently
+    // big sales is rewarded a bit more than pure quantity, but
+    // closers still rank well. Falls back to raw £ if the backend
+    // hasn't sent composite (older deploys).
     return [...fullStaff].sort((a, b) => {
       const aScore = a.sales_composite_score ?? null;
       const bScore = b.sales_composite_score ?? null;
@@ -406,6 +407,42 @@ export default function StaffCompetitionDashboard() {
                   : pctTarget >= 75  ? 'bg-fuchsia-100 text-fuchsia-800 border-fuchsia-200 dark:bg-fuchsia-900/30 dark:text-fuchsia-300 dark:border-fuchsia-800'
                   : pctTarget >= 50  ? 'bg-amber-100 text-amber-800 border-amber-200 dark:bg-amber-900/30 dark:text-amber-300 dark:border-amber-800'
                   :                    'bg-rose-100 text-rose-800 border-rose-200 dark:bg-rose-900/30 dark:text-rose-300 dark:border-rose-800';
+                // 6 Jun 2026 — "expected pace" indicator.
+                // expectedPct = (days_elapsed / days_total) × 100.
+                //   At Day 6 of 30 a staff should be at ~20% of
+                //   their monthly target to be "on pace".
+                // pace_ratio = personal_pct_of_target / expectedPct
+                //   ≥1.0  → ahead (green ⏱ ↑)
+                //   ≥0.8  → on pace (amber ⏱)
+                //   <0.8  → behind (red ⏱ ↓)
+                // Only shown when the staff has a target set —
+                // pace against no target is meaningless.
+                const expectedPct = days_total > 0 ? (days_elapsed / days_total) * 100 : 0;
+                const paceRatio = (hasTarget && expectedPct > 0) ? (pctTarget / expectedPct) : null;
+                let paceIcon = null;
+                if (paceRatio !== null) {
+                  const tone =
+                    paceRatio >= 1.0 ? 'text-emerald-600 dark:text-emerald-400'
+                    : paceRatio >= 0.8 ? 'text-amber-600 dark:text-amber-400'
+                    :                    'text-rose-600 dark:text-rose-400';
+                  const arrow =
+                    paceRatio >= 1.0 ? '↑'
+                    : paceRatio >= 0.8 ? ''
+                    :                    '↓';
+                  const status =
+                    paceRatio >= 1.0 ? 'Ahead of pace'
+                    : paceRatio >= 0.8 ? 'On pace'
+                    :                    'Behind pace';
+                  paceIcon = (
+                    <span
+                      className={`inline-flex items-center gap-0.5 text-xs leading-none ${tone}`}
+                      data-testid={`competition-sales-pace-${s.name}`}
+                      title={`${status} — expected ~${expectedPct.toFixed(1)}% by day ${days_elapsed} of ${days_total}, currently at ${pctTarget}% (${Math.round(paceRatio * 100)}% of expected)`}
+                    >
+                      ⏱{arrow}
+                    </span>
+                  );
+                }
                 return (
                 <tr
                   key={`fs-${s.user_key}-${idx}`}
@@ -437,6 +474,7 @@ export default function StaffCompetitionDashboard() {
                           no target
                         </span>
                       )}
+                      {paceIcon}
                     </div>
                   </td>
                   <td className="text-right font-bold text-yellow-700 dark:text-yellow-300 tabular-nums">£{Number(s.sales_value_gbp).toLocaleString('en-GB', { maximumFractionDigits: 0 })}</td>
