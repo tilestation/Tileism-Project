@@ -397,15 +397,21 @@ async def _compute_leaderboard(month_only: bool = True) -> dict:
     # User feedback: "higher volume of sales do matter but number of
     # sales are as important — staff do put some effort to close
     # sales even when they are small. So take that into consideration
-    # too." Composite = average of (£ normalized vs top) and (count
-    # normalized vs top). Range 0-100. Rewards both whales AND
-    # consistent closers. Used for the Sales leaderboard ranking.
+    # too." Composite = weighted average of (£ normalized vs top) and
+    # (count normalized vs top). 70% volume + 30% count (tweaked from
+    # 50/50 on 6 Jun 2026 — user wanted volume to dominate while
+    # still rewarding consistent closers). Range 0-100. Used for the
+    # Sales leaderboard ranking.
+    SALES_VOLUME_WEIGHT = 0.70
+    SALES_COUNT_WEIGHT = 0.30
     max_sales = max((s["sales_value_gbp"] for s in staff_list), default=0) or 1
     max_count = max((s["sales_count"] for s in staff_list), default=0) or 1
     for entry in staff_list:
         pct_value = (entry["sales_value_gbp"] / max_sales) * 100
         pct_count = (entry["sales_count"] / max_count) * 100
-        entry["sales_composite_score"] = round((pct_value + pct_count) / 2, 1)
+        entry["sales_composite_score"] = round(
+            (pct_value * SALES_VOLUME_WEIGHT) + (pct_count * SALES_COUNT_WEIGHT), 1
+        )
 
     # Sort by conversions DESC, then by sales DESC as tie-breaker.
     staff_list.sort(

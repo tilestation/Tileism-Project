@@ -9,6 +9,27 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Jun 6, 2026 — Forked session] ⚖️ Composite sales score re-weighted to 70% volume + 30% count
+
+**User feedback after seeing it live**: *"Weight it Volume = 70% and count = 30%"*.
+
+**Change**: composite formula in `routes/staff_leaderboard.py::_compute_leaderboard` switched from `(volume% + count%) / 2` (equal weighting) to `volume% × 0.70 + count% × 0.30`. Two module-level constants `SALES_VOLUME_WEIGHT = 0.70` and `SALES_COUNT_WEIGHT = 0.30` so the weights are easy to tweak again later without hunting through code. Frontend explainer copy updated to *"70% volume + 30% number of sales. Volume drives the ranking, but consistent closers still earn ground for every extra sale."*
+
+**Worked example** (same Whale/Closer scenario from the previous 50/50 test):
+- Whale (£10k × 1 sale): 100% × 0.70 + 10% × 0.30 = **73.0**
+- Closer (£4k across 10 sales): 40% × 0.70 + 100% × 0.30 = **58.0**
+
+Under 50/50: Closer won (70 vs 55). Under 70/30: Whale wins (73 vs 58) — but Closer still scores 58, not 28, so consistent closers don't get crushed.
+
+**Test updated**: `test_composite_score_rewards_volume_and_count_equally` renamed to `test_composite_score_70_30_volume_weighted` with the new expected scores. 47/47 tests pass. Backend restarted.
+
+**Files**:
+- `/app/backend/routes/staff_leaderboard.py` — new `SALES_VOLUME_WEIGHT` / `SALES_COUNT_WEIGHT` constants, formula updated.
+- `/app/frontend/src/pages/admin/StaffCompetitionDashboard.jsx` — explainer copy updated.
+- `/app/backend/tests/test_staff_competition.py` — test rewrite.
+
+
+
 ### [Jun 6, 2026 — Forked session] 🎯 % to target pill on the Sales leaderboard
 
 Each Sales-leaderboard row now carries a small **`🎯 13.3%`** pill right next to the staff name, showing their % of their store's monthly target — so the personal-target idea is visible *in the table itself* without scrolling back up to the Race-to-Target card.

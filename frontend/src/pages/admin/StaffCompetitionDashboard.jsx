@@ -388,7 +388,7 @@ export default function StaffCompetitionDashboard() {
             <span className="text-[10px] text-muted-foreground">(Special-Order only)</span>
           </SectionHeader>
           <p className="text-[11px] text-muted-foreground italic mb-2">
-            Ranked by <span className="font-bold">composite score</span> — 50% volume + 50% number of sales. Closing 11 small sales beats 9 big ones if their combined effort outscores.
+            Ranked by <span className="font-bold">composite score</span> — 70% volume + 30% number of sales. Volume drives the ranking, but consistent closers still earn ground for every extra sale.
           </p>
           <table className="w-full text-sm" data-testid="competition-sales-table">
             <thead className="text-xs text-muted-foreground uppercase tracking-wider"><tr><th className="text-left py-1.5">#</th><th className="text-left">Staff</th><th className="text-right">£ Sold</th><th className="text-right">Sales</th><th className="text-right">Score</th></tr></thead>

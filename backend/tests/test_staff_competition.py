@@ -490,12 +490,16 @@ def test_competition_keeps_explicit_target_in_progress_conversions():
 #    "higher volume of sales do matter but number of sales are as
 #    important — staff put effort to close sales even when small."
 # ---------------------------------------------------------------------
-def test_composite_score_rewards_volume_and_count_equally():
+def test_composite_score_70_30_volume_weighted():
     """Two staff:
     - Whale: £10,000 in 1 sale (max £, min count)
     - Closer: £4,000 in 10 sales (low £, max count)
-    Composite should be ~50% each because each leads exactly one
-    half of the formula."""
+    Composite = 70% volume + 30% count (6 Jun 2026 weight tweak).
+      Whale:  100% × 0.70 + 10%  × 0.30 = 70 + 3 = 73.0
+      Closer: 40%  × 0.70 + 100% × 0.30 = 28 + 30 = 58.0
+    With volume-weighted scoring the Whale now ranks above the
+    Closer — but the Closer still earns substantial credit (58
+    not 28) for closing 10 invoices."""
     import asyncio
     from routes.staff_leaderboard import _compute_leaderboard
     _reset_cache()
@@ -513,12 +517,11 @@ def test_composite_score_rewards_volume_and_count_equally():
         board = asyncio.run(_compute_leaderboard())
     whale = next(s for s in board["staff"] if s["name"] == "Whale")
     closer = next(s for s in board["staff"] if s["name"] == "Closer")
-    # Whale: 100% volume + 10% count → composite 55.0
-    # Closer: 40% volume + 100% count → composite 70.0
-    # So Closer should outscore Whale (consistent effort wins).
-    assert closer["sales_composite_score"] > whale["sales_composite_score"]
-    assert 50.0 <= whale["sales_composite_score"] <= 60.0
-    assert 65.0 <= closer["sales_composite_score"] <= 75.0
+    # Whale outranks Closer — volume now dominates.
+    assert whale["sales_composite_score"] > closer["sales_composite_score"]
+    # Exact maths sanity check
+    assert whale["sales_composite_score"] == 73.0
+    assert closer["sales_composite_score"] == 58.0
 
 
 def test_composite_score_handles_zero_sales_gracefully():
