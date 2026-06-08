@@ -31,14 +31,25 @@ const tokenHdr = () => {
 
 export default function DataHygiene() {
   const [scan, setScan] = useState(null);
+  const [showrooms, setShowrooms] = useState([]);
   const [loading, setLoading] = useState(true);
   const [fixing, setFixing] = useState(false);
+  // Per-row picked target showroom_id, keyed by `${collection}:${record_id}`.
+  const [picks, setPicks] = useState({});
 
   const refresh = async () => {
     setLoading(true);
     try {
-      const r = await axios.get(`${API}/admin/data-hygiene/scan`, { headers: tokenHdr() });
-      setScan(r.data);
+      const [scanRes, srRes] = await Promise.all([
+        axios.get(`${API}/admin/data-hygiene/scan`, { headers: tokenHdr() }),
+        axios.get(`${API}/showrooms`, { headers: tokenHdr() }),
+      ]);
+      setScan(scanRes.data);
+      // Sort showrooms alphabetically for the dropdown.
+      const list = (srRes.data || []).slice().sort((a, b) =>
+        (a.name || '').localeCompare(b.name || '')
+      );
+      setShowrooms(list);
     } catch (e) {
       toast.error(`Couldn't run hygiene scan: ${e?.response?.data?.detail || e.message}`);
     } finally {
@@ -47,6 +58,43 @@ export default function DataHygiene() {
   };
 
   useEffect(() => { refresh(); }, []);
+
+  const reassign = async (issueType, item) => {
+    const key = `${item.collection}:${item.record_id}`;
+    const targetId = picks[key];
+    if (!targetId) {
+      toast.error('Pick a target store first.');
+      return;
+    }
+    const targetName = showrooms.find((s) => s.id === targetId)?.name || targetId;
+    if (!window.confirm(`Re-assign this ${item.collection} record to "${targetName}"?`)) return;
+    setFixing(true);
+    try {
+      const r = await axios.post(
+        `${API}/admin/data-hygiene/fix`,
+        {
+          issue_type: issueType,
+          scope: 'one',
+          collection: item.collection,
+          record_ids: [item.record_id],
+          target_showroom_id: targetId,
+        },
+        { headers: tokenHdr() }
+      );
+      toast.success(`Re-assigned ${r.data?.modified || 0} record to "${targetName}"`);
+      // Clear this pick + refresh
+      setPicks((p) => {
+        const next = { ...p };
+        delete next[key];
+        return next;
+      });
+      await refresh();
+    } catch (e) {
+      toast.error(`Re-assign failed: ${e?.response?.data?.detail || e.message}`);
+    } finally {
+      setFixing(false);
+    }
+  };
 
   const fixGroup = async (group) => {
     if (!window.confirm(
@@ -228,17 +276,36 @@ export default function DataHygiene() {
             <Badge variant="secondary">{scan.orphan_showroom_name.length}</Badge>
           </h2>
           <p className="text-sm text-muted-foreground mb-4">
-            Records carrying a `showroom_name` but no `showroom_id` &mdash; can&apos;t be auto-resolved. Worth manually re-stamping these in their source form (user profile, invoice, etc.).
+            Records carrying a `showroom_name` but no `showroom_id` &mdash; can&apos;t be auto-resolved. Pick the correct store from the dropdown and re-assign in one click.
           </p>
-          <div className="text-xs max-h-72 overflow-y-auto space-y-1">
-            {scan.orphan_showroom_name.slice(0, 200).map((o, i) => (
-              <div key={`${o.collection}-${o.record_id}-${i}`} className="flex items-center gap-2 py-1 border-b last:border-0">
-                <Badge variant="outline">{o.collection}</Badge>
-                <span className="font-mono">{o.label}</span>
-                <span className="text-muted-foreground">stamped:</span>
-                <span className="italic">&quot;{o.stamped_name}&quot;</span>
-              </div>
-            ))}
+          <div className="text-xs max-h-[28rem] overflow-y-auto space-y-1">
+            {scan.orphan_showroom_name.slice(0, 200).map((o, i) => {
+              const key = `${o.collection}:${o.record_id}`;
+              return (
+                <div key={`${o.collection}-${o.record_id}-${i}`} className="flex items-center flex-wrap gap-2 py-1.5 border-b last:border-0" data-testid={`orphan-row-${o.collection}-${o.record_id}`}>
+                  <Badge variant="outline">{o.collection}</Badge>
+                  <span className="font-mono">{o.label}</span>
+                  <span className="text-muted-foreground">stamped:</span>
+                  <span className="italic">&quot;{o.stamped_name}&quot;</span>
+                  <span className="ml-auto flex items-center gap-1.5">
+                    <ReassignSelect
+                      value={picks[key] || ''}
+                      onChange={(v) => setPicks((p) => ({ ...p, [key]: v }))}
+                      showrooms={showrooms}
+                      testId={`orphan-pick-${o.collection}-${o.record_id}`}
+                    />
+                    <Button
+                      size="sm"
+                      onClick={() => reassign('orphan_showroom_name', o)}
+                      disabled={fixing || !picks[key]}
+                      data-testid={`orphan-reassign-${o.collection}-${o.record_id}-btn`}
+                    >
+                      Re-assign
+                    </Button>
+                  </span>
+                </div>
+              );
+            })}
             {scan.orphan_showroom_name.length > 200 && (
               <div className="text-muted-foreground italic pt-2">…and {scan.orphan_showroom_name.length - 200} more.</div>
             )}
@@ -255,20 +322,45 @@ export default function DataHygiene() {
             <Badge variant="secondary">{scan.unmapped_showroom_id.length}</Badge>
           </h2>
           <p className="text-sm text-muted-foreground mb-4">
-            Records pointing at a showroom that no longer exists. Likely a deleted store — re-assign these records or restore the store doc.
+            Records pointing at a showroom doc that no longer exists. Pick the correct live store and re-assign &mdash; the stamped name will follow the canonical name.
           </p>
-          <div className="text-xs max-h-72 overflow-y-auto space-y-1">
-            {scan.unmapped_showroom_id.slice(0, 200).map((u, i) => (
-              <div key={`${u.collection}-${u.record_id}-${i}`} className="flex items-center gap-2 py-1 border-b last:border-0">
-                <Badge variant="outline">{u.collection}</Badge>
-                <span className="font-mono">{u.label}</span>
-                <span className="text-muted-foreground">id:</span>
-                <span className="font-mono">{u.stamped_showroom_id}</span>
-                {u.stamped_showroom_name && (
-                  <span className="text-muted-foreground italic">— {u.stamped_showroom_name}</span>
-                )}
-              </div>
-            ))}
+          <div className="text-xs max-h-[28rem] overflow-y-auto space-y-1">
+            {scan.unmapped_showroom_id.slice(0, 200).map((u, i) => {
+              const key = `${u.collection}:${u.record_id}`;
+              // Normalise to the same shape `reassign` expects.
+              const row = {
+                collection: u.collection,
+                record_id: u.record_id,
+                stamped_name: u.stamped_showroom_name,
+              };
+              return (
+                <div key={`${u.collection}-${u.record_id}-${i}`} className="flex items-center flex-wrap gap-2 py-1.5 border-b last:border-0" data-testid={`unmapped-row-${u.collection}-${u.record_id}`}>
+                  <Badge variant="outline">{u.collection}</Badge>
+                  <span className="font-mono">{u.label}</span>
+                  <span className="text-muted-foreground">id:</span>
+                  <span className="font-mono text-rose-700 dark:text-rose-300">{u.stamped_showroom_id}</span>
+                  {u.stamped_showroom_name && (
+                    <span className="text-muted-foreground italic">&mdash; stamped &quot;{u.stamped_showroom_name}&quot;</span>
+                  )}
+                  <span className="ml-auto flex items-center gap-1.5">
+                    <ReassignSelect
+                      value={picks[key] || ''}
+                      onChange={(v) => setPicks((p) => ({ ...p, [key]: v }))}
+                      showrooms={showrooms}
+                      testId={`unmapped-pick-${u.collection}-${u.record_id}`}
+                    />
+                    <Button
+                      size="sm"
+                      onClick={() => reassign('unmapped_showroom_id', row)}
+                      disabled={fixing || !picks[key]}
+                      data-testid={`unmapped-reassign-${u.collection}-${u.record_id}-btn`}
+                    >
+                      Re-assign
+                    </Button>
+                  </span>
+                </div>
+              );
+            })}
             {scan.unmapped_showroom_id.length > 200 && (
               <div className="text-muted-foreground italic pt-2">…and {scan.unmapped_showroom_id.length - 200} more.</div>
             )}
@@ -322,5 +414,21 @@ function SummaryTile({ label, value, testId }) {
         {v}
       </div>
     </Card>
+  );
+}
+
+function ReassignSelect({ value, onChange, showrooms, testId }) {
+  return (
+    <select
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      className="text-xs border rounded px-2 py-1 bg-background"
+      data-testid={testId}
+    >
+      <option value="">Re-assign to…</option>
+      {showrooms.map((s) => (
+        <option key={s.id} value={s.id}>{s.name}</option>
+      ))}
+    </select>
   );
 }

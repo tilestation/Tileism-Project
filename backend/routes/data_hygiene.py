@@ -209,7 +209,7 @@ async def scan_data_hygiene(current_user: dict = Depends(get_current_user)):
 # POST /fix
 # ---------------------------------------------------------------------
 class FixRequest(BaseModel):
-    issue_type: Literal["drifted_labels", "orphan_showroom_name"]
+    issue_type: Literal["drifted_labels", "orphan_showroom_name", "unmapped_showroom_id"]
     scope: Literal["one", "group"]
     collection: Literal["users", "quotations", "invoices"]
     # Group scope — rename every record at this showroom_id with this
@@ -218,7 +218,7 @@ class FixRequest(BaseModel):
     stamped_name: Optional[str] = Field(default=None, max_length=200)
     # One scope — fix a specific list of record ids.
     record_ids: Optional[List[str]] = Field(default=None, max_length=200)
-    # For orphan fixes — admin picks the target showroom_id.
+    # For orphan / unmapped fixes — admin picks the target showroom_id.
     target_showroom_id: Optional[str] = Field(default=None, max_length=120)
 
 
@@ -241,9 +241,9 @@ async def apply_fix(
             raise HTTPException(400, f"Unknown showroom_id {req.showroom_id}")
         target_id = req.showroom_id
         target_name = canonical_name
-    else:  # orphan_showroom_name
+    else:  # orphan_showroom_name OR unmapped_showroom_id
         if not req.target_showroom_id:
-            raise HTTPException(400, "target_showroom_id required for orphan fix")
+            raise HTTPException(400, "target_showroom_id required — admin must pick the correct store")
         canonical_name = canonical.get(req.target_showroom_id)
         if not canonical_name:
             raise HTTPException(400, f"Unknown target_showroom_id {req.target_showroom_id}")

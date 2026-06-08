@@ -245,6 +245,67 @@ def test_fix_rejects_unknown_showroom_id():
         assert exc.value.status_code == 400
 
 
+def test_fix_orphan_assigns_to_chosen_store():
+    """Admin picks a target_showroom_id and the orphan record is
+    re-stamped with both the new id AND the canonical name."""
+    from routes.data_hygiene import apply_fix, FixRequest
+    db = _db(showrooms=[{"_id": "sr_tn", "name": "Tonbridge"}])
+    req = FixRequest(
+        issue_type="orphan_showroom_name",
+        scope="one",
+        collection="invoices",
+        record_ids=["inv_orphan"],
+        target_showroom_id="sr_tn",
+    )
+    with patch("routes.data_hygiene.get_db", return_value=db):
+        r = asyncio.run(apply_fix(req, current_user=SUPER))
+    assert r["ok"] is True
+    assert r["renamed_to"] == "Tonbridge"
+    set_doc = db.invoices.update_many.call_args.args[1]["$set"]
+    assert set_doc["showroom_id"] == "sr_tn"
+    assert set_doc["showroom_name"] == "Tonbridge"
+
+
+def test_fix_unmapped_assigns_to_chosen_store():
+    """Same path as orphan but for records carrying a stale id
+    pointing at a deleted showroom. Admin picks the live target."""
+    from routes.data_hygiene import apply_fix, FixRequest
+    db = _db(showrooms=[{"_id": "sr_gv", "name": "Gravesend"}])
+    req = FixRequest(
+        issue_type="unmapped_showroom_id",
+        scope="one",
+        collection="users",
+        record_ids=["u_ghost"],
+        target_showroom_id="sr_gv",
+    )
+    with patch("routes.data_hygiene.get_db", return_value=db):
+        r = asyncio.run(apply_fix(req, current_user=SUPER))
+    assert r["ok"] is True
+    assert r["renamed_to"] == "Gravesend"
+    set_doc = db.users.update_many.call_args.args[1]["$set"]
+    assert set_doc["showroom_id"] == "sr_gv"
+    assert set_doc["showroom_name"] == "Gravesend"
+
+
+def test_fix_orphan_requires_target_showroom_id():
+    """Orphan + unmapped fixes need an admin-chosen target; without
+    one we reject with 400 rather than silently null the field."""
+    from routes.data_hygiene import apply_fix, FixRequest
+    from fastapi import HTTPException
+    db = _db(showrooms=[{"_id": "sr_tn", "name": "Tonbridge"}])
+    req = FixRequest(
+        issue_type="orphan_showroom_name",
+        scope="one",
+        collection="invoices",
+        record_ids=["i1"],
+        # target_showroom_id intentionally missing
+    )
+    with patch("routes.data_hygiene.get_db", return_value=db):
+        with pytest.raises(HTTPException) as exc:
+            asyncio.run(apply_fix(req, current_user=SUPER))
+        assert exc.value.status_code == 400
+
+
 def test_fix_requires_super_admin():
     from routes.data_hygiene import apply_fix, FixRequest
     from fastapi import HTTPException
