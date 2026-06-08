@@ -1,3 +1,27 @@
+
+---
+
+## 8 June 2026 — Staff Competition reliability
+
+### Composite Score weighting (70/30) — confirmed
+- Sales Leaderboard composite already live at 70% Volume / 30% Count in `routes/staff_leaderboard.py` (`SALES_VOLUME_WEIGHT = 0.70`, `SALES_COUNT_WEIGHT = 0.30`)
+- Tests in `tests/test_staff_competition.py` (28) all assert 70/30
+- Cleaned up a stale `// 50/50` developer comment in `StaffCompetitionDashboard.jsx` to match
+
+### Tonbridge duplicate-row bug — FIXED
+- **Root cause:** `_showroom_totals_for_month()` bucketed Race-to-Target by free-text `showroom_name`; one user's record carried `"Tile Station Tonbridge"` while peers carried `"Tonbridge"` — same `showroom_id`, but the league split into two rows
+- **Fix (defensive):** bucket by `showroom_id` (canonical UUID); source display name from `db.showrooms.name`; applied across user/quote/invoice resolution
+- **Test:** `test_showroom_totals_merge_drifted_name_variants` proves drifted variants collapse to one row
+
+### Data Hygiene admin panel — NEW
+- Super-admin only — `/admin/data-hygiene`
+- Backend: `routes/data_hygiene.py`
+  - `GET /api/admin/data-hygiene/scan` returns 4 sections: drifted_labels, orphan_showroom_name, unmapped_showroom_id, near_duplicate_showrooms
+  - `POST /api/admin/data-hygiene/fix` renames drifted records to canonical name, scope=one|group
+- Frontend: `pages/admin/DataHygiene.jsx` with per-record + per-group fix buttons
+- Tests: `tests/test_data_hygiene.py` (11 tests covering all 4 scan categories + fix paths + super-admin gate)
+- Surfaces real data issues in preview env: 65 invoices with orphan `"Test Showroom"` stamp, 5 users with unmapped showroom_ids
+
 ### [Feb 26, 2026 — Forked session] 🎙️ Trade Talk podcasts + Q&A segments
 
 **User request**: *"What else can you recommend to add on our radio... a two way conversational technical podcast or something pretending to be talking to a builder"* + *"YES"* to both Trade Talk + Q&A + edit capability + starter content.

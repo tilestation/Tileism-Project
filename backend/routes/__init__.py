@@ -121,6 +121,7 @@ from .version_info import router as version_info_router
 from .version_drift import router as version_drift_router
 from .seo_recrawl import router as seo_recrawl_router
 from .indexnow import router as indexnow_router
+from .data_hygiene import router as data_hygiene_router
 
 # Create main API router that includes all sub-routers
 api_router = APIRouter()
@@ -213,6 +214,7 @@ api_router.include_router(version_info_router)
 api_router.include_router(version_drift_router)
 api_router.include_router(seo_recrawl_router)
 api_router.include_router(indexnow_router)
+api_router.include_router(data_hygiene_router)
 api_router.include_router(sms_updates_router)
 api_router.include_router(monitoring_router)
 api_router.include_router(health_router)

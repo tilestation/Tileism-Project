@@ -86,7 +86,8 @@ import {
   Target,
   Crown,
   Clock,
-  Search as SearchIcon
+  Search as SearchIcon,
+  Database
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 
@@ -380,6 +381,7 @@ export const Layout = () => {
         { to: '/admin/expired-quotes', icon: Clock, label: 'Expired Quotes', permission: 'quotations', legacyPermission: 'quotes' },
         { to: '/admin/staff-invites', icon: Link2, label: 'Staff Invites', permission: 'staff_invites', legacyPermission: 'user_management', superAdminOnly: true },
         { to: '/admin/trash', icon: Trash2, label: 'Trash', permission: 'trash', legacyPermission: 'user_management', superAdminOnly: true },
+        { to: '/admin/data-hygiene', icon: Database, label: 'Data Hygiene', permission: 'user_management', legacyPermission: 'user_management', superAdminOnly: true },
         { to: '/admin/settings', icon: Settings, label: 'Settings', permission: 'general_settings', legacyPermission: 'dashboard' },
       ]
     },
