@@ -459,6 +459,43 @@ def test_showroom_without_target_renders_with_zero_pct():
     assert rooms[0]["remaining_to_target"] == 0
 
 
+def test_showroom_totals_merge_drifted_name_variants():
+    """8 Jun 2026 — Production bug: Tonbridge appeared twice on the
+    Race-to-Target list because one user's invoice carried the
+    freetext `showroom_name = "Tile Station Tonbridge"` while
+    others stamped it as just `"Tonbridge"`. Same showroom_id, but
+    the league bucketed by name string and split the sales.
+
+    With the fix, the canonical name from `db.showrooms` wins so
+    both variants collapse into a single row and totals add up."""
+    import asyncio
+    from routes.staff_leaderboard import _showroom_totals_for_month
+    _reset_cache()
+    # Two invoices at the SAME showroom_id but with drifted name
+    # stamps. The canonical name "Tonbridge" lives in db.showrooms.
+    invoices = [
+        {"sales_person": "Alice", "showroom_name": "Tonbridge",
+         "showroom_id": "sr_tn", "order_type": "Special Order",
+         "gross_total": 3000.0, "created_at": _NOW},
+        {"sales_person": "Bob", "showroom_name": "Tile Station Tonbridge",
+         "showroom_id": "sr_tn", "order_type": "Special Order",
+         "gross_total": 297.0, "created_at": _NOW},
+    ]
+    showrooms = [{"_id": "sr_tn", "name": "Tonbridge"}]
+    sales_targets = [
+        {"showroom_id": "sr_tn", "monthly_target": 55000, "target_type": "sales"},
+    ]
+    db = _db(invoices=invoices, showrooms=showrooms, sales_targets=sales_targets)
+    with patch("routes.staff_leaderboard.get_db", return_value=db):
+        rooms = asyncio.run(_showroom_totals_for_month())
+    # ONE row, not two
+    assert len(rooms) == 1, f"Drifted name variants must collapse — got {[r['showroom_name'] for r in rooms]}"
+    assert rooms[0]["showroom_name"] == "Tonbridge"  # canonical wins
+    assert rooms[0]["sales_value_gbp"] == 3297.0  # both invoices summed
+    assert rooms[0]["sales_count"] == 2
+    assert rooms[0]["staff_count"] == 2  # Alice + Bob
+
+
 def test_competition_keeps_explicit_target_in_progress_conversions():
     """If the team has explicitly set a CONVERSIONS team target on
     /admin/star-staff, the new `progress_conversions` array fills

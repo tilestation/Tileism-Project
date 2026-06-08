@@ -101,11 +101,15 @@ async def _compute_leaderboard(month_only: bool = True) -> dict:
         {"_id": 0, "id": 1, "email": 1, "name": 1, "showroom_id": 1, "showroom_name": 1},
     ):
         sid = (u.get("showroom_id") or "").strip()
-        sname = (u.get("showroom_name") or "").strip()
-        # If user has showroom_id but no cached name, hydrate from the
-        # showrooms collection.
-        if sid and not sname:
-            sname = showroom_name_by_id.get(sid, "")
+        # 8 Jun 2026 — Prefer the CANONICAL name from `db.showrooms`
+        # over the freetext `showroom_name` stamped on the user doc.
+        # Without this, two users at the same physical store can
+        # carry drifted labels (e.g. "Tonbridge" vs "Tile Station
+        # Tonbridge") and the league table splits them into two
+        # rows, halving the store's apparent sales.
+        canonical_sname = showroom_name_by_id.get(sid, "") if sid else ""
+        user_sname = (u.get("showroom_name") or "").strip()
+        sname = canonical_sname or user_sname
         record = {
             "showroom_id": sid,
             "showroom_name": sname,
@@ -239,12 +243,14 @@ async def _compute_leaderboard(month_only: bool = True) -> dict:
         sp = (q.get("sales_person") or "").strip()
         cb = (q.get("created_by") or "").strip()
         showroom_id = (q.get("showroom_id") or "").strip()
-        showroom_name = (q.get("showroom_name") or "").strip()
-
-        # Hydrate showroom_name from the showrooms collection when
-        # the doc only carries an id.
-        if showroom_id and not showroom_name:
-            showroom_name = showroom_name_by_id.get(showroom_id, "")
+        # 8 Jun 2026 — Always prefer the CANONICAL store name from
+        # `db.showrooms` when the doc has an id. The freetext
+        # `showroom_name` stamped on legacy quotes/invoices can drift
+        # (e.g. "Tonbridge" vs "Tile Station Tonbridge") and that
+        # was splitting one store into two rows on the league table.
+        canonical_sname = showroom_name_by_id.get(showroom_id, "") if showroom_id else ""
+        stamped_sname = (q.get("showroom_name") or "").strip()
+        showroom_name = canonical_sname or stamped_sname
 
         # Resolve canonical user info (name + showroom) from the
         # users collection — uid first, email fallback, name fallback.
@@ -877,21 +883,46 @@ async def _showroom_totals_for_month() -> List[dict]:
 
     Default sort is `pct_of_target` desc (6 Jun 2026 — user request:
     "Tonbridge hitting 63% beats Gravesend hitting 53% even if
-    Gravesend's raw £ is higher")."""
+    Gravesend's raw £ is higher").
+
+    8 Jun 2026 — Buckets by `showroom_id` (canonical UUID) rather
+    than `showroom_name` so drifted label variants ("Tonbridge" vs
+    "Tile Station Tonbridge") collapse into one row. The display
+    name is sourced from `db.showrooms` and falls back to the first
+    non-empty name seen if the id is genuinely missing."""
     board = await _compute_leaderboard(month_only=True)
     targets = await _showroom_targets_for_month()
+    # Resolve canonical names {id -> name} so we can label buckets
+    # consistently even if stamped names drift.
+    db = get_db()
+    canonical_names_by_id: dict = {}
+    async for sr in db.showrooms.find({}, {"name": 1}):
+        sid = str(sr.get("_id") or "")
+        nm = (sr.get("name") or "").strip()
+        if sid and nm:
+            canonical_names_by_id[sid] = nm
+
     by_room: dict = {}
     for s in board["staff"]:
-        sr = s.get("showroom_name") or "Unassigned"
-        bucket = by_room.setdefault(sr, {
-            "showroom_name": sr,
-            "showroom_id": s.get("showroom_id"),
+        sid = (s.get("showroom_id") or "").strip()
+        # Bucket key: prefer the stable id; fall back to the lowercased
+        # name when id is genuinely absent (legacy data only). Unassigned
+        # rows still group together under the "unassigned" key.
+        key = f"id:{sid}" if sid else f"name:{(s.get('showroom_name') or 'Unassigned').strip().lower()}"
+        display = canonical_names_by_id.get(sid) or s.get("showroom_name") or "Unassigned"
+        bucket = by_room.setdefault(key, {
+            "showroom_name": display,
+            "showroom_id": sid or None,
             "quotes_created": 0,
             "quotes_converted": 0,
             "sales_count": 0,
             "sales_value_gbp": 0.0,
             "staff_count": 0,
         })
+        # If the first staff in this bucket had a drifted name but
+        # a later one carries the canonical, upgrade the display.
+        if canonical_names_by_id.get(sid) and bucket["showroom_name"] != canonical_names_by_id[sid]:
+            bucket["showroom_name"] = canonical_names_by_id[sid]
         bucket["quotes_created"] += s["quotes_created"]
         bucket["quotes_converted"] += s["quotes_converted"]
         bucket["sales_count"] += s["sales_count"]
