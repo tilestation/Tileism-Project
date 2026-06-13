@@ -173,6 +173,12 @@ export const InvoiceHistory = () => {
   const [bulkToDate, setBulkToDate] = useState(today);
   const [bulkExportCount, setBulkExportCount] = useState(null); // {count, within_limit} or null
   const [bulkExportLoading, setBulkExportLoading] = useState(false);
+  // 13 Jun 2026 — Bulk email dialog state (super-admin only).
+  const [bulkEmailOpen, setBulkEmailOpen] = useState(false);
+  const [bulkEmailTo, setBulkEmailTo] = useState('');
+  const [bulkEmailSubject, setBulkEmailSubject] = useState('');
+  const [bulkEmailMessage, setBulkEmailMessage] = useState('');
+  const [bulkEmailSending, setBulkEmailSending] = useState(false);
   const [allInvoices, setAllInvoices] = useState([]); // Store all invoices for revenue calculations
   const [allRefunds, setAllRefunds] = useState([]); // Store all refunds for revenue calculations
   const [dataVersion, setDataVersion] = useState(0); // Used to force re-renders when data changes
@@ -1316,6 +1322,59 @@ export const InvoiceHistory = () => {
     }
   };
 
+  // 13 Jun 2026 — Send the bulk ZIP via email. Super-admin only (the
+  // backend rejects anyone else with 403, but we hide the UI too).
+  // Recipients: comma-separated list of up to 5 addresses.
+  const handleSendBulkEmail = async () => {
+    const recipients = bulkEmailTo
+      .split(/[,\s;]+/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (recipients.length === 0) {
+      toast.error('Add at least one recipient email.');
+      return;
+    }
+    if (recipients.length > 5) {
+      toast.error('Maximum 5 recipients per email.');
+      return;
+    }
+    setBulkEmailSending(true);
+    try {
+      const token = localStorage.getItem('token');
+      const resp = await fetch(
+        `${process.env.REACT_APP_BACKEND_URL}/api/invoices/bulk-pdf-zip/email`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: JSON.stringify({
+            from_date: bulkFromDate,
+            to_date: bulkToDate,
+            to_emails: recipients,
+            subject: bulkEmailSubject.trim() || null,
+            message: bulkEmailMessage.trim() || null,
+          }),
+        }
+      );
+      const data = await resp.json();
+      if (!resp.ok) {
+        toast.error(`Email failed: ${data?.detail || resp.statusText}`);
+        return;
+      }
+      toast.success(`Sent ${data.succeeded} invoice${data.succeeded === 1 ? '' : 's'} to ${data.to.join(', ')}.`);
+      setBulkEmailOpen(false);
+      setBulkEmailTo('');
+      setBulkEmailSubject('');
+      setBulkEmailMessage('');
+    } catch (e) {
+      toast.error(`Email failed: ${e.message}`);
+    } finally {
+      setBulkEmailSending(false);
+    }
+  };
+
   const handleView = (invoice) => {
     setSelectedInvoice(invoice);
     setShowViewDialog(true);
@@ -2273,8 +2332,12 @@ export const InvoiceHistory = () => {
         </div>
 
         {/* 13 Jun 2026 — Bulk PDF ZIP export by date range.
-            Independent of the single-date filter above so opening
-            the range picker doesn't disrupt the daily revenue cards. */}
+            SUPER ADMIN ONLY — staff / admin / manager don't see this
+            row at all. The backend also rejects them with 403, so
+            it's defence-in-depth. Independent of the single-date
+            filter above so opening the range picker doesn't disrupt
+            the daily revenue cards. */}
+        {isSuperAdmin && (
         <div className="mt-4 pt-4 border-t flex flex-wrap items-center gap-3" data-testid="bulk-pdf-export-row">
           <div className="flex items-center gap-2">
             <Download className="h-4 w-4 text-emerald-600" />
@@ -2317,6 +2380,18 @@ export const InvoiceHistory = () => {
             <Download className="h-3.5 w-3.5 mr-1.5" />
             {bulkExportLoading && bulkExportCount ? 'Generating ZIP…' : 'Download ZIP'}
           </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={() => setBulkEmailOpen(true)}
+            disabled={bulkExportLoading || !bulkExportCount || !bulkExportCount.within_limit || bulkExportCount.count === 0}
+            className="border-indigo-300 text-indigo-700 hover:bg-indigo-50"
+            data-testid="bulk-email-zip-btn"
+          >
+            <Mail className="h-3.5 w-3.5 mr-1.5" />
+            Email ZIP
+          </Button>
           {bulkExportCount && (
             <span className={`text-xs font-semibold ${bulkExportCount.within_limit && bulkExportCount.count > 0 ? 'text-emerald-700' : 'text-rose-600'}`} data-testid="bulk-export-count">
               {bulkExportCount.count === 0
@@ -2327,7 +2402,88 @@ export const InvoiceHistory = () => {
             </span>
           )}
         </div>
+        )}
       </Card>
+
+      {/* 13 Jun 2026 — Bulk PDF email dialog. Super-admin only.
+          Lives next to the Bulk PDF row so the admin can compose a
+          quick "here's June's invoices" email straight to the
+          accountant (or any address). */}
+      <Dialog open={bulkEmailOpen} onOpenChange={setBulkEmailOpen}>
+        <DialogContent className="max-w-lg" data-testid="bulk-email-dialog">
+          <DialogHeader>
+            <DialogTitle>Email invoice ZIP</DialogTitle>
+            <DialogDescription>
+              Sends {bulkExportCount?.count || 0} invoice PDF{(bulkExportCount?.count || 0) === 1 ? '' : 's'}
+              {' '}({bulkFromDate} → {bulkToDate}) as a single ZIP attachment via your Resend account.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <div>
+              <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                Recipient(s) — comma-separated, max 5
+              </label>
+              <Input
+                type="text"
+                placeholder="accountant@example.com, owner@tilestation.co.uk"
+                value={bulkEmailTo}
+                onChange={(e) => setBulkEmailTo(e.target.value)}
+                className="mt-1"
+                data-testid="bulk-email-to"
+                autoFocus
+              />
+            </div>
+            <div>
+              <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                Subject (optional)
+              </label>
+              <Input
+                type="text"
+                placeholder={`Tile Station invoices ${bulkFromDate} → ${bulkToDate}`}
+                value={bulkEmailSubject}
+                onChange={(e) => setBulkEmailSubject(e.target.value)}
+                className="mt-1"
+                data-testid="bulk-email-subject"
+                maxLength={200}
+              />
+            </div>
+            <div>
+              <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                Message (optional)
+              </label>
+              <Textarea
+                placeholder="e.g. Hi Sarah, here's June's invoice pack — let me know if anything's missing."
+                value={bulkEmailMessage}
+                onChange={(e) => setBulkEmailMessage(e.target.value)}
+                rows={4}
+                className="mt-1"
+                data-testid="bulk-email-message"
+                maxLength={2000}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => setBulkEmailOpen(false)}
+              disabled={bulkEmailSending}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              onClick={handleSendBulkEmail}
+              disabled={bulkEmailSending || !bulkEmailTo.trim()}
+              className="bg-indigo-600 hover:bg-indigo-700 text-white"
+              data-testid="bulk-email-send-btn"
+            >
+              <Mail className="h-3.5 w-3.5 mr-1.5" />
+              {bulkEmailSending ? 'Sending…' : 'Send email'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Revenue Summary */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4" key={`revenue-${allInvoices.length}-${dateFilter}-${dataVersion}`}>

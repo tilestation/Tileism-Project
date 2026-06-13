@@ -68,6 +68,30 @@ def test_bulk_zip_rejects_non_admin():
         assert exc.value.status_code == 403
 
 
+def test_bulk_zip_rejects_admin_role_now_super_only():
+    """13 Jun 2026 — Bulk export is super-admin ONLY. Plain admin /
+    manager were previously allowed (mirroring the per-invoice PDF
+    route) but were locked out at the user's request because bulk
+    export is materially riskier (a whole month's financial data in
+    one click)."""
+    from routes.invoice_bulk_pdf import bulk_invoice_pdf_zip
+    from fastapi import HTTPException
+    with patch("routes.invoice_bulk_pdf.get_db", return_value=_db()):
+        with pytest.raises(HTTPException) as exc:
+            asyncio.run(bulk_invoice_pdf_zip(
+                from_date="2026-06-01", to_date="2026-06-13", current_user=ADMIN,
+            ))
+        assert exc.value.status_code == 403
+    # Manager too
+    MANAGER = {"role": "manager", "email": "m@b"}
+    with patch("routes.invoice_bulk_pdf.get_db", return_value=_db()):
+        with pytest.raises(HTTPException) as exc:
+            asyncio.run(bulk_invoice_pdf_zip(
+                from_date="2026-06-01", to_date="2026-06-13", current_user=MANAGER,
+            ))
+        assert exc.value.status_code == 403
+
+
 def test_bulk_zip_rejects_malformed_dates():
     from routes.invoice_bulk_pdf import bulk_invoice_pdf_zip
     from fastapi import HTTPException
@@ -234,3 +258,114 @@ def test_count_endpoint_flags_over_limit():
         ))
     assert r["within_limit"] is False
     assert r["count"] > r["max_per_zip"]
+
+
+# ---------------------------------------------------------------------
+# Email endpoint
+# ---------------------------------------------------------------------
+def test_email_rejects_non_super_admin():
+    """Plain admin and manager can't email bulk invoice exports."""
+    from routes.invoice_bulk_pdf import bulk_invoice_pdf_zip_email, BulkEmailRequest
+    from fastapi import HTTPException
+    req = BulkEmailRequest(
+        from_date="2026-06-01", to_date="2026-06-13",
+        to_emails=["accountant@example.com"],
+    )
+    for user in (ADMIN, STAFF, {"role": "manager"}, {}):
+        with patch("routes.invoice_bulk_pdf.get_db", return_value=_db()):
+            with pytest.raises(HTTPException) as exc:
+                asyncio.run(bulk_invoice_pdf_zip_email(req, current_user=user))
+            assert exc.value.status_code == 403
+
+
+def test_email_sends_zip_via_resend_helper():
+    """Happy path — generates the ZIP, calls the existing Resend helper
+    with the right attachment shape, returns success with recipient list."""
+    from routes.invoice_bulk_pdf import bulk_invoice_pdf_zip_email, BulkEmailRequest
+    invoices = [{"id": "i1", "invoice_number": "INV-200"}]
+    db = _db(invoices=invoices)
+    req = BulkEmailRequest(
+        from_date="2026-06-01", to_date="2026-06-13",
+        to_emails=["accountant@example.com", "owner@tilestation.co.uk"],
+        subject="Custom subject for June",
+        message="Cheers — let me know if anything's missing.",
+    )
+    fake_send = AsyncMock(return_value={"success": True, "resend_id": "resend_xyz"})
+    with patch("routes.invoice_bulk_pdf.get_db", return_value=db), \
+         patch("server.generate_invoice_pdf_bytes", AsyncMock(return_value=b"%PDF-fake")), \
+         patch("services.email.send_simple_email_if_possible", fake_send):
+        r = asyncio.run(bulk_invoice_pdf_zip_email(req, current_user=SUPER))
+    assert r["ok"] is True
+    assert r["succeeded"] == 1
+    assert r["resend_id"] == "resend_xyz"
+    assert sorted(r["to"]) == ["accountant@example.com", "owner@tilestation.co.uk"]
+    # Verify the call sent ONE attachment with the right MIME + bytes
+    call = fake_send.call_args
+    sent_kwargs = call.kwargs
+    assert sent_kwargs["subject"] == "Custom subject for June"
+    assert sorted(sent_kwargs["to"]) == ["accountant@example.com", "owner@tilestation.co.uk"]
+    attachments = sent_kwargs["attachments"]
+    assert len(attachments) == 1
+    att = attachments[0]
+    assert att["filename"] == "invoices_2026-06-01_to_2026-06-13.zip"
+    assert att["content_type"] == "application/zip"
+    assert att["content"].startswith(b"PK")  # raw ZIP bytes
+    # Body contains the admin's custom message + the date range
+    assert "Cheers" in sent_kwargs["html"]
+    assert "2026-06-01" in sent_kwargs["html"]
+    assert "2026-06-13" in sent_kwargs["html"]
+
+
+def test_email_uses_default_subject_when_none_provided():
+    """Subject defaults to a sensible 'Tile Station invoices … (N PDFs)' line."""
+    from routes.invoice_bulk_pdf import bulk_invoice_pdf_zip_email, BulkEmailRequest
+    invoices = [{"id": "i1", "invoice_number": "INV-1"}, {"id": "i2", "invoice_number": "INV-2"}]
+    db = _db(invoices=invoices)
+    req = BulkEmailRequest(
+        from_date="2026-06-01", to_date="2026-06-13",
+        to_emails=["x@y.com"],
+    )
+    fake_send = AsyncMock(return_value={"success": True})
+    with patch("routes.invoice_bulk_pdf.get_db", return_value=db), \
+         patch("server.generate_invoice_pdf_bytes", AsyncMock(return_value=b"%PDF")), \
+         patch("services.email.send_simple_email_if_possible", fake_send):
+        r = asyncio.run(bulk_invoice_pdf_zip_email(req, current_user=SUPER))
+    assert r["ok"] is True
+    subject = fake_send.call_args.kwargs["subject"]
+    assert "2026-06-01" in subject
+    assert "2026-06-13" in subject
+    assert "2 PDFs" in subject
+
+
+def test_email_returns_502_when_resend_fails():
+    """If Resend reports a failure, surface a 502 to the admin so the
+    UI shows a clear error instead of a silent success."""
+    from routes.invoice_bulk_pdf import bulk_invoice_pdf_zip_email, BulkEmailRequest
+    from fastapi import HTTPException
+    invoices = [{"id": "i1", "invoice_number": "INV-1"}]
+    db = _db(invoices=invoices)
+    req = BulkEmailRequest(
+        from_date="2026-06-01", to_date="2026-06-13",
+        to_emails=["x@y.com"],
+    )
+    fake_send = AsyncMock(return_value={"success": False, "error": "API key rejected"})
+    with patch("routes.invoice_bulk_pdf.get_db", return_value=db), \
+         patch("server.generate_invoice_pdf_bytes", AsyncMock(return_value=b"%PDF")), \
+         patch("services.email.send_simple_email_if_possible", fake_send):
+        with pytest.raises(HTTPException) as exc:
+            asyncio.run(bulk_invoice_pdf_zip_email(req, current_user=SUPER))
+        assert exc.value.status_code == 502
+        assert "API key rejected" in exc.value.detail
+
+
+def test_email_rejects_too_many_recipients():
+    """Hard cap on recipients keeps a typo from spamming a 30-name
+    distribution list with sensitive financial data."""
+    from routes.invoice_bulk_pdf import BulkEmailRequest, MAX_EMAIL_RECIPIENTS
+    from pydantic import ValidationError
+    too_many = [f"user{i}@x.com" for i in range(MAX_EMAIL_RECIPIENTS + 1)]
+    with pytest.raises(ValidationError):
+        BulkEmailRequest(
+            from_date="2026-06-01", to_date="2026-06-13",
+            to_emails=too_many,
+        )
