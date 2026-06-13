@@ -1126,6 +1126,39 @@ def _days_in_month(d: datetime) -> int:
     return (next_month - d.replace(day=1)).days
 
 
+async def _user_key_to_or_clauses(user_key: str) -> list:
+    """Translate a leaderboard `user_key` into a list of Mongo $or
+    clauses that match every stamp under which a quote/invoice could
+    be linked to this staff member.
+
+    Keys follow the leaderboard convention:
+      • `sp:<sales_person.lower()>`   — primary (form-typed name)
+      • `name:<sales_person.lower()>` — legacy
+      • `email:<created_by.lower()>`  — legacy
+      • `<uid>`                       — legacy (resolved via users coll.)
+
+    Centralised here (13 Jun 2026) so the per-staff drawer AND the
+    monthly-report PDF endpoint share one battle-tested matcher.
+    """
+    import re as _re
+    or_clauses: list = []
+    if user_key.startswith("sp:"):
+        or_clauses.append({"sales_person": {"$regex": f"^{_re.escape(user_key[3:])}$", "$options": "i"}})
+    elif user_key.startswith("name:"):
+        or_clauses.append({"sales_person": {"$regex": f"^{_re.escape(user_key[5:])}$", "$options": "i"}})
+    elif user_key.startswith("email:"):
+        or_clauses.append({"created_by": {"$regex": f"^{_re.escape(user_key[6:])}$", "$options": "i"}})
+    else:
+        u = await get_db().users.find_one({"id": user_key}, {"_id": 0, "email": 1, "name": 1})
+        or_clauses.append({"created_by_user_id": user_key})
+        if u:
+            if u.get("email"):
+                or_clauses.append({"created_by": {"$regex": f"^{_re.escape(u['email'])}$", "$options": "i"}})
+            if u.get("name"):
+                or_clauses.append({"sales_person": {"$regex": f"^{_re.escape(u['name'])}$", "$options": "i"}})
+    return or_clauses
+
+
 @router.get("/staff/{user_key:path}/recent")
 async def get_staff_recent_activity(
     user_key: str,
@@ -1153,31 +1186,7 @@ async def get_staff_recent_activity(
     month_start, _, _ = _month_window_utc()
 
     # Build the multi-stamp matcher
-    or_clauses: list = []
-    if user_key.startswith("sp:"):
-        # %-escape the name so regex specials in display names (rare
-        # but possible — "O'Brien") don't blow up.
-        import re as _re
-        escaped = _re.escape(user_key[3:])
-        or_clauses.append({"sales_person": {"$regex": f"^{escaped}$", "$options": "i"}})
-    elif user_key.startswith("name:"):
-        import re as _re
-        or_clauses.append({"sales_person": {"$regex": f"^{_re.escape(user_key[5:])}$", "$options": "i"}})
-    elif user_key.startswith("email:"):
-        import re as _re
-        or_clauses.append({"created_by": {"$regex": f"^{_re.escape(user_key[6:])}$", "$options": "i"}})
-    else:
-        u = await db.users.find_one(
-            {"id": user_key},
-            {"_id": 0, "email": 1, "name": 1},
-        )
-        or_clauses.append({"created_by_user_id": user_key})
-        if u:
-            import re as _re
-            if u.get("email"):
-                or_clauses.append({"created_by": {"$regex": f"^{_re.escape(u['email'])}$", "$options": "i"}})
-            if u.get("name"):
-                or_clauses.append({"sales_person": {"$regex": f"^{_re.escape(u['name'])}$", "$options": "i"}})
+    or_clauses = await _user_key_to_or_clauses(user_key)
 
     if not or_clauses:
         return {"quotes": [], "invoices": [], "total_quotes": 0, "total_invoices": 0}

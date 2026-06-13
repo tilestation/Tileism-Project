@@ -951,13 +951,20 @@ function StaffRecentDrawer({ staff, data, loading, onClose }) {
     <div className="fixed inset-0 z-[60] flex" data-testid="staff-recent-drawer">
       <div className="flex-1 bg-black/40" onClick={onClose} />
       <aside className="w-full max-w-xl bg-background border-l border-border overflow-y-auto shadow-2xl">
-        <header className="sticky top-0 bg-background border-b border-border p-4 flex items-center justify-between z-10">
-          <div>
+        <header className="sticky top-0 bg-background border-b border-border p-4 flex items-start justify-between gap-3 z-10">
+          <div className="flex-1">
             <div className="text-xs text-muted-foreground uppercase tracking-wider">Recent activity</div>
             <div className="text-xl font-extrabold mt-0.5">{staff.name}</div>
             {staff.showroom_name && (
               <div className="text-xs text-muted-foreground">{staff.showroom_name}</div>
             )}
+            {/* 13 Jun 2026 — Monthly 1-to-1 reports. Two buttons so
+                the manager can grab the current month live or the
+                completed previous month without picking a date. */}
+            <div className="mt-3 flex flex-wrap gap-2">
+              <MonthlyReportButton staff={staff} which="current" />
+              <MonthlyReportButton staff={staff} which="previous" />
+            </div>
           </div>
           <button type="button" onClick={onClose} className="text-muted-foreground hover:text-foreground" data-testid="staff-recent-drawer-close">
             <X className="w-5 h-5" />
@@ -1467,5 +1474,83 @@ function StaffPhotoManagerDialog({ staff, onClose, onUpdated }) {
         </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * MonthlyReportButton — downloads a per-staff PDF report for the
+ * given month. Two instances live in the drawer header (current
+ * month + previous month) so the manager can grab either with one
+ * click before a 1-to-1.
+ */
+function MonthlyReportButton({ staff, which }) {
+  const [busy, setBusy] = useState(false);
+  // which: 'current' or 'previous'
+  const target = useMemo(() => {
+    const now = new Date();
+    if (which === 'previous') {
+      const prev = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      return {
+        year: prev.getFullYear(),
+        month: prev.getMonth() + 1,
+        label: prev.toLocaleString('en-GB', { month: 'long', year: 'numeric' }),
+      };
+    }
+    return {
+      year: now.getFullYear(),
+      month: now.getMonth() + 1,
+      label: now.toLocaleString('en-GB', { month: 'long', year: 'numeric' }),
+    };
+  }, [which]);
+
+  const handleDownload = async () => {
+    setBusy(true);
+    try {
+      const token = localStorage.getItem('token');
+      const key = staff.user_key || staff.user_id || staff.name;
+      const url = `${process.env.REACT_APP_BACKEND_URL}/api/staff-leaderboard/staff/${encodeURIComponent(key)}/monthly-report.pdf?year=${target.year}&month=${target.month}`;
+      const resp = await fetch(url, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!resp.ok) {
+        let detail = `HTTP ${resp.status}`;
+        try { const j = await resp.json(); detail = j?.detail || detail; } catch { /* binary */ }
+        toast.error(`Report failed: ${detail}`);
+        return;
+      }
+      const blob = await resp.blob();
+      const dlUrl = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = dlUrl;
+      const safeName = (staff.name || 'staff').replace(/[^A-Za-z0-9._-]+/g, '_');
+      a.download = `report_${safeName}_${target.year}-${String(target.month).padStart(2, '0')}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(dlUrl);
+      toast.success(`Report downloaded — ${target.label}.`);
+    } catch (e) {
+      toast.error(`Report failed: ${e.message}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const isPrev = which === 'previous';
+  return (
+    <button
+      type="button"
+      onClick={handleDownload}
+      disabled={busy}
+      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[11px] font-bold transition-colors disabled:opacity-50 ${
+        isPrev
+          ? 'border-slate-300 bg-slate-50 text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-200'
+          : 'border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:border-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300'
+      }`}
+      data-testid={`monthly-report-${which}-${staff.name}`}
+      title={`Download ${target.label} report for ${staff.name}`}
+    >
+      📄 {busy ? 'Generating…' : `Report · ${target.label}`}
+    </button>
   );
 }
