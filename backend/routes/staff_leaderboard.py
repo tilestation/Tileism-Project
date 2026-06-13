@@ -1182,8 +1182,11 @@ async def get_staff_recent_activity(
     if not or_clauses:
         return {"quotes": [], "invoices": [], "total_quotes": 0, "total_invoices": 0}
 
-    # Cap limit to a sane range so the drawer stays snappy
-    limit = max(1, min(int(limit or 5), 25))
+    # Cap limit to a sane range — bumped from 25 to 200 (13 Jun 2026,
+    # user request: "if no of sales showing 20, all those invoices need
+    # to be listed by clicking on it"). 200 covers even the most
+    # prolific salesperson's full month without paging.
+    limit = max(1, min(int(limit or 200), 500))
 
     month_match: dict = {
         "$and": [

@@ -18,7 +18,7 @@
  *   POST /api/staff-leaderboard/highlight    (super-admin broadcast)
  *   DELETE /api/staff-leaderboard/highlight  (super-admin clear)
  */
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
@@ -73,6 +73,11 @@ export default function StaffCompetitionDashboard() {
   // and conversion-count can be verified at a glance.
   const [drawerStaff, setDrawerStaff] = useState(null);
   const [drawerData, setDrawerData] = useState(null);
+  // 13 Jun 2026 — Quick-access staff photo manager dialog. The full
+  // user-edit page (/admin/users) still works, but admins were
+  // missing the entry point — so the leaderboard now has a one-click
+  // "Manage Photos" button right in the Sales card header.
+  const [photoMgrOpen, setPhotoMgrOpen] = useState(false);
   const [drawerLoading, setDrawerLoading] = useState(false);
 
   const openDrawer = async (staff) => {
@@ -88,7 +93,7 @@ export default function StaffCompetitionDashboard() {
         return;
       }
       const res = await axios.get(
-        `${API}/staff-leaderboard/staff/${encodeURIComponent(key)}/recent?limit=5`,
+        `${API}/staff-leaderboard/staff/${encodeURIComponent(key)}/recent?limit=200`,
         { headers: tokenHdr() },
       );
       setDrawerData(res.data);
@@ -279,7 +284,20 @@ export default function StaffCompetitionDashboard() {
 
       <Card className="p-5 border-2 border-emerald-500/40 bg-gradient-to-br from-emerald-50/30 via-card to-card dark:from-emerald-950/20 dark:via-card dark:to-card shadow-md shadow-emerald-500/5" data-testid="competition-sales-standalone">
         <SectionHeader icon={Trophy} title={`Sales leaderboard · ${month}`} accent="emerald">
-          <span className="text-[10px] text-muted-foreground">(Special-Order only)</span>
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-[10px] text-muted-foreground">(Special-Order only)</span>
+            {isSuperAdmin && (
+              <button
+                type="button"
+                onClick={() => setPhotoMgrOpen(true)}
+                className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-indigo-500/10 border border-indigo-500/30 text-indigo-700 dark:text-indigo-300 text-[10px] font-bold hover:bg-indigo-500/20 transition-colors"
+                data-testid="manage-staff-photos-btn"
+                title="Upload profile photos that show on the podium and rows"
+              >
+                📷 Manage photos
+              </button>
+            )}
+          </div>
         </SectionHeader>
         <p className="text-[11px] text-muted-foreground italic mb-2">
           Ranked by <span className="font-bold">composite score</span> — 70% volume (as <span className="font-bold">% of your store target</span>, so smaller stores compete fairly) + 30% number of sales (consistent closers earn credit too).
@@ -876,6 +894,16 @@ export default function StaffCompetitionDashboard() {
           onClose={closeDrawer}
         />
       )}
+
+      {/* 13 Jun 2026 — Quick-access photo manager. Super-admin only.
+          Lists every staff with their current photo + inline upload. */}
+      {photoMgrOpen && isSuperAdmin && (
+        <StaffPhotoManagerDialog
+          staff={fullStaff}
+          onClose={() => setPhotoMgrOpen(false)}
+          onUpdated={refresh}
+        />
+      )}
     </div>
   );
 }
@@ -920,7 +948,7 @@ function StaffRecentDrawer({ staff, data, loading, onClose }) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex" data-testid="staff-recent-drawer">
+    <div className="fixed inset-0 z-[60] flex" data-testid="staff-recent-drawer">
       <div className="flex-1 bg-black/40" onClick={onClose} />
       <aside className="w-full max-w-xl bg-background border-l border-border overflow-y-auto shadow-2xl">
         <header className="sticky top-0 bg-background border-b border-border p-4 flex items-center justify-between z-10">
@@ -1247,6 +1275,197 @@ function TopThreePodium({ staff, onPick }) {
           </button>
         );
       })}
+    </div>
+  );
+}
+
+/**
+ * StaffPhotoManagerDialog — quick photo-management modal opened from
+ * the Sales card. Lists every staff with their current photo +
+ * inline Upload / Remove buttons. Super-admin only.
+ *
+ * Replaces "go to /admin/users → find user → edit → scroll up →
+ * upload" with a one-click flow right from the leaderboard.
+ */
+function StaffPhotoManagerDialog({ staff, onClose, onUpdated }) {
+  const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
+  const [busyUid, setBusyUid] = useState(null);
+  const [localPhotos, setLocalPhotos] = useState(() => {
+    const map = {};
+    (staff || []).forEach((s) => {
+      if (s.user_id) map[s.user_id] = s.photo_url || null;
+    });
+    return map;
+  });
+  const fileInputs = useRef({});
+
+  const eligible = useMemo(
+    () => (staff || [])
+      .filter((s) => s.user_id) // can only upload for resolved users
+      .sort((a, b) => (a.name || '').localeCompare(b.name || '')),
+    [staff]
+  );
+
+  const compress = (file) => new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = reject;
+    reader.onload = () => {
+      const img = new Image();
+      img.onerror = reject;
+      img.onload = () => {
+        const size = 256;
+        const canvas = document.createElement('canvas');
+        canvas.width = size; canvas.height = size;
+        const ctx = canvas.getContext('2d');
+        const ratio = Math.max(size / img.width, size / img.height);
+        const w = img.width * ratio;
+        const h = img.height * ratio;
+        ctx.drawImage(img, (size - w) / 2, (size - h) / 2, w, h);
+        resolve(canvas.toDataURL('image/jpeg', 0.85));
+      };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
+
+  const handleFile = async (uid, file) => {
+    if (!file || !file.type.startsWith('image/')) {
+      toast.error('Please pick an image file.');
+      return;
+    }
+    setBusyUid(uid);
+    try {
+      const dataUrl = await compress(file);
+      const token = localStorage.getItem('token');
+      const r = await fetch(`${API}/staff/${uid}/photo`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        body: JSON.stringify({ photo_data_url: dataUrl }),
+      });
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({}));
+        toast.error(`Upload failed: ${j?.detail || r.status}`);
+        return;
+      }
+      setLocalPhotos((p) => ({ ...p, [uid]: dataUrl }));
+      toast.success('Photo uploaded.');
+      onUpdated?.();
+    } catch (e) {
+      toast.error(`Upload failed: ${e.message}`);
+    } finally {
+      setBusyUid(null);
+    }
+  };
+
+  const handleRemove = async (uid, name) => {
+    if (!window.confirm(`Remove ${name}'s photo?`)) return;
+    setBusyUid(uid);
+    try {
+      const token = localStorage.getItem('token');
+      const r = await fetch(`${API}/staff/${uid}/photo`, {
+        method: 'DELETE',
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({}));
+        toast.error(`Remove failed: ${j?.detail || r.status}`);
+        return;
+      }
+      setLocalPhotos((p) => ({ ...p, [uid]: null }));
+      toast.success('Photo removed.');
+      onUpdated?.();
+    } catch (e) {
+      toast.error(`Remove failed: ${e.message}`);
+    } finally {
+      setBusyUid(null);
+    }
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4"
+      onClick={onClose}
+      data-testid="staff-photo-manager"
+    >
+      <div
+        className="bg-background rounded-2xl shadow-2xl max-w-2xl w-full max-h-[85vh] overflow-hidden flex flex-col"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between p-4 border-b">
+          <div>
+            <h2 className="text-xl font-bold">📷 Staff Profile Photos</h2>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Photos show on the podium and next to every name on the leaderboards.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-muted-foreground hover:text-foreground rounded p-1"
+            data-testid="staff-photo-manager-close"
+            aria-label="Close"
+          >✕</button>
+        </div>
+        <div className="overflow-y-auto p-4 space-y-2">
+          {eligible.length === 0 && (
+            <div className="text-sm text-muted-foreground italic text-center py-8">
+              No resolved staff users found.
+            </div>
+          )}
+          {eligible.map((s) => {
+            const uid = s.user_id;
+            const photo = localPhotos[uid];
+            const isBusy = busyUid === uid;
+            return (
+              <div
+                key={uid}
+                className="flex items-center gap-3 p-2 rounded-lg border bg-muted/20 hover:bg-muted/40 transition-colors"
+                data-testid={`photo-mgr-row-${s.name}`}
+              >
+                <StaffAvatar name={s.name} photoUrl={photo} size={48} />
+                <div className="flex-1 min-w-0">
+                  <div className="font-bold truncate">{s.name}</div>
+                  <div className="text-xs text-muted-foreground truncate">{s.showroom_name || '—'}</div>
+                </div>
+                <input
+                  ref={(el) => { fileInputs.current[uid] = el; }}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(e) => {
+                    handleFile(uid, e.target.files?.[0]);
+                    e.target.value = '';
+                  }}
+                  data-testid={`photo-mgr-file-${s.name}`}
+                />
+                <button
+                  type="button"
+                  onClick={() => fileInputs.current[uid]?.click()}
+                  disabled={isBusy}
+                  className="px-3 py-1.5 rounded-md bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold disabled:opacity-50"
+                  data-testid={`photo-mgr-upload-${s.name}`}
+                >
+                  {isBusy ? '…' : (photo ? 'Replace' : 'Upload')}
+                </button>
+                {photo && (
+                  <button
+                    type="button"
+                    onClick={() => handleRemove(uid, s.name)}
+                    disabled={isBusy}
+                    className="px-2 py-1.5 rounded-md text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 text-xs font-semibold disabled:opacity-50"
+                    data-testid={`photo-mgr-remove-${s.name}`}
+                  >
+                    Remove
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+        <div className="p-3 border-t text-[11px] text-muted-foreground text-center">
+          Images auto-compressed to 256×256 · 500KB max
+        </div>
+      </div>
     </div>
   );
 }

@@ -355,9 +355,11 @@ def test_staff_recent_excludes_store_orders_from_invoices():
         "Invoice query must filter to order_type=Special Order"
 
 
-def test_staff_recent_clamps_limit_to_25():
+def test_staff_recent_clamps_limit_to_500():
     """Defence against accidental large fetches — even if the UI
-    passes limit=999, the backend caps at 25."""
+    passes limit=99999, the backend caps at 500. (13 Jun 2026 —
+    cap raised from 25 to 500 so the drawer shows ALL of a
+    salesperson's monthly invoices, not just the recent five.)"""
     import asyncio
     from routes.staff_leaderboard import get_staff_recent_activity
     _reset_cache()
@@ -378,9 +380,37 @@ def test_staff_recent_clamps_limit_to_25():
     user = {"role": "super_admin", "email": "a@b"}
     with patch("routes.staff_leaderboard.get_db", return_value=db):
         asyncio.run(get_staff_recent_activity(
-            user_key="sp:syed", limit=999, current_user=user,
+            user_key="sp:syed", limit=99999, current_user=user,
         ))
-    assert captured_limit.get("q") == 25
+    assert captured_limit.get("q") == 500
+
+
+def test_staff_recent_default_limit_returns_full_month():
+    """When the UI omits the limit param, default is 200 — enough to
+    cover any salesperson's full month without paging."""
+    import asyncio
+    from routes.staff_leaderboard import get_staff_recent_activity
+    _reset_cache()
+    db = _db()
+    captured = {}
+    def capture(query, projection=None, **kw):
+        cursor = _AsyncIter([])
+        original = cursor.limit
+        def track(n):
+            captured["q"] = n
+            return original(n)
+        cursor.limit = track
+        return cursor
+    db.quotations.find = MagicMock(side_effect=capture)
+    db.invoices.find = MagicMock(return_value=_AsyncIter([]))
+    db.quotations.count_documents = AsyncMock(return_value=0)
+    db.invoices.count_documents = AsyncMock(return_value=0)
+    user = {"role": "super_admin", "email": "a@b"}
+    with patch("routes.staff_leaderboard.get_db", return_value=db):
+        asyncio.run(get_staff_recent_activity(
+            user_key="sp:syed", limit=None, current_user=user,
+        ))
+    assert captured.get("q") == 200
 
 
 def test_staff_recent_returns_empty_for_unknown_user():
