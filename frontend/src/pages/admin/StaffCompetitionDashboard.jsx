@@ -271,6 +271,109 @@ export default function StaffCompetitionDashboard() {
 
   return (
     <div className="p-4 md:p-6 max-w-7xl mx-auto space-y-5" data-testid="competition-dashboard">
+      {/* SECTION 5 (PROMOTED TO TOP) — Top 3 podium + Sales
+          leaderboard (13 Jun 2026 — user request: "swap, put Sales
+          Leaderboard on top of the page"). Sales is the headline
+          metric so it goes BEFORE the hero card. */}
+      <TopThreePodium staff={salesSorted} onPick={openDrawer} />
+
+      <Card className="p-5 border-2 border-emerald-500/40 bg-gradient-to-br from-emerald-50/30 via-card to-card dark:from-emerald-950/20 dark:via-card dark:to-card shadow-md shadow-emerald-500/5" data-testid="competition-sales-standalone">
+        <SectionHeader icon={Trophy} title={`Sales leaderboard · ${month}`} accent="emerald">
+          <span className="text-[10px] text-muted-foreground">(Special-Order only)</span>
+        </SectionHeader>
+        <p className="text-[11px] text-muted-foreground italic mb-2">
+          Ranked by <span className="font-bold">composite score</span> — 70% volume (as <span className="font-bold">% of your store target</span>, so smaller stores compete fairly) + 30% number of sales (consistent closers earn credit too).
+        </p>
+        <table className="w-full text-sm" data-testid="competition-sales-table">
+          <thead className="text-xs text-muted-foreground uppercase tracking-wider"><tr><th className="text-left py-1.5">#</th><th className="text-left">Staff</th><th className="text-right">£ Sold</th><th className="text-right">Sales</th><th className="text-right">Score</th></tr></thead>
+          <tbody>
+            {salesSorted.length === 0 ? (
+              <tr><td colSpan={5} className="py-4 text-center text-muted-foreground italic text-xs">No Special-Order sales yet this month.</td></tr>
+            ) : salesSorted.map((s, idx) => {
+              const pctTarget = s.personal_pct_of_target ?? 0;
+              const hasTarget = (s.personal_sales_target || 0) > 0;
+              const pillTone =
+                pctTarget >= 100 ? 'bg-emerald-100 text-emerald-800 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-300 dark:border-emerald-800'
+                : pctTarget >= 75  ? 'bg-fuchsia-100 text-fuchsia-800 border-fuchsia-200 dark:bg-fuchsia-900/30 dark:text-fuchsia-300 dark:border-fuchsia-800'
+                : pctTarget >= 50  ? 'bg-amber-100 text-amber-800 border-amber-200 dark:bg-amber-900/30 dark:text-amber-300 dark:border-amber-800'
+                :                    'bg-rose-100 text-rose-800 border-rose-200 dark:bg-rose-900/30 dark:text-rose-300 dark:border-rose-800';
+              const expectedPct = days_total > 0 ? (days_elapsed / days_total) * 100 : 0;
+              const paceRatio = (hasTarget && expectedPct > 0) ? (pctTarget / expectedPct) : null;
+              let paceIcon = null;
+              if (paceRatio !== null) {
+                const tone =
+                  paceRatio >= 1.0 ? 'text-emerald-600 dark:text-emerald-400'
+                  : paceRatio >= 0.8 ? 'text-amber-600 dark:text-amber-400'
+                  :                    'text-rose-600 dark:text-rose-400';
+                const arrow =
+                  paceRatio >= 1.0 ? '↑'
+                  : paceRatio >= 0.8 ? ''
+                  :                    '↓';
+                const status =
+                  paceRatio >= 1.0 ? 'Ahead of pace'
+                  : paceRatio >= 0.8 ? 'On pace'
+                  :                    'Behind pace';
+                paceIcon = (
+                  <span
+                    className={`inline-flex items-center gap-0.5 text-xs leading-none ${tone}`}
+                    data-testid={`competition-sales-pace-${s.name}`}
+                    title={`${status} — expected ~${expectedPct.toFixed(1)}% by day ${days_elapsed} of ${days_total}, currently at ${pctTarget}% (${Math.round(paceRatio * 100)}% of expected)`}
+                  >
+                    ⏱{arrow}
+                  </span>
+                );
+              }
+              return (
+              <tr
+                key={`fs-${s.user_key}-${idx}`}
+                className="border-t border-border/40 cursor-pointer hover:bg-emerald-50/40 dark:hover:bg-emerald-900/10 transition-colors"
+                onClick={() => openDrawer(s)}
+                data-testid={`competition-sales-row-${s.name}`}
+                title={hasTarget
+                  ? `Click to see ${s.name}'s recent invoices · ${pctTarget}% of £${Number(s.personal_sales_target).toLocaleString('en-GB')} ${s.showroom_name} target · Composite ${s.sales_composite_score ?? '—'}`
+                  : `Click to see ${s.name}'s recent invoices · Composite ${s.sales_composite_score ?? '—'}`}
+              >
+                <td className="py-1.5 font-mono font-bold w-12">
+                  <span className="inline-flex items-center gap-1">
+                    <span>{idx < 3 ? MEDALS[idx] : idx + 1}</span>
+                    <RankDelta change={s.sales_rank_change} testId={`competition-sales-rank-delta-${s.name}`} />
+                  </span>
+                </td>
+                <td>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <StaffAvatar name={s.name} photoUrl={s.photo_url} size={26} testId={`sales-row-avatar-${s.name}`} />
+                    <span className="font-bold">{s.name}</span>
+                    <span className="text-xs text-muted-foreground">· {s.showroom_name}</span>
+                    {hasTarget ? (
+                      <span
+                        className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full border text-[10px] font-bold leading-none tabular-nums ${pillTone}`}
+                        data-testid={`competition-sales-pct-${s.name}`}
+                        title={`${pctTarget}% of £${Number(s.personal_sales_target).toLocaleString('en-GB')} (${s.showroom_name} target)`}
+                      >
+                        🎯 {pctTarget}%{pctTarget >= 100 && ' ✓'}
+                      </span>
+                    ) : (
+                      <span
+                        className="inline-flex items-center px-1.5 py-0.5 rounded-full border border-dashed border-muted-foreground/30 text-[10px] text-muted-foreground italic leading-none"
+                        title={`${s.showroom_name} has no monthly target set yet`}
+                      >
+                        no target
+                      </span>
+                    )}
+                    {paceIcon}
+                    <GapToOvertake s={s} mode="sales" testIdBase={`sales-gap-${s.name}`} />
+                  </div>
+                </td>
+                <td className="text-right font-bold text-yellow-700 dark:text-yellow-300 tabular-nums">£{Number(s.sales_value_gbp).toLocaleString('en-GB', { maximumFractionDigits: 0 })}</td>
+                <td className="text-right tabular-nums">{s.sales_count}</td>
+                <td className="text-right tabular-nums text-emerald-700 dark:text-emerald-300 font-bold">{(s.sales_composite_score ?? 0).toFixed(1)}</td>
+              </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </Card>
+
       {/* SECTION 1 — Live competition status */}
       <Card className="p-5 bg-gradient-to-br from-amber-100 to-amber-50 dark:from-amber-950/80 dark:via-emerald-950/70 dark:to-slate-900 border-amber-300 dark:border-amber-500/30">
         <SectionHeader icon={Sparkles} title={`Staff Competition · ${month}`} accent="amber">
@@ -432,7 +535,7 @@ export default function StaffCompetitionDashboard() {
             >
               <div className="text-3xl shrink-0" aria-hidden="true">{motivationalLine.emoji}</div>
               <div>
-                <div className="text-[10px] uppercase tracking-wider font-bold text-emerald-700 dark:text-emerald-300 mb-0.5">Today's rally</div>
+                <div className="text-[10px] uppercase tracking-wider font-bold text-emerald-700 dark:text-emerald-300 mb-0.5">Today&apos;s rally</div>
                 <div className="text-sm font-semibold text-foreground leading-snug">{motivationalLine.text}</div>
               </div>
             </div>
@@ -456,121 +559,9 @@ export default function StaffCompetitionDashboard() {
         </div>
       )}
 
-      {/* SECTION 5 (PROMOTED) — Top 3 podium + Sales leaderboard
-          standalone, with Quote-conversion below (13 Jun 2026 — user
-          requests: "Sales standalone, prominent" + "Add Top 3 podium
-          above"). The podium turns the page into a real tournament:
-          staff want to see their face on the podium. */}
-      <TopThreePodium staff={salesSorted} onPick={openDrawer} />
-
-      <Card className="p-5 border-2 border-emerald-500/40 bg-gradient-to-br from-emerald-50/30 via-card to-card dark:from-emerald-950/20 dark:via-card dark:to-card shadow-md shadow-emerald-500/5" data-testid="competition-sales-standalone">
-        <SectionHeader icon={Trophy} title={`Sales leaderboard · ${month}`} accent="emerald">
-          <span className="text-[10px] text-muted-foreground">(Special-Order only)</span>
-        </SectionHeader>
-        <p className="text-[11px] text-muted-foreground italic mb-2">
-          Ranked by <span className="font-bold">composite score</span> — 70% volume (as <span className="font-bold">% of your store target</span>, so smaller stores compete fairly) + 30% number of sales (consistent closers earn credit too).
-        </p>
-        <table className="w-full text-sm" data-testid="competition-sales-table">
-          <thead className="text-xs text-muted-foreground uppercase tracking-wider"><tr><th className="text-left py-1.5">#</th><th className="text-left">Staff</th><th className="text-right">£ Sold</th><th className="text-right">Sales</th><th className="text-right">Score</th></tr></thead>
-          <tbody>
-            {salesSorted.length === 0 ? (
-              <tr><td colSpan={5} className="py-4 text-center text-muted-foreground italic text-xs">No Special-Order sales yet this month.</td></tr>
-            ) : salesSorted.map((s, idx) => {
-              const pctTarget = s.personal_pct_of_target ?? 0;
-              const hasTarget = (s.personal_sales_target || 0) > 0;
-              // Pill colour reflects how close to target — same
-              // band logic as the Showroom league so the visual
-              // language stays consistent across the page.
-              const pillTone =
-                pctTarget >= 100 ? 'bg-emerald-100 text-emerald-800 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-300 dark:border-emerald-800'
-                : pctTarget >= 75  ? 'bg-fuchsia-100 text-fuchsia-800 border-fuchsia-200 dark:bg-fuchsia-900/30 dark:text-fuchsia-300 dark:border-fuchsia-800'
-                : pctTarget >= 50  ? 'bg-amber-100 text-amber-800 border-amber-200 dark:bg-amber-900/30 dark:text-amber-300 dark:border-amber-800'
-                :                    'bg-rose-100 text-rose-800 border-rose-200 dark:bg-rose-900/30 dark:text-rose-300 dark:border-rose-800';
-              // 6 Jun 2026 — "expected pace" indicator.
-              // expectedPct = (days_elapsed / days_total) × 100.
-              //   At Day 6 of 30 a staff should be at ~20% of
-              //   their monthly target to be "on pace".
-              // pace_ratio = personal_pct_of_target / expectedPct
-              //   ≥1.0  → ahead (green ⏱ ↑)
-              //   ≥0.8  → on pace (amber ⏱)
-              //   <0.8  → behind (red ⏱ ↓)
-              // Only shown when the staff has a target set —
-              // pace against no target is meaningless.
-              const expectedPct = days_total > 0 ? (days_elapsed / days_total) * 100 : 0;
-              const paceRatio = (hasTarget && expectedPct > 0) ? (pctTarget / expectedPct) : null;
-              let paceIcon = null;
-              if (paceRatio !== null) {
-                const tone =
-                  paceRatio >= 1.0 ? 'text-emerald-600 dark:text-emerald-400'
-                  : paceRatio >= 0.8 ? 'text-amber-600 dark:text-amber-400'
-                  :                    'text-rose-600 dark:text-rose-400';
-                const arrow =
-                  paceRatio >= 1.0 ? '↑'
-                  : paceRatio >= 0.8 ? ''
-                  :                    '↓';
-                const status =
-                  paceRatio >= 1.0 ? 'Ahead of pace'
-                  : paceRatio >= 0.8 ? 'On pace'
-                  :                    'Behind pace';
-                paceIcon = (
-                  <span
-                    className={`inline-flex items-center gap-0.5 text-xs leading-none ${tone}`}
-                    data-testid={`competition-sales-pace-${s.name}`}
-                    title={`${status} — expected ~${expectedPct.toFixed(1)}% by day ${days_elapsed} of ${days_total}, currently at ${pctTarget}% (${Math.round(paceRatio * 100)}% of expected)`}
-                  >
-                    ⏱{arrow}
-                  </span>
-                );
-              }
-              return (
-              <tr
-                key={`fs-${s.user_key}-${idx}`}
-                className="border-t border-border/40 cursor-pointer hover:bg-emerald-50/40 dark:hover:bg-emerald-900/10 transition-colors"
-                onClick={() => openDrawer(s)}
-                data-testid={`competition-sales-row-${s.name}`}
-                title={hasTarget
-                  ? `Click to see ${s.name}'s recent invoices · ${pctTarget}% of £${Number(s.personal_sales_target).toLocaleString('en-GB')} ${s.showroom_name} target · Composite ${s.sales_composite_score ?? '—'}`
-                  : `Click to see ${s.name}'s recent invoices · Composite ${s.sales_composite_score ?? '—'}`}
-              >
-                <td className="py-1.5 font-mono font-bold w-12">
-                  <span className="inline-flex items-center gap-1">
-                    <span>{idx < 3 ? MEDALS[idx] : idx + 1}</span>
-                    <RankDelta change={s.sales_rank_change} testId={`competition-sales-rank-delta-${s.name}`} />
-                  </span>
-                </td>
-                <td>
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    <span className="font-bold">{s.name}</span>
-                    <span className="text-xs text-muted-foreground">· {s.showroom_name}</span>
-                    {hasTarget ? (
-                      <span
-                        className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full border text-[10px] font-bold leading-none tabular-nums ${pillTone}`}
-                        data-testid={`competition-sales-pct-${s.name}`}
-                        title={`${pctTarget}% of £${Number(s.personal_sales_target).toLocaleString('en-GB')} (${s.showroom_name} target)`}
-                      >
-                        🎯 {pctTarget}%{pctTarget >= 100 && ' ✓'}
-                      </span>
-                    ) : (
-                      <span
-                        className="inline-flex items-center px-1.5 py-0.5 rounded-full border border-dashed border-muted-foreground/30 text-[10px] text-muted-foreground italic leading-none"
-                        title={`${s.showroom_name} has no monthly target set yet`}
-                      >
-                        no target
-                      </span>
-                    )}
-                    {paceIcon}
-                    <GapToOvertake s={s} mode="sales" testIdBase={`sales-gap-${s.name}`} />
-                  </div>
-                </td>
-                <td className="text-right font-bold text-yellow-700 dark:text-yellow-300 tabular-nums">£{Number(s.sales_value_gbp).toLocaleString('en-GB', { maximumFractionDigits: 0 })}</td>
-                <td className="text-right tabular-nums">{s.sales_count}</td>
-                <td className="text-right tabular-nums text-emerald-700 dark:text-emerald-300 font-bold">{(s.sales_composite_score ?? 0).toFixed(1)}</td>
-              </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </Card>
+      {/* SECTION 5 (PROMOTED) block moved to the very top of the
+          page — see above. Quote-conversion leaderboard follows
+          here as a separate, less prominent card. */}
 
       {/* Quote-conversion leaderboard — separate, below Sales. */}
       <Card className="p-4" data-testid="competition-conv-standalone">
@@ -594,7 +585,14 @@ export default function StaffCompetitionDashboard() {
                     <RankDelta change={s.quotes_rank_change} testId={`competition-conv-rank-delta-${s.name}`} />
                   </span>
                 </td>
-                <td><span className="font-bold">{s.name}</span> <span className="text-xs text-muted-foreground">· {s.showroom_name}</span><GapToOvertake s={s} mode="quotes" testIdBase={`conv-gap-${s.name}`} /></td>
+                <td>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <StaffAvatar name={s.name} photoUrl={s.photo_url} size={26} testId={`conv-row-avatar-${s.name}`} />
+                    <span className="font-bold">{s.name}</span>
+                    <span className="text-xs text-muted-foreground">· {s.showroom_name}</span>
+                    <GapToOvertake s={s} mode="quotes" testIdBase={`conv-gap-${s.name}`} />
+                  </div>
+                </td>
                 <td className="text-right font-bold text-amber-700 dark:text-amber-300 tabular-nums">{s.quotes_converted}</td>
                 <td className="text-right tabular-nums text-emerald-700 dark:text-emerald-300">{s.conversion_rate}%</td>
               </tr>
