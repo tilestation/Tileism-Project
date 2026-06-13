@@ -25,7 +25,7 @@ import { toast } from 'sonner';
 import {
   Crown, Trophy, Flame, TrendingUp, Award, Megaphone,
   Clock, Target, Calendar, ArrowUpRight, ArrowDownRight,
-  Send, X, Sparkles, BarChart3, Eye, CheckCircle2,
+  Send, X, Sparkles, BarChart3, Eye, CheckCircle2, Download, FileText,
 } from 'lucide-react';
 import { Card } from '../../components/ui/card';
 import { Input } from '../../components/ui/input';
@@ -958,13 +958,6 @@ function StaffRecentDrawer({ staff, data, loading, onClose }) {
             {staff.showroom_name && (
               <div className="text-xs text-muted-foreground">{staff.showroom_name}</div>
             )}
-            {/* 13 Jun 2026 — Monthly 1-to-1 reports. Two buttons so
-                the manager can grab the current month live or the
-                completed previous month without picking a date. */}
-            <div className="mt-3 flex flex-wrap gap-2">
-              <MonthlyReportButton staff={staff} which="current" />
-              <MonthlyReportButton staff={staff} which="previous" />
-            </div>
           </div>
           <button type="button" onClick={onClose} className="text-muted-foreground hover:text-foreground" data-testid="staff-recent-drawer-close">
             <X className="w-5 h-5" />
@@ -972,6 +965,12 @@ function StaffRecentDrawer({ staff, data, loading, onClose }) {
         </header>
 
         <div className="p-4 space-y-5">
+          {/* 13 Jun 2026 — Monthly 1-to-1 PDF reports. Promoted out
+              of the cramped drawer header into its own card with
+              self-explanatory plain-English labels (was: two near-
+              identical pill buttons that confused managers about
+              which month was which). */}
+          <MonthlyReportCard staff={staff} />
           {/* Top-of-drawer totals match the leaderboard so the admin
               can cross-check at a glance. */}
           <div className="grid grid-cols-3 gap-2">
@@ -1478,30 +1477,80 @@ function StaffPhotoManagerDialog({ staff, onClose, onUpdated }) {
 }
 
 /**
- * MonthlyReportButton — downloads a per-staff PDF report for the
- * given month. Two instances live in the drawer header (current
- * month + previous month) so the manager can grab either with one
- * click before a 1-to-1.
+ * MonthlyReportCard — clear, plain-English UI for downloading a
+ * staff member's 1-to-1 PDF report. Replaces the original twin-pill
+ * design that managers found confusing (two near-identical buttons
+ * tucked into the drawer header).
+ *
+ * Layout:
+ *   ┌─────────────────────────────────────────────────────────┐
+ *   │ Monthly 1-to-1 Report                                   │
+ *   │ A printable PDF with this staff member's sales, quotes  │
+ *   │ and conversion stats for the chosen month.              │
+ *   │                                                         │
+ *   │  ┌──────────────────────┐  ┌──────────────────────────┐ │
+ *   │  │ This month (so far)  │  │ Last month (final)       │ │
+ *   │  │ January 2026         │  │ December 2025            │ │
+ *   │  │  ↓ Download PDF      │  │  ↓ Download PDF          │ │
+ *   │  └──────────────────────┘  └──────────────────────────┘ │
+ *   └─────────────────────────────────────────────────────────┘
  */
-function MonthlyReportButton({ staff, which }) {
+function MonthlyReportCard({ staff }) {
+  const now = new Date();
+  const currentMonth = {
+    year: now.getFullYear(),
+    month: now.getMonth() + 1,
+    label: now.toLocaleString('en-GB', { month: 'long', year: 'numeric' }),
+  };
+  const prevDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const previousMonth = {
+    year: prevDate.getFullYear(),
+    month: prevDate.getMonth() + 1,
+    label: prevDate.toLocaleString('en-GB', { month: 'long', year: 'numeric' }),
+  };
+
+  return (
+    <section
+      className="rounded-lg border border-border bg-muted/30 p-4"
+      data-testid="monthly-report-card"
+    >
+      <div className="flex items-start gap-2 mb-1">
+        <FileText className="w-4 h-4 text-muted-foreground mt-0.5 shrink-0" />
+        <div>
+          <h3 className="text-sm font-bold leading-tight">Monthly 1-to-1 Report</h3>
+          <p className="text-[11px] text-muted-foreground mt-0.5">
+            A printable PDF with {staff.name}&rsquo;s sales, quotes and conversion stats. Pick a month below.
+          </p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-3">
+        <MonthlyReportTile
+          staff={staff}
+          target={currentMonth}
+          tag="This month (so far)"
+          accent="emerald"
+          testidSuffix="current"
+        />
+        <MonthlyReportTile
+          staff={staff}
+          target={previousMonth}
+          tag="Last month (final)"
+          accent="slate"
+          testidSuffix="previous"
+        />
+      </div>
+    </section>
+  );
+}
+
+/**
+ * MonthlyReportTile — single download card used twice by
+ * MonthlyReportCard. Self-contained so each tile owns its own busy
+ * state without one click greying out the other.
+ */
+function MonthlyReportTile({ staff, target, tag, accent, testidSuffix }) {
   const [busy, setBusy] = useState(false);
-  // which: 'current' or 'previous'
-  const target = useMemo(() => {
-    const now = new Date();
-    if (which === 'previous') {
-      const prev = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-      return {
-        year: prev.getFullYear(),
-        month: prev.getMonth() + 1,
-        label: prev.toLocaleString('en-GB', { month: 'long', year: 'numeric' }),
-      };
-    }
-    return {
-      year: now.getFullYear(),
-      month: now.getMonth() + 1,
-      label: now.toLocaleString('en-GB', { month: 'long', year: 'numeric' }),
-    };
-  }, [which]);
 
   const handleDownload = async () => {
     setBusy(true);
@@ -1536,21 +1585,30 @@ function MonthlyReportButton({ staff, which }) {
     }
   };
 
-  const isPrev = which === 'previous';
+  const styles = accent === 'emerald'
+    ? 'border-emerald-300 bg-emerald-50/60 hover:bg-emerald-100/80 dark:border-emerald-700/60 dark:bg-emerald-900/20 dark:hover:bg-emerald-900/40'
+    : 'border-slate-300 bg-white hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900/40 dark:hover:bg-slate-900/60';
+  const tagColor = accent === 'emerald'
+    ? 'text-emerald-700 dark:text-emerald-300'
+    : 'text-slate-600 dark:text-slate-300';
+
   return (
     <button
       type="button"
       onClick={handleDownload}
       disabled={busy}
-      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[11px] font-bold transition-colors disabled:opacity-50 ${
-        isPrev
-          ? 'border-slate-300 bg-slate-50 text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-200'
-          : 'border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:border-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300'
-      }`}
-      data-testid={`monthly-report-${which}-${staff.name}`}
+      className={`group relative text-left rounded-md border p-3 transition-colors disabled:opacity-50 disabled:cursor-wait ${styles}`}
+      data-testid={`monthly-report-${testidSuffix}-${staff.name}`}
       title={`Download ${target.label} report for ${staff.name}`}
     >
-      📄 {busy ? 'Generating…' : `Report · ${target.label}`}
+      <div className={`text-[10px] font-bold uppercase tracking-wider ${tagColor}`}>
+        {tag}
+      </div>
+      <div className="text-sm font-extrabold mt-0.5 leading-tight">{target.label}</div>
+      <div className="mt-2 inline-flex items-center gap-1.5 text-[11px] font-semibold text-foreground/80 group-hover:text-foreground">
+        <Download className="w-3.5 h-3.5" />
+        {busy ? 'Generating PDF…' : 'Download PDF'}
+      </div>
     </button>
   );
 }

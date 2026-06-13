@@ -1,4 +1,24 @@
 
+
+---
+
+## 13 June 2026 — Monthly Report UI clarity + adblock noise filter
+
+### Staff Monthly Report UI — redesigned for clarity
+- **User feedback:** *"What is the difference? It's confusing. Make it clear and simple for staff to understand"* — the two pill buttons in the drawer header (`📄 Report · January 2026` and `📄 Report · December 2025`) were near-identical and managers couldn't tell which was current vs previous at a glance.
+- **Fix:** Replaced `<MonthlyReportButton>` × 2 with a single `<MonthlyReportCard>` containing:
+  - Section heading **"Monthly 1-to-1 Report"** + one-line description naming the staff member and what the PDF contains
+  - Two large tiles side-by-side, each labelled with a plain-English tag (**"This month (so far)"** in emerald / **"Last month (final)"** in slate), the month name in bold, and an explicit `↓ Download PDF` call-to-action
+  - Promoted out of the cramped sticky drawer header into the main scroll area below it
+- Download URL, headers, blob handling, file-naming, toast and per-tile busy state preserved verbatim — pure presentation refactor, no backend change
+- File: `frontend/src/pages/admin/StaffCompetitionDashboard.jsx`
+
+### `Worker blocked:` adblocker noise — filtered
+- Brave / uBlock / AdGuard block Ahrefs, Pinterest tag, GA4 etc. and surface as `Worker blocked: <url>` in third-party-SDK unhandled rejections, flooding the admin client-errors panel
+- Added `/^worker blocked:/i` to `BENIGN_PATTERNS` in `frontend/src/lib/clientErrorWatch.js`
+- Customer experience unaffected (page renders normally); admin panel stays actionable
+
+
 ---
 
 ## 8 June 2026 — Staff Competition reliability

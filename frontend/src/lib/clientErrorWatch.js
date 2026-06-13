@@ -97,6 +97,13 @@ const BENIGN_PATTERNS = [
   /passwords (don'?t|do not) match/i,
   /^this field is required/i,
   /please select( a| an)/i,
+  // 13 Jun 2026 — Brave/uBlock/AdGuard block Ahrefs, Pinterest tag,
+  // GA4 collector etc. and surface as "Worker blocked: <url>" in
+  // unhandled promise rejections from third-party SDKs. The customer's
+  // shopping experience is unaffected — the page renders and they can
+  // browse/checkout normally. Filtering these stops the admin error
+  // panel filling with adblock-noise that isn't actionable.
+  /^worker blocked:/i,
 ];
 
 function isBenign(message) {
