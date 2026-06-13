@@ -1265,10 +1265,12 @@ export const InvoiceHistory = () => {
       setBulkExportCount(data);
       if (data.count === 0) {
         toast.info('No invoices in that date range.');
+      } else if (!data.within_email_limit) {
+        toast.error(`${data.count} invoices is over the ${data.max_per_email} cap — narrow the range.`);
       } else if (!data.within_limit) {
-        toast.error(`${data.count} invoices is over the ${data.max_per_zip} cap — narrow the range.`);
+        toast.info(`${data.count} invoices — too many for a direct download (cap ${data.max_per_zip}). Use "Email ZIP" instead — it runs in the background.`);
       } else {
-        toast.success(`${data.count} invoice${data.count === 1 ? '' : 's'} ready to export. Click "Download ZIP" to start.`);
+        toast.success(`${data.count} invoice${data.count === 1 ? '' : 's'} ready to export. Click "Download ZIP" or "Email ZIP" to start.`);
       }
     } catch (e) {
       toast.error(`Couldn't check range: ${e.message}`);
@@ -1363,7 +1365,14 @@ export const InvoiceHistory = () => {
         toast.error(`Email failed: ${data?.detail || resp.statusText}`);
         return;
       }
-      toast.success(`Sent ${data.succeeded} invoice${data.succeeded === 1 ? '' : 's'} to ${data.to.join(', ')}.`);
+      // 13 Jun 2026 — Email path now runs as a FastAPI BackgroundTask
+      // so big ranges (1000+ invoices) don't blow through the gateway
+      // timeout. Backend returns `queued: true` + a human-friendly
+      // `message`; we surface that verbatim so the admin knows what
+      // to expect and roughly when.
+      toast.success(data.message || `Queued — ${data.count || ''} invoices will be emailed shortly.`, {
+        duration: 8000,
+      });
       setBulkEmailOpen(false);
       setBulkEmailTo('');
       setBulkEmailSubject('');
@@ -2385,7 +2394,7 @@ export const InvoiceHistory = () => {
             size="sm"
             variant="outline"
             onClick={() => setBulkEmailOpen(true)}
-            disabled={bulkExportLoading || !bulkExportCount || !bulkExportCount.within_limit || bulkExportCount.count === 0}
+            disabled={bulkExportLoading || !bulkExportCount || !bulkExportCount.within_email_limit || bulkExportCount.count === 0}
             className="border-indigo-300 text-indigo-700 hover:bg-indigo-50"
             data-testid="bulk-email-zip-btn"
           >
@@ -2393,12 +2402,14 @@ export const InvoiceHistory = () => {
             Email ZIP
           </Button>
           {bulkExportCount && (
-            <span className={`text-xs font-semibold ${bulkExportCount.within_limit && bulkExportCount.count > 0 ? 'text-emerald-700' : 'text-rose-600'}`} data-testid="bulk-export-count">
+            <span className={`text-xs font-semibold ${bulkExportCount.within_email_limit && bulkExportCount.count > 0 ? (bulkExportCount.within_limit ? 'text-emerald-700' : 'text-indigo-700') : 'text-rose-600'}`} data-testid="bulk-export-count">
               {bulkExportCount.count === 0
                 ? 'No invoices in range'
-                : bulkExportCount.within_limit
-                  ? `${bulkExportCount.count} invoice${bulkExportCount.count === 1 ? '' : 's'} ready`
-                  : `${bulkExportCount.count} too many (max ${bulkExportCount.max_per_zip}) — narrow the range`}
+                : !bulkExportCount.within_email_limit
+                  ? `${bulkExportCount.count} too many (max ${bulkExportCount.max_per_email}) — narrow the range`
+                  : !bulkExportCount.within_limit
+                    ? `${bulkExportCount.count} invoices — too big to download, use Email ZIP (auto-splits by month)`
+                    : `${bulkExportCount.count} invoice${bulkExportCount.count === 1 ? '' : 's'} ready`}
             </span>
           )}
         </div>
@@ -2414,8 +2425,14 @@ export const InvoiceHistory = () => {
           <DialogHeader>
             <DialogTitle>Email invoice ZIP</DialogTitle>
             <DialogDescription>
-              Sends {bulkExportCount?.count || 0} invoice PDF{(bulkExportCount?.count || 0) === 1 ? '' : 's'}
-              {' '}({bulkFromDate} → {bulkToDate}) as a single ZIP attachment via your Resend account.
+              Queues {bulkExportCount?.count || 0} invoice PDF{(bulkExportCount?.count || 0) === 1 ? '' : 's'}
+              {' '}({bulkFromDate} → {bulkToDate}) to be ZIP-packaged and emailed via your Resend account.
+              {(bulkExportCount?.count || 0) > 600 && (
+                <span className="block mt-1 text-indigo-700 font-medium">
+                  Large batch — will be split into one email per month so each attachment stays under Resend&rsquo;s 40MB cap.
+                </span>
+              )}
+              {' '}Delivery usually takes 1–5 minutes.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3 py-2">
@@ -2479,7 +2496,7 @@ export const InvoiceHistory = () => {
               data-testid="bulk-email-send-btn"
             >
               <Mail className="h-3.5 w-3.5 mr-1.5" />
-              {bulkEmailSending ? 'Sending…' : 'Send email'}
+              {bulkEmailSending ? 'Queuing…' : 'Queue email'}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -2,6 +2,29 @@
 
 ---
 
+## 13 June 2026 — Bulk invoice export: 500 cap removed, email goes background
+
+### Problem
+- User hit `2267 invoices is over the 500 cap — narrow the range` when trying to export 3 months of invoices for their accountant. The 500 cap was a defensive guard but it broke the legitimate quarterly-accountant use-case.
+
+### Fix
+- **Two distinct caps** based on the delivery path's real constraint:
+  - **Sync download**: stays at **500** (browser/gateway 60s timeout limit). Anything bigger → use Email instead.
+  - **Async email**: **3000** invoices. Endpoint validates + counts synchronously, then schedules the heavy PDF-render + Resend dispatch as a **FastAPI BackgroundTask** so the HTTP response returns instantly with `queued: true`.
+- **Auto-split by calendar month** when the resulting ZIP would exceed Resend's 40MB attachment cap. The background task probes the full-range ZIP size first; if too big, it tears down and rebuilds one ZIP per month, sending N emails (one per month) — accountant-friendly layout, sidesteps the size limit by design.
+- **Sender heads-up email** when something goes wrong in the background (Resend rejection, etc.) so the admin isn't left wondering.
+- **Frontend UI**:
+  - Count display now exposes both caps; Email button stays enabled all the way up to 3000 invoices.
+  - When count is 501-3000: shows `"X invoices — too big to download, use Email ZIP (auto-splits by month)"` in indigo.
+  - When count > 600: dialog warns *"Large batch — will be split into one email per month so each attachment stays under Resend's 40MB cap."*
+  - Send button reads **"Queue email"** (not "Send email") and the success toast is the human message returned by the backend.
+
+### Files
+- `backend/routes/invoice_bulk_pdf.py` — new constants `MAX_INVOICES_PER_EMAIL = 3000`, `RESEND_ATTACHMENT_CAP_BYTES = 35MB`; new helpers `_month_chunks()`, `_compose_email_html()`, `_build_and_email_one_chunk()`, `_run_bulk_email_job()`, `_notify_sender_of_failure()`. Endpoint now uses `BackgroundTasks`.
+- `frontend/src/pages/admin/InvoiceHistory.js` — count UI, Email button gating, dialog copy, post-queue toast.
+- `backend/tests/test_invoice_bulk_pdf.py` — 24 tests, all passing. Added 7 new tests: monthly-chunks split, sender failure notification, queued contract, both-caps count response.
+
+
 ## 13 June 2026 — Monthly Report UI clarity + adblock noise filter
 
 ### Staff Monthly Report UI — redesigned for clarity
