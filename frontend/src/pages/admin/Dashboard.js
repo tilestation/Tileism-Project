@@ -15,6 +15,7 @@ import MarketingFunnelCard from '../../components/dashboard/MarketingFunnelCard'
 import ReturnHeatmapCard from '../../components/dashboard/ReturnHeatmapCard';
 import ConversionFunnelCard from './ConversionFunnelCard';
 import { normaliseImageUrl } from '../../utils/safeStr';
+import AutoExportSchedulerCard from '../../components/AutoExportSchedulerCard';
 
 const COLORS = ['#f97316', '#3b82f6', '#22c55e', '#a855f7', '#ef4444', '#06b6d4'];
 
@@ -3000,6 +3001,20 @@ export const AdminDashboard = () => {
           to anyone who can see the dashboard (showroom managers benefit from
           knowing their own store's refund pattern too). */}
       <ReturnHeatmapCard />
+
+      {/* 13 Jun 2026 — Owner Monthly Telegram Digest. Sends a compact
+          "last month's totals" message to the configured Telegram chat
+          on the chosen day of each month. Super-admin only — the card
+          itself silently no-ops via 403 for other roles. */}
+      {isSuperAdmin && (
+        <AutoExportSchedulerCard
+          kind="owner_digest"
+          scope="global"
+          title="Owner monthly Telegram digest"
+          description="One Telegram message on the 1st of each month with last month's sales, quotes, petty cash, accountant emails delivered, and anything that needs your attention."
+          testIdPrefix="auto-export-owner-digest"
+        />
+      )}
 
       {/* Stat Cards - At Bottom of Page */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">

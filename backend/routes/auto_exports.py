@@ -55,7 +55,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/auto-exports", tags=["AutoExports"])
 
-VALID_KINDS = {"invoices", "petty_cash"}
+VALID_KINDS = {"invoices", "petty_cash", "owner_digest"}
 MAX_RECIPIENTS = 5
 # Cap at 28 so a schedule set for "end of month" still fires every Feb.
 # Anyone wanting "last day of month" can use 28 and most months will be
@@ -65,8 +65,14 @@ MAX_DAY_OF_MONTH = 28
 
 
 class AutoExportScheduleIn(BaseModel):
-    """Upsert payload. `scope` is required only for petty_cash."""
-    recipient_emails: List[EmailStr] = Field(..., min_length=1, max_length=MAX_RECIPIENTS)
+    """Upsert payload. `scope` is required only for petty_cash.
+
+    For `owner_digest` the recipient list is allowed to be empty —
+    delivery is via Telegram (using the global `notification_settings.
+    telegram.chat_ids`), so the e-mail recipients box on the UI is
+    informational only.
+    """
+    recipient_emails: List[EmailStr] = Field(default_factory=list, max_length=MAX_RECIPIENTS)
     enabled: bool = True
     day_of_month: int = Field(default=1, ge=1, le=MAX_DAY_OF_MONTH)
     scope: Optional[str] = Field(default=None, max_length=80)
@@ -100,6 +106,10 @@ def _normalise_scope(kind: str, scope: Optional[str]) -> str:
     if kind == "invoices":
         # Invoices are company-wide; ignore any client-provided scope.
         return "all"
+    if kind == "owner_digest":
+        # The owner digest is a single per-company schedule. Forces
+        # scope='global' so we never end up with duplicate rows.
+        return "global"
     if kind == "petty_cash":
         if not scope:
             raise HTTPException(400, "petty_cash schedules require a `scope` (showroom_id or 'all_showrooms')")
@@ -156,6 +166,10 @@ async def upsert_auto_export(
     _require_super_admin(current_user)
     if kind not in VALID_KINDS:
         raise HTTPException(400, f"Unknown kind: {kind}. Must be one of {sorted(VALID_KINDS)}")
+    # Email-delivering kinds need at least one recipient; owner_digest
+    # ships via Telegram so an empty list is fine.
+    if kind != "owner_digest" and len(payload.recipient_emails) == 0:
+        raise HTTPException(400, f"{kind} schedules require at least one recipient email")
     scope = _normalise_scope(kind, payload.scope)
     db = get_db()
     now_iso = datetime.now(timezone.utc).isoformat()
@@ -264,6 +278,14 @@ async def run_auto_export_now(
             sender_name, sender_email,
             schedule["id"],
         )
+    elif schedule["kind"] == "owner_digest":
+        from services.owner_monthly_digest import run_owner_monthly_digest_job  # noqa: PLC0415
+        # recipient_emails on owner_digest is informational; the digest
+        # uses Telegram (global config). We pass None to use defaults.
+        background_tasks.add_task(
+            run_owner_monthly_digest_job,
+            target_year, target_month, schedule["id"], None,
+        )
     else:  # petty_cash
         from services.petty_cash_export import run_petty_cash_monthly_email_job  # noqa: PLC0415
         background_tasks.add_task(
@@ -276,6 +298,11 @@ async def run_auto_export_now(
             schedule["id"],
         )
 
+    if schedule["kind"] == "owner_digest":
+        delivery_descr = "delivered to your Telegram chat"
+    else:
+        delivery_descr = f"emailed to {', '.join(schedule['recipient_emails'])}"
+
     return {
         "ok": True,
         "queued": True,
@@ -286,8 +313,8 @@ async def run_auto_export_now(
         "target_month": target_month,
         "to": list(schedule["recipient_emails"]),
         "message": (
-            f"Queued — auto-export for {target_year}-{target_month:02d} will be emailed to "
-            f"{', '.join(schedule['recipient_emails'])} shortly."
+            f"Queued — auto-export for {target_year}-{target_month:02d} will be "
+            f"{delivery_descr} shortly."
         ),
     }
 

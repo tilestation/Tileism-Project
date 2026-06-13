@@ -120,9 +120,14 @@ export default function AutoExportSchedulerCard({
     .map((s) => s.trim())
     .filter(Boolean);
 
+  // owner_digest delivers via Telegram (using the global notification
+  // settings), so the email recipients field is hidden — keeps the UI
+  // honest about how the message actually lands.
+  const isTelegramKind = kind === 'owner_digest';
+
   const handleSave = async () => {
     const list = parseRecipients();
-    if (list.length === 0) {
+    if (!isTelegramKind && list.length === 0) {
       toast.error('Add at least one recipient email.');
       return;
     }
@@ -223,20 +228,33 @@ export default function AutoExportSchedulerCard({
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        <div className="sm:col-span-2">
-          <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-            Accountant email(s) — comma separated, max 5
-          </label>
-          <Input
-            type="text"
-            value={recipients}
-            onChange={(e) => setRecipients(e.target.value)}
-            placeholder="accountant@example.com, owner@tilestation.co.uk"
-            className="mt-1"
-            disabled={loading || saving}
-            data-testid={`${testIdPrefix}-recipients`}
-          />
-        </div>
+        {!isTelegramKind && (
+          <div className="sm:col-span-2">
+            <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+              Accountant email(s) — comma separated, max 5
+            </label>
+            <Input
+              type="text"
+              value={recipients}
+              onChange={(e) => setRecipients(e.target.value)}
+              placeholder="accountant@example.com, owner@tilestation.co.uk"
+              className="mt-1"
+              disabled={loading || saving}
+              data-testid={`${testIdPrefix}-recipients`}
+            />
+          </div>
+        )}
+        {isTelegramKind && (
+          <div className="sm:col-span-2">
+            <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+              Delivery
+            </label>
+            <div className="mt-1 px-3 py-2 rounded-md border bg-muted/30 text-xs text-muted-foreground">
+              Sent via Telegram to the chat IDs configured in
+              <strong className="text-foreground"> Settings → Notifications</strong>. No email required.
+            </div>
+          </div>
+        )}
         <div>
           <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
             Day of month
@@ -316,7 +334,11 @@ export default function AutoExportSchedulerCard({
               className="border-indigo-300 text-indigo-700 hover:bg-indigo-50"
             >
               <Send className="w-3.5 h-3.5 mr-1.5" />
-              {runningNow ? 'Sending…' : 'Send last month now'}
+              {runningNow
+                ? 'Sending…'
+                : isTelegramKind
+                  ? 'Send preview to Telegram'
+                  : 'Send last month now'}
             </Button>
           )}
           {schedule?.id && (

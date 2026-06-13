@@ -9771,7 +9771,9 @@ async def startup_scheduler():
                     sched_id = sched.get("id")
                     kind = sched.get("kind")
                     recipients = list(sched.get("recipient_emails") or [])
-                    if not recipients:
+                    # owner_digest delivers via Telegram, not email — so
+                    # an empty recipients list is fine for that kind.
+                    if not recipients and kind != "owner_digest":
                         continue
                     sender_name = "Tile Station Auto-Exports"
                     sender_email = sched.get("created_by")
@@ -9792,6 +9794,11 @@ async def startup_scheduler():
                                 recipients,
                                 sched.get("subject"), sched.get("message"),
                                 sender_name, sender_email, sched_id,
+                            )
+                        elif kind == "owner_digest":
+                            from services.owner_monthly_digest import run_owner_monthly_digest_job  # noqa: PLC0415
+                            await run_owner_monthly_digest_job(
+                                target_year, target_month, sched_id, None,
                             )
                         else:
                             logger.warning("[auto-exports] unknown kind on schedule %s: %s", sched_id, kind)

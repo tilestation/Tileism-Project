@@ -2,7 +2,51 @@
 
 ---
 
-## 13 June 2026 — Auto-monthly exports: "Set once, forget" for accountant emails
+## 13 June 2026 — Owner monthly Telegram digest
+
+### What it does
+- A single Telegram message arrives on the 1st of each month (or whatever day the admin picks) summarising last month in one glance:
+  - 💰 **Sales:** total £ and invoice count, top-3 showrooms
+  - 📝 **Quotes:** won / created + conversion rate
+  - 💸 **Petty cash:** total spend + per-showroom breakdown
+  - 📧 **Accountant emails:** how many auto-export schedules delivered successfully this cycle
+  - 🏆 **Top staff:** best performer by sales £
+  - ⚠️ **Needs attention:** failed auto-export schedules + customer error spikes (only renders when there's actually something to flag)
+- Designed to be the only morning-of-the-1st notification the owner needs to read.
+
+### Architecture (re-uses existing scaffolding)
+- New `kind='owner_digest'` on the existing `auto_export_schedules` collection — so the hourly cron in `server.py::_auto_exports_cron_loop` already fires it. No new infrastructure.
+- New file `services/owner_monthly_digest.py` with three functions:
+  - `assemble_monthly_digest(year, month)` — gathers sales / quotes / petty cash / schedule status / alerts. Each sub-query is in its own try/except so a missing collection can't take the whole digest down.
+  - `format_telegram_html(summary)` — compact HTML for Telegram (`📊 May 2026 recap`, £-prefixed totals, indented breakdowns).
+  - `run_owner_monthly_digest_job(year, month, schedule_id?, chat_ids_override?)` — assembles + sends via the existing `services/telegram_notify.send_telegram` helper, then writes outcome via `mark_schedule_result()`.
+- Route layer:
+  - `auto_exports.VALID_KINDS` extended to include `'owner_digest'`.
+  - Scope forced to `'global'` (single per-company schedule).
+  - `recipient_emails` allowed to be empty for `owner_digest` (Telegram is the delivery channel); still required for `invoices` + `petty_cash`.
+  - Run-now dispatches to the new job for this kind.
+  - Queued-response copy switches from "emailed to …" → "delivered to your Telegram chat" when kind is owner_digest.
+
+### Frontend
+- Reused `AutoExportSchedulerCard.jsx` with a new `isTelegramKind` branch:
+  - Hides the email recipients input (Telegram has no per-schedule recipient list — uses the global chat IDs from `notification_settings.telegram`).
+  - Shows a "Delivery: Sent via Telegram to the chat IDs configured in Settings → Notifications" hint instead.
+  - "Send last month now" button relabels to **"Send preview to Telegram"**.
+- Mounted on the main admin Dashboard (`/admin`) below the Return Heatmap section, super-admin only.
+
+### Tests
+- `tests/test_owner_monthly_digest.py` (10 tests): assembly aggregation, empty-month graceful zeroing, single-collection-crash isolation, Telegram HTML rendering for both happy + attention paths, end-to-end job sends + marks `ok`, marks `failed` when Telegram isn't configured, chat_ids_override honored, route accepts empty recipients for owner_digest while still requiring them for invoices.
+- **128 backend tests** total passing across all auto-export modules.
+
+### Files
+- `backend/services/owner_monthly_digest.py` (NEW)
+- `backend/routes/auto_exports.py` (extended for `owner_digest` kind)
+- `backend/server.py` (cron-loop dispatch branch)
+- `frontend/src/components/AutoExportSchedulerCard.jsx` (Telegram-aware UI)
+- `frontend/src/pages/admin/Dashboard.js` (mount card)
+- `backend/tests/test_owner_monthly_digest.py` (NEW)
+
+
 
 ### What it does
 - **Invoices**: on a chosen day each month (default 1st), last month's invoice PDFs are bundled into a ZIP and emailed to the accountant automatically. Uses the existing `_run_bulk_email_job` background task → inherits the monthly chunking + Resend size handling already shipped.
