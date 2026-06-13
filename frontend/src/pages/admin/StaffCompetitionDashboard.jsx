@@ -170,7 +170,31 @@ export default function StaffCompetitionDashboard() {
   }, [data]);
 
   const conversionSorted = useMemo(() => {
-    return [...fullStaff].sort((a, b) => (b.quotes_converted || 0) - (a.quotes_converted || 0));
+    const sorted = [...fullStaff].sort((a, b) => (b.quotes_converted || 0) - (a.quotes_converted || 0));
+    // 13 Jun 2026 — "Catch the person above you" motivator. For each
+    // ranked staff, attach how many quote-wins they need to overtake
+    // the row above. #1 gets `lead_over_below` instead so the top
+    // dog has defensive motivation ("don't let X catch you").
+    return sorted.map((s, idx) => {
+      if ((s.quotes_converted || 0) === 0) return s; // unranked
+      if (idx === 0) {
+        const below = sorted[1];
+        if (below && (below.quotes_converted || 0) > 0) {
+          return {
+            ...s,
+            quotes_lead_over_below: (s.quotes_converted || 0) - (below.quotes_converted || 0),
+            quotes_lead_over_below_name: below.name,
+          };
+        }
+        return s;
+      }
+      const above = sorted[idx - 1];
+      return {
+        ...s,
+        quotes_gap_to_above: Math.max(0, (above.quotes_converted || 0) - (s.quotes_converted || 0)) + 1,
+        quotes_gap_to_above_name: above.name,
+      };
+    });
   }, [fullStaff]);
 
   const salesSorted = useMemo(() => {
@@ -181,11 +205,35 @@ export default function StaffCompetitionDashboard() {
     // big sales is rewarded a bit more than pure quantity, but
     // closers still rank well. Falls back to raw £ if the backend
     // hasn't sent composite (older deploys).
-    return [...fullStaff].sort((a, b) => {
+    const sorted = [...fullStaff].sort((a, b) => {
       const aScore = a.sales_composite_score ?? null;
       const bScore = b.sales_composite_score ?? null;
       if (aScore !== null && bScore !== null) return bScore - aScore;
       return (b.sales_value_gbp || 0) - (a.sales_value_gbp || 0);
+    });
+    // 13 Jun 2026 — "Catch the person above you" — show each staff
+    // the exact £ gap to overtake the row above them. #1 sees their
+    // lead over #2 (defensive framing). Tiny psychological lever
+    // shown to be the strongest motivator in sales gamification.
+    return sorted.map((s, idx) => {
+      if ((s.sales_value_gbp || 0) === 0) return s; // unranked
+      if (idx === 0) {
+        const below = sorted[1];
+        if (below && (below.sales_value_gbp || 0) > 0) {
+          return {
+            ...s,
+            sales_lead_over_below_gbp: (s.sales_value_gbp || 0) - (below.sales_value_gbp || 0),
+            sales_lead_over_below_name: below.name,
+          };
+        }
+        return s;
+      }
+      const above = sorted[idx - 1];
+      return {
+        ...s,
+        sales_gap_to_above_gbp: Math.max(0, (above.sales_value_gbp || 0) - (s.sales_value_gbp || 0)) + 1,
+        sales_gap_to_above_name: above.name,
+      };
     });
   }, [fullStaff]);
 
@@ -201,8 +249,25 @@ export default function StaffCompetitionDashboard() {
     champion, target, progress, progress_sales = [], progress_conversions = [],
     head_to_head, showrooms,
     showroom_winners, active_streaks, personal_best_chasers,
-    comebacks, active_highlight, total_staff,
+    comebacks, active_highlight, total_staff, weekly_climber,
   } = data;
+
+  // 13 Jun 2026 — Time-aware motivational copy. The text changes by
+  // where we are in the month, so the dashboard feels alive instead
+  // of static. Tone shifts from "fresh start" → "halfway" → "final
+  // push" → "last day".
+  const motivationalLine = (() => {
+    if (!days_total) return null;
+    const pct = (days_elapsed / days_total) * 100;
+    if (days_elapsed <= 2) return { emoji: '🌅', text: `Fresh ${month.split(' ')[0]} — first sale of the month sets the tone. Who's it going to be?` };
+    if (days_left === 0) return { emoji: '🏁', text: `Final day of ${month.split(' ')[0]} — every quote closed in the next few hours counts double.` };
+    if (days_left === 1) return { emoji: '⏳', text: `24 hours left — one more sale could change the ranking. Push it.` };
+    if (days_left <= 3) return { emoji: '🔥', text: `Final ${days_left} days — anything is still possible. Don't ease up now.` };
+    if (days_left <= 7) return { emoji: '⚡', text: `Last week of the month — sprint finish. Every quote, every call.` };
+    if (pct >= 45 && pct <= 55) return { emoji: '⛰️', text: `Halfway through ${month.split(' ')[0]} — what's your second-half push?` };
+    if (pct >= 70) return { emoji: '🎯', text: `Final stretch — ${days_left} days to lock in your numbers.` };
+    return { emoji: '💪', text: `${days_left} days left in the month — there's plenty of room to climb.` };
+  })();
 
   return (
     <div className="p-4 md:p-6 max-w-7xl mx-auto space-y-5" data-testid="competition-dashboard">
@@ -354,6 +419,43 @@ export default function StaffCompetitionDashboard() {
         )}
       </Card>
 
+      {/* 13 Jun 2026 — Motivational banner + weekly climber callout.
+          Sits between the hero card and the dual leaderboards so it
+          catches attention at the top of the page without pushing
+          the actual data down too far. */}
+      {(motivationalLine || weekly_climber) && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3" data-testid="competition-motivation-row">
+          {motivationalLine && (
+            <div
+              className="p-4 rounded-2xl bg-gradient-to-br from-emerald-500/10 via-emerald-500/5 to-transparent border border-emerald-500/30 flex items-center gap-3"
+              data-testid="competition-motivation-banner"
+            >
+              <div className="text-3xl shrink-0" aria-hidden="true">{motivationalLine.emoji}</div>
+              <div>
+                <div className="text-[10px] uppercase tracking-wider font-bold text-emerald-700 dark:text-emerald-300 mb-0.5">Today's rally</div>
+                <div className="text-sm font-semibold text-foreground leading-snug">{motivationalLine.text}</div>
+              </div>
+            </div>
+          )}
+          {weekly_climber && (
+            <div
+              className="p-4 rounded-2xl bg-gradient-to-br from-fuchsia-500/15 via-purple-500/10 to-transparent border border-fuchsia-500/40 flex items-center gap-3"
+              data-testid="competition-weekly-climber"
+            >
+              <div className="text-3xl shrink-0" aria-hidden="true">🚀</div>
+              <div>
+                <div className="text-[10px] uppercase tracking-wider font-bold text-fuchsia-700 dark:text-fuchsia-300 mb-0.5">Biggest mover this week</div>
+                <div className="text-sm font-semibold text-foreground leading-snug">
+                  <span className="font-extrabold">{weekly_climber.name}</span>
+                  <span className="text-muted-foreground"> · {weekly_climber.showroom_name}</span>
+                  <span className="ml-1">jumped <span className="font-extrabold text-fuchsia-700 dark:text-fuchsia-300">{weekly_climber.places_climbed} place{weekly_climber.places_climbed === 1 ? '' : 's'}</span> · now #{weekly_climber.current_rank} 👏</span>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* SECTION 5 (PROMOTED) — Dual leaderboards visible
           immediately after the hero (3 Jun 2026 — user couldn't
           find the sales leaderboard; it was buried after the
@@ -381,7 +483,7 @@ export default function StaffCompetitionDashboard() {
                       <RankDelta change={s.quotes_rank_change} testId={`competition-conv-rank-delta-${s.name}`} />
                     </span>
                   </td>
-                  <td><span className="font-bold">{s.name}</span> <span className="text-xs text-muted-foreground">· {s.showroom_name}</span></td>
+                  <td><span className="font-bold">{s.name}</span> <span className="text-xs text-muted-foreground">· {s.showroom_name}</span><GapToOvertake s={s} mode="quotes" testIdBase={`conv-gap-${s.name}`} /></td>
                   <td className="text-right font-bold text-amber-700 dark:text-amber-300 tabular-nums">{s.quotes_converted}</td>
                   <td className="text-right tabular-nums text-emerald-700 dark:text-emerald-300">{s.conversion_rate}%</td>
                 </tr>
@@ -485,6 +587,7 @@ export default function StaffCompetitionDashboard() {
                         </span>
                       )}
                       {paceIcon}
+                      <GapToOvertake s={s} mode="sales" testIdBase={`sales-gap-${s.name}`} />
                     </div>
                   </td>
                   <td className="text-right font-bold text-yellow-700 dark:text-yellow-300 tabular-nums">£{Number(s.sales_value_gbp).toLocaleString('en-GB', { maximumFractionDigits: 0 })}</td>
@@ -994,4 +1097,67 @@ function RankDelta({ change, testId }) {
       {up ? '▲' : '▼'}{Math.abs(change)}
     </span>
   );
+}
+
+/**
+ * GapToOvertake — small inline pill nudging the staff to push past
+ * the row above (or, for #1, framing it defensively: "leading by X
+ * over the runner-up — don't let them catch up").
+ *
+ * "Catch the next person up" is repeatedly cited as the strongest
+ * single motivator in sales gamification literature. Visible directly
+ * on the row so each staff sees their own target without having to
+ * do mental maths.
+ */
+function GapToOvertake({ s, mode, testIdBase }) {
+  // SALES leaderboard
+  if (mode === 'sales') {
+    if (s.sales_gap_to_above_gbp) {
+      return (
+        <span
+          className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-[10px] font-bold leading-none text-emerald-700 dark:text-emerald-300 tabular-nums"
+          title={`Sell £${Number(s.sales_gap_to_above_gbp).toLocaleString('en-GB')} more to overtake ${s.sales_gap_to_above_name}`}
+          data-testid={`${testIdBase}-pill`}
+        >
+          ↑ £{Number(s.sales_gap_to_above_gbp).toLocaleString('en-GB', { maximumFractionDigits: 0 })} to pip {s.sales_gap_to_above_name}
+        </span>
+      );
+    }
+    if (s.sales_lead_over_below_gbp) {
+      return (
+        <span
+          className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-[10px] font-bold leading-none text-amber-700 dark:text-amber-300 tabular-nums"
+          title={`Leading ${s.sales_lead_over_below_name} by £${Number(s.sales_lead_over_below_gbp).toLocaleString('en-GB')} — don't ease up!`}
+          data-testid={`${testIdBase}-lead-pill`}
+        >
+          🏆 +£{Number(s.sales_lead_over_below_gbp).toLocaleString('en-GB', { maximumFractionDigits: 0 })} ahead
+        </span>
+      );
+    }
+    return null;
+  }
+  // QUOTES leaderboard
+  if (s.quotes_gap_to_above) {
+    return (
+      <span
+        className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-[10px] font-bold leading-none text-emerald-700 dark:text-emerald-300 ml-1.5"
+        title={`Win ${s.quotes_gap_to_above} more quote${s.quotes_gap_to_above === 1 ? '' : 's'} to overtake ${s.quotes_gap_to_above_name}`}
+        data-testid={`${testIdBase}-pill`}
+      >
+        ↑ {s.quotes_gap_to_above} to pip {s.quotes_gap_to_above_name}
+      </span>
+    );
+  }
+  if (s.quotes_lead_over_below) {
+    return (
+      <span
+        className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-[10px] font-bold leading-none text-amber-700 dark:text-amber-300 ml-1.5"
+        title={`Leading ${s.quotes_lead_over_below_name} by ${s.quotes_lead_over_below} won quote${s.quotes_lead_over_below === 1 ? '' : 's'}`}
+        data-testid={`${testIdBase}-lead-pill`}
+      >
+        🏆 +{s.quotes_lead_over_below} ahead
+      </span>
+    );
+  }
+  return null;
 }

@@ -150,6 +150,62 @@ async def attach_rank_changes_and_snapshot(staff: list) -> None:
     await _save_rank_snapshot("quote_conversions", today_iso, quote_ranks)
 
 
+async def _compute_weekly_climber(staff: list) -> dict | None:
+    """Return the biggest week-on-week climber on the Sales composite
+    board — i.e. the staff who rose the most places vs the snapshot
+    from ~7 days ago.
+
+    Returns None when:
+      - no 7-day-old snapshot exists yet (first 7 days after deploy)
+      - the biggest climb is < 2 places (not noteworthy)
+      - no staff with positive movement
+
+    Output is a small shape suitable for a 'celebration' callout:
+      { user_key, name, showroom_name, places_climbed, current_rank }
+    """
+    today = datetime.now(timezone.utc).date()
+    target_iso = (today - timedelta(days=7)).isoformat()
+    # Use the snapshot closest to (but not after) 7 days ago — handles
+    # any missed days gracefully.
+    doc = await get_db().staff_rank_snapshots.find_one(
+        {"board": "sales_composite", "date": {"$lte": target_iso}},
+        {"_id": 0, "ranks": 1, "date": 1},
+        sort=[("date", -1)],
+    )
+    if not doc:
+        return None
+    week_ago_ranks = doc.get("ranks") or {}
+
+    current_ranks = _compute_ranks(staff, lambda s: s.get("sales_composite_score") or 0)
+    staff_by_key = {s.get("user_key"): s for s in staff}
+
+    best = None  # (places_climbed, current_rank_asc_tiebreak, payload)
+    for uk, curr_rank in current_ranks.items():
+        prev_rank = week_ago_ranks.get(uk)
+        if not prev_rank:
+            continue  # new staff this week — no comparison
+        delta = prev_rank - curr_rank
+        if delta < 2:
+            continue
+        s = staff_by_key.get(uk)
+        if not s:
+            continue
+        payload = {
+            "user_key": uk,
+            "name": s.get("name"),
+            "showroom_name": s.get("showroom_name"),
+            "places_climbed": delta,
+            "current_rank": curr_rank,
+            "from_rank": prev_rank,
+            "snapshot_date": doc.get("date"),
+        }
+        # Bigger climb wins; ties broken by who's higher on the board now.
+        key = (delta, -curr_rank)
+        if best is None or key > best[0]:
+            best = (key, payload)
+    return best[1] if best else None
+
+
 async def _compute_leaderboard(month_only: bool = True) -> dict:
     """Aggregate quote-conversions + special-order sales per staff.
 
@@ -1408,6 +1464,11 @@ async def get_competition_dashboard(
     # prior-day snapshot, then writes today's snapshot for tomorrow.
     await attach_rank_changes_and_snapshot(decorated)
 
+    # 13 Jun 2026 — Biggest weekly climber callout. Computed AFTER
+    # the snapshot write so the comparison reads the older 7-day-old
+    # snapshot (not the one we just wrote).
+    weekly_climber = await _compute_weekly_climber(decorated)
+
     return {
         "month": month_label,
         "month_start": month_start.isoformat(),
@@ -1446,6 +1507,7 @@ async def get_competition_dashboard(
         "personal_best_chasers": pb_chasers,
         "comebacks": comebacks,
         "active_highlight": highlight,
+        "weekly_climber": weekly_climber,
         "total_staff": len(decorated),
     }
 

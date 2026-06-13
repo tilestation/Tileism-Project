@@ -981,5 +981,64 @@ def test_attach_rank_changes_persists_todays_snapshot_with_ranks():
     assert ranks == {"u2": 1, "u3": 2, "u1": 3}
 
 
+# ---------------------------------------------------------------------
+# Weekly biggest climber (13 Jun 2026)
+# ---------------------------------------------------------------------
+def test_weekly_climber_returns_none_when_no_history():
+    """No 7-day-old snapshot exists yet (first week after deploy) →
+    no climber callout."""
+    import asyncio
+    from routes.staff_leaderboard import _compute_weekly_climber
+    staff = [
+        {"user_key": "u1", "name": "U1", "sales_composite_score": 90, "showroom_name": "X"},
+    ]
+    db = _db()  # find_one returns None
+    with patch("routes.staff_leaderboard.get_db", return_value=db):
+        result = asyncio.run(_compute_weekly_climber(staff))
+    assert result is None
+
+
+def test_weekly_climber_picks_biggest_climber():
+    """Among staff who all improved, the one with the largest delta
+    is picked. Climbs of <2 places are not noteworthy and ignored."""
+    import asyncio
+    from routes.staff_leaderboard import _compute_weekly_climber
+    staff = [
+        {"user_key": "alice", "name": "Alice", "sales_composite_score": 100, "showroom_name": "T"},
+        {"user_key": "bob",   "name": "Bob",   "sales_composite_score": 80,  "showroom_name": "G"},
+        {"user_key": "carol", "name": "Carol", "sales_composite_score": 50,  "showroom_name": "C"},
+    ]
+    # 7 days ago: Alice was 8th (climbed +7), Bob was 3rd (climbed +1, ignored),
+    # Carol was 6th (climbed +3). Alice wins.
+    prior = {
+        "date": "2026-06-06",
+        "ranks": {"alice": 8, "bob": 3, "carol": 6},
+    }
+    db = _db(prior_rank_snapshot=prior)
+    with patch("routes.staff_leaderboard.get_db", return_value=db):
+        result = asyncio.run(_compute_weekly_climber(staff))
+    assert result is not None
+    assert result["name"] == "Alice"
+    assert result["places_climbed"] == 7
+    assert result["current_rank"] == 1
+    assert result["from_rank"] == 8
+
+
+def test_weekly_climber_ignores_single_place_movers():
+    """A +1 move isn't worth a celebration banner — only +2 or more
+    triggers the callout."""
+    import asyncio
+    from routes.staff_leaderboard import _compute_weekly_climber
+    staff = [
+        {"user_key": "u1", "name": "U1", "sales_composite_score": 90, "showroom_name": "X"},
+        {"user_key": "u2", "name": "U2", "sales_composite_score": 70, "showroom_name": "Y"},
+    ]
+    prior = {"date": "2026-06-06", "ranks": {"u1": 2, "u2": 1}}
+    db = _db(prior_rank_snapshot=prior)
+    with patch("routes.staff_leaderboard.get_db", return_value=db):
+        result = asyncio.run(_compute_weekly_climber(staff))
+    assert result is None  # only +1 climb available
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
