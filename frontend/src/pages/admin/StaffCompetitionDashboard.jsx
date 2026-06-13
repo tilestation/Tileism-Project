@@ -456,12 +456,13 @@ export default function StaffCompetitionDashboard() {
         </div>
       )}
 
-      {/* SECTION 5 (PROMOTED) — Sales Leaderboard STANDALONE at the
-          top, then Quote-conversion below it (13 Jun 2026 — user
-          request: "Place Sales Leaderboard on top of the page,
-          prominent and separate, standalone"). Sales is the
-          headline metric — having it side-by-side with Conversion
-          diluted it visually. */}
+      {/* SECTION 5 (PROMOTED) — Top 3 podium + Sales leaderboard
+          standalone, with Quote-conversion below (13 Jun 2026 — user
+          requests: "Sales standalone, prominent" + "Add Top 3 podium
+          above"). The podium turns the page into a real tournament:
+          staff want to see their face on the podium. */}
+      <TopThreePodium staff={salesSorted} onPick={openDrawer} />
+
       <Card className="p-5 border-2 border-emerald-500/40 bg-gradient-to-br from-emerald-50/30 via-card to-card dark:from-emerald-950/20 dark:via-card dark:to-card shadow-md shadow-emerald-500/5" data-testid="competition-sales-standalone">
         <SectionHeader icon={Trophy} title={`Sales leaderboard · ${month}`} accent="emerald">
           <span className="text-[10px] text-muted-foreground">(Special-Order only)</span>
@@ -1100,16 +1101,6 @@ function RankDelta({ change, testId }) {
   );
 }
 
-/**
- * GapToOvertake — small inline pill nudging the staff to push past
- * the row above (or, for #1, framing it defensively: "leading by X
- * over the runner-up — don't let them catch up").
- *
- * "Catch the next person up" is repeatedly cited as the strongest
- * single motivator in sales gamification literature. Visible directly
- * on the row so each staff sees their own target without having to
- * do mental maths.
- */
 function GapToOvertake({ s, mode, testIdBase }) {
   // SALES leaderboard
   if (mode === 'sales') {
@@ -1161,4 +1152,103 @@ function GapToOvertake({ s, mode, testIdBase }) {
     );
   }
   return null;
+}
+
+/**
+ * StaffAvatar — circular profile picture if uploaded, otherwise
+ * initials in a coloured circle. Used by the podium + (optionally)
+ * inline in leaderboard rows in the future.
+ */
+function StaffAvatar({ name, photoUrl, size = 48, testId }) {
+  const initials = (name || '')
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((w) => w[0].toUpperCase())
+    .join('') || '?';
+  // Deterministic background tint based on the name (so the same staff
+  // always gets the same fallback colour).
+  const palette = ['bg-emerald-500/80', 'bg-amber-500/80', 'bg-rose-500/80', 'bg-fuchsia-500/80', 'bg-sky-500/80', 'bg-indigo-500/80'];
+  const idx = Math.abs([...name || ''].reduce((a, c) => a + c.charCodeAt(0), 0)) % palette.length;
+  const dim = { width: size, height: size };
+  if (photoUrl) {
+    return (
+      <img
+        src={photoUrl}
+        alt={name}
+        style={dim}
+        className="rounded-full object-cover border-2 border-white/40 dark:border-slate-700/40 shadow"
+        data-testid={testId}
+        loading="lazy"
+      />
+    );
+  }
+  return (
+    <div
+      style={dim}
+      className={`rounded-full flex items-center justify-center text-white font-bold shadow ${palette[idx]}`}
+      data-testid={testId}
+    >
+      <span style={{ fontSize: Math.round(size * 0.4) }}>{initials}</span>
+    </div>
+  );
+}
+
+/**
+ * TopThreePodium — visual podium for the top 3 of the SALES board.
+ * 1st place is centred + elevated; 2nd and 3rd flank it. Clicking
+ * any plinth opens that staff's recent-activity drawer. Renders
+ * nothing when no staff has any sales yet (keeps the page calm
+ * during quiet days).
+ */
+function TopThreePodium({ staff, onPick }) {
+  const top = (staff || []).filter((s) => (s.sales_value_gbp || 0) > 0).slice(0, 3);
+  if (top.length === 0) return null;
+  // Order on-screen: [#2, #1, #3] so the gold winner stands centre.
+  const layout = [top[1], top[0], top[2]].filter(Boolean);
+  return (
+    <div className="grid grid-cols-3 gap-3 items-end" data-testid="top-three-podium">
+      {layout.map((s) => {
+        const rank = top.indexOf(s) + 1;
+        const isFirst = rank === 1;
+        const isSecond = rank === 2;
+        const accent = isFirst
+          ? 'border-amber-400 bg-gradient-to-br from-amber-50 via-yellow-50 to-amber-100 dark:from-amber-950/30 dark:via-yellow-950/20 dark:to-amber-900/20 shadow-amber-400/30'
+          : isSecond
+            ? 'border-slate-300 bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-900/40 dark:to-slate-800/40 shadow-slate-400/20'
+            : 'border-orange-400/60 bg-gradient-to-br from-orange-50 to-amber-50 dark:from-orange-950/30 dark:to-amber-950/20 shadow-orange-400/20';
+        const trophy = isFirst ? '🏆' : isSecond ? '🥈' : '🥉';
+        const height = isFirst ? 'pt-8 pb-6' : 'pt-5 pb-4';
+        const avatarSize = isFirst ? 76 : 60;
+        return (
+          <button
+            key={`podium-${s.user_key}`}
+            type="button"
+            onClick={() => onPick && onPick(s)}
+            className={`text-left rounded-2xl border-2 ${accent} ${height} px-4 shadow-lg hover:shadow-xl transition-shadow cursor-pointer`}
+            data-testid={`podium-rank-${rank}`}
+            title={`#${rank} · click to see ${s.name}'s recent invoices`}
+          >
+            <div className="flex flex-col items-center gap-2">
+              <div className="text-3xl">{trophy}</div>
+              <StaffAvatar
+                name={s.name}
+                photoUrl={s.photo_url}
+                size={avatarSize}
+                testId={`podium-avatar-${rank}`}
+              />
+              <div className={`font-extrabold ${isFirst ? 'text-xl' : 'text-base'} text-center leading-tight`}>{s.name}</div>
+              <div className="text-[11px] text-muted-foreground text-center">{s.showroom_name}</div>
+              <div className={`tabular-nums font-bold ${isFirst ? 'text-2xl text-amber-700 dark:text-amber-300' : 'text-lg text-emerald-700 dark:text-emerald-300'}`}>
+                £{Number(s.sales_value_gbp).toLocaleString('en-GB', { maximumFractionDigits: 0 })}
+              </div>
+              <div className="text-[10px] text-muted-foreground">
+                {s.sales_count} sale{s.sales_count === 1 ? '' : 's'} · score {(s.sales_composite_score ?? 0).toFixed(1)}
+              </div>
+            </div>
+          </button>
+        );
+      })}
+    </div>
+  );
 }

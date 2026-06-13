@@ -240,7 +240,7 @@ async def _compute_leaderboard(month_only: bool = True) -> dict:
     # display name).
     async for u in db.users.find(
         {"role": {"$in": ["super_admin", "admin", "manager", "staff"]}},
-        {"_id": 0, "id": 1, "email": 1, "name": 1, "showroom_id": 1, "showroom_name": 1},
+        {"_id": 0, "id": 1, "email": 1, "name": 1, "showroom_id": 1, "showroom_name": 1, "photo_url": 1},
     ):
         sid = (u.get("showroom_id") or "").strip()
         # 8 Jun 2026 — Prefer the CANONICAL name from `db.showrooms`
@@ -257,6 +257,9 @@ async def _compute_leaderboard(month_only: bool = True) -> dict:
             "showroom_name": sname,
             "name": (u.get("name") or "").strip(),
             "email": (u.get("email") or "").strip(),
+            # 13 Jun 2026 — profile photo (data-URL) for the podium
+            # + leaderboard avatars. None when staff hasn't uploaded.
+            "photo_url": (u.get("photo_url") or None),
         }
         uid = (u.get("id") or "").strip()
         if uid:
@@ -524,6 +527,19 @@ async def _compute_leaderboard(month_only: bool = True) -> dict:
         converted = entry["quotes_converted"]
         entry["conversion_rate"] = round((converted / created) * 100, 1) if created > 0 else 0.0
         entry["sales_value_gbp"] = round(entry["sales_value_gbp"], 2)
+        # 13 Jun 2026 — Hydrate profile photo so the podium + row
+        # avatars can render. Lookup priority: canonical user_id →
+        # email map → name map. None if the staff hasn't uploaded
+        # a photo yet (frontend falls back to initials).
+        photo = None
+        uid = (entry.get("user_id") or "").strip()
+        if uid and uid in user_resolution:
+            photo = user_resolution[uid].get("photo_url")
+        if not photo:
+            name_lc = (entry.get("name") or "").strip().lower()
+            if name_lc:
+                photo = (user_resolution.get(f"name:{name_lc}") or {}).get("photo_url")
+        entry["photo_url"] = photo or None
         staff_list.append(entry)
 
     # 6 Jun 2026 — personal sales target.

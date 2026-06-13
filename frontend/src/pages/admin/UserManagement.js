@@ -482,6 +482,19 @@ export const UserManagement = () => {
           </DialogHeader>
           
           <form onSubmit={handleSubmit} className="space-y-4">
+            {/* 13 Jun 2026 — Profile photo upload. Only available
+                when editing an existing user (we need the user_id).
+                Renders as a circular preview with Upload + Remove
+                buttons. Image is client-side compressed to 256×256
+                before upload to stay well within the 500KB cap. */}
+            {editingUser && (
+              <StaffPhotoUploader
+                userId={editingUser.id}
+                initialPhoto={editingUser.photo_url}
+                userName={editingUser.name}
+                onChange={(newUrl) => setEditingUser({ ...editingUser, photo_url: newUrl })}
+              />
+            )}
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="text-sm font-medium mb-1 block">
@@ -646,6 +659,174 @@ export const UserManagement = () => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+    </div>
+  );
+};
+
+/**
+ * StaffPhotoUploader — file-input that client-side compresses the
+ * selected image to 256x256 PNG before sending to /api/staff/{id}/photo.
+ * Image is stored as a base64 data URL on the user doc.
+ *
+ * Why client-side compress?
+ *   - keeps the request body small (under 100KB typically)
+ *   - skips the need for a separate image-processing pipeline
+ *   - avoids the 500KB backend cap rejecting real-camera uploads
+ */
+const StaffPhotoUploader = ({ userId, initialPhoto, userName, onChange }) => {
+  const [photo, setPhoto] = React.useState(initialPhoto || null);
+  const [uploading, setUploading] = React.useState(false);
+  const inputRef = React.useRef(null);
+
+  React.useEffect(() => { setPhoto(initialPhoto || null); }, [initialPhoto]);
+
+  const compressToDataUrl = (file) => new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = reject;
+    reader.onload = () => {
+      const img = new Image();
+      img.onerror = reject;
+      img.onload = () => {
+        const size = 256;
+        const canvas = document.createElement('canvas');
+        canvas.width = size;
+        canvas.height = size;
+        const ctx = canvas.getContext('2d');
+        // Cover-crop so portraits don't get squashed.
+        const ratio = Math.max(size / img.width, size / img.height);
+        const w = img.width * ratio;
+        const h = img.height * ratio;
+        ctx.drawImage(img, (size - w) / 2, (size - h) / 2, w, h);
+        resolve(canvas.toDataURL('image/jpeg', 0.85));
+      };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
+
+  const handleFile = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      toast.error('Please pick an image file (PNG / JPG / WebP).');
+      return;
+    }
+    setUploading(true);
+    try {
+      const dataUrl = await compressToDataUrl(file);
+      const token = localStorage.getItem('token');
+      const r = await fetch(
+        `${process.env.REACT_APP_BACKEND_URL}/api/staff/${userId}/photo`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: JSON.stringify({ photo_data_url: dataUrl }),
+        }
+      );
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({}));
+        toast.error(`Upload failed: ${j?.detail || r.status}`);
+        return;
+      }
+      setPhoto(dataUrl);
+      onChange?.(dataUrl);
+      toast.success('Photo uploaded.');
+    } catch (err) {
+      toast.error(`Upload failed: ${err.message}`);
+    } finally {
+      setUploading(false);
+      if (inputRef.current) inputRef.current.value = '';
+    }
+  };
+
+  const handleRemove = async () => {
+    if (!window.confirm(`Remove ${userName}'s profile photo?`)) return;
+    setUploading(true);
+    try {
+      const token = localStorage.getItem('token');
+      const r = await fetch(
+        `${process.env.REACT_APP_BACKEND_URL}/api/staff/${userId}/photo`,
+        {
+          method: 'DELETE',
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        }
+      );
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({}));
+        toast.error(`Remove failed: ${j?.detail || r.status}`);
+        return;
+      }
+      setPhoto(null);
+      onChange?.(null);
+      toast.success('Photo removed.');
+    } catch (err) {
+      toast.error(`Remove failed: ${err.message}`);
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  // Initials fallback when no photo.
+  const initials = (userName || '')
+    .split(/\s+/).filter(Boolean).slice(0, 2)
+    .map((w) => w[0].toUpperCase()).join('') || '?';
+
+  return (
+    <div className="flex items-center gap-4 p-3 rounded-lg border border-border bg-muted/20" data-testid="staff-photo-uploader">
+      {photo ? (
+        <img
+          src={photo}
+          alt={userName}
+          className="w-16 h-16 rounded-full object-cover border-2 border-white/30 shadow"
+          data-testid="staff-photo-preview"
+        />
+      ) : (
+        <div className="w-16 h-16 rounded-full bg-emerald-500/70 text-white font-bold flex items-center justify-center text-xl shadow" data-testid="staff-photo-initials">
+          {initials}
+        </div>
+      )}
+      <div className="flex-1">
+        <div className="text-sm font-semibold mb-1">Profile photo</div>
+        <div className="text-xs text-muted-foreground mb-2">
+          Auto-compressed to 256×256. Shows on the Sales podium &amp; leaderboards.
+        </div>
+        <div className="flex gap-2 flex-wrap">
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={() => inputRef.current?.click()}
+            disabled={uploading}
+            data-testid="staff-photo-upload-btn"
+          >
+            {uploading ? 'Uploading…' : (photo ? 'Replace' : 'Upload')}
+          </Button>
+          {photo && (
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              onClick={handleRemove}
+              disabled={uploading}
+              className="text-rose-600"
+              data-testid="staff-photo-remove-btn"
+            >
+              Remove
+            </Button>
+          )}
+          <input
+            ref={inputRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={handleFile}
+            data-testid="staff-photo-file-input"
+          />
+        </div>
+      </div>
     </div>
   );
 };
