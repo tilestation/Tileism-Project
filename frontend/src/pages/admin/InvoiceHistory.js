@@ -165,6 +165,14 @@ export const InvoiceHistory = () => {
   // ?search=… deep-link so cross-month invoices remain findable).
   const today = new Date().toISOString().split('T')[0];
   const [dateFilter, setDateFilter] = useState(_initialSearch ? '' : today);
+  // 13 Jun 2026 — bulk PDF export by date RANGE. `bulkFromDate` /
+  // `bulkToDate` are independent of `dateFilter` so opening the range
+  // picker doesn't fight with the existing single-day filter that
+  // drives the daily/weekly/monthly revenue cards above.
+  const [bulkFromDate, setBulkFromDate] = useState(today);
+  const [bulkToDate, setBulkToDate] = useState(today);
+  const [bulkExportCount, setBulkExportCount] = useState(null); // {count, within_limit} or null
+  const [bulkExportLoading, setBulkExportLoading] = useState(false);
   const [allInvoices, setAllInvoices] = useState([]); // Store all invoices for revenue calculations
   const [allRefunds, setAllRefunds] = useState([]); // Store all refunds for revenue calculations
   const [dataVersion, setDataVersion] = useState(0); // Used to force re-renders when data changes
@@ -1220,6 +1228,94 @@ export const InvoiceHistory = () => {
     setInvoices(allInvoices);
   };
 
+  // 13 Jun 2026 — Bulk PDF ZIP export. Two-step UX:
+  //   1) Hit the /count endpoint first to confirm size + show the
+  //      user how many invoices they're about to download.
+  //   2) Only if the user confirms (and the count is within the
+  //      MAX_INVOICES_PER_ZIP cap) do we kick off the heavy
+  //      generation request.
+  const handlePreviewBulkExport = async () => {
+    if (!bulkFromDate || !bulkToDate) {
+      toast.error('Pick both a From and To date.');
+      return;
+    }
+    if (bulkFromDate > bulkToDate) {
+      toast.error('From date must be on or before To date.');
+      return;
+    }
+    setBulkExportLoading(true);
+    setBulkExportCount(null);
+    try {
+      const token = localStorage.getItem('token');
+      const resp = await fetch(
+        `${process.env.REACT_APP_BACKEND_URL}/api/invoices/bulk-pdf-zip/count?from_date=${bulkFromDate}&to_date=${bulkToDate}`,
+        { headers: token ? { Authorization: `Bearer ${token}` } : {} }
+      );
+      const data = await resp.json();
+      if (!resp.ok) {
+        toast.error(data?.detail || `Couldn't check range: ${resp.status}`);
+        return;
+      }
+      setBulkExportCount(data);
+      if (data.count === 0) {
+        toast.info('No invoices in that date range.');
+      } else if (!data.within_limit) {
+        toast.error(`${data.count} invoices is over the ${data.max_per_zip} cap — narrow the range.`);
+      } else {
+        toast.success(`${data.count} invoice${data.count === 1 ? '' : 's'} ready to export. Click "Download ZIP" to start.`);
+      }
+    } catch (e) {
+      toast.error(`Couldn't check range: ${e.message}`);
+    } finally {
+      setBulkExportLoading(false);
+    }
+  };
+
+  const handleDownloadBulkZip = async () => {
+    if (!bulkExportCount || !bulkExportCount.within_limit || bulkExportCount.count === 0) {
+      toast.error('Run "Check" first to confirm the range.');
+      return;
+    }
+    setBulkExportLoading(true);
+    try {
+      const token = localStorage.getItem('token');
+      const resp = await fetch(
+        `${process.env.REACT_APP_BACKEND_URL}/api/invoices/bulk-pdf-zip?from_date=${bulkFromDate}&to_date=${bulkToDate}`,
+        { headers: token ? { Authorization: `Bearer ${token}` } : {} }
+      );
+      if (!resp.ok) {
+        let detail = `HTTP ${resp.status}`;
+        try {
+          const j = await resp.json();
+          detail = j?.detail || detail;
+        } catch { /* binary response — ignore */ }
+        toast.error(`Export failed: ${detail}`);
+        return;
+      }
+      const blob = await resp.blob();
+      const failedCount = parseInt(resp.headers.get('X-Invoice-Failed') || '0', 10);
+      const succeeded = parseInt(resp.headers.get('X-Invoice-Count') || '0', 10);
+      // Trigger browser save
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `invoices_${bulkFromDate}_to_${bulkToDate}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+      if (failedCount > 0) {
+        toast.warning(`Downloaded ${succeeded} PDFs · ${failedCount} failed (see _failed_manifest.txt inside the ZIP).`);
+      } else {
+        toast.success(`Downloaded ${succeeded} invoice PDF${succeeded === 1 ? '' : 's'}.`);
+      }
+    } catch (e) {
+      toast.error(`Download failed: ${e.message}`);
+    } finally {
+      setBulkExportLoading(false);
+    }
+  };
+
   const handleView = (invoice) => {
     setSelectedInvoice(invoice);
     setShowViewDialog(true);
@@ -2172,6 +2268,62 @@ export const InvoiceHistory = () => {
           {dateFilter && (
             <span className="text-sm text-muted-foreground">
               Showing invoices for: <strong>{formatDateDDMMYYYY(dateFilter)}</strong>
+            </span>
+          )}
+        </div>
+
+        {/* 13 Jun 2026 — Bulk PDF ZIP export by date range.
+            Independent of the single-date filter above so opening
+            the range picker doesn't disrupt the daily revenue cards. */}
+        <div className="mt-4 pt-4 border-t flex flex-wrap items-center gap-3" data-testid="bulk-pdf-export-row">
+          <div className="flex items-center gap-2">
+            <Download className="h-4 w-4 text-emerald-600" />
+            <span className="font-medium text-sm">Bulk PDF export:</span>
+          </div>
+          <span className="text-xs text-muted-foreground">From</span>
+          <Input
+            type="date"
+            value={bulkFromDate}
+            onChange={(e) => { setBulkFromDate(e.target.value); setBulkExportCount(null); }}
+            className="w-auto"
+            data-testid="bulk-from-date"
+          />
+          <span className="text-xs text-muted-foreground">To</span>
+          <Input
+            type="date"
+            value={bulkToDate}
+            onChange={(e) => { setBulkToDate(e.target.value); setBulkExportCount(null); }}
+            className="w-auto"
+            data-testid="bulk-to-date"
+          />
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={handlePreviewBulkExport}
+            disabled={bulkExportLoading}
+            data-testid="bulk-check-btn"
+          >
+            {bulkExportLoading && !bulkExportCount ? 'Checking…' : 'Check'}
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            onClick={handleDownloadBulkZip}
+            disabled={bulkExportLoading || !bulkExportCount || !bulkExportCount.within_limit || bulkExportCount.count === 0}
+            className="bg-emerald-600 hover:bg-emerald-700 text-white"
+            data-testid="bulk-download-zip-btn"
+          >
+            <Download className="h-3.5 w-3.5 mr-1.5" />
+            {bulkExportLoading && bulkExportCount ? 'Generating ZIP…' : 'Download ZIP'}
+          </Button>
+          {bulkExportCount && (
+            <span className={`text-xs font-semibold ${bulkExportCount.within_limit && bulkExportCount.count > 0 ? 'text-emerald-700' : 'text-rose-600'}`} data-testid="bulk-export-count">
+              {bulkExportCount.count === 0
+                ? 'No invoices in range'
+                : bulkExportCount.within_limit
+                  ? `${bulkExportCount.count} invoice${bulkExportCount.count === 1 ? '' : 's'} ready`
+                  : `${bulkExportCount.count} too many (max ${bulkExportCount.max_per_zip}) — narrow the range`}
             </span>
           )}
         </div>
