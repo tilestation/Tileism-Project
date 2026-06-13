@@ -64,6 +64,92 @@ def _month_window_utc(now: Optional[datetime] = None) -> tuple[datetime, datetim
     return start, n, label
 
 
+# ---------------------------------------------------------------------
+# Rank-change tracking (added 13 Jun 2026 per user request:
+# "If anyone goes up the leaderboard show ▲, if anyone goes down ▼").
+#
+# Strategy: every time the dashboard is rendered we snapshot today's
+# ranks into `db.staff_rank_snapshots` (upsert by date). On each
+# request we compare TODAY's freshly-computed ranks against the most
+# recent PRIOR-day snapshot and attach a `_rank_change` field.
+#
+# Storage shape — one doc per (date, board):
+#   {
+#     "date": "2026-06-13",
+#     "board": "sales_composite" | "quote_conversions",
+#     "ranks": { "<user_key>": 1, ... },
+#     "written_at": "<iso ts>",
+#   }
+# ---------------------------------------------------------------------
+async def _load_previous_ranks(board: str, today_iso: str) -> dict:
+    """Return {user_key: rank} from the most recent snapshot strictly
+    before `today_iso`. Empty dict if no prior data."""
+    doc = await get_db().staff_rank_snapshots.find_one(
+        {"board": board, "date": {"$lt": today_iso}},
+        {"_id": 0, "ranks": 1},
+        sort=[("date", -1)],
+    )
+    return (doc or {}).get("ranks") or {}
+
+
+async def _save_rank_snapshot(board: str, today_iso: str, ranks: dict) -> None:
+    """Upsert today's snapshot. Idempotent — re-running just overwrites
+    with the latest state. Tomorrow this becomes 'yesterday' for delta
+    calculations."""
+    await get_db().staff_rank_snapshots.update_one(
+        {"board": board, "date": today_iso},
+        {"$set": {
+            "board": board,
+            "date": today_iso,
+            "ranks": ranks,
+            "written_at": datetime.now(timezone.utc).isoformat(),
+        }},
+        upsert=True,
+    )
+
+
+def _compute_ranks(staff: list, sort_key) -> dict:
+    """Return {user_key: rank} where rank=1 is best. Ties broken by
+    sort order — first staff with equal score keeps the better rank.
+    Staff with a zero/falsy score are EXCLUDED from ranking (it's
+    misleading to say someone 'moved down' if they have no data).
+    """
+    scored = [s for s in staff if (sort_key(s) or 0) > 0]
+    scored.sort(key=sort_key, reverse=True)
+    return {s["user_key"]: i + 1 for i, s in enumerate(scored)}
+
+
+async def attach_rank_changes_and_snapshot(staff: list) -> None:
+    """Mutates `staff` in place: adds `sales_rank_change` and
+    `quotes_rank_change` to every entry, then persists today's ranks
+    for tomorrow's comparison.
+
+    `*_rank_change` is `prev_rank - curr_rank` — POSITIVE means moved
+    UP the table (lower rank number is better), NEGATIVE means dropped,
+    0 means stable, None means no prior data (new staff, or first
+    day the snapshot has run).
+    """
+    today_iso = datetime.now(timezone.utc).date().isoformat()
+
+    sales_ranks = _compute_ranks(staff, lambda s: s.get("sales_composite_score") or 0)
+    quote_ranks = _compute_ranks(staff, lambda s: s.get("quotes_converted") or 0)
+
+    prev_sales = await _load_previous_ranks("sales_composite", today_iso)
+    prev_quotes = await _load_previous_ranks("quote_conversions", today_iso)
+
+    for s in staff:
+        uk = s.get("user_key")
+        curr_s = sales_ranks.get(uk)
+        prev_s = prev_sales.get(uk)
+        s["sales_rank_change"] = (prev_s - curr_s) if (curr_s and prev_s) else None
+        curr_q = quote_ranks.get(uk)
+        prev_q = prev_quotes.get(uk)
+        s["quotes_rank_change"] = (prev_q - curr_q) if (curr_q and prev_q) else None
+
+    await _save_rank_snapshot("sales_composite", today_iso, sales_ranks)
+    await _save_rank_snapshot("quote_conversions", today_iso, quote_ranks)
+
+
 async def _compute_leaderboard(month_only: bool = True) -> dict:
     """Aggregate quote-conversions + special-order sales per staff.
 
@@ -1316,6 +1402,11 @@ async def get_competition_dashboard(
         {"_id": 0},
         sort=[("created_at", -1)],
     )
+
+    # 13 Jun 2026 — Attach rank-movement deltas. Compares today's
+    # composite-score / conversions ranking against the most recent
+    # prior-day snapshot, then writes today's snapshot for tomorrow.
+    await attach_rank_changes_and_snapshot(decorated)
 
     return {
         "month": month_label,

@@ -43,7 +43,7 @@ def _reset_cache():
 _NOW = datetime.now(timezone.utc)
 
 
-def _db(quotes=None, invoices=None, hof_docs=None, highlight=None, target_doc=None, users=None, showrooms=None, sales_targets=None):
+def _db(quotes=None, invoices=None, hof_docs=None, highlight=None, target_doc=None, users=None, showrooms=None, sales_targets=None, prior_rank_snapshot=None):
     db = MagicMock()
     db.quotations.aggregate = MagicMock(return_value=_AggIter(quotes or []))
     db.quotations.find = MagicMock(return_value=_AsyncIter([]))
@@ -65,6 +65,10 @@ def _db(quotes=None, invoices=None, hof_docs=None, highlight=None, target_doc=No
     # 6 Jun 2026 — per-store monthly sales targets feed the showroom
     # league's % of target hit + the Race-to-Target fallback.
     db.sales_targets.find = MagicMock(return_value=_AsyncIter(sales_targets or []))
+    # 13 Jun 2026 — rank-change tracking. `prior_rank_snapshot` is the
+    # most-recent prior-day snapshot doc (or None for first-ever run).
+    db.staff_rank_snapshots.find_one = AsyncMock(return_value=prior_rank_snapshot)
+    db.staff_rank_snapshots.update_one = AsyncMock()
     return db
 
 
@@ -877,6 +881,104 @@ def test_hall_of_fame_returns_history():
         r = asyncio.run(get_hall_of_fame(limit=24, current_user=user))
     assert r["count"] == 2
     assert r["history"][0]["champion"]["name"] == "Maria"
+
+
+# ---------------------------------------------------------------------
+# Rank-change tracking (13 Jun 2026 — user request: "if anyone goes
+# up the leaderboard show ▲, if anyone goes down ▼")
+# ---------------------------------------------------------------------
+def test_attach_rank_changes_returns_null_on_first_run():
+    """First-ever invocation has no prior snapshot — every staff
+    gets rank_change=None and TODAY's snapshot is persisted."""
+    import asyncio
+    from routes.staff_leaderboard import attach_rank_changes_and_snapshot
+    staff = [
+        {"user_key": "u1", "name": "Alice", "sales_composite_score": 80, "quotes_converted": 5},
+        {"user_key": "u2", "name": "Bob",   "sales_composite_score": 60, "quotes_converted": 3},
+    ]
+    db = _db()  # prior_rank_snapshot=None → no history
+    with patch("routes.staff_leaderboard.get_db", return_value=db):
+        asyncio.run(attach_rank_changes_and_snapshot(staff))
+    for s in staff:
+        assert s["sales_rank_change"] is None
+        assert s["quotes_rank_change"] is None
+    # Today's snapshot was written for BOTH boards
+    assert db.staff_rank_snapshots.update_one.call_count == 2
+
+
+def test_attach_rank_changes_marks_climber_positive():
+    """Yesterday Alice was #2, today she's #1 → sales_rank_change=+1
+    (positive = moved up the table). Bob slipped from #1 to #2 → -1."""
+    import asyncio
+    from routes.staff_leaderboard import attach_rank_changes_and_snapshot
+    staff = [
+        {"user_key": "alice", "name": "Alice", "sales_composite_score": 95, "quotes_converted": 8},
+        {"user_key": "bob",   "name": "Bob",   "sales_composite_score": 70, "quotes_converted": 6},
+    ]
+    prior = {
+        "ranks": {"alice": 2, "bob": 1},  # yesterday Bob was #1
+    }
+    db = _db(prior_rank_snapshot=prior)
+    with patch("routes.staff_leaderboard.get_db", return_value=db):
+        asyncio.run(attach_rank_changes_and_snapshot(staff))
+    alice = next(s for s in staff if s["user_key"] == "alice")
+    bob = next(s for s in staff if s["user_key"] == "bob")
+    assert alice["sales_rank_change"] == 1, "Alice moved up 1 place"
+    assert bob["sales_rank_change"] == -1, "Bob dropped 1 place"
+
+
+def test_attach_rank_changes_no_change_returns_zero():
+    """Same rank as yesterday → 0 (frontend renders nothing — keeps
+    the table calm when no one moved)."""
+    import asyncio
+    from routes.staff_leaderboard import attach_rank_changes_and_snapshot
+    staff = [
+        {"user_key": "a", "name": "A", "sales_composite_score": 90, "quotes_converted": 5},
+    ]
+    prior = {"ranks": {"a": 1}}
+    db = _db(prior_rank_snapshot=prior)
+    with patch("routes.staff_leaderboard.get_db", return_value=db):
+        asyncio.run(attach_rank_changes_and_snapshot(staff))
+    assert staff[0]["sales_rank_change"] == 0
+
+
+def test_attach_rank_changes_zero_score_staff_get_null():
+    """Staff with no sales aren't ranked at all (would be misleading
+    to say they 'dropped'). Their rank_change is None."""
+    import asyncio
+    from routes.staff_leaderboard import attach_rank_changes_and_snapshot
+    staff = [
+        {"user_key": "active", "name": "Active", "sales_composite_score": 80, "quotes_converted": 5},
+        {"user_key": "idle",   "name": "Idle",   "sales_composite_score": 0, "quotes_converted": 0},
+    ]
+    db = _db(prior_rank_snapshot={"ranks": {"active": 1}})
+    with patch("routes.staff_leaderboard.get_db", return_value=db):
+        asyncio.run(attach_rank_changes_and_snapshot(staff))
+    idle = next(s for s in staff if s["user_key"] == "idle")
+    assert idle["sales_rank_change"] is None
+    assert idle["quotes_rank_change"] is None
+
+
+def test_attach_rank_changes_persists_todays_snapshot_with_ranks():
+    """The upsert call must include ranks={user_key: rank}, sorted
+    correctly by descending composite score."""
+    import asyncio
+    from routes.staff_leaderboard import attach_rank_changes_and_snapshot
+    staff = [
+        {"user_key": "u1", "name": "U1", "sales_composite_score": 40, "quotes_converted": 1},
+        {"user_key": "u2", "name": "U2", "sales_composite_score": 100, "quotes_converted": 10},
+        {"user_key": "u3", "name": "U3", "sales_composite_score": 70, "quotes_converted": 5},
+    ]
+    db = _db()
+    with patch("routes.staff_leaderboard.get_db", return_value=db):
+        asyncio.run(attach_rank_changes_and_snapshot(staff))
+    # Find the call that wrote the sales snapshot
+    sales_call = next(
+        c for c in db.staff_rank_snapshots.update_one.call_args_list
+        if c.args[0]["board"] == "sales_composite"
+    )
+    ranks = sales_call.args[1]["$set"]["ranks"]
+    assert ranks == {"u2": 1, "u3": 2, "u1": 3}
 
 
 if __name__ == "__main__":

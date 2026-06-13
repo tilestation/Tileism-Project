@@ -375,7 +375,12 @@ export default function StaffCompetitionDashboard() {
                   data-testid={`competition-conv-row-${s.name}`}
                   title={`Click to see ${s.name}'s recent activity`}
                 >
-                  <td className="py-1.5 font-mono font-bold w-8">{idx < 3 ? MEDALS[idx] : idx + 1}</td>
+                  <td className="py-1.5 font-mono font-bold w-12">
+                    <span className="inline-flex items-center gap-1">
+                      <span>{idx < 3 ? MEDALS[idx] : idx + 1}</span>
+                      <RankDelta change={s.quotes_rank_change} testId={`competition-conv-rank-delta-${s.name}`} />
+                    </span>
+                  </td>
                   <td><span className="font-bold">{s.name}</span> <span className="text-xs text-muted-foreground">· {s.showroom_name}</span></td>
                   <td className="text-right font-bold text-amber-700 dark:text-amber-300 tabular-nums">{s.quotes_converted}</td>
                   <td className="text-right tabular-nums text-emerald-700 dark:text-emerald-300">{s.conversion_rate}%</td>
@@ -453,7 +458,12 @@ export default function StaffCompetitionDashboard() {
                     ? `Click to see ${s.name}'s recent invoices · ${pctTarget}% of £${Number(s.personal_sales_target).toLocaleString('en-GB')} ${s.showroom_name} target · Composite ${s.sales_composite_score ?? '—'}`
                     : `Click to see ${s.name}'s recent invoices · Composite ${s.sales_composite_score ?? '—'}`}
                 >
-                  <td className="py-1.5 font-mono font-bold w-8">{idx < 3 ? MEDALS[idx] : idx + 1}</td>
+                  <td className="py-1.5 font-mono font-bold w-12">
+                    <span className="inline-flex items-center gap-1">
+                      <span>{idx < 3 ? MEDALS[idx] : idx + 1}</span>
+                      <RankDelta change={s.sales_rank_change} testId={`competition-sales-rank-delta-${s.name}`} />
+                    </span>
+                  </td>
                   <td>
                     <div className="flex items-center gap-1.5 flex-wrap">
                       <span className="font-bold">{s.name}</span>
@@ -955,5 +965,33 @@ function StaffRecentDrawer({ staff, data, loading, onClose }) {
         </div>
       </aside>
     </div>
+  );
+}
+
+/**
+ * RankDelta — small ▲/▼ badge showing leaderboard-position change
+ * vs the previous day's snapshot.
+ *   change > 0  → moved UP the table (rank improved)
+ *   change < 0  → dropped down
+ *   change == 0 → unchanged (no badge — keeps the table calm)
+ *   change null → no prior snapshot (new staff, or first day)
+ */
+function RankDelta({ change, testId }) {
+  if (change === null || change === undefined || change === 0) return null;
+  const up = change > 0;
+  const tone = up
+    ? 'text-emerald-600 dark:text-emerald-400'
+    : 'text-rose-600 dark:text-rose-400';
+  const title = up
+    ? `Moved up ${Math.abs(change)} place${Math.abs(change) === 1 ? '' : 's'} since yesterday`
+    : `Dropped ${Math.abs(change)} place${Math.abs(change) === 1 ? '' : 's'} since yesterday`;
+  return (
+    <span
+      className={`inline-flex items-center text-[10px] font-bold leading-none ${tone}`}
+      title={title}
+      data-testid={testId}
+    >
+      {up ? '▲' : '▼'}{Math.abs(change)}
+    </span>
   );
 }
