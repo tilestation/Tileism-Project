@@ -23,6 +23,7 @@ import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip,
   Legend, ResponsiveContainer, ReferenceLine
 } from 'recharts';
+import AutoExportSchedulerCard from '../../components/AutoExportSchedulerCard';
 
 // Small trend indicator pill used under revenue cards.
 // Renders "▲ £420 (+8.7%) vs yesterday", "▼ £60 (-3%)", "— new (no prior)", etc.
@@ -2412,6 +2413,21 @@ export const InvoiceHistory = () => {
                     : `${bulkExportCount.count} invoice${bulkExportCount.count === 1 ? '' : 's'} ready`}
             </span>
           )}
+        </div>
+        )}
+
+        {/* 13 Jun 2026 — Auto-monthly "send to accountant" scheduler.
+            Sits below the manual bulk export so the admin can graduate
+            from "click every month" → "set once, forget" in one place. */}
+        {isSuperAdmin && (
+        <div className="mt-4 pt-4 border-t" data-testid="auto-export-invoices-row">
+          <AutoExportSchedulerCard
+            kind="invoices"
+            scope="all"
+            title="Auto-send invoices to accountant on a chosen day each month"
+            description="Set up once. On the chosen day every month, last month's invoice PDFs are bundled into a ZIP and emailed to the accountant automatically — no clicks required."
+            testIdPrefix="auto-export-invoices"
+          />
         </div>
         )}
       </Card>

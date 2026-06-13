@@ -2,7 +2,48 @@
 
 ---
 
-## 13 June 2026 — Bulk invoice export: 500 cap removed, email goes background
+## 13 June 2026 — Auto-monthly exports: "Set once, forget" for accountant emails
+
+### What it does
+- **Invoices**: on a chosen day each month (default 1st), last month's invoice PDFs are bundled into a ZIP and emailed to the accountant automatically. Uses the existing `_run_bulk_email_job` background task → inherits the monthly chunking + Resend size handling already shipped.
+- **Petty cash**: same idea, but per-showroom. Each store can configure its own accountant + its own day-of-month. The ZIP contains every receipt image uploaded that month under `receipts/` plus `summary.csv` + `summary.txt` (date / category / amount / vendor / recorded-by / has-receipt flag).
+
+### Backend
+- New file `routes/auto_exports.py` — CRUD over `db.auto_export_schedules`, keyed by `(kind, scope)`. Endpoints: `GET /api/auto-exports`, `PUT /api/auto-exports/{kind}` (idempotent upsert), `DELETE /api/auto-exports/{id}`, `POST /api/auto-exports/{id}/run-now`. Super-admin only.
+- New file `services/petty_cash_export.py` — `build_petty_cash_monthly_zip(showroom_id, year, month)` + `run_petty_cash_monthly_email_job(...)`. Auto-strips receipt images when the ZIP exceeds Resend's 40MB cap (summary-only fallback). Sender heads-up email on failure.
+- New file `services/invoice_export_jobs.py` — thin wrapper around `_run_bulk_email_job` so the auto-export cron + the `run-now` endpoint share one code path.
+- `server.py` — new `_auto_exports_cron_loop()` task. Ticks hourly, finds enabled schedules whose `day_of_month == today.day` AND that haven't already fired this calendar month, dispatches the right job, records `last_sent_at` / `last_sent_status` / `last_sent_note` on the schedule doc.
+- Each job writes its outcome via the shared `mark_schedule_result()` helper so the UI's "Last sent" line stays fresh.
+
+### Frontend
+- New reusable `components/AutoExportSchedulerCard.jsx` — props: `kind`, `scope`, `title`, `description`. Renders enable toggle, recipients input, day-of-month picker, collapsible custom subject/message, "Send last month now" button + a "Last sent" status badge (ok / partial / failed).
+- Mounted on **Invoice History** (`kind="invoices"` + `scope="all"`) — one schedule for the whole company.
+- Mounted on **Cash Counter** (`kind="petty_cash"` + `scope={selectedShowroom}`) — auto-rebinds when the admin switches stores, so each store can be configured independently.
+
+### Tests
+- `tests/test_auto_exports.py` (17 tests) — role gates, idempotent upsert, `scope` forced to "all" for invoices but required for petty_cash, day-of-month range validation, recipient cap, delete + 404, run-now scheduling, mark_schedule_result swallows db errors.
+- `tests/test_petty_cash_export.py` (10 tests) — ZIP build (image + CSV + TXT), aggregation by category, missing-receipt flagging, empty-window ValueError, `all_showrooms` scope skips showroom filter, end-to-end email job + Resend failure notification, 40MB cap fallback (slim ZIP), invoice wrapper writes status.
+- **118 backend tests** total now passing across the impacted modules.
+
+### How a store owner uses it
+1. Open Invoice History (or Cash Counter and pick a showroom).
+2. In the "Auto-send … " card, type the accountant's email, set day-of-month (default 1), flip On.
+3. Hit "Save schedule". A "Send last month now" button appears — click it to verify the email lands.
+4. From then on, the cron does the work — zero touch each month.
+
+### Files
+- `backend/routes/auto_exports.py` (NEW)
+- `backend/services/petty_cash_export.py` (NEW)
+- `backend/services/invoice_export_jobs.py` (NEW)
+- `backend/routes/__init__.py` (register router)
+- `backend/server.py` (cron loop)
+- `frontend/src/components/AutoExportSchedulerCard.jsx` (NEW)
+- `frontend/src/pages/admin/InvoiceHistory.js` (mount card)
+- `frontend/src/pages/admin/CashCounter.js` (mount card)
+- `backend/tests/test_auto_exports.py` (NEW)
+- `backend/tests/test_petty_cash_export.py` (NEW)
+
+
 
 ### Problem
 - User hit `2267 invoices is over the 500 cap — narrow the range` when trying to export 3 months of invoices for their accountant. The 500 cap was a defensive guard but it broke the legitimate quarterly-accountant use-case.

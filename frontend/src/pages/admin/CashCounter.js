@@ -28,6 +28,7 @@ import { Input } from '../../components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '../../components/ui/dialog';
 import { Textarea } from '../../components/ui/textarea';
+import AutoExportSchedulerCard from '../../components/AutoExportSchedulerCard';
 
 const CashCounter = () => {
   const { user } = useAuth();
@@ -347,6 +348,21 @@ const CashCounter = () => {
           </Button>
         </div>
       </div>
+
+      {/* 13 Jun 2026 — Auto-monthly petty cash receipts export to the
+          accountant. Super-admin only (the card silently no-ops for
+          other roles via the 403 on /api/auto-exports). Per-showroom
+          schedule: each store can email its own accountant on its own
+          day of the month. */}
+      {user?.role === 'super_admin' && selectedShowroom && (
+        <AutoExportSchedulerCard
+          kind="petty_cash"
+          scope={selectedShowroom}
+          title={`Auto-email petty cash receipts — ${currentShowroom?.name || 'this showroom'}`}
+          description="On the chosen day each month, last month's petty cash receipts (images + a summary CSV) are emailed straight to your accountant — no clicks required."
+          testIdPrefix={`auto-export-petty-cash-${selectedShowroom}`}
+        />
+      )}
 
       {loading ? (
         <div className="flex items-center justify-center h-64">

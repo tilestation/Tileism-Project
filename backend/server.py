@@ -9722,6 +9722,97 @@ async def startup_scheduler():
                 await asyncio.sleep(3600)
     asyncio.create_task(_seo_autopilot_digest_loop())
 
+    # ──────────────────────────────────────────────────────────────
+    # Auto-exports cron — 13 Jun 2026.
+    # User request: "Send to accountant every month" for invoices and
+    # petty cash. Hourly tick that fires the configured monthly emails
+    # on each schedule's `day_of_month` (1st by default). The schedules
+    # live in `db.auto_export_schedules` (see routes/auto_exports.py);
+    # the per-kind background jobs are in services/invoice_export_jobs
+    # and services/petty_cash_export.
+    #
+    # Design: we tick HOURLY (not daily) so that if the pod sleeps /
+    # restarts during the scheduled hour we still catch up the same
+    # day. Each schedule has its own `last_sent_at`, so we never
+    # double-send within the same calendar month.
+    async def _auto_exports_cron_loop():
+        from datetime import datetime as _dt, timezone as _tz, timedelta as _td  # noqa: PLC0415
+        await asyncio.sleep(120)  # let the rest of the boot settle
+        while True:
+            try:
+                now = _dt.now(_tz.utc)
+                # Find every enabled schedule whose day-of-month == today
+                # AND that hasn't already been sent this calendar month.
+                try:
+                    from config import get_db  # noqa: PLC0415
+                    db = get_db()
+                    cur = db.auto_export_schedules.find(
+                        {"enabled": True, "day_of_month": now.day},
+                        {"_id": 0},
+                    )
+                    todo = await cur.to_list(200)
+                except Exception:
+                    logger.exception("[auto-exports] failed to read schedules")
+                    todo = []
+
+                # Last calendar month (the window we email about each cycle)
+                first_of_this_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+                last_month_anchor = first_of_this_month - _td(days=1)
+                target_year, target_month = last_month_anchor.year, last_month_anchor.month
+                this_month_key = f"{now.year:04d}-{now.month:02d}"
+
+                for sched in todo:
+                    # Skip if we already fired this calendar month — guards
+                    # against double-send when the loop ticks again on the
+                    # same day or on a pod restart.
+                    last_sent = sched.get("last_sent_at") or ""
+                    if last_sent[:7] == this_month_key:
+                        continue
+                    sched_id = sched.get("id")
+                    kind = sched.get("kind")
+                    recipients = list(sched.get("recipient_emails") or [])
+                    if not recipients:
+                        continue
+                    sender_name = "Tile Station Auto-Exports"
+                    sender_email = sched.get("created_by")
+                    try:
+                        if kind == "invoices":
+                            from services.invoice_export_jobs import run_invoice_monthly_email_job  # noqa: PLC0415
+                            await run_invoice_monthly_email_job(
+                                target_year, target_month,
+                                recipients,
+                                sched.get("subject"), sched.get("message"),
+                                sender_name, sender_email, sched_id,
+                            )
+                        elif kind == "petty_cash":
+                            from services.petty_cash_export import run_petty_cash_monthly_email_job  # noqa: PLC0415
+                            await run_petty_cash_monthly_email_job(
+                                sched.get("scope", "all_showrooms"),
+                                target_year, target_month,
+                                recipients,
+                                sched.get("subject"), sched.get("message"),
+                                sender_name, sender_email, sched_id,
+                            )
+                        else:
+                            logger.warning("[auto-exports] unknown kind on schedule %s: %s", sched_id, kind)
+                        logger.info("[auto-exports] dispatched %s for %s-%s (schedule %s)",
+                                    kind, target_year, target_month, sched_id)
+                    except Exception:
+                        # The job itself already records `last_sent_status=failed`
+                        # and emails a heads-up; we just log here so the loop survives.
+                        logger.exception("[auto-exports] schedule %s job raised", sched_id)
+
+                # Sleep until the top of the next hour
+                next_hour = (now + _td(hours=1)).replace(minute=0, second=5, microsecond=0)
+                sleep_s = max(60, (next_hour - now).total_seconds())
+                await asyncio.sleep(sleep_s)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.exception("[auto-exports] cron iteration crashed; retrying in 5m")
+                await asyncio.sleep(300)
+    asyncio.create_task(_auto_exports_cron_loop())
+
     # Marketing Studio orphan-blob sweep — runs nightly at 03:00 UTC.
     # Probes each marketing_asset's image_url, soft-deletes any that's
     # been 404 on R2 for ≥48h. 7 safety rails (see
