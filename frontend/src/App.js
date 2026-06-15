@@ -116,6 +116,9 @@ const StarStaffPage = React.lazy(() => import('./pages/admin/StarStaffPage'));
 const ExpiredQuotesPage = React.lazy(() => import('./pages/admin/ExpiredQuotesPage'));
 const StaffCompetitionDashboard = React.lazy(() => import('./pages/admin/StaffCompetitionDashboard'));
 const DataHygiene = React.lazy(() => import('./pages/admin/DataHygiene'));
+const HRPortal = React.lazy(() => import('./pages/admin/HRPortal'));
+const MyHR = React.lazy(() => import('./pages/staff/MyHR'));
+const ClockInOut = React.lazy(() => import('./pages/staff/ClockInOut'));
 const LoyaltyDashboard = React.lazy(() => import('./pages/admin/LoyaltyDashboard'));
 const ManageCategories = React.lazy(() => import('./pages/admin/ManageCategories'));
 const ReorderSuggestions = React.lazy(() => import('./pages/admin/ReorderSuggestions'));
@@ -448,6 +451,8 @@ function App() {
             <Route path="/admin/login" element={<AuthPage />} />
             <Route path="/register" element={<AuthPage />} />
             <Route path="/staff-register/:code" element={<StaffRegister />} />
+            <Route path="/clock" element={<ClockInOut />} />
+            <Route path="/my-hr" element={<MyHR />} />
             <Route path="/forgot-password" element={<ForgotPassword />} />
           {/* Shop alias — login/trade pages link here with ?email= prefill */}
           <Route path="/shop/tile-forgot-password" element={<ForgotPassword />} />
@@ -522,6 +527,7 @@ function App() {
             <Route path="expired-quotes" element={<ExpiredQuotesPage />} />
             <Route path="staff-competition" element={<StaffCompetitionDashboard />} />
             <Route path="data-hygiene" element={<DataHygiene />} />
+            <Route path="hr" element={<HRPortal />} />
             <Route path="loyalty" element={<LoyaltyDashboard />} />
             <Route path="reorder-suggestions" element={<ReorderSuggestions />} />
             <Route path="stock-transfers" element={<StockTransfers />} />

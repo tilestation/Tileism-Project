@@ -126,6 +126,10 @@ from .invoice_bulk_pdf import router as invoice_bulk_pdf_router
 from .staff_photos import router as staff_photos_router
 from .staff_monthly_report import router as staff_monthly_report_router
 from .auto_exports import router as auto_exports_router
+from .hr_employees import router as hr_employees_router
+from .hr_leave import router as hr_leave_router
+from .hr_documents import router as hr_documents_router
+from .hr_time_tracking import router as hr_time_tracking_router
 
 # Create main API router that includes all sub-routers
 api_router = APIRouter()
@@ -223,6 +227,10 @@ api_router.include_router(invoice_bulk_pdf_router)
 api_router.include_router(staff_photos_router)
 api_router.include_router(staff_monthly_report_router)
 api_router.include_router(auto_exports_router)
+api_router.include_router(hr_employees_router)
+api_router.include_router(hr_leave_router)
+api_router.include_router(hr_documents_router)
+api_router.include_router(hr_time_tracking_router)
 api_router.include_router(sms_updates_router)
 api_router.include_router(monitoring_router)
 api_router.include_router(health_router)

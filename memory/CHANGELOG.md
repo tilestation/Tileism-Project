@@ -2,7 +2,56 @@
 
 ---
 
-## 13 June 2026 — Owner monthly Telegram digest
+## 13 June 2026 — HR Portal MVP (Employees + Leave + Documents + Time)
+
+Shipped the 4-module HR foundation in one build. Full Phase-1 from the menu (Employee Records · Leave · Documents · Time & Attendance) with self-service for staff.
+
+### Backend
+**Routes** (`/api/hr/...`):
+- `routes/hr_employees.py` — CRUD + soft-archive on `hr_employees` (linked 1:1 to the existing `users` table via `user_id`). Auto-assigns `TS-001 / TS-002 / ...` employee numbers. Sensitive fields (NI number, bank sort code, account number) encrypted at rest via Fernet. List view never returns sensitive bits; get-one returns them MASKED (`****1234`) by default; payroll-prep can opt into `?reveal_sensitive=true`.
+- `routes/hr_leave.py` — `/requests` (create + my-list + pending), `/approve|reject|cancel`, `/balance/me`, `/balance/{id}`, `/calendar?year=&month=`. Working-days math correctly subtracts UK bank holidays (reuses the existing `get_uk_holidays_cached()` from `website_admin.py`). Role-gates: HR admin OR the employee's line manager can approve; staff can only file their own; HR admin sees all pending, managers see their team's pending only.
+- `routes/hr_documents.py` — `/api/hr/documents` upload (base64-in-Mongo, 10MB cap), `/employee/{id}`, `/me`, `/{id}/download`, `/{id}` delete, `/expiring?within_days=30`. Categories include contract, right_to_work, ID, P45/P46, visa, certification, training. Each doc has optional `expiry_date` + `visible_to_employee` flag so HR-only items stay hidden from the staff portal.
+- `routes/hr_time_tracking.py` — `/clock-in`, `/clock-out`, `/current`, `/my-week`, `/employee/{id}` timesheet, `/manual-entry` (HR-admin audit-trailed override), `/qr/{showroom_id}/rotate`, `/qr/active`. Double-clock-in prevented (409). QR token wins over client-supplied showroom_id (anti-spoof).
+
+**Services**:
+- `services/hr_security.py` — Fernet encrypt/decrypt/mask helpers. Key from `HR_ENCRYPTION_KEY` env; auto-generates ephemeral key + warns if missing.
+- `services/hr_bank_holidays.py` — `working_days_between()` + `is_working_day()` + `upcoming_bank_holidays()`. Thin wrapper around the existing GOV.UK API cache.
+
+### Frontend
+**Admin** (`/admin/hr` — super_admin / hr_admin only):
+- `pages/admin/HRPortal.jsx` — tabbed shell with badge counters ("3 leave awaiting", "2 docs expiring").
+- `pages/admin/hr/EmployeesTab.jsx` — directory list + search + filters + create/edit drawer with 5 sections (Personal, Employment, Pay, Bank, Emergency contact). Masked NI/bank fields aren't re-uploaded on save (avoids overwriting ciphertext with `****`).
+- `pages/admin/hr/LeaveTab.jsx` — pending-approvals queue with one-click approve/reject + optional manager note, plus a 6-week calendar grid with bank-holiday backdrop and per-type colour legend (holiday=emerald, sick=rose, etc.).
+- `pages/admin/hr/DocumentsTab.jsx` — employee picker, upload dialog with file-picker + category + expiry + "visible to employee" toggle, download/delete actions, "expiring within 30 days" banner at the top.
+- `pages/admin/hr/TimeTrackingTab.jsx` — QR-per-showroom management with "Generate / Rotate / Copy URL / Print" actions. Print opens a print-friendly window with a big QR rendered from `api.qrserver.com`. Timesheet viewer for any employee × date-range. Manual-entry dialog for forgotten clock-ins.
+
+**Self-service** (`/my-hr` — any authenticated staff with a linked HR record):
+- `pages/staff/MyHR.jsx` — three top cards (Clock state · Holiday balance · This week's hours) + leave-request list with cancel · own document downloads · profile editor (limited to contact info — pay/role/dates not editable).
+- `pages/staff/ClockInOut.jsx` — `/clock?token=…` mobile-optimised screen for the showroom-door QR. Big green/red button. Falls back to "log in" prompt for unauthenticated visitors.
+
+### Navigation
+- Layout sidebar: new "HR Portal" entry under Settings (super-admin gated).
+- App.js routes: `/admin/hr`, `/my-hr`, `/clock` (all lazy-loaded).
+
+### Tests
+- `tests/test_hr.py` — 29 tests across all 4 modules + security + bank-holidays helper. Covers role gates, encryption round-trip + masking, working-days math (with/without bank holidays), employee-number auto-increment, duplicate-user-link rejection, soft-archive semantics, leave approval flow + line-manager rule, balance subtracts pending too, document size cap + data-URL stripping + HR-only filter, QR token anti-spoof, double-clock-in 409.
+- All 29 tests passing.
+
+### Live API verified end-to-end
+- Created employee `TS-001` with encrypted NI returned masked.
+- Submitted holiday request → computed 5 working days for a Mon-Fri window.
+- Balance endpoint returned `entitlement=28 used=0 remaining=28`.
+- Uploaded a tiny test doc with category=contract.
+- Tab badges + cross-tab navigation work.
+
+### Files
+NEW backend: `routes/hr_employees.py`, `routes/hr_leave.py`, `routes/hr_documents.py`, `routes/hr_time_tracking.py`, `services/hr_security.py`, `services/hr_bank_holidays.py`, `tests/test_hr.py`.
+
+NEW frontend: `pages/admin/HRPortal.jsx`, `pages/admin/hr/EmployeesTab.jsx`, `pages/admin/hr/LeaveTab.jsx`, `pages/admin/hr/DocumentsTab.jsx`, `pages/admin/hr/TimeTrackingTab.jsx`, `pages/staff/MyHR.jsx`, `pages/staff/ClockInOut.jsx`.
+
+MODIFIED: `backend/routes/__init__.py` (register 4 new routers), `frontend/src/App.js` (routes + lazy imports), `frontend/src/components/Layout.js` (HR Portal nav link).
+
+
 
 ### What it does
 - A single Telegram message arrives on the 1st of each month (or whatever day the admin picks) summarising last month in one glance:
