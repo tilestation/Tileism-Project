@@ -1,0 +1,30 @@
+{
+  "summary": "Tested HR Sponsor Licence Baseline Initial Review wizard + Monitoring System Overview Policy PDF. Wrote /app/backend/tests/test_hr_visa_baseline_live.py (10 tests) hitting the deployed preview backend with admin@test.com — all 10 pass. Frontend Playwright smoke also passes: Visa tab buttons all visible, HRSettingsDialog opens with all required fields, BaselineReviewWizard opens at Step 1 Welcome with the 4-step bar and Cancel closes it. No feature-related console errors.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "AdminDashboard (unrelated to this feature)", "issues": ["React warning: 'Each child in a list should have a unique key prop' — emitted by AdminDashboard render. Not blocking but worth fixing in a separate ticket."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_hr_visa_baseline_live.py",
+    "/app/test_reports/pytest/iter187_hr_visa_baseline_live.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "hr_visa_compliance.py is ~900 lines — getting large. Consider splitting policy.pdf renderer + baseline endpoints into separate modules for maintainability.",
+    "policy.pdf endpoint re-runs visa_compliance_report which itself iterates every employee with N+1 Mongo queries (most_recent_visa_doc + latest_review + alerts per employee). Fine for current scale but should batch via $lookup or aggregation if employee count grows beyond ~200.",
+    "Baseline POST: validation of review_method runs inside the per-entry loop AFTER first insert is built — better to validate ALL entries upfront so no partial reject (currently okay because insert_many runs only once at the end, but the per-entry HTTPException raises mid-loop; this is fine but should be documented).",
+    "HRSettings PUT replaces the entire doc — there is no partial PATCH, so a UI that loads then saves stale fields could clobber recently-edited values. Acceptable for single-admin tenant."
+  ],
+  "updated_files": ["/app/backend/tests/test_hr_visa_baseline_live.py"],
+  "success_rate": {"backend": "100% (10/10 live + 68/68 unit per main agent)", "frontend": "100% (all required testids visible + interactive)"},
+  "test_credentials": "admin@test.com / admin123 (super_admin) — present in /app/memory/test_credentials.md",
+  "seed_data_creation": "None — tests use TEST_-prefixed company name in PUT and rely on existing admin user. No employees created.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "HR Sponsor Licence Baseline + Policy PDF feature is functional end-to-end on the deployed preview. Backend exposes /api/hr/settings (GET+PUT) and /api/hr/visa-compliance/{baseline/status, baseline, policy.pdf}. Frontend testids: visa-open-settings, visa-open-wizard, visa-download-policy-pdf, visa-baseline-banner, hr-settings-dialog, hrset-company-name, hrset-ao-name, hrset-save, baseline-wizard, wiz-step-welcome, wiz-cancel. Wizard 'Start review' is correctly disabled when 0 sponsored employees exist. Run live tests with: REACT_APP_BACKEND_URL=$(grep REACT_APP_BACKEND_URL /app/frontend/.env | cut -d= -f2) python -m pytest backend/tests/test_hr_visa_baseline_live.py -v",
+  "rca of the issue": "N/A — no bugs found"
+}

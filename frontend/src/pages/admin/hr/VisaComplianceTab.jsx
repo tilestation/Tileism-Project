@@ -17,6 +17,7 @@ import axios from 'axios';
 import { toast } from 'sonner';
 import {
   ShieldCheck, FileDown, AlertTriangle, CheckCircle2, Eye, History, Plus,
+  Settings, ClipboardCheck, FileSignature,
 } from 'lucide-react';
 import { Button } from '../../../components/ui/button';
 import { Input } from '../../../components/ui/input';
@@ -24,6 +25,8 @@ import { Textarea } from '../../../components/ui/textarea';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '../../../components/ui/dialog';
+import HRSettingsDialog from './HRSettingsDialog';
+import BaselineReviewWizard from './BaselineReviewWizard';
 
 const API = process.env.REACT_APP_BACKEND_URL;
 
@@ -52,6 +55,11 @@ export default function VisaComplianceTab() {
     review_method: 'share_code',
     share_code: '', visa_type: '', valid_until: '', notes: '',
   });
+  // Settings / baseline wizard / policy PDF (Feb 2026)
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [wizardOpen, setWizardOpen] = useState(false);
+  const [baselineStatus, setBaselineStatus] = useState(null);
+  const [currentRole, setCurrentRole] = useState('');
 
   const authHeader = () => {
     const t = localStorage.getItem('token');
@@ -73,7 +81,19 @@ export default function VisaComplianceTab() {
     }
   }, [includeUnsponsored]);
 
+  const fetchBaselineStatus = useCallback(async () => {
+    try {
+      const [stat, me] = await Promise.all([
+        axios.get(`${API}/api/hr/visa-compliance/baseline/status`, { headers: authHeader() }),
+        axios.get(`${API}/api/auth/me`, { headers: authHeader() }).catch(() => ({ data: {} })),
+      ]);
+      setBaselineStatus(stat.data);
+      setCurrentRole(me.data?.role || '');
+    } catch { /* silently — banner just won't render */ }
+  }, []);
+
   useEffect(() => { fetchReport(); }, [fetchReport]);
+  useEffect(() => { fetchBaselineStatus(); }, [fetchBaselineStatus]);
 
   const downloadPdf = async () => {
     try {
@@ -89,6 +109,23 @@ export default function VisaComplianceTab() {
       toast.success('Evidence PDF downloaded.');
     } catch (e) {
       toast.error(`PDF failed: ${e?.response?.data?.detail || e.message}`);
+    }
+  };
+
+  const downloadPolicyPdf = async () => {
+    try {
+      const r = await axios.get(`${API}/api/hr/visa-compliance/policy.pdf`, {
+        headers: authHeader(), responseType: 'blob',
+      });
+      const url = window.URL.createObjectURL(r.data);
+      const a = document.createElement('a');
+      const today = new Date().toISOString().slice(0, 10);
+      a.href = url; a.download = `visa_monitoring_policy_${today}.pdf`;
+      document.body.appendChild(a); a.click(); a.remove();
+      window.URL.revokeObjectURL(url);
+      toast.success('Monitoring Policy PDF downloaded.');
+    } catch (e) {
+      toast.error(`Policy PDF failed: ${e?.response?.data?.detail || e.message}`);
     }
   };
 
@@ -117,24 +154,59 @@ export default function VisaComplianceTab() {
 
   return (
     <div className="space-y-4" data-testid="hr-visa-compliance-tab">
-      {/* Top bar — Home-Office-ready PDF button is the primary CTA */}
-      <div className="rounded-lg border bg-indigo-50/50 border-indigo-200 p-4 flex items-start justify-between gap-4 flex-wrap">
-        <div className="flex items-start gap-3">
-          <ShieldCheck className="w-6 h-6 text-indigo-700 shrink-0 mt-0.5" />
-          <div>
-            <h2 className="text-sm font-bold">Sponsor licence — visa expiry monitoring</h2>
-            <p className="text-xs text-muted-foreground mt-0.5 max-w-2xl">
-              Every visa document is tracked with an expiry date. HR is auto-emailed at
-              <strong className="text-foreground"> 90, 60, 30 and 7 days</strong> before each visa expires,
-              plus an EXPIRED alert if anything slips past. Each alert is logged forever — the PDF below
-              shows the Home Office exactly when each notice went out.
-            </p>
+      {/* Top bar — Sponsor Licence Application toolkit */}
+      <div className="rounded-lg border bg-indigo-50/50 border-indigo-200 p-4">
+        <div className="flex items-start justify-between gap-4 flex-wrap">
+          <div className="flex items-start gap-3">
+            <ShieldCheck className="w-6 h-6 text-indigo-700 shrink-0 mt-0.5" />
+            <div>
+              <h2 className="text-sm font-bold">Sponsor Licence — visa expiry monitoring</h2>
+              <p className="text-xs text-muted-foreground mt-0.5 max-w-2xl">
+                Every visa document is tracked with an expiry date. HR is auto-emailed at
+                <strong className="text-foreground"> 90, 60, 30 and 7 days</strong> before each visa expires,
+                plus an EXPIRED alert if anything slips past. Each alert is logged permanently.
+              </p>
+            </div>
+          </div>
+          <div className="flex gap-2 flex-wrap">
+            <Button variant="outline" onClick={() => setSettingsOpen(true)} data-testid="visa-open-settings">
+              <Settings className="w-4 h-4 mr-1.5" />
+              Settings
+            </Button>
+            <Button onClick={() => setWizardOpen(true)}
+              className="bg-amber-600 hover:bg-amber-700 text-white" data-testid="visa-open-wizard">
+              <ClipboardCheck className="w-4 h-4 mr-1.5" />
+              {baselineStatus?.completed ? 'Re-run baseline review' : 'Run baseline review'}
+            </Button>
+            <Button onClick={downloadPolicyPdf}
+              className="bg-indigo-600 hover:bg-indigo-700 text-white" data-testid="visa-download-policy-pdf">
+              <FileSignature className="w-4 h-4 mr-1.5" />
+              Monitoring Policy PDF
+            </Button>
+            <Button onClick={downloadPdf} variant="secondary" data-testid="visa-download-pdf">
+              <FileDown className="w-4 h-4 mr-1.5" />
+              Alert log PDF
+            </Button>
           </div>
         </div>
-        <Button onClick={downloadPdf} className="bg-indigo-600 hover:bg-indigo-700 text-white" data-testid="visa-download-pdf">
-          <FileDown className="w-4 h-4 mr-1.5" />
-          Download evidence PDF
-        </Button>
+
+        {/* Baseline status pill */}
+        {baselineStatus && (
+          <div className="mt-3 flex items-start gap-2 text-xs" data-testid="visa-baseline-banner">
+            {baselineStatus.completed ? (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-100 text-emerald-900 border border-emerald-300 font-bold">
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                Baseline review completed {baselineStatus.latest?.completed_at?.slice(0, 10)} by {baselineStatus.latest?.completed_by_email}
+                {' '}— {baselineStatus.latest?.employees_reviewed} worker(s) verified.
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-amber-100 text-amber-900 border border-amber-300 font-bold">
+                <AlertTriangle className="w-3.5 h-3.5" />
+                Baseline review pending — click <em>Run baseline review</em> to start the audit clock honestly today.
+              </span>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Summary cards */}
@@ -331,6 +403,17 @@ export default function VisaComplianceTab() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      {/* HR Settings + Baseline Review Wizard (Feb 2026) */}
+      <HRSettingsDialog
+        open={settingsOpen}
+        onClose={() => { setSettingsOpen(false); fetchBaselineStatus(); }}
+        currentUserRole={currentRole}
+      />
+      <BaselineReviewWizard
+        open={wizardOpen}
+        onClose={() => setWizardOpen(false)}
+        onComplete={() => { fetchBaselineStatus(); fetchReport(); }}
+      />
     </div>
   );
 }
