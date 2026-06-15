@@ -44,6 +44,7 @@ export default function DocumentsTab({ onExpiringChange }) {
   const [uploadForm, setUploadForm] = useState({
     category: 'contract', title: '', expiry_date: '', notes: '',
     visible_to_employee: true,
+    visa_type: '', share_code: '', cos_number: '',
   });
   const fileRef = useRef(null);
 
@@ -95,6 +96,7 @@ export default function DocumentsTab({ onExpiringChange }) {
     setUploading(true);
     try {
       const b64 = await fileToBase64(file);
+      const isVisa = ['visa', 'right_to_work'].includes(uploadForm.category);
       await axios.post(`${API}/api/hr/documents`, {
         employee_id: selectedEmployee,
         category: uploadForm.category,
@@ -105,10 +107,15 @@ export default function DocumentsTab({ onExpiringChange }) {
         expiry_date: uploadForm.expiry_date || null,
         notes: uploadForm.notes.trim() || null,
         visible_to_employee: uploadForm.visible_to_employee,
+        visa_meta: isVisa && (uploadForm.visa_type || uploadForm.share_code || uploadForm.cos_number) ? {
+          visa_type: uploadForm.visa_type.trim() || null,
+          share_code: uploadForm.share_code.trim().toUpperCase() || null,
+          cos_number: uploadForm.cos_number.trim() || null,
+        } : null,
       }, { headers: authHeader() });
       toast.success('Document uploaded.');
       setUploadOpen(false);
-      setUploadForm({ category: 'contract', title: '', expiry_date: '', notes: '', visible_to_employee: true });
+      setUploadForm({ category: 'contract', title: '', expiry_date: '', notes: '', visible_to_employee: true, visa_type: '', share_code: '', cos_number: '' });
       await Promise.all([fetchDocs(), fetchExpiring()]);
     } catch (e) {
       toast.error(`Upload failed: ${e?.response?.data?.detail || e.message}`);
@@ -316,6 +323,29 @@ export default function DocumentsTab({ onExpiringChange }) {
                 placeholder="optional internal note"
               />
             </div>
+            {['visa', 'right_to_work'].includes(uploadForm.category) && (
+              <div className="rounded-md border-l-4 border-indigo-400 bg-indigo-50 p-2 space-y-2">
+                <div className="text-[10px] font-bold uppercase text-indigo-900">Sponsor licence audit fields</div>
+                <Input
+                  placeholder="Visa type (e.g. Skilled Worker, Graduate, ILR)"
+                  value={uploadForm.visa_type}
+                  onChange={(e) => setUploadForm({ ...uploadForm, visa_type: e.target.value })}
+                  data-testid="hr-upload-visa-type"
+                />
+                <Input
+                  placeholder="Home Office share code (e.g. ABC-DEF-GHI)"
+                  value={uploadForm.share_code}
+                  onChange={(e) => setUploadForm({ ...uploadForm, share_code: e.target.value })}
+                  data-testid="hr-upload-share-code"
+                />
+                <Input
+                  placeholder="Certificate of Sponsorship number (CoS)"
+                  value={uploadForm.cos_number}
+                  onChange={(e) => setUploadForm({ ...uploadForm, cos_number: e.target.value })}
+                  data-testid="hr-upload-cos"
+                />
+              </div>
+            )}
             <label className="flex items-center gap-2 text-xs">
               <input
                 type="checkbox"

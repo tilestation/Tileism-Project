@@ -15,12 +15,13 @@
  */
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { Users, Calendar, FileText, Clock, AlertCircle } from 'lucide-react';
+import { Users, Calendar, FileText, Clock, AlertCircle, ShieldCheck } from 'lucide-react';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '../../components/ui/tabs';
 import EmployeesTab from './hr/EmployeesTab';
 import LeaveTab from './hr/LeaveTab';
 import DocumentsTab from './hr/DocumentsTab';
 import TimeTrackingTab from './hr/TimeTrackingTab';
+import VisaComplianceTab from './hr/VisaComplianceTab';
 
 const API = process.env.REACT_APP_BACKEND_URL;
 
@@ -87,7 +88,7 @@ export default function HRPortal() {
       </header>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
-        <TabsList className="grid grid-cols-2 sm:grid-cols-4 w-full" data-testid="hr-tab-list">
+        <TabsList className="grid grid-cols-2 sm:grid-cols-5 w-full" data-testid="hr-tab-list">
           <TabsTrigger value="employees" data-testid="hr-tab-employees">
             <Users className="w-4 h-4 mr-2" />Employees
           </TabsTrigger>
@@ -107,6 +108,9 @@ export default function HRPortal() {
               </span>
             )}
           </TabsTrigger>
+          <TabsTrigger value="visa" data-testid="hr-tab-visa">
+            <ShieldCheck className="w-4 h-4 mr-2" />Visa
+          </TabsTrigger>
           <TabsTrigger value="time" data-testid="hr-tab-time">
             <Clock className="w-4 h-4 mr-2" />Time
           </TabsTrigger>
@@ -120,6 +124,9 @@ export default function HRPortal() {
         </TabsContent>
         <TabsContent value="documents">
           <DocumentsTab onExpiringChange={setExpiringCount} />
+        </TabsContent>
+        <TabsContent value="visa">
+          <VisaComplianceTab />
         </TabsContent>
         <TabsContent value="time">
           <TimeTrackingTab />

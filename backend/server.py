@@ -9820,6 +9820,38 @@ async def startup_scheduler():
                 await asyncio.sleep(300)
     asyncio.create_task(_auto_exports_cron_loop())
 
+    # ──────────────────────────────────────────────────────────────
+    # Visa expiry alerter — 13 Jun 2026.
+    # Sponsor-licence compliance: scan every visa/RTW document, fire
+    # 90 / 60 / 30 / 7-day alerts (and an EXPIRED alert) to HR. Each
+    # alert is recorded in `hr_visa_alerts` so we never re-send the
+    # same threshold + so the Visa Compliance audit report can show
+    # the Home Office exactly when each notice went out.
+    async def _visa_expiry_alert_loop():
+        from datetime import datetime as _dt, timezone as _tz, timedelta as _td  # noqa: PLC0415
+        await asyncio.sleep(180)  # let the rest of the boot settle
+        while True:
+            try:
+                now = _dt.now(_tz.utc)
+                try:
+                    from services.visa_expiry_alerts import run_visa_expiry_alerts  # noqa: PLC0415
+                    summary = await run_visa_expiry_alerts()
+                    logger.info("[visa-alerts] pass complete: %s", summary)
+                except Exception:
+                    logger.exception("[visa-alerts] pass crashed; continuing")
+                # Schedule the next run for tomorrow 07:00 UTC
+                next_run = (now + _td(days=1)).replace(hour=7, minute=0, second=0, microsecond=0)
+                if next_run <= now:
+                    next_run = next_run + _td(days=1)
+                sleep_s = max(60, (next_run - now).total_seconds())
+                await asyncio.sleep(sleep_s)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.exception("[visa-alerts] outer loop crashed; retrying in 1h")
+                await asyncio.sleep(3600)
+    asyncio.create_task(_visa_expiry_alert_loop())
+
     # Marketing Studio orphan-blob sweep — runs nightly at 03:00 UTC.
     # Probes each marketing_asset's image_url, soft-deletes any that's
     # been 404 on R2 for ≥48h. 7 safety rails (see

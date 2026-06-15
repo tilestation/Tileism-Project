@@ -43,6 +43,17 @@ VALID_CATEGORIES = {
 MAX_FILE_BYTES = 10 * 1024 * 1024  # 10MB — generous for HR docs
 
 
+class VisaMeta(BaseModel):
+    """Optional structured fields when category is 'visa' or
+    'right_to_work'. Recorded so the Visa Compliance report can
+    answer the Home Office's "what visa type / what share code" follow-up
+    without HR having to dig back into the PDF."""
+    visa_type: Optional[str] = Field(None, max_length=80, description="e.g. Skilled Worker, Graduate, ILR")
+    share_code: Optional[str] = Field(None, max_length=20, description="9-char Home Office share code")
+    cos_number: Optional[str] = Field(None, max_length=30, description="Certificate of Sponsorship number")
+    restriction_summary: Optional[str] = Field(None, max_length=500)
+
+
 class DocumentUploadIn(BaseModel):
     employee_id: str
     category: str = Field(...)
@@ -53,6 +64,7 @@ class DocumentUploadIn(BaseModel):
     expiry_date: Optional[str] = Field(None, description="YYYY-MM-DD if applicable")
     notes: Optional[str] = Field(None, max_length=1000)
     visible_to_employee: bool = True
+    visa_meta: Optional[VisaMeta] = None
 
 
 def _is_hr_admin(u: dict) -> bool:
@@ -117,6 +129,7 @@ async def upload_document(
         "expiry_date": payload.expiry_date,
         "notes": (payload.notes or "").strip() or None,
         "visible_to_employee": bool(payload.visible_to_employee),
+        "visa_meta": payload.visa_meta.model_dump() if payload.visa_meta else None,
         "uploaded_by": (current_user or {}).get("email", "system"),
         "uploaded_at": now_iso,
     }
