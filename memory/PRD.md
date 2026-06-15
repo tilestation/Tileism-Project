@@ -9,6 +9,59 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Feb 9, 2026 — Forked session] 🛂 Home Office Sponsor Licence: Baseline Review Wizard + Monitoring Policy PDF (P0 — shipped)
+
+**Context**: The user is applying for a UK Home Office Sponsor Licence for the first time and the Home Office asked for *"evidence of how you monitor the length of their visa(s)"*. In a previous session the user requested backdating monitoring data; the agent (correctly) refused on fraud-risk grounds and proposed an audit-safe "Baseline initial review" wizard + a Written HR Monitoring Policy PDF that honestly attests today's date. The user replied *"YES Ship"*. This session built it.
+
+**What shipped**:
+
+1. **HR Settings store** (`/app/backend/routes/hr_settings.py` — NEW): single `db.hr_settings.id="default"` doc capturing `company_name`, `company_number`, `registered_address`, `sponsor_licence_number`, `sponsor_licence_status`, `authorising_officer { name, job_title, email, phone }`, `level1_user`, `key_contact`, `policy_effective_date`.
+   - `GET /api/hr/settings` — HR admin (auto-seeds empty defaults).
+   - `PUT /api/hr/settings` — **super_admin only** (drives the legal Policy PDF — change tracking matters). Validates licence-status enum + ISO date. Auto-stamps `policy_effective_date` to today on first save (honest dating — no backdating).
+
+2. **Baseline review endpoints** (`/app/backend/routes/hr_visa_compliance.py` — extended):
+   - `GET /api/hr/visa-compliance/baseline/status` — has a baseline session been recorded? Returns `{completed, latest, active_employee_count, sponsored_employee_count}`.
+   - `POST /api/hr/visa-compliance/baseline` — accepts an array of `{employee_id, review_method, share_code, visa_type, valid_until, notes}` entries plus `overview_acknowledged: true`. Refuses to commit without the acknowledgement (400). Validates all employee_ids exist and aren't archived (404 otherwise). Writes ONE `hr_visa_reviews` row PER entry (same as a regular re-check), all stamped with the same UTC timestamp + the same `baseline_session_id`. Writes ONE `hr_baseline_reviews` summary doc.
+   - **Anti-backdating contract**: the endpoint accepts no `reviewed_at` field from the client. Timestamps are always `datetime.now(timezone.utc)`. Audit-safe by construction.
+
+3. **Monitoring System Overview + Written HR Policy PDF** (`GET /api/hr/visa-compliance/policy.pdf` — NEW):
+   - Cover: company name + address + Sponsor Licence # + status + policy effective date + AO name/title/email + generated-by timestamp.
+   - § 1 Policy Statement: written commitment to monitor every sponsored worker's RTW.
+   - § 2 Monitoring Methodology: full 90/60/30/7-day + EXPIRED ladder table with recipients + actions per threshold.
+   - § 3 RTW Re-check Procedure: share-code online check vs. in-person inspection — both produce permanent audit rows.
+   - § 4 Baseline Review Attestation: either *"completed on YYYY-MM-DD by hr@x.com, N workers verified"* or honest *"Pending — AO will complete within 14 days"*. No fabrication.
+   - § 5 Current Sponsored Worker Snapshot: status-coloured table per worker.
+   - § 6 Sign-off: signature line + AO name/title/email + generated-by footer.
+   - Returns `application/pdf` with content-disposition `visa_monitoring_policy.pdf`.
+
+4. **Frontend** (3 new/extended components):
+   - `/app/frontend/src/pages/admin/hr/HRSettingsDialog.jsx` — NEW. Read-only for HR admin; write for super-admin. Form fields for all settings sections. Saves via PUT and closes.
+   - `/app/frontend/src/pages/admin/hr/BaselineReviewWizard.jsx` — NEW. 4-step wizard:
+     - **Welcome**: stats panel (active emps, sponsored count, AO configured?), integrity contract banner ("no backdating"), settings completeness check.
+     - **Roster**: per-employee checkbox + method/share_code/visa_type/valid_until/notes form rows. Skip toggle.
+     - **Confirm**: summary list + collapsible Monitoring System Overview + acknowledgement checkbox. Commit button disabled until ack.
+     - **Done**: success screen + "Download Monitoring Policy PDF" CTA.
+   - `/app/frontend/src/pages/admin/hr/VisaComplianceTab.jsx` — extended top bar with 4 buttons (Settings, Run baseline review, Monitoring Policy PDF, Alert log PDF) + a baseline-status banner (pending vs. completed pill).
+
+5. **Tests** (16 new):
+   - `tests/test_hr_settings.py` — 8 tests (defaults, persistence, role gating, validation, created_at preservation, user-supplied date honoured).
+   - `tests/test_hr_visa_compliance.py` — 8 new (baseline status pending/completed, role gating, baseline POST happy path with per-entry rows + summary, rejects unknown ids, rejects missing ack, rejects invalid method; policy.pdf emits %PDF- bytes, rejects non-HR, works with empty settings, shows pending baseline section).
+   - All 68/68 HR unit tests pass.
+   - Live curl + Playwright tests by the testing agent: 10/10 pass; frontend smoke (all data-testids visible) passes.
+
+**Files**:
+- `/app/backend/routes/hr_settings.py` (NEW — 167 lines).
+- `/app/backend/routes/hr_visa_compliance.py` (extended — +~340 lines for baseline + policy.pdf).
+- `/app/backend/routes/__init__.py` (register hr_settings_router).
+- `/app/backend/tests/test_hr_settings.py` (NEW — 8 tests).
+- `/app/backend/tests/test_hr_visa_compliance.py` (+8 tests).
+- `/app/backend/tests/test_hr_visa_baseline_live.py` (NEW — 10 live tests by testing agent).
+- `/app/frontend/src/pages/admin/hr/HRSettingsDialog.jsx` (NEW — ~210 lines).
+- `/app/frontend/src/pages/admin/hr/BaselineReviewWizard.jsx` (NEW — ~430 lines).
+- `/app/frontend/src/pages/admin/hr/VisaComplianceTab.jsx` (extended — 4-button top bar + baseline banner + 2 new dialogs).
+
+
+
 ### [Jun 6, 2026 — Forked session] 🎯 Composite score VOLUME now uses % of store target (not raw £)
 
 **User caught a gap**: *"do keep in mind, store targets to be kept in consideration as I explained before, is that implemented?"*
