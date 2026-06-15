@@ -9,6 +9,48 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Feb 9, 2026 — Forked session] 📋 HR Personnel File Compliance Checklist + Audit PDF (P0 — shipped)
+
+Follow-up to the Sponsor Licence baseline review. The user asked: *"Where do I upload employee documents as vault in HR which complies Home Office and create reports/checklist of all the documents"*. The Documents tab already existed as the upload vault; what was missing was the cross-cutting compliance view.
+
+**What shipped**:
+
+1. **Backend** (`/app/backend/routes/hr_compliance_checklist.py` — NEW, ~370 lines):
+   - Per-profile requirement sets defined as data (sponsored / settled / british).
+   - **Profile auto-detection**: visa doc present → sponsored. RTW-only → settled. No docs → british. Override via new `compliance_profile` field on the employee record.
+   - **Status classification per requirement**: `ok` / `expiring` (≤30d or no expiry recorded) / `expired` / `missing` / `optional_missing`.
+   - **Per-worker verdict**: `compliant` / `action_needed` (only expiring) / `non_compliant` (any required missing or expired).
+   - `GET /api/hr/compliance/checklist` — JSON matrix for the UI.
+   - `GET /api/hr/compliance/checklist.pdf` — landscape A4 PDF: title + sponsor licence # + traffic-light legend + summary stats + per-profile matrix tables + a detailed "Action list" page for any worker that isn't compliant.
+
+2. **Frontend** (`ComplianceChecklistDialog.jsx` — NEW, ~260 lines):
+   - Modal opens from a new **Compliance Checklist** button in the Documents tab (next to *Upload document*).
+   - 4-stat summary strip + filter dropdown (All / Non-compliant only / Action needed only / Sponsored only).
+   - Per-profile matrices: rows = workers, columns = required docs.
+   - Cells use **clickable traffic lights** (✓ emerald / ⚠ amber / ✗ rose / — gray for optional missing). Clicking any ✗ closes the modal and pre-seeds the Upload dialog with the matching employee + category.
+   - "Download Personnel File PDF" button.
+
+3. **EmployeeCreate/Update**: added optional `compliance_profile` field (`sponsored_worker | settled_worker | british_worker`) for manual override.
+
+4. **Tests** (20 new in `test_hr_compliance_checklist.py`, all pass):
+   - Profile inference: override wins, visa→sponsored, RTW→settled, no docs→british, invalid override falls back.
+   - Doc classification: missing / ok / expiring / expired / expires-but-no-date-flags-expiring.
+   - Checklist E2E: marks compliant when all docs present + valid; non-compliant when required doc missing; action_needed when expiring; uses most-recent doc per category (renewal upload resets status); rejects non-HR; filters archived employees.
+   - PDF: emits `%PDF-` bytes; rejects non-HR; includes action list when workers non-compliant.
+   - Total HR test suite: **88/88 pass**.
+
+5. **Live smoke**: created a Test Worker via API + uploaded only a contract → checklist correctly identifies as British profile, marks non_compliant with RTW + ID missing.
+
+**Files**:
+- `/app/backend/routes/hr_compliance_checklist.py` (NEW — 370 lines).
+- `/app/backend/routes/__init__.py` (register router).
+- `/app/backend/routes/hr_employees.py` (+`compliance_profile` field on create + update).
+- `/app/backend/tests/test_hr_compliance_checklist.py` (NEW — 20 tests).
+- `/app/frontend/src/pages/admin/hr/ComplianceChecklistDialog.jsx` (NEW — 260 lines).
+- `/app/frontend/src/pages/admin/hr/DocumentsTab.jsx` (+Compliance Checklist button + click-to-upload pre-seed).
+
+
+
 ### [Feb 9, 2026 — Forked session] 🛂 Home Office Sponsor Licence: Baseline Review Wizard + Monitoring Policy PDF (P0 — shipped)
 
 **Context**: The user is applying for a UK Home Office Sponsor Licence for the first time and the Home Office asked for *"evidence of how you monitor the length of their visa(s)"*. In a previous session the user requested backdating monitoring data; the agent (correctly) refused on fraud-risk grounds and proposed an audit-safe "Baseline initial review" wizard + a Written HR Monitoring Policy PDF that honestly attests today's date. The user replied *"YES Ship"*. This session built it.

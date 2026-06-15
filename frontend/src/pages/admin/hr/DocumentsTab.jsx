@@ -4,12 +4,13 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import axios from 'axios';
 import { toast } from 'sonner';
-import { Upload, Download, Trash2, FileText, AlertTriangle, Calendar } from 'lucide-react';
+import { Upload, Download, Trash2, FileText, AlertTriangle, Calendar, ClipboardCheck } from 'lucide-react';
 import { Button } from '../../../components/ui/button';
 import { Input } from '../../../components/ui/input';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '../../../components/ui/dialog';
+import ComplianceChecklistDialog from './ComplianceChecklistDialog';
 
 const API = process.env.REACT_APP_BACKEND_URL;
 
@@ -47,6 +48,8 @@ export default function DocumentsTab({ onExpiringChange }) {
     visa_type: '', share_code: '', cos_number: '',
   });
   const fileRef = useRef(null);
+  // Compliance Checklist dialog (Feb 2026)
+  const [checklistOpen, setChecklistOpen] = useState(false);
 
   const authHeader = () => {
     const t = localStorage.getItem('token');
@@ -193,7 +196,7 @@ export default function DocumentsTab({ onExpiringChange }) {
         </section>
       )}
 
-      {/* Employee picker + upload */}
+      {/* Employee picker + upload + compliance checklist */}
       <div className="flex gap-2 items-center flex-wrap">
         <select
           value={selectedEmployee}
@@ -206,6 +209,14 @@ export default function DocumentsTab({ onExpiringChange }) {
             <option key={e.id} value={e.id}>{e.first_name} {e.last_name} · {e.employee_number}</option>
           ))}
         </select>
+        <Button
+          onClick={() => setChecklistOpen(true)}
+          variant="outline"
+          data-testid="hr-open-checklist-btn"
+          title="Personnel File Completeness — Sponsor Licence audit checklist"
+        >
+          <ClipboardCheck className="w-4 h-4 mr-1.5" /> Compliance Checklist
+        </Button>
         <Button
           onClick={() => setUploadOpen(true)}
           disabled={!selectedEmployee}
@@ -369,6 +380,22 @@ export default function DocumentsTab({ onExpiringChange }) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Compliance Checklist (Feb 2026) */}
+      <ComplianceChecklistDialog
+        open={checklistOpen}
+        onClose={() => setChecklistOpen(false)}
+        onUploadFor={({ employee_id, category }) => {
+          // Pre-seed the upload modal targeting the right employee + category
+          setSelectedEmployee(employee_id);
+          setUploadForm((f) => ({
+            ...f,
+            category: category || 'contract',
+            title: '',
+          }));
+          setUploadOpen(true);
+        }}
+      />
     </div>
   );
 }

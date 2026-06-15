@@ -96,6 +96,12 @@ class EmployeeCreate(BaseModel):
     bank: Optional[BankDetails] = None
     holiday_entitlement_days: float = DEFAULT_HOLIDAY_ENTITLEMENT
     status: str = "active"
+    compliance_profile: Optional[str] = Field(
+        None,
+        description="Override the auto-inferred personnel-file profile: "
+                    "sponsored_worker | settled_worker | british_worker. "
+                    "Leave None to auto-detect from uploaded documents.",
+    )
 
 
 class EmployeeUpdate(BaseModel):
@@ -127,6 +133,7 @@ class EmployeeUpdate(BaseModel):
     holiday_entitlement_days: Optional[float] = None
     status: Optional[str] = None
     user_id: Optional[str] = None
+    compliance_profile: Optional[str] = None
 
 
 class SelfServiceUpdate(BaseModel):
