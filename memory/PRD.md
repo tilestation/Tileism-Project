@@ -9,6 +9,54 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Feb 9, 2026 — Forked session] 🏬 Per-Showroom Voice Routing (P0 — shipped)
+
+User asked how to apply welcome/ads/recording to showroom landlines without porting them. Answer: BT/Sky/Virgin **call-divert each line → its own Twilio number**, the existing landlines stay completely untouched. Per-showroom config makes each shop's caller experience unique.
+
+**Showrooms in DB**: Chingford (020 8524 6262) · Tonbridge (01732 914 374) · Gravesend (01474 878989) · Sydenham (pending).
+
+**Backend** (`/app/backend/routes/voice_showroom_routes.py` — NEW, ~230 lines):
+- New collection `voice_showroom_routes` — one document per showroom that has been wired to Twilio.
+- `GET /api/admin/voice/showroom-routes` — returns routes + the full showrooms list (so the UI can prompt to wire each one).
+- `PUT /api/admin/voice/showroom-routes/{showroom_name}` — upsert. Normalises phone numbers to E.164. **Refuses duplicate Twilio numbers** across showrooms (409). URL is the canonical name (payload name is ignored).
+- `DELETE /api/admin/voice/showroom-routes/{showroom_name}` — super-admin only.
+- `POST /api/admin/voice/showroom-routes/{showroom_name}/regenerate-welcome` — per-showroom ElevenLabs TTS → R2 upload, with `{showroom_name}` and `{showroom_hours_today}` placeholder substitution.
+- `match_showroom_route_for_call(to_number)` — helper called from `voice_incoming`. Loose number matching (exact + normalised). Resolves placeholders + attaches `_resolved_opening_hours` if `use_showroom_hours=True`.
+
+**Voice incoming** now does per-call route resolution:
+1. Reads `To` number from Twilio.
+2. Calls `match_showroom_route_for_call` — if a route exists and is enabled, overlays its fields (divert mobile, welcome text, welcome audio, recording toggle, ring timeout) on top of the global settings.
+3. When `use_showroom_hours=True`, sets `business_hours_enabled=True` and reduces the showroom's opening_hours dict to today's open/close window. Empty/missing → closed today → closed-message TwiML.
+
+**Frontend** (`Telephony.jsx` — extended):
+- New "Per-Showroom" tab — lists every showroom from the `showrooms` collection with status pill (Wired / Disabled / Not wired) + inline summary of Twilio number, divert mobile, welcome text and audio preview.
+- "Configure" / "Edit" button opens a modal with: Twilio number, divert mobile, welcome textarea (with placeholder hint), Generate audio button (ElevenLabs), opening-hours read-out from the showroom record, use-showroom-hours toggle, recording-inherit dropdown, enable/disable, remove-route button. Cancel/Save.
+
+**Tests** (20 new in `test_voice_showroom_routes.py`, all pass):
+- Phone normalisation (`07379…` → `+447379…`, etc).
+- List endpoint includes both routes + showrooms; manager can read, staff 403.
+- Upsert requires super_admin; normalises phones; rejects duplicate Twilio numbers with 409; URL name wins over payload.
+- `match_showroom_route_for_call` returns None / route + placeholder resolution / attaches hours.
+- Delete: super-admin only; returns deletion count.
+- **Integration**: `voice_incoming` falls back to global settings when no route matches; applies the per-showroom overrides when one does; uses showroom hours to gate dialling (closed → no Dial, just Hangup).
+
+Total backend tests now **163/163 pass**.
+
+**User's manual steps to go live per showroom**:
+1. Buy one Twilio UK number per showroom (e.g. an `01474` for Gravesend, `020` for Chingford).
+2. Twilio Console → Phone Numbers → Voice Configuration → Webhook = `https://www.tilestation.co.uk/api/voice/incoming` (POST). Same webhook for all 4 numbers — our backend reads `To` and picks the right route.
+3. `/admin/telephony` → **Per-Showroom** tab → Configure each shop → paste Twilio number + team mobile + tweak welcome → Save.
+4. From each shop's BT/Sky/Virgin landline, dial `*21*{twilio number}#` to enable call divert. To cancel: `#21#`. To check status: `*#21#`.
+
+**Files**:
+- `/app/backend/routes/voice_showroom_routes.py` (NEW).
+- `/app/backend/routes/voice.py` (incoming webhook now overlays per-showroom config).
+- `/app/backend/routes/__init__.py` (router registration).
+- `/app/backend/tests/test_voice_showroom_routes.py` (NEW — 20 tests).
+- `/app/frontend/src/pages/admin/Telephony.jsx` (+ Per-Showroom tab + editor modal).
+
+
+
 ### [Feb 9, 2026 — Forked session] 🔍 Voice Customer Auto-Recognition (P0 — shipped)
 
 Follow-on to the Twilio Voice call centre. When a caller's `From` number matches an existing customer in the DB, the Telegram alert AND the admin's screen now show their name + last order details instead of just digits.

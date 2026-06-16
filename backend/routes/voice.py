@@ -208,6 +208,52 @@ async def voice_incoming(request: Request):
     to_number = form.get("To", "")
     call_sid = form.get("CallSid", "")
 
+    # ─── Per-showroom routing (Feb 2026) ────────────────────────────
+    # If a `voice_showroom_routes` doc matches this Twilio number,
+    # overlay its overrides on top of the global settings so each
+    # showroom can have its own welcome, divert mobile, recording
+    # toggle and opening hours.
+    matched_showroom = None
+    try:
+        from routes.voice_showroom_routes import match_showroom_route_for_call  # noqa: PLC0415
+        matched_showroom = await match_showroom_route_for_call(to_number)
+    except Exception:  # noqa: BLE001
+        logger.exception("Showroom route lookup failed for %s", to_number)
+    if matched_showroom:
+        # Overlay non-empty fields
+        if matched_showroom.get("divert_mobile"):
+            settings["divert_mobile_number"] = matched_showroom["divert_mobile"]
+        if matched_showroom.get("welcome_message_text"):
+            settings["welcome_message_text"] = matched_showroom["welcome_message_text"]
+        if matched_showroom.get("welcome_audio_url"):
+            settings["welcome_audio_url"] = matched_showroom["welcome_audio_url"]
+        if matched_showroom.get("recording_enabled") is not None:
+            settings["recording_enabled"] = bool(matched_showroom["recording_enabled"])
+        if matched_showroom.get("ring_timeout_seconds"):
+            settings["ring_timeout_seconds"] = int(matched_showroom["ring_timeout_seconds"])
+        # Per-showroom hours (each shop has its own opening times)
+        if matched_showroom.get("use_showroom_hours"):
+            settings["business_hours_enabled"] = True
+            resolved_hours = matched_showroom.get("_resolved_opening_hours") or {}
+            # Reduce the daily hours dict to today's open/close
+            from datetime import datetime as _dt
+            try:
+                from zoneinfo import ZoneInfo  # noqa: PLC0415
+                now_ldn = _dt.now(ZoneInfo("Europe/London"))
+            except Exception:  # noqa: BLE001
+                now_ldn = _dt.now(timezone.utc)
+            today_key = now_ldn.strftime("%A").lower()
+            today_hours = resolved_hours.get(today_key, "")
+            if today_hours and "-" in today_hours:
+                open_s, close_s = (p.strip() for p in today_hours.split("-", 1))
+                settings["business_hours_open"] = open_s
+                settings["business_hours_close"] = close_s
+                settings["business_hours_days"] = [now_ldn.weekday()]
+            else:
+                settings["business_hours_days"] = []  # closed today
+        elif matched_showroom.get("enabled") is False:
+            settings["enabled"] = False
+
     # Pre-log the call so missed-calls have a row even before /status fires
     db = get_db()
     call_row_id = str(uuid.uuid4())

@@ -48,11 +48,13 @@ export default function TelephonyAdmin() {
       <Tabs defaultValue="settings" data-testid="telephony-tabs">
         <TabsList>
           <TabsTrigger value="settings" data-testid="tab-settings">Settings</TabsTrigger>
+          <TabsTrigger value="showrooms" data-testid="tab-showrooms">Per-Showroom</TabsTrigger>
           <TabsTrigger value="calls" data-testid="tab-calls">Call Log</TabsTrigger>
           <TabsTrigger value="stats" data-testid="tab-stats">Stats</TabsTrigger>
           <TabsTrigger value="setup" data-testid="tab-setup">Setup</TabsTrigger>
         </TabsList>
         <TabsContent value="settings"><SettingsTab /></TabsContent>
+        <TabsContent value="showrooms"><ShowroomRoutesTab /></TabsContent>
         <TabsContent value="calls"><CallsTab /></TabsContent>
         <TabsContent value="stats"><StatsTab /></TabsContent>
         <TabsContent value="setup"><SetupTab /></TabsContent>
@@ -668,5 +670,299 @@ function Link({ href, children }) {
        className="text-indigo-700 underline inline-flex items-center gap-0.5 hover:text-indigo-900">
       {children} <ExternalLink className="w-3 h-3" />
     </a>
+  );
+}
+
+
+/* ─── Tab: Per-Showroom routes ────────────────────────────────────── */
+function ShowroomRoutesTab() {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [editing, setEditing] = useState(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const r = await axios.get(`${API}/api/admin/voice/showroom-routes`, { headers: authHeader() });
+      setData(r.data);
+    } catch (e) { toast.error(e?.response?.data?.detail || e.message); }
+    finally { setLoading(false); }
+  }, []);
+  useEffect(() => { load(); }, [load]);
+
+  if (loading || !data) return <div className="p-8 text-center text-xs text-muted-foreground">Loading…</div>;
+
+  const routesByName = Object.fromEntries((data.routes || []).map((r) => [r.showroom_name, r]));
+  const showrooms = data.showrooms || [];
+
+  return (
+    <div className="space-y-4 mt-4" data-testid="showrooms-tab">
+      <div className="rounded-lg border bg-indigo-50/50 border-indigo-200 p-4 text-xs leading-relaxed">
+        <p className="font-bold text-sm mb-1">Per-showroom call routing</p>
+        <p>
+          Each showroom can have its own Twilio number, divert mobile and welcome message —
+          welcome text supports <code className="bg-card px-1 rounded">{'{showroom_name}'}</code>
+          {' and '}<code className="bg-card px-1 rounded">{'{showroom_hours_today}'}</code> placeholders.
+          Opening hours auto-pull from the showroom record. You then set up <strong>BT/Sky/Virgin
+          call divert</strong> from each landline → its Twilio number.
+        </p>
+      </div>
+
+      <div className="space-y-3">
+        {showrooms.map((sr) => {
+          const route = routesByName[sr.name];
+          return (
+            <ShowroomRow key={sr.name} showroom={sr} route={route} onEdit={() => setEditing(sr)} />
+          );
+        })}
+        {showrooms.length === 0 && (
+          <div className="text-xs text-muted-foreground border rounded p-4 text-center">
+            No showrooms defined. Add them under <code>Settings → Showrooms</code> first.
+          </div>
+        )}
+      </div>
+
+      {editing && (
+        <ShowroomRouteEditor
+          showroom={editing}
+          route={routesByName[editing.name]}
+          onClose={() => { setEditing(null); load(); }}
+        />
+      )}
+    </div>
+  );
+}
+
+function ShowroomRow({ showroom, route, onEdit }) {
+  const wired = !!route?.twilio_number;
+  const enabled = route?.enabled !== false;
+  return (
+    <div className={`rounded-lg border p-3 ${wired ? 'bg-card' : 'bg-muted/30'}`}
+      data-testid={`showroom-row-${showroom.name}`}>
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <h3 className="font-bold text-sm">{showroom.name}</h3>
+            {wired && enabled && (
+              <span className="px-2 py-0.5 text-[10px] font-bold uppercase rounded bg-emerald-100 text-emerald-900 border border-emerald-300">Wired</span>
+            )}
+            {wired && !enabled && (
+              <span className="px-2 py-0.5 text-[10px] font-bold uppercase rounded bg-amber-100 text-amber-900 border border-amber-300">Disabled</span>
+            )}
+            {!wired && (
+              <span className="px-2 py-0.5 text-[10px] font-bold uppercase rounded bg-rose-100 text-rose-900 border border-rose-300">Not wired</span>
+            )}
+          </div>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Existing landline: <span className="font-mono">{showroom.phone || '— not on file —'}</span>
+          </p>
+          {wired ? (
+            <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 text-xs">
+              <div>
+                <span className="text-muted-foreground">Twilio →</span>{' '}
+                <span className="font-mono">{route.twilio_number}</span>
+              </div>
+              <div>
+                <span className="text-muted-foreground">Rings →</span>{' '}
+                <span className="font-mono">{route.divert_mobile || '—'}</span>
+              </div>
+              {route.welcome_message_text && (
+                <div className="sm:col-span-2 truncate">
+                  <span className="text-muted-foreground">Welcome →</span>{' '}
+                  <em className="text-foreground">"{route.welcome_message_text}"</em>
+                </div>
+              )}
+              {route.welcome_audio_url && (
+                <div className="sm:col-span-2">
+                  <audio controls src={route.welcome_audio_url} className="w-full h-8 mt-1"
+                    data-testid={`welcome-audio-${showroom.name}`} />
+                </div>
+              )}
+            </div>
+          ) : (
+            <p className="text-xs text-muted-foreground italic mt-1">
+              No Twilio routing yet. Buy a Twilio number for this location + click Configure.
+            </p>
+          )}
+        </div>
+        <Button onClick={onEdit} variant={wired ? 'outline' : 'default'} size="sm"
+          className={!wired ? 'bg-indigo-600 hover:bg-indigo-700 text-white' : ''}
+          data-testid={`configure-${showroom.name}`}>
+          {wired ? 'Edit' : 'Configure'}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function ShowroomRouteEditor({ showroom, route, onClose }) {
+  const [form, setForm] = useState({
+    showroom_name: showroom.name,
+    twilio_number: route?.twilio_number || '',
+    divert_mobile: route?.divert_mobile || '',
+    welcome_message_text: route?.welcome_message_text
+      || `Welcome to Tile Station, ${showroom.name} showroom. This call may be recorded for quality and training. Please hold while we connect you to our team.`,
+    use_showroom_hours: route?.use_showroom_hours !== false,
+    recording_enabled: route?.recording_enabled,
+    enabled: route?.enabled !== false,
+    welcome_audio_url: route?.welcome_audio_url || null,
+    welcome_audio_generated_at: route?.welcome_audio_generated_at || null,
+  });
+  const [saving, setSaving] = useState(false);
+  const [regenerating, setRegenerating] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      await axios.put(`${API}/api/admin/voice/showroom-routes/${encodeURIComponent(showroom.name)}`,
+        form, { headers: authHeader() });
+      toast.success(`${showroom.name} route saved`);
+      onClose();
+    } catch (e) { toast.error(e?.response?.data?.detail || e.message); }
+    finally { setSaving(false); }
+  };
+  const regen = async () => {
+    setRegenerating(true);
+    try {
+      const r = await axios.post(
+        `${API}/api/admin/voice/showroom-routes/${encodeURIComponent(showroom.name)}/regenerate-welcome`,
+        {}, { headers: authHeader() });
+      setForm((f) => ({ ...f, welcome_audio_url: r.data.audio_url,
+                              welcome_audio_generated_at: new Date().toISOString() }));
+      toast.success('Welcome audio regenerated', { description: r.data.rendered_text?.slice(0, 80) });
+    } catch (e) { toast.error(e?.response?.data?.detail || e.message); }
+    finally { setRegenerating(false); }
+  };
+  const del = async () => {
+    if (!window.confirm(`Remove the Twilio route for ${showroom.name}? Callers ringing the Twilio number will fall back to the global default greeting.`)) return;
+    setDeleting(true);
+    try {
+      await axios.delete(`${API}/api/admin/voice/showroom-routes/${encodeURIComponent(showroom.name)}`,
+        { headers: authHeader() });
+      toast.success('Route removed');
+      onClose();
+    } catch (e) { toast.error(e?.response?.data?.detail || e.message); }
+    finally { setDeleting(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-2"
+      onClick={onClose} data-testid="showroom-editor">
+      <div className="bg-background rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto p-5 shadow-xl"
+        onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-start justify-between mb-3">
+          <div>
+            <h3 className="text-lg font-bold">{showroom.name} telephony</h3>
+            <p className="text-xs text-muted-foreground">
+              Existing landline: <span className="font-mono">{showroom.phone || '—'}</span>
+              {showroom.postcode && <> · {showroom.postcode}</>}
+            </p>
+          </div>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground">✕</button>
+        </div>
+
+        <div className="space-y-3">
+          <div>
+            <Label className="text-xs">Twilio number (the one callers are diverted to)</Label>
+            <Input value={form.twilio_number}
+              onChange={(e) => setForm({ ...form, twilio_number: e.target.value })}
+              placeholder="+44 1474 …" data-testid="sr-twilio" />
+            <p className="text-[10px] text-muted-foreground mt-1">
+              Buy this in Twilio Console → set its Voice webhook to <code>/api/voice/incoming</code>.
+            </p>
+          </div>
+          <div>
+            <Label className="text-xs">Divert mobile (showroom manager)</Label>
+            <Input value={form.divert_mobile}
+              onChange={(e) => setForm({ ...form, divert_mobile: e.target.value })}
+              placeholder="+447…" data-testid="sr-mobile" />
+          </div>
+          <div>
+            <Label className="text-xs">Welcome message</Label>
+            <Textarea rows={4} value={form.welcome_message_text}
+              onChange={(e) => setForm({ ...form, welcome_message_text: e.target.value })}
+              data-testid="sr-welcome" />
+            <p className="text-[10px] text-muted-foreground mt-1">
+              Placeholders: <code>{'{showroom_name}'}</code>, <code>{'{showroom_hours_today}'}</code>
+            </p>
+          </div>
+          <div className="flex items-center justify-between">
+            <div className="text-xs">
+              {form.welcome_audio_url ? (
+                <>
+                  <CheckCircle2 className="w-3 h-3 inline text-emerald-600 mr-1" />
+                  Custom audio ready
+                  <a href={form.welcome_audio_url} target="_blank" rel="noreferrer" className="text-indigo-700 underline ml-1">preview</a>
+                  {form.welcome_audio_generated_at && <span className="ml-2 text-muted-foreground">· {form.welcome_audio_generated_at.slice(0, 10)}</span>}
+                </>
+              ) : 'No audio yet — will use Twilio "alice" voice on each call.'}
+            </div>
+            <Button onClick={regen} disabled={regenerating || saving}
+              variant="outline" size="sm" data-testid="sr-regen">
+              {regenerating ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Sparkles className="w-3 h-3 mr-1" />}
+              {regenerating ? 'Synthesising…' : 'Generate audio'}
+            </Button>
+          </div>
+          <Row>
+            <div>
+              <p className="text-sm">Use this showroom's opening hours</p>
+              <p className="text-[10px] text-muted-foreground">Auto-pulled from the Showrooms record. Out-of-hours plays the closed message + hangs up.</p>
+            </div>
+            <Switch checked={form.use_showroom_hours}
+              onCheckedChange={(v) => setForm({ ...form, use_showroom_hours: v })}
+              data-testid="sr-hours" />
+          </Row>
+          {showroom.opening_hours && Object.keys(showroom.opening_hours).length > 0 && (
+            <div className="text-[11px] bg-muted/40 rounded p-2 font-mono">
+              {Object.entries(showroom.opening_hours).map(([day, h]) => (
+                <div key={day}><strong className="capitalize">{day}:</strong> {h}</div>
+              ))}
+            </div>
+          )}
+          <Row>
+            <div>
+              <p className="text-sm">Recording</p>
+              <p className="text-[10px] text-muted-foreground">Leave blank to inherit the global setting</p>
+            </div>
+            <select value={form.recording_enabled === null || form.recording_enabled === undefined ? '' : String(form.recording_enabled)}
+              onChange={(e) => setForm({ ...form, recording_enabled: e.target.value === '' ? null : e.target.value === 'true' })}
+              className="h-8 px-2 rounded border bg-background text-xs"
+              data-testid="sr-record">
+              <option value="">(inherit)</option>
+              <option value="true">On</option>
+              <option value="false">Off</option>
+            </select>
+          </Row>
+          <Row>
+            <div>
+              <p className="text-sm">Route enabled</p>
+              <p className="text-[10px] text-muted-foreground">Off = the Twilio number won't be matched (falls back to global default).</p>
+            </div>
+            <Switch checked={form.enabled}
+              onCheckedChange={(v) => setForm({ ...form, enabled: v })}
+              data-testid="sr-enabled" />
+          </Row>
+        </div>
+
+        <div className="mt-5 flex justify-between gap-2">
+          {route && (
+            <Button onClick={del} disabled={deleting} variant="outline"
+              className="text-rose-700 border-rose-300 hover:bg-rose-50" data-testid="sr-delete">
+              {deleting ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
+              Remove route
+            </Button>
+          )}
+          <div className="ml-auto flex gap-2">
+            <Button variant="outline" onClick={onClose}>Cancel</Button>
+            <Button onClick={save} disabled={saving} className="bg-indigo-600 hover:bg-indigo-700 text-white"
+              data-testid="sr-save">
+              <Save className="w-3 h-3 mr-1.5" />
+              {saving ? 'Saving…' : 'Save'}
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
