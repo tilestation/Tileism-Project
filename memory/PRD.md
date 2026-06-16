@@ -9,6 +9,77 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Feb 9, 2026 — Forked session] 📞 Twilio Voice Full Call Centre (P0 — shipped)
+
+User asked for a UK landline that diverts to mobile + bidirectional Caller ID + the full call-centre features (call recording with consent, missed-call Telegram alerts, weekly volume report, click-to-call buttons on every order/customer) + welcome audio message + 2 hold ads while ringing.
+
+**Backend** (`/app/backend/routes/voice.py` — NEW, ~700 lines):
+- `POST /api/voice/incoming` — TwiML webhook. Welcome (`<Play>` audio if synthesised, else `<Say>` text), then N hold ads `<Play>` from Radio Studio or manual uploads, then `<Dial>` owner mobile with `record="record-from-answer-dual"` + `recordingStatusCallback`.
+- `POST /api/voice/status` — call-status webhook; marks `missed=True` for `no-answer/busy/failed/canceled`; fires Telegram alert (dedupe-keyed by CallSid).
+- `POST /api/voice/recording-status` — saves recording URL/SID to `voice_calls`.
+- `POST /api/voice/outbound` — TwiML for browser-initiated calls; presents the landline as Caller ID.
+- `GET /api/voice/token` — short-lived JWT for `@twilio/voice-sdk` Browser SDK; 503 with helpful message until API keys configured.
+- `GET/PUT /api/admin/voice/settings` — telephony config (single doc `id="default"`).
+- `POST /api/admin/voice/settings/regenerate-welcome` — synthesises welcome MP3 via ElevenLabs + uploads to R2.
+- `POST /api/admin/voice/settings/upload-ad` — uploads up to 5MB MP3 for manual ad source.
+- `GET /api/admin/voice/calls` (+ direction/missed-only filters), `GET /api/admin/voice/calls/{id}`, `GET /api/admin/voice/recording/{call_id}` (Basic-Auth proxy so the browser doesn't see Twilio creds).
+- `GET /api/admin/voice/stats` — today/week/month + 7-day padded daily array (zero-fills empty days so the chart always renders).
+- Twilio webhook signature validation (X-Twilio-Signature) gated by `VOICE_REQUIRE_SIGNATURE=1` env.
+- Business hours support — closed-hours TwiML plays the configured closed message + Hangup.
+
+**Background cron** (`/app/backend/services/voice_weekly_summary.py` — NEW):
+- Hourly check; emits a single Telegram weekly summary on Mondays 09:00 UTC. Dedupes by ISO week-key in `db.voice_weekly_summaries`.
+
+**Frontend**:
+- `/admin/telephony` — 4-tab page (`Telephony.jsx`): Settings (master switch, divert mobile, Twilio landline, welcome text + ElevenLabs regenerate, ads source picker incl. manual MP3 upload, recording toggle, Telegram alert toggles, business hours), Call Log (filter by direction + missed-only + drawer with `<audio>` recording playback), Stats (today/week/month KPI cards + 7-day bar chart), Setup (6-step wizard with copy-to-clipboard webhook URLs).
+- `ClickToCallButton.jsx` (NEW reusable component) — lazy-loads `@twilio/voice-sdk` only on first click; falls back to `tel:` link on mobile OR when API keys aren't configured (503).
+- `OnlineOrders.jsx` — customer phone display now also has a green click-to-call icon next to it.
+- App.js + Layout.js — `/admin/telephony` route + "Telephony" sidebar nav (super_admin only).
+
+**Env vars added** (all empty by default; user fills in once they've bought the Twilio UK number):
+- `TWILIO_PHONE_NUMBER`, `TWILIO_API_KEY`, `TWILIO_API_SECRET`, `TWILIO_TWIML_APP_SID`
+- `OWNER_MOBILE_NUMBER=+447379562631` (user-provided in this session)
+- `PUBLIC_BACKEND_URL=https://www.tilestation.co.uk`
+- `VOICE_REQUIRE_SIGNATURE=0` (set to 1 in production after first successful call)
+
+**Tests** (17 new in `test_voice.py`, all pass):
+- Settings defaults / role gating / persistence.
+- TwiML structure: welcome present, dial present, recording attrs, XML-escape of `& < >`.
+- Welcome `<Play>` overrides `<Say>` when `welcome_audio_url` is set.
+- Disabled telephony → hangup with unavailable message.
+- Business hours days=[] → closed message + hangup.
+- Status webhook: missed=true on no-answer; Telegram fires; not on answered.
+- Recording webhook persists URL/SID/duration.
+- Stats: 7-day daily padded with zero-call days.
+- Token endpoint: 503 when keys missing, 403 for non-admin.
+- Calls listing supports filters; rejects non-admin.
+
+**Testing agent verdict**: 31/32 live backend + 100% frontend. Minor issue (daily-array padding) → fixed in this pass. Code-review notes (route file size, `_public_url` fallback) → file size noted for future refactor, `_public_url` now logs WARN instead of silently routing to prod when unconfigured.
+
+**Files**:
+- `/app/backend/routes/voice.py` (NEW).
+- `/app/backend/services/voice_weekly_summary.py` (NEW).
+- `/app/backend/server.py` (+ kickstart for weekly cron).
+- `/app/backend/routes/__init__.py` (register voice router).
+- `/app/backend/.env` (new env keys).
+- `/app/backend/tests/test_voice.py` (NEW — 17 tests).
+- `/app/backend/tests/test_voice_live.py` (NEW — testing agent).
+- `/app/frontend/src/pages/admin/Telephony.jsx` (NEW).
+- `/app/frontend/src/components/ClickToCallButton.jsx` (NEW).
+- `/app/frontend/src/pages/admin/OnlineOrders.jsx` (phone display + ClickToCallButton).
+- `/app/frontend/src/App.js` (route).
+- `/app/frontend/src/components/Layout.js` (nav).
+- `/app/frontend/package.json` (`@twilio/voice-sdk` added).
+
+**User next steps to go live** (already documented in the in-app Setup wizard):
+1. Twilio Console → Phone Numbers → Buy a UK number (1-3 day regulatory approval).
+2. Set its Voice webhook to `https://www.tilestation.co.uk/api/voice/incoming` (POST).
+3. Paste the new number into `/admin/telephony` → Settings → Twilio landline + Save.
+4. (Optional) Twilio Console → API Keys + TwiML App → paste credentials into Railway env for browser click-to-call.
+5. Once tested end-to-end, flip `VOICE_REQUIRE_SIGNATURE=1` for production.
+
+
+
 ### [Feb 9, 2026 — Forked session] 🛡️ Orphaned-Orders Safety-Net Sweep (P0 — shipped)
 
 Belt-and-braces complement to the order-email fix. Even if a future regression breaks the dispatcher in one of the four paid-order code paths, this cron catches the orphans within minutes.

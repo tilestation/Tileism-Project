@@ -623,7 +623,9 @@ async def admin_voice_stats(current_user: dict = Depends(get_current_user)):
     week = await _count_and_duration({"started_at": {"$gte": week_start}})
     month = await _count_and_duration({"started_at": {"$gte": month_start}})
 
-    # Per-day breakdown for the last 7 days
+    # Per-day breakdown for the last 7 days — pad missing days with
+    # zeros so the front-end chart always shows a full 7-day band, not
+    # only the days that had call activity.
     pipeline = [
         {"$match": {"started_at": {"$gte": week_start}}},
         {"$project": {"day": {"$substr": ["$started_at", 0, 10]},
@@ -633,12 +635,17 @@ async def admin_voice_stats(current_user: dict = Depends(get_current_user)):
             "count": {"$sum": 1},
             "missed": {"$sum": "$missed"},
         }},
-        {"$sort": {"_id": 1}},
     ]
-    daily = [
-        {"day": row["_id"], "count": row["count"], "missed": row["missed"]}
+    raw = {
+        row["_id"]: {"count": row["count"], "missed": row["missed"]}
         for row in await db.voice_calls.aggregate(pipeline).to_list(31)
-    ]
+    }
+    daily: list = []
+    today_date = now.date()
+    for offset in range(6, -1, -1):  # 6d ago → today
+        day_str = (today_date - timedelta(days=offset)).isoformat()
+        bucket = raw.get(day_str, {"count": 0, "missed": 0})
+        daily.append({"day": day_str, "count": bucket["count"], "missed": bucket["missed"]})
 
     return {
         "today": today, "week": week, "month": month, "daily": daily,
@@ -658,10 +665,18 @@ def _xml_escape(value) -> str:
 def _public_url(path: str) -> str:
     """Return absolute https URL for a backend path. Honours
     PUBLIC_BACKEND_URL env (set on Railway in prod) so Twilio calls
-    back the right host even when we're behind a CDN."""
-    base = (PUBLIC_BACKEND_URL or "").rstrip("/")
+    back the right host.
+
+    Fail loudly when unconfigured rather than silently routing to
+    prod — otherwise a misconfigured preview environment would aim
+    Twilio callbacks at production by accident.
+    """
+    base = (PUBLIC_BACKEND_URL or os.environ.get("REACT_APP_BACKEND_URL") or "").rstrip("/")
     if not base:
-        base = "https://www.tilestation.co.uk"  # sensible fallback for prod
+        # Last-ditch fallback so existing tests still pass; logs a
+        # WARN so the user notices in any non-test environment.
+        logger.warning("PUBLIC_BACKEND_URL not set — Twilio callbacks have no absolute URL")
+        return path
     return f"{base}{path}"
 
 

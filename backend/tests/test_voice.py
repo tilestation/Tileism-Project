@@ -297,11 +297,14 @@ def test_stats_aggregates_today_week_month_and_daily():
 
     daily_cursor = MagicMock()
     async def _daily_to_list(_n):
-        return [{"_id": "2026-02-09", "count": 5, "missed": 1}]
+        # Mongo returns only days that have activity — verify the
+        # endpoint pads the missing days itself.
+        from datetime import date as _date
+        today = _date.today().isoformat()
+        return [{"_id": today, "count": 5, "missed": 1}]
     daily_cursor.to_list = _daily_to_list
 
     def _aggregate(pipeline):
-        # Daily pipeline is detected by the substring projection stage
         if any("$project" in s for s in pipeline):
             return daily_cursor
         return summary_cursor
@@ -313,7 +316,15 @@ def test_stats_aggregates_today_week_month_and_daily():
     assert out["today"]["count"] == 3
     assert out["week"]["count"] == 3
     assert out["month"]["count"] == 3
-    assert out["daily"][0]["count"] == 5
+    # The daily array MUST be exactly 7 entries — even when most days
+    # had no calls — so the front-end chart always renders a full week.
+    assert len(out["daily"]) == 7
+    counts = [d["count"] for d in out["daily"]]
+    assert counts.count(0) == 6  # 6 zero-filled days
+    assert counts.count(5) == 1  # 1 active day
+    # Days are ordered oldest → newest
+    days = [d["day"] for d in out["daily"]]
+    assert days == sorted(days)
     assert "generated_at" in out
 
 
