@@ -151,6 +151,47 @@ function OrderDetailModal({ orderId, onClose, onStatusChanged, onDeleted }) {
     }
   };
 
+  // 📧 Manually resend the order-confirmation emails (customer + owner).
+  // Built for the 16 Jun 2026 P0 incident where a customer paid but
+  // neither email fired. Hits the new idempotent dispatcher backend-side.
+  const [resendingConfirmation, setResendingConfirmation] = useState(false);
+  const handleResendConfirmation = async () => {
+    if (!order || resendingConfirmation) return;
+    setResendingConfirmation(true);
+    try {
+      const res = await axios.post(
+        `${API_URL}/api/shop/admin/online-orders/${order.id}/resend-confirmation`,
+        {},
+        auth,
+      );
+      const r = res.data?.result || {};
+      const cust = r.customer?.success;
+      const ownr = r.owner?.success;
+      if (cust && ownr) {
+        toast.success('Confirmation emails resent', {
+          description: `Customer + owner notifications dispatched for ${order.order_number}`,
+        });
+      } else if (cust) {
+        toast.warning('Customer email sent, owner email failed', {
+          description: r.owner?.error || 'See email_log for details',
+        });
+      } else if (ownr) {
+        toast.warning('Owner email sent, customer email failed', {
+          description: r.customer?.error || 'See email_log for details',
+        });
+      } else {
+        toast.error('Both emails failed', {
+          description: `${r.customer?.error || ''} / ${r.owner?.error || ''}`,
+        });
+      }
+      await fetchOrder();
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || 'Resend failed');
+    } finally {
+      setResendingConfirmation(false);
+    }
+  };
+
   const token = localStorage.getItem('token');
   const auth = { headers: { Authorization: `Bearer ${token}` } };
 
@@ -508,6 +549,30 @@ function OrderDetailModal({ orderId, onClose, onStatusChanged, onDeleted }) {
               {/* Email log — surfaces every email sent for this order so
                   the team can avoid double-messaging the customer. Status
                   emails show the status; custom emails show the subject. */}
+              {/* Orphaned-order rescue: paid but NEVER emailed (Carolina case) */}
+              {order.payment_status === 'paid' && (!Array.isArray(order.email_log) || order.email_log.length === 0) && (
+                <div className="border border-amber-300 bg-amber-50 rounded-xl p-4 flex items-start gap-3"
+                  data-testid="orphan-order-banner">
+                  <Mail className="w-5 h-5 text-amber-700 mt-0.5 shrink-0" />
+                  <div className="flex-1">
+                    <p className="text-sm font-bold text-amber-900">No confirmation email has ever been sent for this order.</p>
+                    <p className="text-xs text-amber-800 mt-0.5">
+                      Click below to dispatch the customer confirmation + owner notification now.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleResendConfirmation}
+                    disabled={resendingConfirmation}
+                    className="text-xs inline-flex items-center gap-1.5 px-3 py-1.5 rounded bg-indigo-600 hover:bg-indigo-700 text-white font-bold disabled:opacity-50"
+                    data-testid="orphan-resend-btn"
+                  >
+                    {resendingConfirmation ? <Loader2 className="w-3 h-3 animate-spin" /> : <Mail className="w-3 h-3" />}
+                    {resendingConfirmation ? 'Sending…' : 'Send confirmation now'}
+                  </button>
+                </div>
+              )}
+
               {Array.isArray(order.email_log) && order.email_log.length > 0 && (
                 <div className="border border-gray-200 rounded-xl p-4" data-testid="email-log-block">
                   <div className="flex items-center justify-between mb-3">
@@ -515,6 +580,19 @@ function OrderDetailModal({ orderId, onClose, onStatusChanged, onDeleted }) {
                       <Mail className="w-4 h-4 text-gray-400" /> Email log
                       <span className="text-[11px] text-gray-400 font-normal">({order.email_log.length} sent)</span>
                     </h3>
+                    {order.payment_status === 'paid' && (
+                      <button
+                        type="button"
+                        onClick={handleResendConfirmation}
+                        disabled={resendingConfirmation}
+                        className="text-[11px] inline-flex items-center gap-1 px-2 py-1 rounded bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 text-indigo-700 font-medium disabled:opacity-50"
+                        title="Re-send the order confirmation to the customer AND owner"
+                        data-testid="resend-confirmation-btn"
+                      >
+                        {resendingConfirmation ? <Loader2 className="w-3 h-3 animate-spin" /> : <Mail className="w-3 h-3" />}
+                        {resendingConfirmation ? 'Sending…' : 'Resend confirmation'}
+                      </button>
+                    )}
                   </div>
                   <ul className="space-y-2 text-[12px]" data-testid="email-log-list">
                     {order.email_log.slice().reverse().slice(0, 12).map((e, i) => {

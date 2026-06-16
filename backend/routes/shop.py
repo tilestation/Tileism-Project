@@ -3431,14 +3431,21 @@ async def get_checkout_status(session_id: str):
             if credit_result.get("success"):
                 logging.info(f"Credits awarded for order {order_id}: £{credit_result.get('credits_earned', 0):.2f}")
             
-            # Send order confirmation email
+            # Send order confirmation email (idempotent dispatcher —
+            # safe against double-send when the Stripe webhook also fires).
             updated_order = await db.shop_orders.find_one({"id": order_id}, {"_id": 0})
             if updated_order:
-                email_result = await send_shop_order_confirmation(updated_order)
-                if email_result.get("success"):
-                    logging.info(f"Order confirmation email sent for order {order_id}")
-                else:
-                    logging.warning(f"Failed to send confirmation email for order {order_id}: {email_result.get('error')}")
+                try:
+                    from services.email import send_order_confirmation_emails_idempotent
+                    email_result = await send_order_confirmation_emails_idempotent(order_id)
+                    if email_result.get("already_sent"):
+                        logging.info(f"Order confirmation emails already sent for {order_id} (poll path skipped)")
+                    else:
+                        c_ok = email_result.get("customer", {}).get("success")
+                        o_ok = email_result.get("owner", {}).get("success")
+                        logging.info(f"Order confirmation emails dispatched for {order_id}: customer_ok={c_ok} owner_ok={o_ok}")
+                except Exception as e:  # noqa: BLE001
+                    logging.warning(f"Order confirmation email dispatch failed (poll): {e}")
 
                 # 🛒 Telegram alert (polling-based status path) — same
                 # dedupe key as the webhook so whichever path completes
@@ -4092,8 +4099,63 @@ async def admin_get_online_order(order_id: str, current_user: dict = Depends(get
     db = get_db()
     order = await db.shop_orders.find_one({"id": order_id}, {"_id": 0})
     if not order:
+        # Also try order_number lookup so admins can use the human-readable id
+        order = await db.shop_orders.find_one({"order_number": order_id}, {"_id": 0})
+    if not order:
         raise HTTPException(status_code=404, detail="Order not found")
     return order
+
+
+@router.post("/admin/online-orders/{order_id}/resend-confirmation")
+async def admin_resend_order_confirmation(
+    order_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """Manually re-fire the customer + owner confirmation emails for an
+    existing paid order. Built in response to the 16 Jun 2026 incident
+    where a customer paid but neither email fired. Resets the
+    `confirmation_email_sent_at` marker so the idempotent dispatcher
+    will actually re-send (rather than skipping)."""
+    if current_user.get("role") not in ["super_admin", "admin", "manager"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    db = get_db()
+    # Allow either internal id OR human-readable order_number
+    order = await db.shop_orders.find_one({"id": order_id}, {"_id": 0})
+    if not order:
+        order = await db.shop_orders.find_one({"order_number": order_id}, {"_id": 0})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    if order.get("payment_status") != "paid":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Order is not paid (status={order.get('payment_status') or 'unknown'}); cannot send confirmation.",
+        )
+    # Reset the idempotency marker so the dispatcher will actually send
+    await db.shop_orders.update_one(
+        {"id": order["id"]},
+        {"$unset": {"confirmation_email_sent_at": ""}},
+    )
+    from services.email import send_order_confirmation_emails_idempotent
+    result = await send_order_confirmation_emails_idempotent(order["id"])
+    # Audit
+    try:
+        await db.shop_orders.update_one(
+            {"id": order["id"]},
+            {"$push": {"email_log": {
+                "kind": "manual_resend",
+                "by": (current_user or {}).get("email", "admin"),
+                "sent_at": datetime.now(timezone.utc).isoformat(),
+                "customer_ok": bool(result.get("customer", {}).get("success")),
+                "owner_ok":    bool(result.get("owner", {}).get("success")),
+            }}}
+        )
+    except Exception:
+        pass
+    return {
+        "order_id": order["id"],
+        "order_number": order.get("order_number"),
+        "result": result,
+    }
 
 
 class DeleteOrderRequest(BaseModel):

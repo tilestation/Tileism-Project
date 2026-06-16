@@ -9,6 +9,65 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Feb 9, 2026 — Forked session] 🚨 P0 Bug Fix — Missing order confirmation emails (Carolina Santiago £834.63 incident)
+
+**Incident**: Customer paid £834.63 via Stripe (`pi_3TiwfvRrO4AkXmfS0cjeXKse`), order `TS-260616-30E725` saved as paid in the DB, but **neither the customer nor the owner received any email**. Customer luckily emailed `online@tilestation.co.uk` chasing it; otherwise the order would have silently vanished.
+
+**Root cause**: Order confirmation email was sent ONLY from the success-page polling endpoint (`shop.py:3437`). If the customer closed the tab before the poll fired (or used Apple Pay / Google Pay / Klarna Express / PayPal Express which skip the poll entirely), no email was ever sent. The Stripe webhook handler flipped the order to paid + sent Telegram alerts but **had zero email code paths**. There was also no owner-notification email anywhere — only Telegram.
+
+**Fix shipped**:
+
+1. **New idempotent dispatcher** `send_order_confirmation_emails_idempotent(order_id)` in `services/email.py`:
+   - Atomically claims the right to email via `find_one_and_update` on a new `confirmation_email_sent_at` field — so webhook + poll path can race without double-sending.
+   - Sends customer confirmation AND owner notification in parallel via `asyncio.gather(return_exceptions=True)`.
+   - Unsets the claim marker if BOTH sends fail so a retry can succeed.
+   - Writes an `email_log` audit row with `kind="order_confirmation"`.
+
+2. **New owner-notification email** `_send_owner_order_notification`:
+   - Goes to `ONLINE_ORDERS_INBOX` (`online@tilestation.co.uk`) + `ADMIN_EMAIL`.
+   - Contains full item table, customer details, delivery address, total + admin link.
+   - `reply_to` set to the customer's email so admin can hit Reply and answer immediately.
+
+3. **Wired into ALL 4 paid-order code paths**:
+   - Standard Stripe checkout webhook (server.py — was missing email entirely).
+   - Fallback for Express checkouts (Klarna/PayPal — was missing email).
+   - Wallet Express PaymentIntents (Apple Pay / Google Pay — was missing email).
+   - Success-page polling endpoint (`shop.py` — replaced single-customer call with new dispatcher).
+
+4. **Admin "Resend confirmation" endpoint** `POST /api/shop/admin/online-orders/{order_id}/resend-confirmation`:
+   - Accepts internal id OR human-readable `order_number` (e.g. `TS-260616-30E725`).
+   - Resets the marker and fires the dispatcher.
+   - 400 if order isn't paid; 404 if not found; super_admin/admin/manager only.
+
+5. **Admin lookup endpoint enhanced** — `GET /api/shop/admin/online-orders/{order_id}` now also accepts `order_number` so admins can paste the customer-facing ID.
+
+6. **Frontend** — new amber banner on the Online Orders detail modal when a paid order has zero `email_log` entries (Carolina's case): "No confirmation email has ever been sent — Send confirmation now". Plus a small "Resend confirmation" button in the Email Log section header for normal cases.
+
+7. **Tests** (8 new in `test_order_email_idempotent.py`, all pass):
+   - First call sends both emails; second call short-circuits without resending.
+   - Marker is unset on dual-failure; preserved when only one fails.
+   - Audit row written.
+   - Survives exception in one send path.
+   - Owner notification goes to both inboxes with `reply_to` set.
+   - Gracefully no-ops when no recipients configured.
+
+**Recovery for Carolina's order (TS-260616-30E725)**:
+- Open `/admin/online-orders` on the live site.
+- Find order `TS-260616-30E725` (filter by status=paid or search by customer email `carolss.cs@gmail.com`).
+- Open the order — the amber rescue banner will appear.
+- Click "Send confirmation now" → both Carolina and `online@tilestation.co.uk` receive the email instantly.
+- The order detail panel will show all line items + total so the user can also reply to her manually.
+
+**Files**:
+- `/app/backend/services/email.py` (+ 3 new functions: `send_order_confirmation_emails_idempotent`, `_send_owner_order_notification`, `_build_owner_notification_html`).
+- `/app/backend/services/__init__.py` (export the new function).
+- `/app/backend/server.py` (3 webhook sites now also fire emails).
+- `/app/backend/routes/shop.py` (poll path switched to idempotent dispatcher; new admin resend endpoint).
+- `/app/backend/tests/test_order_email_idempotent.py` (NEW — 8 tests).
+- `/app/frontend/src/pages/admin/OnlineOrders.jsx` (orphan-rescue banner + resend button).
+
+
+
 ### [Feb 9, 2026 — Forked session] 📋 HR Personnel File Compliance Checklist + Audit PDF (P0 — shipped)
 
 Follow-up to the Sponsor Licence baseline review. The user asked: *"Where do I upload employee documents as vault in HR which complies Home Office and create reports/checklist of all the documents"*. The Documents tab already existed as the upload vault; what was missing was the cross-cutting compliance view.

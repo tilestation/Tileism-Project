@@ -9086,6 +9086,16 @@ async def stripe_webhook(request: Request):
                             except Exception as e:  # noqa: BLE001
                                 logging.warning(f"Telegram new_order alert (fallback) failed: {e}")
 
+                            # 📧 Customer + owner order confirmation emails
+                            # for Express checkouts (Klarna/PayPal) — these
+                            # never hit the polling path, so without this the
+                            # customer would never get an email.
+                            try:
+                                from services.email import send_order_confirmation_emails_idempotent
+                                asyncio.create_task(send_order_confirmation_emails_idempotent(fallback_order["id"]))
+                            except Exception as e:  # noqa: BLE001
+                                logging.error(f"Order confirmation email dispatch failed (fallback): {e}")
+
                     if transaction and transaction.get("payment_status") != "paid":
                         now = datetime.now(timezone.utc).isoformat()
                         
@@ -9152,6 +9162,18 @@ async def stripe_webhook(request: Request):
                                     )
                                 except Exception as e:  # noqa: BLE001
                                     logging.warning(f"Telegram new_order alert failed (webhook): {e}")
+
+                                # 📧 Customer + owner order confirmation emails —
+                                # idempotent so the poll path can't re-fire them.
+                                # This is the fix for the 16 Jun 2026 incident
+                                # where Carolina Santiago paid £834.63 but nobody
+                                # got an email because she closed the tab before
+                                # the success page poll ran.
+                                try:
+                                    from services.email import send_order_confirmation_emails_idempotent
+                                    asyncio.create_task(send_order_confirmation_emails_idempotent(order_id))
+                                except Exception as e:  # noqa: BLE001
+                                    logging.error(f"Order confirmation email dispatch failed (webhook): {e}")
                         
                         logging.info(f"Payment confirmed for session {session_id}")
 
@@ -9201,6 +9223,15 @@ async def stripe_webhook(request: Request):
                             )
                         except Exception as e:  # noqa: BLE001
                             logging.warning(f"Telegram new_order alert failed (wallet express): {e}")
+
+                        # 📧 Customer + owner order confirmation emails
+                        # for Wallet Express (Apple Pay / Google Pay) —
+                        # same idempotent dispatcher as the other paths.
+                        try:
+                            from services.email import send_order_confirmation_emails_idempotent
+                            asyncio.create_task(send_order_confirmation_emails_idempotent(order_id))
+                        except Exception as e:  # noqa: BLE001
+                            logging.error(f"Order confirmation email dispatch failed (wallet express): {e}")
 
             # ────────────────────────────────────────────────────────────
             # 🚨 Failed-payment branches — fire the `failed_payment`

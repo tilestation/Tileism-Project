@@ -2038,6 +2038,193 @@ async def send_shop_order_confirmation(order: dict) -> dict:
     return await send_order_status_notification(order, "confirmed")
 
 
+# ─── Owner-notification + idempotent dispatch (16 Jun 2026 fix) ──────
+# Built in response to a P0 incident: Carolina Santiago paid £834.63
+# but neither she nor the owner received an email. Root cause: the
+# polling endpoint sent the customer email but (a) the webhook fallback
+# path didn't, and (b) there was no owner-notification email anywhere.
+# This helper:
+#   1. Atomically claims the right to email so webhook + poll path
+#      can't double-send.
+#   2. Sends the customer confirmation.
+#   3. Sends a separate owner notification to ADMIN_EMAIL + online@.
+#   4. Logs the attempt on the order doc for the admin UI.
+
+ONLINE_ORDERS_INBOX = os.environ.get("ONLINE_ORDERS_INBOX", "online@tilestation.co.uk")
+
+
+def _build_owner_notification_html(order: dict) -> str:
+    """Minimal but complete summary the owner can read on their phone."""
+    items_rows = ""
+    for it in (order.get("items") or []):
+        items_rows += (
+            f"<tr><td style='padding:6px 8px;border-bottom:1px solid #e5e7eb'>"
+            f"<strong>{it.get('name') or it.get('product_name') or 'Item'}</strong>"
+            f"{' · ' + str(it.get('variant') or '') if it.get('variant') else ''}"
+            f"</td>"
+            f"<td style='padding:6px 8px;border-bottom:1px solid #e5e7eb;text-align:center'>"
+            f"{it.get('quantity', 1)}</td>"
+            f"<td style='padding:6px 8px;border-bottom:1px solid #e5e7eb;text-align:right'>"
+            f"£{float(it.get('subtotal') or it.get('total') or (it.get('price', 0) * it.get('quantity', 1))):.2f}"
+            f"</td></tr>"
+        )
+    addr = order.get("shipping_address") or order.get("delivery_address") or {}
+    addr_str = ""
+    if isinstance(addr, dict):
+        parts = [addr.get(k) for k in ("line1", "line2", "city", "postcode", "country") if addr.get(k)]
+        addr_str = "<br/>".join(parts)
+    elif isinstance(addr, str):
+        addr_str = addr.replace("\n", "<br/>")
+    return f"""
+    <div style="font-family:Arial,sans-serif;max-width:640px;margin:0 auto">
+      <h2 style="background:#0f172a;color:#fff;padding:14px 18px;margin:0">
+        🛒 New online order — {order.get('order_number') or order.get('id', '?')}
+      </h2>
+      <div style="padding:16px 18px;background:#f8fafc">
+        <p><strong>Total:</strong> £{float(order.get('total', 0)):.2f}
+           &middot; <strong>Items:</strong> {len(order.get('items') or [])}
+           &middot; <strong>Status:</strong> {order.get('status', 'confirmed')}</p>
+        <p><strong>Customer:</strong> {order.get('customer_name') or 'Guest'}
+           &middot; <a href='mailto:{order.get('customer_email', '')}'>{order.get('customer_email', '')}</a>
+           {' · ' + order.get('customer_phone', '') if order.get('customer_phone') else ''}</p>
+        {f"<p><strong>Delivery to:</strong><br/>{addr_str}</p>" if addr_str else ""}
+        <table style="width:100%;border-collapse:collapse;font-size:13px;margin-top:12px;background:#fff">
+          <thead><tr style="background:#1e293b;color:#fff">
+            <th style="padding:8px;text-align:left">Item</th>
+            <th style="padding:8px;text-align:center">Qty</th>
+            <th style="padding:8px;text-align:right">Subtotal</th>
+          </tr></thead>
+          <tbody>{items_rows or '<tr><td colspan=3 style=padding:10px>(no items)</td></tr>'}</tbody>
+        </table>
+        <p style="margin-top:18px;font-size:12px;color:#64748b">
+          Open in admin: <a href='{COMPANY_WEBSITE}/admin/online-orders'>{COMPANY_WEBSITE}/admin/online-orders</a>
+        </p>
+      </div>
+    </div>
+    """
+
+
+async def _send_owner_order_notification(order: dict) -> dict:
+    """E-mail the owner / online-orders inbox that a new order has been placed."""
+    if not RESEND_AVAILABLE or not RESEND_API_KEY:
+        return {"success": False, "error": "Email service not available"}
+    recipients = list({e for e in [ONLINE_ORDERS_INBOX, ADMIN_EMAIL] if e})
+    if not recipients:
+        return {"success": False, "error": "No owner recipients configured"}
+    try:
+        order_number = order.get("order_number") or order.get("id", "?")
+        total = float(order.get("total", 0))
+        subject = f"🛒 New order {order_number} — £{total:.2f}"
+        resend.api_key = RESEND_API_KEY
+        result = await asyncio.to_thread(resend.Emails.send, {
+            "from": f"{COMPANY_NAME} Online <{SENDER_EMAIL}>",
+            "to": recipients,
+            "reply_to": [order.get("customer_email")] if order.get("customer_email") else None,
+            "subject": subject,
+            "html": _build_owner_notification_html(order),
+        })
+        logging.info(f"Owner notification sent for {order_number} to {recipients}")
+        return {"success": True, "email_id": (result or {}).get("id") if isinstance(result, dict) else None}
+    except Exception as e:  # noqa: BLE001
+        logging.error(f"Owner notification failed for order {order.get('id')}: {e}")
+        return {"success": False, "error": str(e)}
+
+
+async def send_order_confirmation_emails_idempotent(order_id: str) -> dict:
+    """Send the customer confirmation + owner notification for a paid
+    shop order — exactly once, atomically.
+
+    Multiple code paths can call this (Stripe webhook, success-page
+    poll, "Resend confirmation" admin button). The first caller wins;
+    every subsequent caller short-circuits with {already_sent: True}.
+
+    Returns:
+        {
+          "already_sent": bool,    # True if a previous call already sent
+          "customer":    {success, error?, email_id?},
+          "owner":       {success, error?, email_id?},
+        }
+    """
+    from config import get_db  # noqa: PLC0415 — avoid import cycle
+    db = get_db()
+    now_iso = datetime.now(timezone.utc).isoformat()
+
+    # Atomic claim: only the first caller for whom the marker is unset
+    # gets the row back; everyone else gets None.
+    claimed = await db.shop_orders.find_one_and_update(
+        {"id": order_id, "confirmation_email_sent_at": {"$in": [None, ""]}},
+        {"$set": {"confirmation_email_sent_at": now_iso}},
+        return_document=True,  # ReturnDocument.AFTER (motor accepts bool too)
+    )
+    # Fallback to the legacy shape where the field was never written
+    if not claimed:
+        claimed = await db.shop_orders.find_one_and_update(
+            {"id": order_id, "confirmation_email_sent_at": {"$exists": False}},
+            {"$set": {"confirmation_email_sent_at": now_iso}},
+            return_document=True,
+        )
+
+    if not claimed:
+        # Someone else already sent. Return early — DO NOT double-email.
+        order = await db.shop_orders.find_one({"id": order_id}, {"_id": 0, "confirmation_email_sent_at": 1})
+        return {
+            "already_sent": True,
+            "claimed_at": (order or {}).get("confirmation_email_sent_at"),
+            "customer": {"success": True, "skipped": True},
+            "owner":    {"success": True, "skipped": True},
+        }
+
+    # Strip _id (Motor sometimes returns it)
+    claimed.pop("_id", None)
+
+    # Send both in parallel — owner failures shouldn't block customer
+    # email and vice versa.
+    customer_result, owner_result = await asyncio.gather(
+        send_shop_order_confirmation(claimed),
+        _send_owner_order_notification(claimed),
+        return_exceptions=True,
+    )
+    if isinstance(customer_result, Exception):
+        customer_result = {"success": False, "error": str(customer_result)}
+    if isinstance(owner_result, Exception):
+        owner_result = {"success": False, "error": str(owner_result)}
+
+    # If BOTH failed catastrophically, unset the marker so a retry can
+    # succeed. (Customer-only success is enough to keep it claimed —
+    # owner can be resent manually.)
+    if (not customer_result.get("success")) and (not owner_result.get("success")):
+        try:
+            await db.shop_orders.update_one(
+                {"id": order_id},
+                {"$unset": {"confirmation_email_sent_at": ""}},
+            )
+        except Exception:
+            pass
+
+    # Audit log on the order doc
+    try:
+        await db.shop_orders.update_one(
+            {"id": order_id},
+            {"$push": {"email_log": {
+                "kind": "order_confirmation",
+                "sent_at": now_iso,
+                "customer_ok": bool(customer_result.get("success")),
+                "owner_ok":    bool(owner_result.get("success")),
+                "customer_error": customer_result.get("error"),
+                "owner_error":    owner_result.get("error"),
+            }}}
+        )
+    except Exception:
+        pass
+
+    return {
+        "already_sent": False,
+        "claimed_at": now_iso,
+        "customer": customer_result,
+        "owner": owner_result,
+    }
+
+
 
 # ============ TRADE ACCOUNT REGISTRATION EMAILS ============
 

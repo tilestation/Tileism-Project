@@ -21,6 +21,7 @@ from .email import (
     send_invite_email,
     send_order_status_notification,
     send_shop_order_confirmation,
+    send_order_confirmation_emails_idempotent,
     send_trade_credit_earned_email,
     RESEND_AVAILABLE,
 )
@@ -37,6 +38,7 @@ __all__ = [
     # Email
     "send_order_confirmation_email", "send_invite_email", 
     "send_order_status_notification", "send_shop_order_confirmation",
+    "send_order_confirmation_emails_idempotent",
     "send_trade_credit_earned_email",
     "RESEND_AVAILABLE",
 ]
