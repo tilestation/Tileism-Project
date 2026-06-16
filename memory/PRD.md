@@ -9,6 +9,50 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Feb 9, 2026 — Forked session] 🔍 Voice Customer Auto-Recognition (P0 — shipped)
+
+Follow-on to the Twilio Voice call centre. When a caller's `From` number matches an existing customer in the DB, the Telegram alert AND the admin's screen now show their name + last order details instead of just digits.
+
+**Backend** (`/app/backend/services/voice_customer_match.py` — NEW):
+- `normalize_phone(phone)` — strips non-digits, drops +44 or leading 0, returns last 10 digits. Handles `+447379562631 / 07379562631 / 07379 562631 / +44 7379 562631 / (+44) 7379 562631`.
+- `phone_variants(phone)` — returns 6 common storage shapes the same number could be saved in (so we never miss a match because of formatting).
+- `match_caller(db, phone)` — priority lookup across `shop_orders` → `sample_orders` → `quotes/quotations` → `users`. Returns `{matched, name, email, match_type, order_count, lifetime_value, last_order:{order_number, total, status, created_at, items_count}}`. Lifetime value sums **paid** orders only.
+- `telegram_caller_summary(match, from_number)` — formats the match as a 3-line HTML snippet for the Telegram message.
+
+**Wired into `voice_incoming`** — match is looked up + persisted on the `voice_calls` row + included in the inbound Telegram alert. Same for missed-call Telegram alerts (`voice_status`).
+
+**New endpoint** `GET /api/admin/voice/incoming-now` — returns any inbound call still ringing within the last 90 seconds. Frontend polls this every 4 seconds.
+
+**Frontend** (`CallPopupNotifier.jsx` — NEW):
+- Mounted once at the admin Layout level (only for admins).
+- Polls `/incoming-now` every 4 s.
+- When a new ringing call appears, slides in a sticky 360-px card in the top-right corner showing:
+  - Customer name + phone + email
+  - "Returning customer · N orders · £X lifetime" pill
+  - Clickable last-order card → opens the order in `/admin/online-orders?q={number}` in the same tab
+  - Falls back to "Unknown caller — no order/quote on file" with an amber tone when the matcher returns nothing
+- Dedupes by `call_sid` via sessionStorage so a page refresh doesn't re-pop a dismissed alert.
+
+**Tests** (23 new in `test_voice_customer_match.py`, all pass):
+- Phone normalisation: 9 parameterised cases (E.164, national, spaced, parens, edge cases).
+- Phone variants: covers `+44`, `0`, raw 10-digit + spaced shapes.
+- Matcher: unknown caller; shop_orders happy path (with LTV sum + most-recent last_order); query MUST use `$in: [variants]`; fallback chain to sample_orders → users; empty phone returns unmatched gracefully.
+- Telegram summary: unknown / returning customer / missing last_order edge.
+- Endpoint: `/incoming-now` filters by direction+status+90s window + rejects non-admin.
+- `voice_incoming` persists the match dict on the call row.
+
+Total backend tests: **143/143 pass** (incl. the regression-fixed `voice_status` tests).
+
+**Files**:
+- `/app/backend/services/voice_customer_match.py` (NEW).
+- `/app/backend/routes/voice.py` (extended: customer match in `voice_incoming` + `voice_status`; new `/admin/voice/incoming-now` endpoint).
+- `/app/backend/tests/test_voice_customer_match.py` (NEW — 23 tests).
+- `/app/backend/tests/test_voice.py` (status tests updated to mock `find_one`).
+- `/app/frontend/src/components/CallPopupNotifier.jsx` (NEW).
+- `/app/frontend/src/components/Layout.js` (mounts `<CallPopupNotifier />` for admins).
+
+
+
 ### [Feb 9, 2026 — Forked session] 📞 Twilio Voice Full Call Centre (P0 — shipped)
 
 User asked for a UK landline that diverts to mobile + bidirectional Caller ID + the full call-centre features (call recording with consent, missed-call Telegram alerts, weekly volume report, click-to-call buttons on every order/customer) + welcome audio message + 2 hold ads while ringing.

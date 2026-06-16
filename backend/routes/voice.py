@@ -210,9 +210,22 @@ async def voice_incoming(request: Request):
 
     # Pre-log the call so missed-calls have a row even before /status fires
     db = get_db()
+    call_row_id = str(uuid.uuid4())
+
+    # 🔍 Customer auto-recognition — match the From number against
+    # shop_orders / sample_orders / quotes / users so the Telegram
+    # alert + the admin's screen pop-up show the caller's name and
+    # last order instead of just digits.
+    customer_match = None
+    try:
+        from services.voice_customer_match import match_caller  # noqa: PLC0415
+        customer_match = await match_caller(db, from_number)
+    except Exception:  # noqa: BLE001
+        logger.exception("Customer match failed for inbound %s", call_sid)
+
     try:
         await db.voice_calls.insert_one({
-            "id": str(uuid.uuid4()),
+            "id": call_row_id,
             "call_sid": call_sid,
             "direction": "inbound",
             "from_number": from_number,
@@ -224,16 +237,21 @@ async def voice_incoming(request: Request):
             "recording_sid": None,
             "started_at": datetime.now(timezone.utc).isoformat(),
             "completed_at": None,
+            "customer_match": customer_match,
         })
     except Exception:  # noqa: BLE001
         logger.exception("Failed to pre-log voice_calls row for %s", call_sid)
 
-    # Telegram heads-up if enabled
+    # Telegram heads-up if enabled — include the customer summary
     if settings.get("inbound_call_telegram_alerts"):
         try:
             from services.telegram_notify import fire_and_forget as _tg  # noqa: PLC0415
-            _tg("voice_inbound", f"📞 Incoming call from <code>{from_number}</code>",
-                dedupe_key=f"voice-in:{call_sid}")
+            from services.voice_customer_match import telegram_caller_summary  # noqa: PLC0415
+            _tg(
+                "voice_inbound",
+                f"📞 <b>Incoming call</b>\n{telegram_caller_summary(customer_match, from_number)}",
+                dedupe_key=f"voice-in:{call_sid}",
+            )
         except Exception:  # noqa: BLE001
             pass
 
@@ -336,9 +354,19 @@ async def voice_status(request: Request):
     if is_missed and settings.get("missed_call_telegram_alerts"):
         try:
             from services.telegram_notify import fire_and_forget as _tg  # noqa: PLC0415
+            # Re-use the customer match we already stored on the call row
+            row = await db.voice_calls.find_one({"call_sid": call_sid},
+                                                 {"_id": 0, "customer_match": 1})
+            caller_summary = ""
+            try:
+                from services.voice_customer_match import telegram_caller_summary  # noqa: PLC0415
+                caller_summary = telegram_caller_summary(
+                    (row or {}).get("customer_match"), from_number)
+            except Exception:  # noqa: BLE001
+                caller_summary = f"<code>{from_number}</code>"
             _tg(
                 "voice_missed",
-                f"🚨 <b>Missed call</b> from <code>{from_number}</code>\n"
+                f"🚨 <b>Missed call</b>\n{caller_summary}\n"
                 f"Status: {dial_status} · duration: {duration}s",
                 dedupe_key=f"voice-missed:{call_sid}",
             )
@@ -564,6 +592,27 @@ async def admin_get_call(call_id: str, current_user: dict = Depends(get_current_
     if not row:
         raise HTTPException(404, "Call not found")
     return row
+
+
+# ─── Live "incoming now" — screen pop-up source ──────────────────────
+@router.get("/admin/voice/incoming-now")
+async def admin_incoming_now(current_user: dict = Depends(get_current_user)):
+    """Frontend polls this every few seconds; returns any inbound call
+    that started in the last 90 seconds and is still in the ringing
+    state. Used by the screen pop-up to surface caller info while the
+    phone is actually ringing."""
+    _require_admin(current_user)
+    db = get_db()
+    cutoff = (datetime.now(timezone.utc) - timedelta(seconds=90)).isoformat()
+    cur = db.voice_calls.find(
+        {
+            "direction": "inbound",
+            "status": "ringing",
+            "started_at": {"$gte": cutoff},
+        },
+        {"_id": 0},
+    ).sort("started_at", -1).limit(5)
+    return {"calls": await cur.to_list(5)}
 
 
 @router.get("/admin/voice/recording/{call_id}")

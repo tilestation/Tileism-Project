@@ -8,6 +8,7 @@ import PageGate from './PageGate';
 import OutageBanner from './admin/OutageBanner';
 import SchemaDriftBanner from './admin/SchemaDriftBanner';
 import CommandPalette from './admin/CommandPalette';
+import CallPopupNotifier from './CallPopupNotifier';
 import RadioStatusPill from './admin/RadioStatusPill';
 import LeaderboardBanner from './admin/LeaderboardBanner';
 import { 
@@ -840,6 +841,7 @@ export const Layout = () => {
             .map((g) => ({ hubLink: g.hubLink, label: g.label, icon: g.icon }))}
         />
       )}
+      {isAdmin && <CallPopupNotifier />}
     </div>
   );
 };
