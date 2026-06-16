@@ -4158,6 +4158,19 @@ async def admin_resend_order_confirmation(
     }
 
 
+@router.post("/admin/online-orders/orphan-sweep")
+async def admin_run_orphan_sweep(current_user: dict = Depends(get_current_user)):
+    """Manually trigger the orphaned-orders sweep. Returns a summary
+    of scanned/recovered/failed orders. Same logic the cron runs every
+    5 min — useful when you want to immediately recover any paid-but-
+    un-emailed orders without waiting for the next scheduled pass."""
+    if current_user.get("role") not in ["super_admin", "admin", "manager"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    from services.orphaned_orders_sweep import run_orphaned_orders_sweep
+    summary = await run_orphaned_orders_sweep()
+    return summary
+
+
 class DeleteOrderRequest(BaseModel):
     """Super-admin password is required for destructive deletes so a stolen
     session token alone cannot wipe orders."""

@@ -9883,6 +9883,24 @@ async def startup_scheduler():
                 await asyncio.sleep(3600)
     asyncio.create_task(_visa_expiry_alert_loop())
 
+    # ──────────────────────────────────────────────────────────────
+    # Orphaned-orders sweep — 16 Jun 2026.
+    # Safety net for the order-confirmation email path. Runs every
+    # 5 min, finds any paid order whose confirmation_email_sent_at
+    # marker is missing (paid_at > 10 min ago, ≤ 72h ago) and fires
+    # the idempotent dispatcher. One Telegram alert per pass so a
+    # future regression of the email path gets caught in minutes,
+    # not days like the Carolina Santiago £834.63 incident.
+    async def _orphan_orders_sweep_kickstart():
+        try:
+            from services.orphaned_orders_sweep import orphan_orders_sweep_loop  # noqa: PLC0415
+            await orphan_orders_sweep_loop()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("[orphan-orders] sweep loop crashed on boot")
+    asyncio.create_task(_orphan_orders_sweep_kickstart())
+
     # Marketing Studio orphan-blob sweep — runs nightly at 03:00 UTC.
     # Probes each marketing_asset's image_url, soft-deletes any that's
     # been 404 on R2 for ≥48h. 7 safety rails (see

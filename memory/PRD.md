@@ -9,6 +9,42 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Feb 9, 2026 — Forked session] 🛡️ Orphaned-Orders Safety-Net Sweep (P0 — shipped)
+
+Belt-and-braces complement to the order-email fix. Even if a future regression breaks the dispatcher in one of the four paid-order code paths, this cron catches the orphans within minutes.
+
+**What shipped**:
+
+1. **New service** `/app/backend/services/orphaned_orders_sweep.py` (140 lines):
+   - `run_orphaned_orders_sweep()` — one pass. Queries `shop_orders` for `payment_status="paid"` + missing `confirmation_email_sent_at` + `paid_at` between `(now − 72h, now − 10min)`. Capped at 50 per pass.
+   - For each orphan: calls `send_order_confirmation_emails_idempotent(order_id)` (same path as webhook + poll, so the audit trail is identical).
+   - Single Telegram alert per pass (dedupe-keyed to the current UTC hour) — not per order — so a backlog can't spam the chat. Silent success when zero orphans, alert when ≥1 recovered or ≥1 failed.
+   - `orphan_orders_sweep_loop()` — long-running background loop wrapped with the same try/sleep pattern as `_visa_expiry_alert_loop`.
+   - All thresholds env-tunable: `ORPHAN_ORDER_GRACE_MINUTES` (10), `ORPHAN_ORDER_MAX_AGE_HOURS` (72), `ORPHAN_ORDER_SWEEP_INTERVAL_S` (300), `ORPHAN_ORDER_MAX_PER_PASS` (50).
+
+2. **Boot wiring** in `server.py` — `asyncio.create_task(_orphan_orders_sweep_kickstart())` next to the visa-alerts loop. 2-min boot delay so it doesn't compete with startup work.
+
+3. **Admin manual trigger** — `POST /api/shop/admin/online-orders/orphan-sweep` runs a sweep on demand and returns `{scanned, recovered, failed, order_numbers}`. Handy for "I want to recover any backlog right now without waiting 5 min".
+
+4. **Tests** (7 new in `test_orphaned_orders_sweep.py`, all pass):
+   - Empty summary when no orphans + silent (no Telegram).
+   - Recovers orphans via dispatcher; fires exactly ONE Telegram alert per pass naming up to 5 orders.
+   - Already-sent counted as recovered (race between query + dispatch).
+   - Dual-failure counted as failed, Telegram fires the warning variant.
+   - Query filters BOTH the grace window AND max-age cutoff (so a 2-year-old bug can't mass-mail stale customers).
+   - Dispatcher exceptions are swallowed per-order — one bad order doesn't take the pass down.
+   - Total backend tests: **103/103 pass**.
+
+5. **Live smoke**: `POST /api/shop/admin/online-orders/orphan-sweep` returns `{scanned: 0, recovered: 0, failed: 0, order_numbers: []}` on a clean DB. Backend boots clean with the new background task scheduled.
+
+**Files**:
+- `/app/backend/services/orphaned_orders_sweep.py` (NEW).
+- `/app/backend/server.py` (+ kickstart for the sweep loop).
+- `/app/backend/routes/shop.py` (+ admin manual-trigger endpoint).
+- `/app/backend/tests/test_orphaned_orders_sweep.py` (NEW — 7 tests).
+
+
+
 ### [Feb 9, 2026 — Forked session] 🚨 P0 Bug Fix — Missing order confirmation emails (Carolina Santiago £834.63 incident)
 
 **Incident**: Customer paid £834.63 via Stripe (`pi_3TiwfvRrO4AkXmfS0cjeXKse`), order `TS-260616-30E725` saved as paid in the DB, but **neither the customer nor the owner received any email**. Customer luckily emailed `online@tilestation.co.uk` chasing it; otherwise the order would have silently vanished.
