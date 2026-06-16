@@ -117,6 +117,7 @@ const ExpiredQuotesPage = React.lazy(() => import('./pages/admin/ExpiredQuotesPa
 const StaffCompetitionDashboard = React.lazy(() => import('./pages/admin/StaffCompetitionDashboard'));
 const DataHygiene = React.lazy(() => import('./pages/admin/DataHygiene'));
 const HRPortal = React.lazy(() => import('./pages/admin/HRPortal'));
+const TelephonyAdmin = React.lazy(() => import('./pages/admin/Telephony'));
 const MyHR = React.lazy(() => import('./pages/staff/MyHR'));
 const ClockInOut = React.lazy(() => import('./pages/staff/ClockInOut'));
 const LoyaltyDashboard = React.lazy(() => import('./pages/admin/LoyaltyDashboard'));
@@ -528,6 +529,7 @@ function App() {
             <Route path="staff-competition" element={<StaffCompetitionDashboard />} />
             <Route path="data-hygiene" element={<DataHygiene />} />
             <Route path="hr" element={<HRPortal />} />
+            <Route path="telephony" element={<TelephonyAdmin />} />
             <Route path="loyalty" element={<LoyaltyDashboard />} />
             <Route path="reorder-suggestions" element={<ReorderSuggestions />} />
             <Route path="stock-transfers" element={<StockTransfers />} />

@@ -22,6 +22,7 @@ import axios from 'axios';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
 import { toast } from 'sonner';
+import ClickToCallButton from '../../components/ClickToCallButton';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
 
@@ -429,7 +430,19 @@ function OrderDetailModal({ orderId, onClose, onStatusChanged, onDeleted }) {
                   <div className="text-sm space-y-1.5 text-gray-700">
                     <div className="font-medium text-gray-900">{order.customer_name || '—'}</div>
                     {order.customer_email && <div className="flex items-center gap-1.5"><Mail className="w-3.5 h-3.5 text-gray-400" /><a href={`mailto:${order.customer_email}`} className="text-emerald-700 hover:underline">{order.customer_email}</a></div>}
-                    {order.customer_phone && <div className="flex items-center gap-1.5"><Phone className="w-3.5 h-3.5 text-gray-400" /><a href={`tel:${order.customer_phone}`} className="hover:underline">{order.customer_phone}</a></div>}
+                    {order.customer_phone && (
+                      <div className="flex items-center gap-2">
+                        <Phone className="w-3.5 h-3.5 text-gray-400" />
+                        <a href={`tel:${order.customer_phone}`} className="hover:underline font-mono">
+                          {order.customer_phone}
+                        </a>
+                        <ClickToCallButton
+                          number={order.customer_phone}
+                          variant="icon"
+                          customerName={order.customer_name}
+                        />
+                      </div>
+                    )}
                   </div>
                 </div>
                 <div className="border border-gray-200 rounded-xl p-4">

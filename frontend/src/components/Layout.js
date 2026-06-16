@@ -383,6 +383,7 @@ export const Layout = () => {
         { to: '/admin/trash', icon: Trash2, label: 'Trash', permission: 'trash', legacyPermission: 'user_management', superAdminOnly: true },
         { to: '/admin/data-hygiene', icon: Database, label: 'Data Hygiene', permission: 'user_management', legacyPermission: 'user_management', superAdminOnly: true },
         { to: '/admin/hr', icon: Users, label: 'HR Portal', permission: 'user_management', legacyPermission: 'user_management', superAdminOnly: true },
+        { to: '/admin/telephony', icon: Phone, label: 'Telephony', permission: 'user_management', legacyPermission: 'user_management', superAdminOnly: true },
         { to: '/admin/settings', icon: Settings, label: 'Settings', permission: 'general_settings', legacyPermission: 'dashboard' },
       ]
     },

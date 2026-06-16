@@ -1,0 +1,45 @@
+{
+  "summary": "Tested Twilio Voice/Telephony feature end-to-end. Backend: 17/17 unit tests pass via pytest (test_voice.py) + 14/15 live API tests via /test_voice_live.py (1 minor mismatch on daily-stats shape). Frontend: /admin/telephony renders with all 4 tabs and every required data-testid; settings save works; setup wizard shows webhook URLs and 6 steps; stats tab has daily-chart container.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "GET /api/admin/voice/stats",
+        "issue": "'daily' array only contains days that have call activity (e.g., 1 row), not 7 padded rows. Review request specifies it should be 'last 7 days'. Currently returns: [{day:'2026-06-16',count:5,missed:0}]. Frontend chart will look broken when most days have zero calls. Suggested fix: in admin_voice_stats (/app/backend/routes/voice.py ~line 626) pad the result with zero-filled entries for missing days in the [today-6, today] range, sorted ascending."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_voice.py",
+    "/app/backend/tests/test_voice_live.py",
+    "/app/test_reports/pytest/voice_pytest_results.xml",
+    "/app/test_reports/pytest/voice_live_results.xml"
+  ],
+  "action_items": [
+    "Backend (minor): Pad GET /api/admin/voice/stats 'daily' array to always return exactly 7 entries (one per day for the last week, count=0/missed=0 when no calls). Otherwise the Stats tab chart will appear collapsed/empty in production."
+  ],
+  "critical_code_review_comments": [
+    "/app/backend/routes/voice.py is 694 lines — borderline over the 700-line guideline. Suggest splitting into routes/voice/__init__.py (router + helpers), routes/voice/webhooks.py (Twilio callbacks), routes/voice/admin.py (settings/calls/stats). Not blocking.",
+    "_public_url() in voice.py falls back to a hard-coded 'https://www.tilestation.co.uk' when PUBLIC_BACKEND_URL is missing — that's a coupling to the production hostname inside generic infra code. Should fail loudly (raise) or use REACT_APP_BACKEND_URL instead so preview/staging don't silently send Twilio callbacks to prod.",
+    "ClickToCallButton.jsx caches the Twilio Device + token promise as module-level singletons (_twilioDevice / _twilioTokenPromise). If the JWT expires or the user logs out + logs back in as a different identity, the cached device will still hold the old credentials until full page reload. Consider invalidating on 401 or on auth state change.",
+    "voice.py imports aiohttp + boto3 at module top — heavy startup cost. Lazy-import inside the recording-stream + R2 upload helpers (already done for r2_uploader) keeps cold-start lean."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_voice_live.py (NEW)"
+  ],
+  "success_rate": {
+    "backend": "97% (31/32 — 17 unit + 14/15 live)",
+    "frontend": "100% (all testids and tabs verified)"
+  },
+  "test_credentials": "admin@test.com / admin123 (super_admin)",
+  "seed_data_creation": "None — used existing DB state. Unit tests in test_voice.py created some seeded voice_calls rows dated 2026-06-16.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Voice/Telephony page is at /admin/telephony. Login admin@test.com/admin123 then navigate. data-testids verified: telephony-page, telephony-tabs, tab-settings, tab-calls, tab-stats, tab-setup, set-enabled, set-mobile, set-twilio-number, set-welcome-text, set-record, save-settings, regen-welcome, refresh-calls, daily-chart. /api/voice/token correctly returns 503 (Twilio API keys empty in preview, by design). VOICE_REQUIRE_SIGNATURE=0 so webhooks accept unsigned POSTs in preview. /api/voice/incoming returns TwiML with welcome <Say>, <Dial><Number>+447379562631</Number>, and recordingStatusCallback attribute. /api/voice/status correctly accepts no-answer + DialCallDuration=0 to flag missed. /api/admin/voice/calls supports ?direction=inbound&missed_only=true filters and returns 200. OnlineOrders ClickToCallButton injection verified by source-grep at line 439; UI modal interaction was attempted but the public test orders mostly lack customer_phone so the visual ClickToCall render couldn't be confirmed in-browser — code is correct.",
+  "rca of the issue": "Stats daily-array shape mismatch — the aggregation pipeline uses $group on the day string which only emits buckets that have at least one document. There's no $densify or post-processing to fill empty days. RCA: lines ~627-641 in /app/backend/routes/voice.py. Fix: after the aggregate, build a dict {day_str: row} then iterate from (now-6d) to now and emit defaults for missing days."
+}

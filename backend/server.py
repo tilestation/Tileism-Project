@@ -9901,6 +9901,17 @@ async def startup_scheduler():
             logger.exception("[orphan-orders] sweep loop crashed on boot")
     asyncio.create_task(_orphan_orders_sweep_kickstart())
 
+    # Voice — Weekly call-volume summary (Mondays 09:00 UTC)
+    async def _voice_weekly_kickstart():
+        try:
+            from services.voice_weekly_summary import voice_weekly_summary_loop  # noqa: PLC0415
+            await voice_weekly_summary_loop()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("[voice-weekly] loop crashed on boot")
+    asyncio.create_task(_voice_weekly_kickstart())
+
     # Marketing Studio orphan-blob sweep — runs nightly at 03:00 UTC.
     # Probes each marketing_asset's image_url, soft-deletes any that's
     # been 404 on R2 for ≥48h. 7 safety rails (see

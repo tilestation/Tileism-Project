@@ -133,6 +133,7 @@ from .hr_time_tracking import router as hr_time_tracking_router
 from .hr_visa_compliance import router as hr_visa_compliance_router
 from .hr_settings import router as hr_settings_router
 from .hr_compliance_checklist import router as hr_compliance_checklist_router
+from .voice import router as voice_router
 
 # Create main API router that includes all sub-routers
 api_router = APIRouter()
@@ -237,6 +238,7 @@ api_router.include_router(hr_time_tracking_router)
 api_router.include_router(hr_visa_compliance_router)
 api_router.include_router(hr_settings_router)
 api_router.include_router(hr_compliance_checklist_router)
+api_router.include_router(voice_router)
 api_router.include_router(sms_updates_router)
 api_router.include_router(monitoring_router)
 api_router.include_router(health_router)
