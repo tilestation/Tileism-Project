@@ -9,6 +9,26 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Feb 18, 2026 — Forked session] 🔴 P0 fix: Sample Orders drawer crash (shipped)
+
+**Bug**: User reported "Sample orders are not opening". Both `/admin/sample-orders` list **and** clicking individual rows appeared broken — page would blank out.
+
+**Root cause**: `SampleOrders.jsx` → `SampleOrderDrawer` rendered `order.delivery_address` directly as a React child:
+```jsx
+<div className="whitespace-pre-line text-sm">{order.delivery_address}</div>
+```
+But `delivery_address` is stored as an **object** `{line1, line2, city, county, postcode, country}` (per `shop.py` line 6988 — the same shape the order-confirmation email expects). React refuses to render an object as a child and throws *"Objects are not valid as a React child"*, blowing up the whole drawer subtree. Because React 18 unmounts the surrounding suspense boundary on uncaught render errors, the entire `/admin/sample-orders` route appeared to "not load" — even though the API was returning 200.
+
+**Fix** (`/app/frontend/src/pages/admin/SampleOrders.jsx`):
+- Added a `formatSampleAddress(addr)` helper that:
+  - Accepts both the modern object shape (`line1, line2, city, county, postcode, country`) and the legacy string shape (defensive).
+  - Also accepts `address1` / `address2` aliases so any cross-imported `shop_orders` rows render too.
+  - Returns a multi-line string the drawer can render with `whitespace-pre-line`.
+- Drawer now wraps its address `<section>` in an IIFE that skips the block entirely when the helper returns an empty string.
+
+**Verified** end-to-end: logged in as admin, opened the page, clicked the only sample order — drawer rendered the address as three lines (`1`, `London`, `E4 6QH`) with no console errors. The unrelated 30-day-block backend test pre-failure is **not** caused by this fix (frontend-only change).
+
+
 ### [Feb 9, 2026 — Forked session] 🏬 Per-Showroom Voice Routing (P0 — shipped)
 
 User asked how to apply welcome/ads/recording to showroom landlines without porting them. Answer: BT/Sky/Virgin **call-divert each line → its own Twilio number**, the existing landlines stay completely untouched. Per-showroom config makes each shop's caller experience unique.

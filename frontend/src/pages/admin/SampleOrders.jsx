@@ -47,6 +47,32 @@ const STATUS_OPTIONS = [
   { value: 'cancelled', label: 'Cancelled' },
 ];
 
+/**
+ * Sample orders store delivery_address as an OBJECT
+ *   { line1, line2, city, county, postcode }
+ * (mirrors the email-template fields in shop.py · 6988).
+ *
+ * Legacy / hand-edited rows may carry a plain string instead.
+ * Rendering an object as a React child crashes the entire drawer
+ * (and, under React 18, can blank-screen the surrounding page too).
+ * `formatSampleAddress` collapses either shape into a safe multi-line
+ * string the drawer can render with `whitespace-pre-line`.
+ */
+function formatSampleAddress(addr) {
+  if (!addr) return '';
+  if (typeof addr === 'string') return addr;
+  if (typeof addr !== 'object') return String(addr);
+  const lines = [
+    addr.line1 || addr.address1 || '',
+    addr.line2 || addr.address2 || '',
+    addr.city || '',
+    addr.county || '',
+    (addr.postcode || '').toUpperCase(),
+    addr.country || '',
+  ].map((s) => (s || '').trim()).filter(Boolean);
+  return lines.join('\n');
+}
+
 function StatusPill({ status }) {
   const meta = STATUS_META[status] || { label: status || 'Unknown', color: 'bg-gray-100 text-gray-700 border-gray-200', icon: Clock };
   const Icon = meta.icon;
@@ -406,14 +432,20 @@ function SampleOrderDrawer({ order, onClose, onSave, saving }) {
           </section>
 
           {/* Address */}
-          {order.delivery_address && (
-            <section>
-              <div className="text-xs uppercase tracking-wider text-muted-foreground mb-1 flex items-center gap-1">
-                <MapPin className="w-3 h-3" /> Delivery address
-              </div>
-              <div className="whitespace-pre-line text-sm">{order.delivery_address}</div>
-            </section>
-          )}
+          {(() => {
+            const formattedAddress = formatSampleAddress(order.delivery_address);
+            if (!formattedAddress) return null;
+            return (
+              <section>
+                <div className="text-xs uppercase tracking-wider text-muted-foreground mb-1 flex items-center gap-1">
+                  <MapPin className="w-3 h-3" /> Delivery address
+                </div>
+                <div className="whitespace-pre-line text-sm" data-testid="sample-order-drawer-address">
+                  {formattedAddress}
+                </div>
+              </section>
+            );
+          })()}
 
           {/* Items */}
           <section>
