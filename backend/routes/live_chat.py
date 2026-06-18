@@ -321,6 +321,147 @@ async def send_unanswered_chat_notification(session: dict, db):
         return False
 
 
+# 18 Jun 2026 — Customer-side missed-chat email.
+# Previously, admin replies were ONLY pushed via WebSocket. If the visitor
+# had closed the page (which is what "missed chat" means in practice),
+# the WS broadcast went nowhere — so the customer never saw the reply.
+# This helper emails the reply to the visitor whenever:
+#   • we have a visitor_email on file (from the offline form or live chat)
+#   • AND the visitor isn't actively connected via WebSocket
+# It is rate-limited to 1 email per session per 60s so back-to-back admin
+# replies coalesce instead of spamming the customer's inbox.
+async def send_admin_reply_to_visitor_email(
+    session: dict,
+    admin_msg: dict,
+    db,
+    *,
+    force: bool = False,
+):
+    """Email an admin chat reply to the visitor.
+
+    `force=True` skips the online/rate-limit guards (used by the manual
+    "Resend by email" admin button)."""
+    session_id = session.get("session_id")
+    visitor_email = (session.get("visitor_email") or "").strip()
+    if not visitor_email or "@" not in visitor_email:
+        return {"sent": False, "reason": "no_visitor_email"}
+
+    # Skip if visitor is actively connected (the WS already delivered it).
+    if not force and _visitor_connections.get(session_id) is not None:
+        return {"sent": False, "reason": "visitor_online"}
+
+    # Rate-limit: one email per session per 60s.
+    if not force:
+        last_sent = session.get("last_email_reply_at")
+        if last_sent:
+            try:
+                last_dt = datetime.fromisoformat(str(last_sent).replace("Z", "+00:00"))
+                if (datetime.now(timezone.utc) - last_dt).total_seconds() < 60:
+                    return {"sent": False, "reason": "rate_limited"}
+            except Exception:
+                pass  # malformed timestamp — just send
+
+    try:
+        import resend
+        resend_api_key = os.environ.get("RESEND_API_KEY")
+        if not resend_api_key:
+            logger.warning("RESEND_API_KEY not configured — visitor reply email skipped")
+            return {"sent": False, "reason": "no_api_key"}
+        resend.api_key = resend_api_key
+
+        visitor_name = (session.get("visitor_name") or "").strip() or "there"
+        sender_name = admin_msg.get("sender_name") or "Tile Station Support"
+        reply_text = (admin_msg.get("message") or "").strip()
+        reply_html = (
+            reply_text
+            .replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+            .replace("\n", "<br/>")
+        )
+
+        # Pull the visitor's last question for context.
+        last_visitor = await db.chat_messages.find_one(
+            {"session_id": session_id, "sender": "visitor"},
+            {"_id": 0, "message": 1},
+            sort=[("timestamp", -1)],
+        )
+        last_q = (last_visitor or {}).get("message", "").strip()
+        last_q_html = (
+            last_q.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        ) if last_q else ""
+
+        storefront = (
+            os.environ.get("STOREFRONT_PUBLIC_URL")
+            or "https://tilestation.co.uk"
+        ).rstrip("/")
+        # Deep link back so the visitor can resume the conversation in the
+        # same session — the widget restores from localStorage by default,
+        # so just sending them to the home page is enough in practice.
+        resume_url = f"{storefront}/?utm_source=chat-reply&utm_medium=email"
+
+        email_html = f"""
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+            <div style="background: #1a1a1a; color: #F7EA1C; padding: 20px; text-align: center;">
+                <h1 style="margin: 0; font-size: 22px;">Tile Station</h1>
+                <p style="margin: 6px 0 0; font-size: 13px; opacity: 0.85;">Reply from our support team</p>
+            </div>
+            <div style="padding: 22px; background: #f9f9f9;">
+                <p style="margin-top: 0;">Hi {visitor_name},</p>
+                <p>Sorry we missed you on live chat — here's our reply to your question:</p>
+
+                {f'<div style="background:#fff;border-left:3px solid #ccc;padding:10px 14px;margin:12px 0;color:#555;font-size:13px;"><em>You asked:</em><br/>{last_q_html}</div>' if last_q_html else ''}
+
+                <div style="background:#fff;border-left:3px solid #F7EA1C;padding:14px 16px;margin:12px 0;border-radius:4px;">
+                    <p style="margin:0 0 6px;color:#888;font-size:12px;text-transform:uppercase;letter-spacing:0.5px;">{sender_name} replied:</p>
+                    <p style="margin:0;color:#222;line-height:1.5;">{reply_html}</p>
+                </div>
+
+                <p style="margin-top:18px;">Just reply to this email if you'd like to carry on the conversation — it goes straight to our team.</p>
+                <p style="margin-top:6px;">Or pop back to the site and re-open the chat:</p>
+                <p style="text-align:center;margin:18px 0;">
+                    <a href="{resume_url}"
+                       style="display:inline-block;background:#1a1a1a;color:#F7EA1C;padding:12px 24px;text-decoration:none;border-radius:6px;font-weight:600;">
+                        Continue the chat →
+                    </a>
+                </p>
+            </div>
+            <div style="padding:14px;text-align:center;color:#888;font-size:12px;">
+                Tile Station · 4 showrooms in Kent &amp; London ·
+                <a href="{storefront}" style="color:#888;">tilestation.co.uk</a>
+            </div>
+        </div>
+        """
+
+        # Use sender's email as reply-to so the customer can reply directly
+        # to the team member who answered them.
+        reply_to = admin_msg.get("sender_email") or "hello@tilestation.co.uk"
+
+        await asyncio.to_thread(
+            resend.Emails.send,
+            {
+                "from": "Tile Station Support <support@tilestation.co.uk>",
+                "to": [visitor_email],
+                "reply_to": reply_to,
+                "subject": "Reply from Tile Station — sorry we missed you on chat",
+                "html": email_html,
+            }
+        )
+
+        await db.chat_sessions.update_one(
+            {"session_id": session_id},
+            {"$set": {
+                "last_email_reply_at": datetime.now(timezone.utc).isoformat(),
+            }, "$inc": {"reply_emails_sent": 1}},
+        )
+        logger.info(
+            f"Visitor reply email sent to {visitor_email} for session {session_id}"
+        )
+        return {"sent": True}
+
+    except Exception as e:
+        logger.exception(f"Failed to email admin reply to visitor: {e}")
+        return {"sent": False, "reason": "exception", "error": str(e)[:200]}
+
+
 async def check_unanswered_chats():
     """Background task to check for unanswered chats and send notifications"""
     try:
@@ -902,7 +1043,16 @@ async def admin_reply(data: AdminReplyCreate, current_user: dict = Depends(get_c
         "type": "message",
         "message": {k: v for k, v in admin_msg.items() if k not in ["_id", "sender_email"]}
     })
-    
+
+    # 18 Jun 2026 — Also email the reply if the visitor isn't actively
+    # connected and we have their email on file. `send_admin_reply_to_visitor_email`
+    # is fully guarded (no-op if visitor is online, rate-limited to 60s).
+    # Fire-and-forget so the admin's HTTP request returns immediately.
+    fresh_session = await db.chat_sessions.find_one(
+        {"session_id": data.session_id}, {"_id": 0}
+    ) or session
+    asyncio.create_task(send_admin_reply_to_visitor_email(fresh_session, admin_msg, db))
+
     # Notify other admins
     await broadcast_to_admins({
         "type": "admin_reply",
@@ -1071,6 +1221,52 @@ async def test_send_notification(session_id: str, current_user: dict = Depends(g
     return {"success": result, "message": "Notification sent" if result else "Failed to send notification"}
 
 
+@router.post("/sessions/{session_id}/email-last-reply")
+async def email_last_admin_reply_to_visitor(
+    session_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """Manually resend the most recent admin reply to the visitor's email.
+
+    Used by the admin chat-detail panel when the team wants to be sure the
+    customer received a reply (e.g. for a chat the visitor closed before
+    seeing it). Honours rate-limit unless visitor has no live WebSocket.
+    """
+    if not is_admin_user(current_user):
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    db = get_db()
+    session = await db.chat_sessions.find_one({"session_id": session_id}, {"_id": 0})
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    if not (session.get("visitor_email") or "").strip():
+        raise HTTPException(
+            status_code=400,
+            detail="No visitor email on file for this chat (the customer never left one).",
+        )
+
+    last_admin_msg = await db.chat_messages.find_one(
+        {"session_id": session_id, "sender": "admin"},
+        {"_id": 0},
+        sort=[("timestamp", -1)],
+    )
+    if not last_admin_msg:
+        raise HTTPException(
+            status_code=400,
+            detail="No admin reply has been sent for this chat yet.",
+        )
+
+    result = await send_admin_reply_to_visitor_email(
+        session, last_admin_msg, db, force=True
+    )
+    return {
+        "success": bool(result.get("sent")),
+        "visitor_email": session.get("visitor_email"),
+        "detail": result,
+    }
+
+
 # ============ WEBSOCKET ENDPOINTS ============
 
 @router.websocket("/ws/visitor/{session_id}")
@@ -1205,7 +1401,17 @@ async def websocket_admin(websocket: WebSocket):
                     "type": "message",
                     "message": {k: v for k, v in admin_msg.items() if k not in ["_id", "sender_email"]}
                 })
-                
+
+                # 18 Jun 2026 — Mirror the HTTP /reply path: also email the
+                # visitor if they're offline + we have their address on file.
+                ws_fresh_session = await db.chat_sessions.find_one(
+                    {"session_id": session_id}, {"_id": 0}
+                )
+                if ws_fresh_session:
+                    asyncio.create_task(
+                        send_admin_reply_to_visitor_email(ws_fresh_session, admin_msg, db)
+                    )
+
                 # Notify other admins
                 await broadcast_to_admins({
                     "type": "admin_reply",

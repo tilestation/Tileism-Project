@@ -9,6 +9,41 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Feb 18, 2026 — Forked session] ✉️ Missed live-chat replies now email the customer (shipped)
+
+**Bug**: User reported "Missed online chat doesn't go to customers." When staff replied to a chat after the visitor had closed the tab, the reply was only pushed over WebSocket (`send_to_visitor`) — which silently dropped because no socket existed. The customer never saw the reply, even when they'd left an email via the offline form.
+
+**Root cause** (`/app/backend/routes/live_chat.py` · `admin_reply` line 864, `websocket_admin` line 1311):
+```python
+await send_to_visitor(data.session_id, {...})  # ← no-op when visitor offline
+# (no email fallback)
+```
+
+**Fix** (single, focused):
+1. New helper `send_admin_reply_to_visitor_email(session, admin_msg, db, *, force=False)`:
+   - No-op when `visitor_email` is missing/empty (reason `no_visitor_email`)
+   - No-op when visitor is currently connected via WebSocket (reason `visitor_online`) — the WS already delivered it
+   - Rate-limited to 1 email per session per 60s (reason `rate_limited`) so back-to-back admin replies coalesce
+   - `force=True` bypasses the online/rate-limit guards (used by the manual resend button)
+   - Renders a branded Resend email with the visitor's original question quoted, the admin's reply, a "continue the chat" CTA, and `reply_to` set to the admin's email so customers can reply directly
+2. HTTP `POST /api/live-chat/reply` now schedules the email via `asyncio.create_task` after the WS push.
+3. WebSocket `/ws/admin` reply branch mirrors the same behaviour.
+4. New endpoint `POST /api/live-chat/sessions/{id}/email-last-reply` — staff "force resend" button. 400s with a clear message if no admin reply exists or no visitor email is on file.
+5. New "Email reply" button in `LiveChatAdmin.jsx` chat header — only renders when `selectedSession.visitor_email` is set; toasts the result.
+
+**Tests** (`/app/backend/tests/test_live_chat_missed_reply_email.py` — NEW, 8/8 pass):
+- Helper is importable
+- HTTP `admin_reply` schedules `send_admin_reply_to_visitor_email`
+- WS admin reply branch also schedules it
+- Manual resend endpoint passes `force=True`
+- Helper no-ops when no visitor email
+- Helper no-ops when visitor is online
+- Helper respects 60s rate-limit
+- `force=True` skips both the online and rate-limit guards
+
+End-to-end smoke verified via Playwright: the "Email reply" button appears in the chat header next to "Resolve" when the visitor has an email; clicking a session with no email hides the button.
+
+
 ### [Feb 18, 2026 — Forked session] 🔴 P0 fix: Sample Orders drawer crash (shipped)
 
 **Bug**: User reported "Sample orders are not opening". Both `/admin/sample-orders` list **and** clicking individual rows appeared broken — page would blank out.

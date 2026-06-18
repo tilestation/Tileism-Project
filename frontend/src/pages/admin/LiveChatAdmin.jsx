@@ -326,6 +326,40 @@ export default function LiveChatAdmin() {
     }
   };
 
+  // 18 Jun 2026 — Force-email the most recent admin reply to the visitor.
+  // Useful for "missed chats" where the customer closed the tab before
+  // they could see the WebSocket reply. The backend respects visitor_email
+  // presence and bypasses the 60s rate-limit for this manual action.
+  const [emailingReply, setEmailingReply] = useState(false);
+  const emailLastReply = async () => {
+    if (!selectedSession?.session_id) return;
+    if (!selectedSession.visitor_email) {
+      toast.error("This visitor never left an email — nothing to send to.");
+      return;
+    }
+    setEmailingReply(true);
+    try {
+      const response = await fetch(
+        `${API_URL}/api/live-chat/sessions/${selectedSession.session_id}/email-last-reply`,
+        {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${getToken()}` },
+        }
+      );
+      const data = await response.json();
+      if (response.ok && data.success) {
+        toast.success(`Reply emailed to ${data.visitor_email}`);
+      } else {
+        toast.error(data.detail || data.detail?.[0]?.msg || 'Could not email the reply');
+      }
+    } catch (error) {
+      console.error('Email-last-reply failed:', error);
+      toast.error('Could not email the reply');
+    } finally {
+      setEmailingReply(false);
+    }
+  };
+
   // Update session status
   const updateSessionStatus = async (status) => {
     if (!selectedSession) return;
@@ -628,6 +662,23 @@ export default function LiveChatAdmin() {
                     }>
                       {selectedSession.status}
                     </Badge>
+                    {selectedSession.visitor_email && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={emailLastReply}
+                        disabled={emailingReply}
+                        title={`Email the last admin reply to ${selectedSession.visitor_email}`}
+                        data-testid="email-last-reply-btn"
+                      >
+                        {emailingReply ? (
+                          <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+                        ) : (
+                          <Mail className="w-4 h-4 mr-1" />
+                        )}
+                        Email reply
+                      </Button>
+                    )}
                     {selectedSession.status === 'open' && (
                       <Button 
                         variant="outline" 
