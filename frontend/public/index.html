@@ -39,6 +39,22 @@
              Ahrefs Site Explorer with first-party traffic data. -->
         <script src="https://analytics.ahrefs.com/analytics.js" data-key="1r8SAbjTQdYT4/S2l9te/w" async></script>
 
+        <!-- ────────────────────────────────────────────────────────────────
+             Google tag (gtag.js) — Tile Station Google Ads account
+             AW-727553334 (created 19 Jun 2026)
+             Powers conversion tracking for all Google Ads campaigns
+             targeting footfall + online sales.
+             Individual conversion events are fired by the dedicated helper
+             in src/utils/gtag.js — DO NOT add conversion events here.
+        ──────────────────────────────────────────────────────────────── -->
+        <script async src="https://www.googletagmanager.com/gtag/js?id=AW-727553334"></script>
+        <script>
+          window.dataLayer = window.dataLayer || [];
+          function gtag(){dataLayer.push(arguments);}
+          gtag('js', new Date());
+          gtag('config', 'AW-727553334');
+        </script>
+
         <script src="https://assets.emergent.sh/scripts/emergent-main.js" defer></script>
         <script>
             if (window.self !== window.top) {
