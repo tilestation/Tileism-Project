@@ -18,6 +18,7 @@ import {
 import { usePageTracking } from '../../hooks/usePageTracking';
 import LiveChatWidget from '../../components/shop/LiveChatWidget';
 import SeoHead from '../../components/seo/SeoHead';
+import { trackConversion } from '../../utils/gtag';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL || '';
 
@@ -671,7 +672,9 @@ function ShowroomCard({ showroom, formatOpeningHours, holidays = [] }) {
                 href={getGoogleMapsUrl()}
                 target="_blank"
                 rel="noopener noreferrer"
+                onClick={() => trackConversion('get_directions')}
                 className="flex-1 bg-gray-900 hover:bg-gray-800 text-white py-3 px-4 rounded-lg font-medium flex items-center justify-center gap-2 transition-colors"
+                data-testid={`get-directions-btn-${showroom.id || showroom.slug || 'default'}`}
               >
                 <Navigation className="w-4 h-4" />
                 Get Directions
