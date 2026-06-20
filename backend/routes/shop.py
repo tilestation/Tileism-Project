@@ -6937,37 +6937,75 @@ async def get_sample_checkout_status(session_id: str):
     }
 
 
-async def _send_sample_confirmation_fanout(order: dict) -> None:
+async def _send_sample_confirmation_fanout(
+    order: dict,
+    *,
+    force: bool = False,
+) -> dict:
     """Send customer confirmation + admin/showroom alert for a freshly-
     paid sample order.
 
-    Idempotent: stamps `confirmation_sent_at` on the order before
-    returning. Repeated calls (e.g. the recovery cron also catching
-    this order) check the stamp and bail before sending.
+    Idempotent by default: stamps `confirmation_sent_at` on the order
+    before returning. Repeated calls (e.g. the recovery cron also
+    catching this order) check the stamp and bail before sending.
 
-    Errors are caught and logged — never propagated. The success page
-    must always render even if SMTP is down. The daily reconciliation
-    digest (stripe_reconcile.py) is the fallback safety net.
+    `force=True` bypasses the idempotency check — used by the admin
+    "Resend confirmation" button after a silent Resend failure.
+
+    Returns a dict with the actual Resend / Telegram results so callers
+    (and the admin UI) can see what actually happened:
+        {
+          "customer_email": {"success": bool, "resend_id": str|None, "error": str|None},
+          "admin_email":    {"success": bool, "resend_id": str|None, "error": str|None},
+          "telegram":       {"success": bool, "error": str|None},
+          "skipped":        bool,  # True only when idempotency claim failed
+        }
+
+    The same dict is persisted to `confirmation_send_result` on the
+    order doc so the admin drawer can show "customer not notified" /
+    "Resend rejected: x@y bounced previously" without needing to scrape
+    backend logs.
+
+    20 Jun 2026 — Fix for silent-failure incident (SMP-260620-FFC920,
+    Tracy Batchelor). Customer received NO email even though Telegram
+    fired, because `send_simple_email_if_possible` returns a dict on
+    failure instead of raising, and the previous fanout ignored that
+    dict entirely. Now we (a) capture the result, (b) persist it for
+    forensics, and (c) only mark `confirmation_sent_at` after at least
+    one email actually succeeds — so a transient Resend hiccup doesn't
+    permanently mark the order as "already notified" and block manual
+    resends.
     """
+    result: dict = {
+        "customer_email": None,
+        "admin_email": None,
+        "telegram": None,
+        "skipped": False,
+    }
     if not order:
-        return
+        result["skipped"] = True
+        return result
     db = get_db()
     order_id = order.get("id")
 
-    # Idempotency: atomic compare-and-set on `confirmation_sent_at`.
-    # If it's already set, another caller (cron, retry, refresh) beat
-    # us to it — bail without sending.
-    sent_marker = datetime.now(timezone.utc).isoformat()
-    res = await db.sample_orders.update_one(
-        {"id": order_id, "confirmation_sent_at": {"$exists": False}},
-        {"$set": {"confirmation_sent_at": sent_marker}},
-    )
-    if res.modified_count == 0:
-        logger.info(
-            "Sample confirmation already sent for order %s — skipping fanout",
-            order_id,
+    if not force:
+        # Idempotency: atomic compare-and-set on `confirmation_attempted_at`.
+        # We use the *attempted* marker (not *sent*) so a transient failure
+        # can be retried by the admin's manual "Resend" button. The
+        # `confirmation_sent_at` marker is only set later, after at least
+        # one email actually succeeded.
+        now_iso = datetime.now(timezone.utc).isoformat()
+        claim = await db.sample_orders.update_one(
+            {"id": order_id, "confirmation_attempted_at": {"$exists": False}},
+            {"$set": {"confirmation_attempted_at": now_iso}},
         )
-        return
+        if claim.modified_count == 0:
+            logger.info(
+                "Sample confirmation already attempted for order %s — skipping fanout",
+                order_id,
+            )
+            result["skipped"] = True
+            return result
 
     # ── Build the items list — the bit that's been missing from your
     # Stripe dashboard / your inbox for the past several sample orders ──
@@ -6996,6 +7034,11 @@ async def _send_sample_confirmation_fanout(order: dict) -> None:
     addr_block = "<br/>".join(line for line in addr_lines if line)
 
     # ── Customer confirmation email ──
+    # 20 Jun 2026 — switched FROM=samples@ (was online@). The samples@
+    # mailbox is the proven path used by `send_sample_followup_email`
+    # and is already verified on Resend. Also: when a customer hits
+    # reply, it goes to the right team inbox.
+    cust_result: dict = {"success": False, "resend_id": None, "error": None}
     try:
         from services import email as email_svc
         cust_subject = f"Sample order #{order_number} confirmed · Tile Station"
@@ -7012,27 +7055,43 @@ async def _send_sample_confirmation_fanout(order: dict) -> None:
             f"<p>Thanks,<br/>Tile Station</p>"
         )
         send_fn = getattr(email_svc, "send_simple_email_if_possible", None)
-        if send_fn and customer_email:
-            # Online-customer-facing → from online@ per company email policy.
-            await send_fn(
+        if not customer_email:
+            cust_result["error"] = "No customer email on order"
+        elif not send_fn:
+            cust_result["error"] = "Email service unavailable"
+        else:
+            raw = await send_fn(
                 customer_email, cust_subject, cust_html,
-                from_override="Tile Station <online@tilestation.co.uk>",
+                from_override="Tile Station <samples@tilestation.co.uk>",
             )
-    except Exception:
+            # send_simple_email_if_possible returns
+            #   {"success": bool, "resend_id": str|None}  on success
+            #   {"success": False, "error": "..."}         on failure
+            # Coerce into our standard shape so the admin UI can show it.
+            if isinstance(raw, dict):
+                cust_result["success"] = bool(raw.get("success"))
+                cust_result["resend_id"] = raw.get("resend_id")
+                cust_result["error"] = raw.get("error")
+            else:
+                cust_result["error"] = f"Unexpected response: {raw!r}"
+    except Exception as exc:  # noqa: BLE001
         logger.exception("Sample confirmation email to customer failed (non-fatal)")
+        cust_result["error"] = str(exc)[:300]
+    result["customer_email"] = cust_result
 
     # ── Admin / showroom alert ──
     # Fan out to the owner's monitored inboxes (same default as shop
     # orders — online@ + qasim@). FROM notifications@ so neither online@
     # (online-customer-only) nor qasim@ (personal alerts inbox) appears
     # as a sending address — per the 20 May 2026 email-policy update.
+    admin_result: dict = {"success": False, "resend_id": None, "error": None}
     try:
         from services import email as email_svc
-        raw = os.environ.get(
+        raw_env = os.environ.get(
             "SAMPLES_ADMIN_EMAIL",
             "online@tilestation.co.uk,qasim@tilestation.co.uk",
         )
-        admin_recipients = [e.strip() for e in raw.split(",") if e.strip() and "@" in e]
+        admin_recipients = [e.strip() for e in raw_env.split(",") if e.strip() and "@" in e]
         admin_subject = f"🟢 New sample order — #{order_number} · £{total:.2f}"
         admin_html = (
             f"<p><strong>New paid sample order ready to dispatch.</strong></p>"
@@ -7046,13 +7105,25 @@ async def _send_sample_confirmation_fanout(order: dict) -> None:
             f"<p>Stripe payment: <code>{order.get('stripe_session_id','—')}</code></p>"
         )
         send_fn = getattr(email_svc, "send_simple_email_if_possible", None)
-        if send_fn and admin_recipients:
-            await send_fn(
+        if not admin_recipients:
+            admin_result["error"] = "No admin recipients configured"
+        elif not send_fn:
+            admin_result["error"] = "Email service unavailable"
+        else:
+            raw = await send_fn(
                 admin_recipients, admin_subject, admin_html,
                 from_override="Tile Station Alerts <notifications@tilestation.co.uk>",
             )
-    except Exception:
+            if isinstance(raw, dict):
+                admin_result["success"] = bool(raw.get("success"))
+                admin_result["resend_id"] = raw.get("resend_id")
+                admin_result["error"] = raw.get("error")
+            else:
+                admin_result["error"] = f"Unexpected response: {raw!r}"
+    except Exception as exc:  # noqa: BLE001
         logger.exception("Sample admin alert email failed (non-fatal)")
+        admin_result["error"] = str(exc)[:300]
+    result["admin_email"] = admin_result
 
     # ── Telegram alert ──
     # The bot infrastructure has been in place since Feb 2026 with
@@ -7066,6 +7137,7 @@ async def _send_sample_confirmation_fanout(order: dict) -> None:
     # flag already prevents that, but the dedupe inside notify_event is
     # belt-and-braces against any future code path that re-enters this
     # helper without checking the flag first).
+    tg_result: dict = {"success": False, "error": None}
     try:
         from services.telegram_notify import notify_event
         product_lines = "\n".join(
@@ -7082,9 +7154,45 @@ async def _send_sample_confirmation_fanout(order: dict) -> None:
             f"<b>Samples:</b>\n{product_lines}\n\n"
             f"<b>Delivering to:</b>\n{(addr_block or '—').replace('<br/>', chr(10))}"
         )
-        await notify_event("new_order", tg_text, dedupe_key=f"sample:{order_number}")
-    except Exception:
+        await notify_event(
+            "new_order", tg_text,
+            # Force-resend should also bypass Telegram dedupe — admin
+            # is actively asking for the alert to fire again.
+            dedupe_key=None if force else f"sample:{order_number}",
+        )
+        tg_result["success"] = True
+    except Exception as exc:  # noqa: BLE001
         logger.exception("Sample Telegram alert failed (non-fatal)")
+        tg_result["error"] = str(exc)[:300]
+    result["telegram"] = tg_result
+
+    # ── Persist forensic record to the order doc ──
+    # Even on partial failure, this captures exactly what happened so the
+    # admin drawer can show "customer not notified · Resend error: …" and
+    # ops can run a daily query for orders where confirmation_send_result
+    # has any failure and re-trigger them manually.
+    now_iso = datetime.now(timezone.utc).isoformat()
+    persisted: dict = {
+        "$set": {
+            "confirmation_send_result": result,
+            "confirmation_last_attempt_at": now_iso,
+        }
+    }
+    # `confirmation_sent_at` (the legacy customer-was-notified flag) is
+    # only set after at least one email succeeded — so the recovery cron
+    # / admin Resend button can correctly identify orders that still need
+    # to notify the customer.
+    if cust_result.get("success") or admin_result.get("success"):
+        persisted["$set"]["confirmation_sent_at"] = now_iso
+    try:
+        await db.sample_orders.update_one({"id": order_id}, persisted)
+    except Exception:  # noqa: BLE001
+        logger.exception(
+            "Failed to persist confirmation_send_result for sample order %s",
+            order_id,
+        )
+
+    return result
 
 
 async def _send_shop_order_alert_fanout(order: dict) -> None:
@@ -7621,6 +7729,75 @@ async def admin_update_sample_order(
         "message": "Sample order updated",
         "order": updated,
         "shipped_email": email_result,
+    }
+
+
+@router.post("/admin/sample-orders/{order_id}/resend-confirmation")
+async def admin_resend_sample_confirmation(
+    order_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """Force-resend the paid-order confirmation fanout for a sample
+    order (customer email + admin alert + Telegram).
+
+    Built 20 Jun 2026 after SMP-260620-FFC920 (Tracy Batchelor) silently
+    failed to send the customer email — only Telegram fired. Admin
+    needs a one-click recovery path that doesn't require redeploying.
+
+    Bypasses the `confirmation_attempted_at` idempotency guard so it
+    can retry a previously-failed send. The full result (per-channel
+    success/error) is returned AND persisted to the order doc so the
+    drawer can show "✓ customer notified" or "✗ Resend rejected".
+    """
+    if current_user.get("role") not in ["super_admin", "admin", "manager"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    db = get_db()
+    order = await db.sample_orders.find_one(
+        {"$or": [{"id": order_id}, {"order_number": order_id}]},
+        {"_id": 0},
+    )
+    if not order:
+        raise HTTPException(status_code=404, detail="Sample order not found")
+    if order.get("status") not in ("paid", "shipped", "delivered", "completed", "ready"):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Cannot resend confirmation for status '{order.get('status')}'. "
+                "Order must be paid before a confirmation email can be sent."
+            ),
+        )
+
+    result = await _send_sample_confirmation_fanout(order, force=True)
+
+    # Stamp an audit trail so we can prove the admin manually retried.
+    try:
+        await db.sample_orders.update_one(
+            {"id": order.get("id")},
+            {"$push": {
+                "admin_notes": {
+                    "note": (
+                        f"Resent confirmation — "
+                        f"customer: {'✓' if (result.get('customer_email') or {}).get('success') else '✗ ' + ((result.get('customer_email') or {}).get('error') or 'failed')} · "
+                        f"admin: {'✓' if (result.get('admin_email') or {}).get('success') else '✗ ' + ((result.get('admin_email') or {}).get('error') or 'failed')}"
+                    ),
+                    "at": datetime.now(timezone.utc).isoformat(),
+                    "by": current_user.get("email") or current_user.get("id") or "admin",
+                }
+            }},
+        )
+    except Exception:  # noqa: BLE001
+        logger.exception("Failed to write admin_note for confirmation resend")
+
+    updated = await db.sample_orders.find_one(
+        {"id": order.get("id")},
+        {"_id": 0, "stripe_session_id": 0},
+    )
+
+    return {
+        "message": "Confirmation re-sent",
+        "result": result,
+        "order": updated,
     }
 
 

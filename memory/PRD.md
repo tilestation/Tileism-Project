@@ -9,6 +9,51 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Jun 20, 2026 — Forked session] 🟢 P0 fix: Sample-order confirmation emails silently failing (shipped)
+
+**Bug** (reported by owner via live screenshot of SMP-260620-FFC920, "Tracy Batchelor"):
+> "Only received a Telegram notification but no confirmation through email. That's probably the same for customer not receiving any confirmation through email."
+
+**Root cause** (`/app/backend/routes/shop.py` · `_send_sample_confirmation_fanout`):
+1. `send_simple_email_if_possible` returns a dict `{"success": False, "error": "..."}` on failure — it does NOT raise.
+2. The fanout ignored the return value entirely, so any Resend-side rejection (bounce, suppression, rate-limit, etc.) failed silently.
+3. The fanout stamped `confirmation_sent_at` BEFORE attempting to send — so a silent failure permanently locked the order out of any retry (including the daily reconciliation cron).
+4. Telegram fired independently as the last step, so the owner thought everything went out when in reality only Telegram did.
+
+**Fix** (single, focused):
+1. Refactored `_send_sample_confirmation_fanout(order, *, force=False)` to:
+   - Capture per-channel results (`customer_email`, `admin_email`, `telegram`) with `{success, resend_id, error}` shape.
+   - Persist them onto the order doc as `confirmation_send_result` — full forensic trail visible in the admin drawer.
+   - Switched idempotency anchor to `confirmation_attempted_at` (set BEFORE attempt). `confirmation_sent_at` is only stamped AFTER at least one email actually succeeded, so transient failures stay recoverable.
+   - Switched customer FROM-address to `samples@tilestation.co.uk` (already verified, proven working via `send_sample_followup_email`).
+   - Returns the result dict so callers (admin Resend button) can render a real status, not just toast "OK".
+2. New endpoint `POST /api/shop/admin/sample-orders/{id}/resend-confirmation`:
+   - Manager/admin/super_admin gated
+   - Refuses to fire on `pending_payment` orders (would be a "thanks for paying ✅" lie)
+   - Calls the fanout with `force=True` to bypass the idempotency claim and the Telegram dedupe key (admin is actively requesting a re-fire)
+   - Appends an `admin_notes` audit entry with who/when/result
+3. Admin UI (`/app/frontend/src/pages/admin/SampleOrders.jsx`):
+   - "Resend confirmation" button in the drawer header (`data-testid="sample-order-resend-confirmation"`)
+   - `<ConfirmationDeliveryBanner>` showing per-channel ✓/✗ status with the real Resend error string when the email failed
+   - Toast tells the admin exactly which channel succeeded/failed
+
+**Tests** (`/app/backend/tests/test_sample_order_confirmation.py` — 14/14 pass):
+- Happy path: 2 emails fire + `confirmation_send_result` persisted + customer FROM=samples@
+- Idempotency: repeat call when `confirmation_attempted_at` set → no double-send
+- Silent-failure path: total failure does NOT stamp `confirmation_sent_at` (so admin Resend stays usable)
+- Partial success: customer-OK / admin-failed → `confirmation_sent_at` IS stamped (customer was notified, that's what counts)
+- Force=True bypasses idempotency for admin resend
+- Force=True bypasses Telegram dedupe (alert fires again)
+- Resilience: exception inside Resend doesn't propagate
+- Endpoint test: fanout fires + audit note appended
+- Endpoint auth: non-admin gets 403
+- Endpoint guard: pending_payment order gets 400 with clear message
+
+End-to-end smoke verified via curl on the live preview (`POST /api/shop/admin/sample-orders/<id>/resend-confirmation`): returned customer Resend ID `75f8453a-…` + admin Resend ID `65c55ce4-…` + Telegram success.
+
+**Action for owner**: Open `/admin/sample-orders`, click into Tracy's `SMP-260620-FFC920`, click **Resend confirmation** in the drawer header. The banner will show what happened (and if Resend rejected her specific address, the error string will tell you why — e.g. "previously hard bounced"). Same workflow recovers any future silently-failed sample order.
+
+
 ### [Feb 18, 2026 — Forked session] ✉️ Missed live-chat replies now email the customer (shipped)
 
 **Bug**: User reported "Missed online chat doesn't go to customers." When staff replied to a chat after the visitor had closed the tab, the reply was only pushed over WebSocket (`send_to_visitor`) — which silently dropped because no socket existed. The customer never saw the reply, even when they'd left an email via the offline form.

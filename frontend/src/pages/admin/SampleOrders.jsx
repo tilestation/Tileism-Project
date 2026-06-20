@@ -380,6 +380,60 @@ function SampleOrderDrawer({ order, onClose, onSave, saving }) {
   const [status, setStatus] = useState(order.status || 'paid');
   const [tracking, setTracking] = useState(order.tracking || { carrier: '', tracking_number: '', url: '' });
   const [note, setNote] = useState('');
+  const [resendBusy, setResendBusy] = useState(false);
+  // Local mirror of confirmation_send_result so the drawer can update
+  // immediately after a manual resend without waiting for the parent
+  // list refetch.
+  const [confirmationResult, setConfirmationResult] = useState(
+    order.confirmation_send_result || null,
+  );
+  const [confirmationSentAt, setConfirmationSentAt] = useState(
+    order.confirmation_sent_at || null,
+  );
+
+  const resendConfirmation = async () => {
+    if (resendBusy) return;
+    setResendBusy(true);
+    try {
+      const res = await axios.post(
+        `${API_URL}/api/shop/admin/sample-orders/${order.id}/resend-confirmation`,
+        {},
+        {
+          headers: {
+            Authorization: `Bearer ${localStorage.getItem('admin_token') || localStorage.getItem('token') || ''}`,
+          },
+        },
+      );
+      const r = res?.data?.result || {};
+      setConfirmationResult(r);
+      setConfirmationSentAt(res?.data?.order?.confirmation_sent_at || null);
+      const custOk = r.customer_email?.success;
+      const adminOk = r.admin_email?.success;
+      if (custOk && adminOk) {
+        toast.success('Confirmation re-sent', {
+          description: '📧 Customer + admin inboxes notified.',
+        });
+      } else if (custOk) {
+        toast.success('Customer notified', {
+          description: `Admin email failed: ${r.admin_email?.error || 'unknown'}`,
+        });
+      } else if (adminOk) {
+        toast.warning('Admin notified, customer email failed', {
+          description: r.customer_email?.error || 'Resend rejected',
+        });
+      } else {
+        toast.error('Resend failed', {
+          description: r.customer_email?.error
+            || r.admin_email?.error
+            || 'No channel succeeded',
+        });
+      }
+    } catch (err) {
+      toast.error(`Resend failed: ${err?.response?.data?.detail || err.message}`);
+    } finally {
+      setResendBusy(false);
+    }
+  };
 
   const hasChanges = (
     status !== order.status
@@ -413,10 +467,36 @@ function SampleOrderDrawer({ order, onClose, onSave, saving }) {
             <div className="text-xs text-muted-foreground">Sample order</div>
             <div className="font-mono font-bold">#{order.order_number}</div>
           </div>
-          <Button variant="ghost" size="sm" onClick={onClose}><X className="w-4 h-4" /></Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={resendConfirmation}
+              disabled={resendBusy}
+              data-testid="sample-order-resend-confirmation"
+              title="Re-send the customer + admin confirmation emails"
+            >
+              {resendBusy
+                ? <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" />
+                : <Mail className="w-3.5 h-3.5 mr-1" />}
+              Resend confirmation
+            </Button>
+            <Button variant="ghost" size="sm" onClick={onClose}><X className="w-4 h-4" /></Button>
+          </div>
         </header>
 
         <div className="p-4 space-y-5">
+          {/* Email-delivery status banner — shows whether the customer
+              actually received the confirmation email. Only renders
+              once a send has been attempted so we don't add visual
+              noise for orders still in `pending_payment`. */}
+          {(confirmationResult || confirmationSentAt) && (
+            <ConfirmationDeliveryBanner
+              result={confirmationResult}
+              sentAt={confirmationSentAt}
+            />
+          )}
+
           {/* Customer */}
           <section>
             <div className="text-xs uppercase tracking-wider text-muted-foreground mb-1">Customer</div>
@@ -555,6 +635,86 @@ function SampleOrderDrawer({ order, onClose, onSave, saving }) {
           </Button>
         </footer>
       </aside>
+    </div>
+  );
+}
+
+
+/**
+ * ConfirmationDeliveryBanner — surfaces the actual delivery status of
+ * the paid-order confirmation emails so staff can see at a glance
+ * whether the customer was notified, without scraping backend logs.
+ *
+ * Drives off `confirmation_send_result` which is persisted by
+ * `_send_sample_confirmation_fanout` on every send attempt. Renders:
+ *   ✅ green   — both customer + admin emails succeeded
+ *   ⚠️ amber   — only one channel succeeded (still useful info but
+ *                staff should manually follow up the other)
+ *   ❌ red     — neither succeeded; "Resend confirmation" is the fix
+ */
+function ConfirmationDeliveryBanner({ result, sentAt }) {
+  const cust = result?.customer_email;
+  const admin = result?.admin_email;
+  // Legacy orders (pre-20-Jun-2026 fix) only have `confirmation_sent_at`
+  // with no `confirmation_send_result`. Show a softer "Sent" indicator.
+  if (!result && sentAt) {
+    return (
+      <div
+        className="rounded-md border border-emerald-200 bg-emerald-50 text-emerald-900 px-3 py-2 text-xs flex items-center gap-2"
+        data-testid="sample-order-confirmation-banner-legacy"
+      >
+        <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+        Confirmation sent {new Date(sentAt).toLocaleString('en-GB')}
+      </div>
+    );
+  }
+  if (!result) return null;
+
+  const custOk = !!cust?.success;
+  const adminOk = !!admin?.success;
+  const tone = custOk && adminOk
+    ? { wrap: 'border-emerald-200 bg-emerald-50 text-emerald-900', icon: 'text-emerald-600', testid: 'sample-order-confirmation-banner-ok' }
+    : custOk || adminOk
+      ? { wrap: 'border-amber-300 bg-amber-50 text-amber-900', icon: 'text-amber-600', testid: 'sample-order-confirmation-banner-partial' }
+      : { wrap: 'border-rose-300 bg-rose-50 text-rose-900', icon: 'text-rose-600', testid: 'sample-order-confirmation-banner-failed' };
+
+  return (
+    <div
+      className={`rounded-md border px-3 py-2 text-xs space-y-1 ${tone.wrap}`}
+      data-testid={tone.testid}
+    >
+      <div className="font-semibold uppercase tracking-wider text-[10px] opacity-80">
+        Email delivery status
+      </div>
+      <DeliveryRow label="Customer" ok={custOk} error={cust?.error} iconClass={tone.icon} />
+      <DeliveryRow label="Showroom team" ok={adminOk} error={admin?.error} iconClass={tone.icon} />
+      {!custOk && (
+        <div className="pt-1 text-[11px] opacity-90">
+          Click <strong>Resend confirmation</strong> above to retry. If the
+          error mentions &ldquo;bounced&rdquo; or &ldquo;suppressed&rdquo;, the customer&apos;s
+          email address is invalid — call them on the phone instead.
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Single row inside the delivery-status banner. Hoisted out of
+ * `ConfirmationDeliveryBanner` per the react/no-unstable-nested-components
+ * rule — defining it inside would create a fresh component type on
+ * every render and trash the row's DOM/state on each parent update.
+ */
+function DeliveryRow({ label, ok, error, iconClass }) {
+  return (
+    <div className="flex items-start gap-1.5">
+      {ok
+        ? <CheckCircle2 className={`w-3.5 h-3.5 mt-0.5 ${iconClass}`} />
+        : <AlertCircle className={`w-3.5 h-3.5 mt-0.5 ${iconClass}`} />}
+      <div>
+        <span className="font-semibold">{label}:</span>{' '}
+        {ok ? 'sent' : (error || 'failed')}
+      </div>
     </div>
   );
 }
