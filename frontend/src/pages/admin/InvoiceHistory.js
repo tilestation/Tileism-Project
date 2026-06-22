@@ -5,7 +5,8 @@ import { toast } from 'sonner';
 import { 
   FileText, Search, Eye, Edit2, Trash2, Calendar, User, 
   PoundSterling, Filter, X, ChevronDown, ChevronUp, Download, Mail, Share2, MessageCircle,
-  ArrowRightLeft, CheckSquare, Square, Building2, RotateCcw, Copy, FileOutput, MessageSquare, AlertTriangle, TrendingUp
+  ArrowRightLeft, CheckSquare, Square, Building2, RotateCcw, Copy, FileOutput, MessageSquare, AlertTriangle, TrendingUp,
+  CheckCircle2, AlertCircle
 } from 'lucide-react';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
@@ -183,6 +184,25 @@ export const InvoiceHistory = () => {
   const [allInvoices, setAllInvoices] = useState([]); // Store all invoices for revenue calculations
   const [allRefunds, setAllRefunds] = useState([]); // Store all refunds for revenue calculations
   const [dataVersion, setDataVersion] = useState(0); // Used to force re-renders when data changes
+
+  // Reconciliation badge — 22 Jun 2026
+  // Cross-checks the page's client-side daily/weekly/monthly numbers
+  // against the authoritative server-side `/api/analytics/showrooms-
+  // breakdown` totals (the same data driving the Super-Admin Store
+  // Performance card). Surfaces a small green ✓ badge when they
+  // agree to the penny, or a red ⚠ banner pinpointing the period(s)
+  // and £-drift when they don't. Built directly off the back of the
+  // cross-store refund-bleeding bug — this badge would have flagged
+  // that issue the moment it shipped instead of two days later via
+  // a manual screenshot comparison. See ReconciliationBadge at the
+  // bottom of this file for the rendering logic.
+  //   null               → not computed yet / not applicable (past
+  //                        date filter, no showroom selected, no
+  //                        data loaded)
+  //   { skipped: true }  → on purpose (e.g. dateFilter is not today)
+  //   { error: '...' }   → fetch failed
+  //   { daily, weekly, monthly, anyDrift, computedAt } → comparison
+  const [reconciliation, setReconciliation] = useState(null);
 
   // Deposit-date audit: invoices whose payment date differs from invoice date by > 1 day
   const [depositAudit, setDepositAudit] = useState({ count: 0, invoices: [] });
@@ -1212,6 +1232,97 @@ export const InvoiceHistory = () => {
       setInvoices(filtered);
     }
   }, [dateFilter, allInvoices]);
+
+  // Reconciliation effect — 22 Jun 2026
+  // Cross-checks the page's client-side revenue numbers against the
+  // authoritative server-side breakdown for the same showroom. Fires
+  // on every meaningful state change (filter, date, data refresh).
+  // Skips silently for:
+  //   - past dateFilter (the breakdown endpoint only returns CURRENT
+  //     today/week/month and there's no way to compare apples to apples)
+  //   - "all stores" view (the breakdown returns per-store, not a roll-up
+  //     total — would need to sum which adds drift risk during the very
+  //     check designed to detect drift). When a real cross-store roll-up
+  //     is needed in future, ask backend to emit a `totals` block too.
+  //   - data not yet loaded
+  useEffect(() => {
+    let cancelled = false;
+    async function reconcile() {
+      // Skip if data not loaded yet
+      if (allInvoices.length === 0) {
+        setReconciliation(null);
+        return;
+      }
+      // Skip if no specific showroom selected
+      if (!showroomFilter) {
+        setReconciliation({ skipped: true, reason: 'no-store-selected' });
+        return;
+      }
+      // Skip if dateFilter is not today — the breakdown endpoint only
+      // computes current periods so a past-date comparison would be
+      // nonsense (would falsely flag drift).
+      const todayDDMM = formatDateDDMMYYYY(new Date());
+      const filterDDMM = dateFilter ? formatDateDDMMYYYY(dateFilter) : todayDDMM;
+      if (filterDDMM !== todayDDMM) {
+        setReconciliation({ skipped: true, reason: 'past-date' });
+        return;
+      }
+
+      try {
+        const res = await api.getShowroomsBreakdown();
+        if (cancelled) return;
+        // Backend uses the field name `showroom_id` on each store record,
+        // not `id` — match it explicitly so the badge actually finds
+        // the matching store. (Took us 5 minutes to track down because
+        // a wrong-field match silently yields `undefined` and the
+        // badge just doesn't render.)
+        const storeRecord = (res?.data?.showrooms || [])
+          .find(s => s.showroom_id === showroomFilter);
+        if (!storeRecord) {
+          setReconciliation({ skipped: true, reason: 'store-missing-from-breakdown' });
+          return;
+        }
+
+        const pageDaily = getDailyRevenue();
+        const pageWeekly = getWeeklyRevenue();
+        const pageMonthly = getMonthlyRevenue();
+        const saDaily = storeRecord.today?.revenue ?? 0;
+        const saWeekly = storeRecord.week?.revenue ?? 0;
+        const saMonthly = storeRecord.month?.revenue ?? 0;
+
+        // 1p tolerance — Mongo Decimal128 vs JS Number floating-point
+        // bit-fiddling can produce sub-penny differences that aren't
+        // real drift; flag only meaningful gaps.
+        const TOLERANCE = 0.01;
+        const check = (page, sa) => {
+          const drift = Math.round((page - sa) * 100) / 100;
+          return { page, superAdmin: sa, drift, matches: Math.abs(drift) <= TOLERANCE };
+        };
+        const daily = check(pageDaily, saDaily);
+        const weekly = check(pageWeekly, saWeekly);
+        const monthly = check(pageMonthly, saMonthly);
+        setReconciliation({
+          computedAt: new Date().toISOString(),
+          showroomName: storeRecord.showroom_name || '',
+          daily,
+          weekly,
+          monthly,
+          anyDrift: !daily.matches || !weekly.matches || !monthly.matches,
+        });
+      } catch (err) {
+        if (cancelled) return;
+        console.warn('[InvoiceHistory] Reconciliation fetch failed:', err?.message);
+        setReconciliation({ error: err?.message || 'fetch-failed' });
+      }
+    }
+    reconcile();
+    return () => { cancelled = true; };
+    // getDailyRevenue/getWeeklyRevenue/getMonthlyRevenue are stable
+    // closures over React state — including them as deps would create
+    // an infinite re-render loop on each call. Their inputs (the
+    // filters + data slices) are already deps below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showroomFilter, dateFilter, dataVersion, allInvoices.length, allRefunds.length]);
 
   const handleSearch = async () => {
     setLoading(true);
@@ -2542,6 +2653,12 @@ export const InvoiceHistory = () => {
       </Dialog>
 
       {/* Revenue Summary */}
+      {/* 22 Jun 2026 — Reconciliation badge sits above the revenue
+          cards. Renders only when a specific store is selected AND
+          the date filter is today; otherwise it's a no-op. See the
+          `reconcile` useEffect and the ReconciliationBadge component
+          at the bottom of this file. */}
+      <ReconciliationBadge result={reconciliation} />
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4" key={`revenue-${allInvoices.length}-${dateFilter}-${dataVersion}`}>
         {/* Daily Stats */}
         <Card className="p-4 bg-blue-50/50 border-blue-200">
@@ -4607,5 +4724,85 @@ export const InvoiceHistory = () => {
     </div>
   );
 };
+
+
+/**
+ * ReconciliationBadge — surfaces whether the page's client-side
+ * daily/weekly/monthly numbers agree with the authoritative server-
+ * side `/api/analytics/showrooms-breakdown` totals (the same data the
+ * Super-Admin Store Performance card uses).
+ *
+ * Designed to be a no-op when not applicable — accepts a flexible
+ * `result` shape so the parent can pass `null`, an in-progress
+ * `{ skipped: true }`, an error, or a real comparison without having
+ * to gate on flags in the JSX above.
+ *
+ * Built directly from the cross-store refund-bleeding bug — that bug
+ * would have caused this badge to turn red on first render with the
+ * exact £100 / £1,552.80 drift the owner spotted manually, instead
+ * of silently shipping for two days.
+ */
+function ReconciliationBadge({ result }) {
+  if (!result || result.skipped || result.error) {
+    // No-op states. We deliberately don't render an "n/a" pill — it
+    // would add visual noise to the "all stores" view (the most common
+    // landing state) which already shows a perfectly sensible roll-up.
+    return null;
+  }
+
+  const fmt = (n) => `£${(n ?? 0).toFixed(2)}`;
+  const driftRows = [
+    { label: 'Today', d: result.daily },
+    { label: 'This week', d: result.weekly },
+    { label: 'This month', d: result.monthly },
+  ].filter(r => !r.d.matches);
+
+  if (!result.anyDrift) {
+    return (
+      <div
+        className="rounded-md border border-emerald-200 bg-emerald-50 text-emerald-900 px-3 py-1.5 text-xs flex items-center gap-2 mb-2"
+        data-testid="reconciliation-badge-ok"
+        title={`Last reconciled ${new Date(result.computedAt).toLocaleString('en-GB')}`}
+      >
+        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+        <span>
+          <strong>Reconciled with Super-Admin</strong>
+          {result.showroomName ? ` · ${result.showroomName}` : ''}
+          {' '}· all three periods match to the penny.
+        </span>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className="rounded-md border border-rose-300 bg-rose-50 text-rose-900 px-3 py-2 text-xs space-y-1 mb-2"
+      data-testid="reconciliation-badge-drift"
+    >
+      <div className="flex items-center gap-1.5 font-semibold">
+        <AlertCircle className="w-3.5 h-3.5 text-rose-600" />
+        Numbers below DO NOT match the Super-Admin Store Performance card
+        {result.showroomName ? ` for ${result.showroomName}` : ''}.
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-x-4 gap-y-1 pl-5">
+        {driftRows.map(r => (
+          <div key={r.label}>
+            <div className="font-semibold">{r.label}</div>
+            <div>This page: <span className="font-mono">{fmt(r.d.page)}</span></div>
+            <div>Super-Admin: <span className="font-mono">{fmt(r.d.superAdmin)}</span></div>
+            <div className="font-semibold">
+              Drift: <span className="font-mono">{fmt(r.d.drift)}</span>
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="pl-5 text-[11px] opacity-80 pt-1">
+        The Super-Admin number is the source of truth. If you see this,
+        the page&apos;s client-side calc is out of sync — screenshot this
+        banner and ping the dev team.
+      </div>
+    </div>
+  );
+}
 
 export default InvoiceHistory;

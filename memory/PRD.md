@@ -9,6 +9,27 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Jun 22, 2026 — Forked session] 🟢 Enhancement: Live reconciliation badge on Invoice History (shipped)
+
+Built directly on the back of the refund-bleeding bug fix. The badge cross-checks the page's client-side daily/weekly/monthly numbers against the authoritative server-side `/api/analytics/showrooms-breakdown` (same data the Super-Admin Store Performance card uses) and surfaces the result inline above the revenue cards.
+
+**Rendering rules**:
+- Only shows when a specific store is selected (the most common reconciliation request)
+- Only shows when dateFilter is today (the breakdown endpoint only computes current periods)
+- ✅ **Green** badge when all three periods match to the penny: *"Reconciled with Super-Admin · [Store] · all three periods match to the penny."*
+- ❌ **Red** banner when any period drifts by more than 1p, with per-period detail showing the page's number, the Super-Admin's number, and the £-drift — so the cause is diagnosable at a glance instead of via screenshots.
+
+**Implementation**:
+- `useEffect` in `InvoiceHistory.js` runs reconciliation on every meaningful state change (`showroomFilter`, `dateFilter`, `dataVersion`, invoice/refund counts).
+- 1p tolerance to absorb floating-point noise without masking real drift.
+- New `ReconciliationBadge` component at the bottom of the file.
+- Field-name gotcha: the backend uses `showroom_id` / `showroom_name` on store records (NOT `id` / `name`) — locked in with explicit field references + an inline note for future devs.
+
+**Verification**: End-to-end smoke test in preview — seeded a synthetic showroom + invoice, selected the store on the page, badge rendered green with the message *"Reconciled with Super-Admin · Recon Test Showroom · all three periods match to the penny."* Cleanup ran after.
+
+If the cross-store refund-bleeding bug ships again (or anything else makes the page calc drift), this badge will surface it on the very first page load instead of requiring a manual screenshot comparison.
+
+
 ### [Jun 22, 2026 — Forked session] 🟢 P0 fix: Refunds bleeding cross-store on Invoice History revenue cards (shipped — frontend-only, not yet deployed)
 
 **Bug** (reported by owner with three screenshots of Gravesend):
