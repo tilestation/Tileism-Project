@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { api } from '../../lib/api';
 import { toast } from 'sonner';
 import { 
   Bell, Mail, Package, Users, ShoppingCart, AlertTriangle,
   CheckCircle, Settings, RefreshCw, Send, Save, Plus, X,
-  Inbox, TrendingUp, UserPlus, Clock, FileText
+  Inbox, TrendingUp, UserPlus, Clock, FileText, Send as SendIcon
 } from 'lucide-react';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
@@ -155,6 +156,38 @@ export const NotificationSettings = () => {
 
   return (
     <div className="space-y-6" data-testid="notification-settings-page">
+      {/* Channel switcher tabs — 22 Jun 2026
+          The Telegram-config page was orphaned (only reachable via
+          direct URL) until the owner asked "where do I manage Telegram
+          notifications?". This tab strip gives every notification
+          channel a discoverable home and a clear way to switch between
+          them without leaving the area. Uses Link so the URL changes
+          and the routes already wired in App.js do the heavy lifting. */}
+      <div
+        className="inline-flex p-1 bg-muted/40 rounded-lg gap-1"
+        role="tablist"
+        data-testid="notification-channel-tabs"
+      >
+        <button
+          type="button"
+          role="tab"
+          aria-selected="true"
+          className="px-4 py-1.5 text-sm font-semibold rounded-md bg-background shadow-sm flex items-center gap-2"
+          data-testid="notification-tab-email-active"
+        >
+          <Mail className="h-4 w-4" /> Email
+        </button>
+        <Link
+          to="/admin/notifications/telegram"
+          role="tab"
+          aria-selected="false"
+          className="px-4 py-1.5 text-sm font-medium rounded-md text-muted-foreground hover:text-foreground hover:bg-background/60 transition-colors flex items-center gap-2"
+          data-testid="notification-tab-telegram"
+        >
+          <SendIcon className="h-4 w-4" /> Telegram
+        </Link>
+      </div>
+
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>

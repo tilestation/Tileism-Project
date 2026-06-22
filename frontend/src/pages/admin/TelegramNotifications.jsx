@@ -8,11 +8,12 @@
  *   4. Paste both into this page → Save → click Send test
  */
 import React, { useEffect, useState, useCallback } from 'react';
+import { Link } from 'react-router-dom';
 import axios from 'axios';
 import { toast } from 'sonner';
 import {
   Send, Save, Loader2, CheckCircle2, AlertCircle, Bell, ExternalLink, KeyRound,
-  Search, Plus, Users,
+  Search, Plus, Users, Mail,
 } from 'lucide-react';
 import { Button } from '../../components/ui/button';
 import { Card } from '../../components/ui/card';
@@ -188,6 +189,34 @@ export default function TelegramNotifications({ onConfigChange } = {}) {
 
   return (
     <div className="max-w-3xl mx-auto p-6 space-y-4" data-testid="telegram-notifications">
+      {/* Channel switcher tabs — mirrors the strip on the Email
+          Notifications page so admins can flip between channels
+          without leaving the area. */}
+      <div
+        className="inline-flex p-1 bg-muted/40 rounded-lg gap-1"
+        role="tablist"
+        data-testid="notification-channel-tabs"
+      >
+        <Link
+          to="/admin/notifications"
+          role="tab"
+          aria-selected="false"
+          className="px-4 py-1.5 text-sm font-medium rounded-md text-muted-foreground hover:text-foreground hover:bg-background/60 transition-colors flex items-center gap-2"
+          data-testid="notification-tab-email"
+        >
+          <Mail className="h-4 w-4" /> Email
+        </Link>
+        <button
+          type="button"
+          role="tab"
+          aria-selected="true"
+          className="px-4 py-1.5 text-sm font-semibold rounded-md bg-background shadow-sm flex items-center gap-2"
+          data-testid="notification-tab-telegram-active"
+        >
+          <Send className="h-4 w-4" /> Telegram
+        </button>
+      </div>
+
       <div className="flex items-start justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
