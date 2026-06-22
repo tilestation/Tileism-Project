@@ -9,44 +9,54 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
-### [Jun 22, 2026 — Forked session] 🟢 P0 fix: InvoiceHistory revenue cards reconciling with Super-Admin Store Performance (shipped)
+### [Jun 22, 2026 — Forked session] 🟢 P0 fix: Refunds bleeding cross-store on Invoice History revenue cards (shipped — frontend-only, not yet deployed)
 
-**Bug** (reported by owner with three side-by-side screenshots of Gravesend):
+**Bug** (reported by owner with three screenshots of Gravesend):
 
 | Period | Super Admin Store Performance | Invoice History (Gravesend filter) | Gap |
 |---|---|---|---|
-| Today | £5,512.09 (11 inv) | £5,412.09 (35 inv badge) | **−£100.00** |
+| Today | £5,512.09 | £5,412.09 | **−£100.00** |
 | Week | £6,972.59 | £6,872.59 | **−£100.00** |
 | Month | £71,855.38 | £70,302.58 | **−£1,552.80** |
 
 > "When I apply a filter from Super Admin to stores (Gravesend) in this case. The numbers don't match (monthly in specific) They should all match"
 
-**Root cause** (`/app/frontend/src/pages/admin/InvoiceHistory.js`):
-The page sourced its client-side aggregation from `GET /api/invoices`, which is **capped at 5,000 rows sorted newest-first by `created_at`**. At a 7-year-old, 3-store business processing ~700 invoices/month, the DB holds 60–80k+ invoices. When a customer paid an outstanding balance TODAY against an OLDER invoice (e.g. a Feb 2026 special-order), the payment was correctly recorded inside that older invoice's `deposits[]` array — but the older invoice was never in the page's 5,000-row fetch, so the page sum was blind to it. The Super-Admin `/api/analytics/showrooms-breakdown` endpoint scans ALL invoices server-side and was therefore correct.
+**My first attempt was wrong.** I assumed the cause was the 5,000-record cap on `/api/invoices` paired with years of accumulated history. The owner corrected me: invoices were only added 3 months ago, so the cap can't be the issue. That work was fully reverted before the real investigation.
 
-Two secondary bugs surfaced during diagnosis:
-1. The "X invoice(s)" badge on the Daily Revenue card displayed `invoices.length` (date-only-filtered, all stores) next to a store-filtered revenue — produced wildly mismatched "35 invoice(s) · £5,412.09 Gravesend" labels.
-2. (Also fixed in earlier session — `_send_sample_confirmation_fanout` silent failures unrelated to this report.)
+**Actual root cause** (`/app/frontend/src/pages/admin/InvoiceHistory.js`):
+Each of the four client-side revenue functions (`getDailyRevenue`, `getWeeklyRevenue`, `getMonthlyRevenue`, `sumRevenueInWindow`) correctly filtered **invoices** by the active showroom (`getShowroomFilteredInvoices`) — but subtracted **refunds straight from `allRefunds`, with no store filter applied at all**.
 
-**Fix design**:
-1. New backend endpoint `GET /api/invoices/for-aggregation` (`/app/backend/routes/invoices.py::get_invoices_for_aggregation`):
-   - **Lite projection** — only the fields the revenue/refund/payment aggregations actually use (id, invoice_no, date, created_at, showroom_id, gross_total, amount_outstanding, deposits, payment_method, vat_total, is_deposit_order). Each row ~150 bytes — affordable to ship 100k+ rows.
-   - **No row cap** (`to_list(200000)`) — guarantees the full history reaches the client so older invoices with recent payments are included.
-   - **Same auth + soft-delete + showroom-scope rules** as `/api/invoices` so access control is uniform.
-2. New `api.getInvoicesForAggregation()` helper in `/app/frontend/src/lib/api.js`.
-3. `InvoiceHistory.js`: separate state `aggregationInvoices` (lite, full history, drives revenue) from `allInvoices` (5k cap, drives list). `getShowroomFilteredInvoices()` now reads from `aggregationInvoices` with graceful fallback to `allInvoices` on fetch failure (existing buggy-but-not-broken behaviour, never blocks page load).
-4. Daily Revenue card "X invoice(s)" label now uses `filteredInvoices.length` (store-aware) instead of `invoices.length` (date-only).
+```js
+const invoicesToUse = getShowroomFilteredInvoices();   // ✅ Gravesend only
+// ...
+const monthRefunds = allRefunds.filter(refund => {
+    const refundDate = parseInvoiceDate(refund.date);
+    return refundDate && refundDate >= monthStart && refundDate <= monthEnd;
+});                                                     // ❌ ALL stores' refunds
+```
 
-**Tests** (`/app/backend/tests/test_invoices_for_aggregation.py` — 7/7 pass):
-- Old invoice (Feb 2026) with a balance paid TODAY appears in the aggregation set (the regression test that proves the fix works)
-- Soft-deleted invoices are excluded (matches showrooms-breakdown rules)
-- Lite projection contains every field the aggregator reads
-- **Reconciliation test**: runs both algorithms (server-side scan + lite endpoint + client-side sum) against identical seed data and asserts they produce identical daily revenue — locks in the no-drift guarantee
-- Showroom-scoped users only see their store
-- Non-admin/non-EPOS users get 403
-- Super-admin can pre-filter by showroom_id
+Maths line up exactly:
+- Gravesend's true June revenue (per Super Admin) = £71,855.38
+- All-stores June refunds attributed to Gravesend by mistake = £1,552.80
+- £71,855.38 − £1,552.80 = **£70,302.58** ← exactly the wrong number on the page
 
-End-to-end smoke verified in the preview: both endpoints fire in parallel, page compiles clean, daily count badge now reads store-filtered count.
+Daily/weekly £100 = a single £100 refund from another store on 22 June, wrongly subtracted from Gravesend's day.
+
+The backend `/api/analytics/showrooms-breakdown` endpoint already correctly attributes refunds to the right showroom (`refund.showroom_id`), which is why the Super-Admin Store Performance card was right all along.
+
+**Fix** (frontend-only, surgical):
+1. New helper `getShowroomFilteredRefunds()` mirroring `getShowroomFilteredInvoices()` — applies `r.showroom_id === showroomFilter` when a store filter is active.
+2. Swapped `allRefunds` → `getShowroomFilteredRefunds()` in six call sites:
+   - `getDailyRevenue()` — daily card refund deduction
+   - `getWeeklyRevenue()` — weekly card refund deduction
+   - `getMonthlyRevenue()` — monthly card refund deduction
+   - `sumRevenueInWindow()` — prior-period trend pills (so the % change comparisons stay correct too)
+   - `getDailyBreakdown()` — the per-day breakdown popup (click weekly/monthly card → details)
+   - `getRefundsForDate()` — the "click refund row" details popup
+
+Refund data model confirmed in `/app/backend/routes/refunds.py` saves `showroom_id` on every refund (line 201), so the filter has something to match against. No backend changes needed.
+
+**Verification**: Smoke-test in preview env passes (page renders, all three revenue cards render). Algorithm verified by hand: the previously-reported £100/£100/£1,552.80 deltas were exactly the all-stores refund totals being wrongly attributed; with the store filter applied to refunds, Gravesend's totals now equal the Super-Admin Store Performance card's totals to the penny.
 
 
 ### [Jun 20, 2026 — Forked session] 🟢 P0 fix: Sample-order confirmation emails silently failing (shipped)

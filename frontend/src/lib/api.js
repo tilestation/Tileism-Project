@@ -353,17 +353,6 @@ export const api = {
       params: { ...params, _t: Date.now() } 
     }),
   
-  // Lightweight projection of EVERY non-deleted invoice — used by the
-  // InvoiceHistory daily/weekly/monthly revenue cards so they reconcile
-  // with the Super-Admin Store Performance card. See backend docstring
-  // at routes/invoices.py::get_invoices_for_aggregation for the full
-  // bug write-up (22 Jun 2026).
-  getInvoicesForAggregation: (params = {}) =>
-    axios.get(`${API}/invoices/for-aggregation`, {
-      headers: { ...getAuthHeader(), 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' },
-      params: { ...params, _t: Date.now() },
-    }),
-  
   getInvoice: (id) =>
     axios.get(`${API}/invoices/${id}`, { headers: getAuthHeader() }),
   
