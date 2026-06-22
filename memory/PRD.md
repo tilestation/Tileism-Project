@@ -9,6 +9,46 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Jun 22, 2026 — Forked session] 🟢 P0 fix: InvoiceHistory revenue cards reconciling with Super-Admin Store Performance (shipped)
+
+**Bug** (reported by owner with three side-by-side screenshots of Gravesend):
+
+| Period | Super Admin Store Performance | Invoice History (Gravesend filter) | Gap |
+|---|---|---|---|
+| Today | £5,512.09 (11 inv) | £5,412.09 (35 inv badge) | **−£100.00** |
+| Week | £6,972.59 | £6,872.59 | **−£100.00** |
+| Month | £71,855.38 | £70,302.58 | **−£1,552.80** |
+
+> "When I apply a filter from Super Admin to stores (Gravesend) in this case. The numbers don't match (monthly in specific) They should all match"
+
+**Root cause** (`/app/frontend/src/pages/admin/InvoiceHistory.js`):
+The page sourced its client-side aggregation from `GET /api/invoices`, which is **capped at 5,000 rows sorted newest-first by `created_at`**. At a 7-year-old, 3-store business processing ~700 invoices/month, the DB holds 60–80k+ invoices. When a customer paid an outstanding balance TODAY against an OLDER invoice (e.g. a Feb 2026 special-order), the payment was correctly recorded inside that older invoice's `deposits[]` array — but the older invoice was never in the page's 5,000-row fetch, so the page sum was blind to it. The Super-Admin `/api/analytics/showrooms-breakdown` endpoint scans ALL invoices server-side and was therefore correct.
+
+Two secondary bugs surfaced during diagnosis:
+1. The "X invoice(s)" badge on the Daily Revenue card displayed `invoices.length` (date-only-filtered, all stores) next to a store-filtered revenue — produced wildly mismatched "35 invoice(s) · £5,412.09 Gravesend" labels.
+2. (Also fixed in earlier session — `_send_sample_confirmation_fanout` silent failures unrelated to this report.)
+
+**Fix design**:
+1. New backend endpoint `GET /api/invoices/for-aggregation` (`/app/backend/routes/invoices.py::get_invoices_for_aggregation`):
+   - **Lite projection** — only the fields the revenue/refund/payment aggregations actually use (id, invoice_no, date, created_at, showroom_id, gross_total, amount_outstanding, deposits, payment_method, vat_total, is_deposit_order). Each row ~150 bytes — affordable to ship 100k+ rows.
+   - **No row cap** (`to_list(200000)`) — guarantees the full history reaches the client so older invoices with recent payments are included.
+   - **Same auth + soft-delete + showroom-scope rules** as `/api/invoices` so access control is uniform.
+2. New `api.getInvoicesForAggregation()` helper in `/app/frontend/src/lib/api.js`.
+3. `InvoiceHistory.js`: separate state `aggregationInvoices` (lite, full history, drives revenue) from `allInvoices` (5k cap, drives list). `getShowroomFilteredInvoices()` now reads from `aggregationInvoices` with graceful fallback to `allInvoices` on fetch failure (existing buggy-but-not-broken behaviour, never blocks page load).
+4. Daily Revenue card "X invoice(s)" label now uses `filteredInvoices.length` (store-aware) instead of `invoices.length` (date-only).
+
+**Tests** (`/app/backend/tests/test_invoices_for_aggregation.py` — 7/7 pass):
+- Old invoice (Feb 2026) with a balance paid TODAY appears in the aggregation set (the regression test that proves the fix works)
+- Soft-deleted invoices are excluded (matches showrooms-breakdown rules)
+- Lite projection contains every field the aggregator reads
+- **Reconciliation test**: runs both algorithms (server-side scan + lite endpoint + client-side sum) against identical seed data and asserts they produce identical daily revenue — locks in the no-drift guarantee
+- Showroom-scoped users only see their store
+- Non-admin/non-EPOS users get 403
+- Super-admin can pre-filter by showroom_id
+
+End-to-end smoke verified in the preview: both endpoints fire in parallel, page compiles clean, daily count badge now reads store-filtered count.
+
+
 ### [Jun 20, 2026 — Forked session] 🟢 P0 fix: Sample-order confirmation emails silently failing (shipped)
 
 **Bug** (reported by owner via live screenshot of SMP-260620-FFC920, "Tracy Batchelor"):

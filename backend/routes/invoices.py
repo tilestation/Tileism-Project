@@ -1590,6 +1590,77 @@ async def get_invoices(
     return invoices
 
 
+@router.get("/for-aggregation")
+async def get_invoices_for_aggregation(
+    current_user: dict = Depends(get_current_user),
+    showroom_id: Optional[str] = None,
+):
+    """Lightweight projection of EVERY non-deleted invoice — for the
+    client-side revenue aggregation on InvoiceHistory.
+
+    Built 22 Jun 2026 after the owner spotted the InvoiceHistory daily/
+    weekly/monthly revenue cards under-reporting vs the Super Admin
+    Store-Performance card by exactly the value of older invoices that
+    had been paid (in part or full) within the current month.
+
+    **Root cause**: the general `GET /api/invoices` endpoint caps results
+    at 5,000 (sorted newest-first by `created_at`). A 7-year-old shop
+    processing ~700 invoices/month accumulates 60k+ invoices — far past
+    the 5,000 cap. When a customer paid the balance on an older order
+    today, the deposit *was* recorded on that older invoice's
+    `deposits[]` array — but the InvoiceHistory client never received
+    that invoice in its 5,000-row fetch, so its client-side sum was
+    blind to that payment. The Super-Admin endpoint scans ALL invoices
+    server-side and is therefore correct; the client-side calc was
+    silently undercounting.
+
+    **Fix design**: rather than raising the general endpoint's cap (which
+    would pull 60k+ full invoice documents over the wire on every page
+    load — easily 100MB+), we ship a dedicated **lite projection** here
+    with only the fields the aggregator actually needs. Same fields the
+    `showrooms-breakdown` analytics endpoint uses, so the two views
+    operate on identical data and produce identical numbers.
+
+    Auth: same gate as `/api/invoices` (admin or EPOS permission).
+    Showroom-scoped users automatically see only their store; super
+    admins can optionally pass `showroom_id` to pre-filter (the
+    InvoiceHistory page still does showroom filtering client-side, but
+    passing it here cuts network payload for showroom-locked users).
+    """
+    if not can_access_epos(current_user):
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    db = get_db()
+    query: dict = {"deleted_at": {"$exists": False}}
+
+    user_showroom_id = current_user.get("showroom_id")
+    if current_user.get("role") != "super_admin" and user_showroom_id:
+        query["showroom_id"] = user_showroom_id
+    elif showroom_id:
+        query["showroom_id"] = showroom_id
+
+    # Minimal projection — only fields used by the revenue/refund/payment
+    # aggregations on InvoiceHistory.js. Keeps payload small (~150 bytes
+    # per invoice) even when we return 100k+ rows.
+    projection = {
+        "_id": 0,
+        "id": 1,
+        "invoice_no": 1,
+        "date": 1,
+        "created_at": 1,
+        "showroom_id": 1,
+        "gross_total": 1,
+        "amount_outstanding": 1,
+        "deposits": 1,
+        "payment_method": 1,
+        "vat_total": 1,
+        # Needed by the "Outstanding" and "Deposit Orders" stat tiles
+        "is_deposit_order": 1,
+    }
+    invoices = await db.invoices.find(query, projection).to_list(200000)
+    return invoices
+
+
 @router.get("/outstanding-balances")
 async def get_outstanding_balances(
     limit: int = 5,

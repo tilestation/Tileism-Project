@@ -181,6 +181,18 @@ export const InvoiceHistory = () => {
   const [bulkEmailMessage, setBulkEmailMessage] = useState('');
   const [bulkEmailSending, setBulkEmailSending] = useState(false);
   const [allInvoices, setAllInvoices] = useState([]); // Store all invoices for revenue calculations
+  // 22 Jun 2026 — `aggregationInvoices` is a *separate*, FULL-HISTORY
+  // dataset used ONLY by the daily/weekly/monthly revenue cards. The
+  // regular `/api/invoices` endpoint caps at 5,000 (sorted newest-first)
+  // — fine for the list view, fatal for revenue accuracy at a 7-year-
+  // old shop where a £100 balance paid today against a Feb invoice
+  // would simply be missing from the calc. The lite `/for-aggregation`
+  // endpoint returns just the fields the aggregator needs (id, date,
+  // showroom_id, gross_total, amount_outstanding, deposits, etc.) with
+  // NO row cap — small enough payload for 80k+ invoices, complete
+  // enough to produce identical numbers to the Super-Admin Store
+  // Performance card.
+  const [aggregationInvoices, setAggregationInvoices] = useState([]);
   const [allRefunds, setAllRefunds] = useState([]); // Store all refunds for revenue calculations
   const [dataVersion, setDataVersion] = useState(0); // Used to force re-renders when data changes
 
@@ -449,15 +461,23 @@ export const InvoiceHistory = () => {
   // All revenue calculations now use getDepositAmount() which correctly calculates
   // gross_total - amount_outstanding
 
-  // Get invoices filtered by showroom (for calculations)
+  // Get invoices filtered by showroom (for revenue/refund/payment-method
+  // aggregations on the daily/weekly/monthly cards).
+  //
+  // 22 Jun 2026 — switched source from `allInvoices` (5,000-row cap from
+  // /api/invoices) to `aggregationInvoices` (full historical dataset
+  // from /api/invoices/for-aggregation). Without this swap, payments
+  // made today against older invoices (e.g. £100 balance on a Feb
+  // special order) were silently missing from the revenue cards while
+  // the Super-Admin Store Performance card — which already used a
+  // full-scan endpoint — correctly included them. See the for-
+  // aggregation route's docstring for the full bug write-up.
   const getShowroomFilteredInvoices = () => {
-    console.log('[getShowroomFilteredInvoices] showroomFilter:', showroomFilter, 'allInvoices.length:', allInvoices.length);
+    const source = aggregationInvoices.length > 0 ? aggregationInvoices : allInvoices;
     if (showroomFilter) {
-      const filtered = allInvoices.filter(inv => inv.showroom_id === showroomFilter);
-      console.log('[getShowroomFilteredInvoices] Filtered by showroom:', filtered.length);
-      return filtered;
+      return source.filter(inv => inv.showroom_id === showroomFilter);
     }
-    return allInvoices;
+    return source;
   };
 
   // Helper function to calculate actual deposit amount (money actually received)
@@ -1147,18 +1167,30 @@ export const InvoiceHistory = () => {
   const fetchData = async () => {
     console.log('[InvoiceHistory] fetchData called, current dateFilter:', dateFilter);
     try {
-      const [invoicesRes, staffRes, showroomsRes, refundsRes] = await Promise.all([
+      const [invoicesRes, aggInvoicesRes, staffRes, showroomsRes, refundsRes] = await Promise.all([
         api.getInvoices(),
+        // 22 Jun 2026 — lite full-history fetch for the revenue cards.
+        // Runs in parallel with the regular paginated list fetch so the
+        // page-load latency is unchanged (Mongo serves both queries
+        // concurrently). Failure here degrades to using the 5,000-row
+        // `allInvoices` (the old buggy-but-not-broken behaviour) rather
+        // than blocking page load.
+        api.getInvoicesForAggregation().catch((err) => {
+          console.warn('[InvoiceHistory] for-aggregation fetch failed, falling back to capped list:', err?.message);
+          return { data: [] };
+        }),
         api.getStaffPins().catch(() => ({ data: [] })),
         api.getStores().catch(() => ({ data: [] })),
         api.getRefunds().catch(() => ({ data: [] }))
       ]);
       // Sort all invoices by date/time
       const sortedInvoices = sortInvoicesByDateTime(invoicesRes.data);
-      console.log('[InvoiceHistory] Fetched', sortedInvoices.length, 'invoices');
+      console.log('[InvoiceHistory] Fetched', sortedInvoices.length, 'invoices (capped list)');
+      console.log('[InvoiceHistory] Fetched', (aggInvoicesRes.data || []).length, 'invoices (full aggregation set)');
       
       // Update all invoices state
       setAllInvoices(sortedInvoices);
+      setAggregationInvoices(aggInvoicesRes.data || []);
       setAllRefunds(refundsRes.data || []);
       
       // Filter to show invoices for the CURRENT dateFilter, not today
@@ -2527,7 +2559,14 @@ export const InvoiceHistory = () => {
             <span className="text-xs text-blue-600">{dateFilter ? formatDateDDMMYYYY(dateFilter) : 'Today'}</span>
           </div>
           <p className="text-3xl font-bold text-blue-800">{formatCurrency(getDailyRevenue())}</p>
-          <p className="text-sm text-blue-600 mt-1">{invoices.length} invoice(s)</p>
+          <p className="text-sm text-blue-600 mt-1" data-testid="daily-invoice-count">
+            {/* 22 Jun 2026 — show the store-aware count (`filteredInvoices`)
+                rather than the date-only-filtered `invoices`. The old
+                label was wildly misleading: it would say "35 invoice(s)"
+                while the revenue beside it was filtered to a single
+                store with 11 invoices. */}
+            {filteredInvoices.length} invoice(s)
+          </p>
           <TrendPill
             current={getDailyRevenue()}
             prior={getPriorDailyRevenue()}
