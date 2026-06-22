@@ -13,7 +13,7 @@ import axios from 'axios';
 import { toast } from 'sonner';
 import {
   Send, Save, Loader2, CheckCircle2, AlertCircle, Bell, ExternalLink, KeyRound,
-  Search, Plus, Users, Mail,
+  Search, Plus, Users, Mail, BellOff, VolumeX, Volume2,
 } from 'lucide-react';
 import { Button } from '../../components/ui/button';
 import { Card } from '../../components/ui/card';
@@ -185,6 +185,50 @@ export default function TelegramNotifications({ onConfigChange } = {}) {
   };
   const updateChatIds = (str) => {
     setCfg({ ...cfg, chat_ids: str.split(/[\s,]+/).map(s => s.trim()).filter(Boolean) });
+  };
+
+  // 22 Jun 2026 — 3-way per-event mode helpers
+  // ─────────────────────────────────────────
+  // The owner wanted a third option for noisy events like
+  // "visitor_landed": don't bombard with sound/banner, but still
+  // record the message so they can scroll back through the chat when
+  // they manually open Telegram.
+  //
+  // Telegram's Bot API has `disable_notification=true` exactly for
+  // this purpose. We model the three states on the config doc as:
+  //   Off    →  events[key]=false (nothing sent at all)
+  //   Silent →  events[key]=true  AND key ∈ silent_events
+  //   Loud   →  events[key]=true  AND key ∉ silent_events
+  // Backwards-compatible: any pre-existing config has no
+  // silent_events array, so every "on" event reads as Loud as before.
+  const getEventMode = (key) => {
+    if (!cfg.events?.[key]) return 'off';
+    return (cfg.silent_events || []).includes(key) ? 'silent' : 'loud';
+  };
+  const setEventMode = (key, mode) => {
+    const currentSilent = new Set(cfg.silent_events || []);
+    if (mode === 'off') {
+      currentSilent.delete(key);
+      setCfg({
+        ...cfg,
+        events: { ...cfg.events, [key]: false },
+        silent_events: [...currentSilent],
+      });
+    } else if (mode === 'silent') {
+      currentSilent.add(key);
+      setCfg({
+        ...cfg,
+        events: { ...cfg.events, [key]: true },
+        silent_events: [...currentSilent],
+      });
+    } else { // 'loud'
+      currentSilent.delete(key);
+      setCfg({
+        ...cfg,
+        events: { ...cfg.events, [key]: true },
+        silent_events: [...currentSilent],
+      });
+    }
   };
 
   return (
@@ -398,20 +442,32 @@ export default function TelegramNotifications({ onConfigChange } = {}) {
       </Card>
 
       <Card className="p-4 space-y-3">
-        <h3 className="text-sm font-semibold text-gray-900">Which events trigger a notification?</h3>
-        {Object.entries(EVENT_LABELS).map(([key, [label, hint]]) => (
-          <div key={key} className="flex items-start justify-between gap-3 py-2 border-b border-gray-100 last:border-0">
-            <div className="flex-1">
-              <p className="text-sm font-medium text-gray-900">{label}</p>
-              <p className="text-[11px] text-gray-500 mt-0.5">{hint}</p>
-            </div>
-            <Switch
-              checked={!!cfg.events?.[key]}
-              onCheckedChange={(v) => updateEvent(key, v)}
-              data-testid={`telegram-event-${key}`}
-            />
+        <div className="flex items-start justify-between gap-3 flex-wrap">
+          <h3 className="text-sm font-semibold text-gray-900">Which events trigger a notification?</h3>
+          {/* Legend for the 3-way mode buttons. Mirrors the column
+              widths below so the icons are self-explanatory at a glance. */}
+          <div className="flex items-center gap-3 text-[11px] text-gray-500">
+            <span className="flex items-center gap-1"><BellOff className="w-3 h-3" /> Off</span>
+            <span className="flex items-center gap-1"><VolumeX className="w-3 h-3" /> Silent log</span>
+            <span className="flex items-center gap-1"><Volume2 className="w-3 h-3" /> Loud ping</span>
           </div>
-        ))}
+        </div>
+        {Object.entries(EVENT_LABELS).map(([key, [label, hint]]) => {
+          const mode = getEventMode(key);
+          return (
+            <div key={key} className="flex items-start justify-between gap-3 py-2 border-b border-gray-100 last:border-0">
+              <div className="flex-1">
+                <p className="text-sm font-medium text-gray-900">{label}</p>
+                <p className="text-[11px] text-gray-500 mt-0.5">{hint}</p>
+              </div>
+              <EventModeToggle
+                mode={mode}
+                onChange={(m) => setEventMode(key, m)}
+                testIdBase={`telegram-event-${key}`}
+              />
+            </div>
+          );
+        })}
         {cfg.events?.abandoned_basket && (
           <div className="pt-2">
             <label className="text-xs font-semibold text-gray-700 uppercase tracking-wide">
@@ -428,6 +484,66 @@ export default function TelegramNotifications({ onConfigChange } = {}) {
           </div>
         )}
       </Card>
+    </div>
+  );
+}
+
+/**
+ * EventModeToggle — 3-way segmented control for a Telegram event's
+ * delivery mode.
+ *
+ *   Off    →  no message sent at all (the event toggle is off)
+ *   Silent →  message is sent but with Telegram's
+ *             `disable_notification=true` flag, so it appears in the
+ *             chat history without a sound, vibration, or
+ *             lock-screen banner. Designed for the owner's exact
+ *             ask: "I want to stay quiet but still see the event
+ *             when I open Telegram manually."
+ *   Loud   →  normal alert with sound, banner, the lot.
+ *
+ * Hoisted out of the parent component so the row's DOM identity is
+ * stable across renders of the events list (avoids React's
+ * no-unstable-nested-components rule and is faster too).
+ */
+function EventModeToggle({ mode, onChange, testIdBase }) {
+  const options = [
+    { value: 'off',    Icon: BellOff,  label: 'Off',    title: 'No message sent' },
+    { value: 'silent', Icon: VolumeX,  label: 'Silent', title: 'Log to chat without a sound — visible when you manually open Telegram' },
+    { value: 'loud',   Icon: Volume2,  label: 'Loud',   title: 'Normal alert with sound + banner' },
+  ];
+  return (
+    <div
+      className="inline-flex rounded-md border border-gray-200 bg-gray-50 p-0.5"
+      role="radiogroup"
+      data-testid={testIdBase}
+    >
+      {options.map(({ value, Icon, label, title }) => {
+        const active = mode === value;
+        return (
+          <button
+            key={value}
+            type="button"
+            role="radio"
+            aria-checked={active}
+            title={title}
+            onClick={() => onChange(value)}
+            className={
+              'px-2 py-1 text-[11px] font-medium rounded-[5px] flex items-center gap-1 transition-colors ' +
+              (active
+                ? value === 'silent'
+                  ? 'bg-amber-500 text-white shadow-sm'
+                  : value === 'loud'
+                    ? 'bg-emerald-600 text-white shadow-sm'
+                    : 'bg-gray-700 text-white shadow-sm'
+                : 'text-gray-600 hover:text-gray-900')
+            }
+            data-testid={`${testIdBase}-${value}`}
+          >
+            <Icon className="w-3 h-3" />
+            <span className="hidden sm:inline">{label}</span>
+          </button>
+        );
+      })}
     </div>
   );
 }

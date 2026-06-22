@@ -42,6 +42,12 @@ class TelegramConfig(BaseModel):
     bot_token: str = ""
     chat_ids: List[str] = Field(default_factory=list)
     events: TelegramEventToggles = Field(default_factory=TelegramEventToggles)
+    # 22 Jun 2026 — event keys that should be sent with Telegram's
+    # `disable_notification=true` (silent log): message appears in
+    # the chat but produces no sound / banner / vibration. The owner's
+    # exact ask: "I want to stay quiet instead of being bombarded but
+    # still want to see the event when I open Telegram manually."
+    silent_events: List[str] = Field(default_factory=list)
     abandoned_basket_threshold_gbp: int = 100
 
 
@@ -79,6 +85,11 @@ async def save_config(
         "bot_token": token,
         "chat_ids": [str(c).strip() for c in payload.chat_ids if str(c).strip()],
         "events": payload.events.dict(),
+        # De-dupe + drop blanks so a sloppy frontend payload can't
+        # corrupt the silent-events list.
+        "silent_events": list(dict.fromkeys(
+            k for k in payload.silent_events if k
+        )),
         "abandoned_basket_threshold_gbp": int(payload.abandoned_basket_threshold_gbp),
         "updated_at": datetime.now(timezone.utc).isoformat(),
         "updated_by": current_user.get("email"),

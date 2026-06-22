@@ -98,6 +98,20 @@ def _default_config() -> dict:
             # have to keep tab on the topbar pill all day.)
             "radio_offair": True,
         },
+        # Silent-mode events — 22 Jun 2026
+        # ─────────────────────────────────
+        # Each entry here flips Telegram's `disable_notification=true`
+        # on the outbound message. The message still appears in the
+        # chat (so the owner can scroll back when they manually open
+        # the app), but no sound / vibration / lock-screen banner.
+        # Designed for the owner's exact ask: "I want to stay quiet
+        # instead of bombarded with notifications for [visitor_landed]
+        # but still want to see it when I open Telegram manually."
+        # Only events that are ALSO `True` in `events` above are
+        # affected — turning the event fully OFF (via the Off button
+        # in the 3-way control) suppresses the send entirely, same as
+        # before. Mid-state: ON + in silent_events = silent send.
+        "silent_events": [],
         "abandoned_basket_threshold_gbp": 100,
     }
 
@@ -106,6 +120,18 @@ def _merge_defaults(doc: dict) -> dict:
     base = _default_config()
     base.update({k: v for k, v in doc.items() if k != "_id"})
     base["events"] = {**_default_config()["events"], **(doc.get("events") or {})}
+    # silent_events is a list — fall through to the default empty list
+    # if absent. Stored as a list (not a dict of bools) so older configs
+    # that have no entry stay backwards-compatible and the wire format
+    # is compact.
+    raw_silent = doc.get("silent_events")
+    if isinstance(raw_silent, list):
+        # Deduplicate + filter to known event keys only so a stale entry
+        # for a deprecated event doesn't linger forever.
+        known = set(base["events"].keys())
+        base["silent_events"] = [k for k in dict.fromkeys(raw_silent) if k in known]
+    else:
+        base["silent_events"] = []
     return base
 
 
@@ -131,9 +157,16 @@ async def send_telegram(
     chat_ids: Optional[Iterable[str]] = None,
     bot_token: Optional[str] = None,
     parse_mode: str = "HTML",
+    silent: bool = False,
 ) -> dict:
     """Send a message. Reads config from DB unless explicit token/chat_ids given.
     Returns {"sent": int, "errors": list[str]} — never raises.
+
+    `silent=True` flips Telegram's `disable_notification` flag so the
+    message still appears in the chat history (so the owner can scroll
+    back when they manually open the app) but produces NO sound,
+    vibration, or lock-screen banner. The Bot API natively supports
+    this — we just pass the flag through.
     """
     cfg = await get_config()
     token = bot_token or cfg.get("bot_token") or ""
@@ -147,15 +180,19 @@ async def send_telegram(
     async with httpx.AsyncClient(timeout=SEND_TIMEOUT_S) as client:
         for chat_id in targets:
             try:
-                r = await client.post(
-                    url,
-                    json={
-                        "chat_id": chat_id,
-                        "text": text,
-                        "parse_mode": parse_mode,
-                        "disable_web_page_preview": True,
-                    },
-                )
+                payload = {
+                    "chat_id": chat_id,
+                    "text": text,
+                    "parse_mode": parse_mode,
+                    "disable_web_page_preview": True,
+                }
+                # Only include the flag when True — keeps wire format
+                # identical to the previous behaviour for loud alerts,
+                # which means no risk of a Bot-API surprise on the
+                # existing 99% of events.
+                if silent:
+                    payload["disable_notification"] = True
+                r = await client.post(url, json=payload)
                 if r.status_code == 200 and r.json().get("ok"):
                     sent += 1
                 else:
@@ -175,7 +212,7 @@ async def notify_event(
     dedupe_key: Optional[str] = None,
 ) -> dict:
     """Convenience wrapper used by the rest of the app. Honours the per-event
-    toggle and the in-memory dedupe window."""
+    toggle, the per-event silent-mode flag, and the in-memory dedupe window."""
     cfg = await get_config()
     if not cfg.get("enabled"):
         return {"skipped": "telegram_disabled"}
@@ -184,7 +221,11 @@ async def notify_event(
     if dedupe_key and not _is_dedupe_window_open(f"{event_type}:{dedupe_key}"):
         return {"skipped": "dedupe_window"}
 
-    return await send_telegram(text)
+    # 22 Jun 2026 — owner asked for a "log but don't ping" tier on the
+    # noisy "visitor_landed" event. Per-event silent-mode is stored on
+    # the config doc as a list of event keys.
+    silent = event_type in (cfg.get("silent_events") or [])
+    return await send_telegram(text, silent=silent)
 
 
 def fire_and_forget(event_type: str, text: str, *, dedupe_key: Optional[str] = None):
