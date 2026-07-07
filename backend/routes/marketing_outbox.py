@@ -25,14 +25,21 @@ from services import get_current_user
 from services.marketing_outbox import (
     ALL_CATEGORIES,
     CATEGORY_LABELS,
+    ALL_MODES,
+    MODE_OFF,
+    MODE_MANUAL,
+    MODE_AUTO,
     STATUS_PENDING,
     STATUS_SENT,
     STATUS_SKIPPED,
     STATUS_AUTO_SENT,
     STATUS_BLOCKED_RECENT_ORDER,
+    STATUS_CATEGORY_DISABLED,
     STATUS_FAILED,
     is_manual_mode,
     set_manual_mode,
+    get_category_modes,
+    set_category_mode,
     send_from_outbox,
     skip_from_outbox,
 )
@@ -70,6 +77,67 @@ async def update_settings(
     db = get_db()
     await set_manual_mode(db, payload.manual_mode, current_user.get("email") or "admin")
     return {"manual_mode": payload.manual_mode}
+
+
+# ── Per-category delivery mode ──────────────────────────────────────
+# GET returns every category with its resolved mode (explicit-per-
+# category if set, else master-flag fallback). PUT updates ONE
+# category at a time — the frontend calls it on each toggle click,
+# which keeps the wire format tiny and gives immediate feedback per
+# row without a save button.
+
+@router.get("/category-modes")
+async def get_category_modes_endpoint(
+    current_user: dict = Depends(get_current_user),
+):
+    _require_admin(current_user)
+    db = get_db()
+    explicit = await get_category_modes(db)
+    manual_master = await is_manual_mode(db)
+    fallback_mode = MODE_MANUAL if manual_master else MODE_AUTO
+    rows = []
+    for key in sorted(ALL_CATEGORIES):
+        rows.append({
+            "category": key,
+            "label": CATEGORY_LABELS.get(key, key),
+            "mode": explicit.get(key, fallback_mode),
+            # `explicit` tells the UI whether this row is set
+            # per-category or is inheriting the master flag — useful
+            # for showing an "(inherited)" badge in the settings row.
+            "explicit": key in explicit,
+        })
+    return {
+        "categories": rows,
+        "master_manual_mode": manual_master,
+        "modes": [
+            {"key": MODE_OFF,    "label": "Off",           "desc": "Never send this type of email at all."},
+            {"key": MODE_MANUAL, "label": "Manual review", "desc": "Queue in the outbox for you to review and send."},
+            {"key": MODE_AUTO,   "label": "Auto-send",     "desc": "Send immediately, no review (old behaviour)."},
+        ],
+    }
+
+
+class CategoryModeUpdate(BaseModel):
+    category: str
+    mode: str
+
+
+@router.put("/category-modes")
+async def set_category_mode_endpoint(
+    payload: CategoryModeUpdate,
+    current_user: dict = Depends(get_current_user),
+):
+    _require_admin(current_user)
+    db = get_db()
+    if payload.category not in ALL_CATEGORIES:
+        raise HTTPException(status_code=400, detail=f"Unknown category: {payload.category}")
+    if payload.mode not in ALL_MODES:
+        raise HTTPException(status_code=400, detail="mode must be one of: off, manual, auto")
+    await set_category_mode(
+        db, payload.category, payload.mode,
+        current_user.get("email") or "admin",
+    )
+    return {"category": payload.category, "mode": payload.mode}
 
 
 # ── List / read ─────────────────────────────────────────────────────
@@ -142,6 +210,7 @@ async def outbox_stats(current_user: dict = Depends(get_current_user)):
         "auto_sent": await db.marketing_email_outbox.count_documents({"status": STATUS_AUTO_SENT}),
         "skipped":  await db.marketing_email_outbox.count_documents({"status": STATUS_SKIPPED}),
         "blocked":  await db.marketing_email_outbox.count_documents({"status": STATUS_BLOCKED_RECENT_ORDER}),
+        "category_disabled": await db.marketing_email_outbox.count_documents({"status": STATUS_CATEGORY_DISABLED}),
         "failed":   await db.marketing_email_outbox.count_documents({"status": STATUS_FAILED}),
         "manual_mode": await is_manual_mode(db),
     }

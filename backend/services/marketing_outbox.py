@@ -102,12 +102,44 @@ STATUS_SKIPPED = "skipped"           # admin dismissed
 STATUS_AUTO_SENT = "auto_sent"       # manual-mode was OFF at queue time
 STATUS_BLOCKED_RECENT_ORDER = "blocked_recent_order"  # safety net fired
 STATUS_FAILED = "failed"             # Resend rejected
+STATUS_CATEGORY_DISABLED = "category_disabled"  # per-category kill-switch
+
+# ── Per-category delivery modes ──────────────────────────────────────
+# Owner asked (23 Jun 2026) for granular control so they can, e.g.,
+# turn off the 10%-off abandoned-cart email ENTIRELY while keeping
+# the sample follow-up in manual-review, and let the lead welcome
+# still auto-send. Three modes per category (mirrors the Telegram
+# silent-mode 3-way control we already ship):
+#
+#   MODE_OFF    — Email is never generated. Queue skips it entirely
+#                 with status='category_disabled' so the admin can
+#                 still see WHAT would have gone out and confirm the
+#                 kill-switch is working. The cart-recovery / lead-
+#                 signup / sample-order pipelines keep running; only
+#                 the outbound email is suppressed.
+#   MODE_MANUAL — Email lands in the outbox with status='pending'
+#                 for admin review. This is the safe default after
+#                 the Luke incident.
+#   MODE_AUTO   — Legacy behaviour: fire immediately via the email
+#                 service, log with status='auto_sent'. Recent-order
+#                 safety net still runs.
+MODE_OFF = "off"
+MODE_MANUAL = "manual"
+MODE_AUTO = "auto"
+ALL_MODES = {MODE_OFF, MODE_MANUAL, MODE_AUTO}
 
 # Default recent-order look-back for the safety net.
 DEFAULT_RECENT_ORDER_DAYS = 7
 
 # Settings doc key inside `website_settings`.
 _SETTINGS_KEY = "manual_marketing_emails"
+# Per-category-mode settings doc key inside `website_settings`.
+# Value shape:  {"abandoned_day_1": "off", "lead_welcome": "manual", ...}
+# Any category NOT in this dict falls back to the master flag
+# (`is_manual_mode`) — so the new per-category controls are purely
+# additive and don't disturb existing behaviour until the owner
+# explicitly changes a category.
+_CATEGORY_MODES_KEY = "marketing_email_category_modes"
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -141,6 +173,64 @@ async def set_manual_mode(db, enabled: bool, actor_email: str = "") -> None:
         }},
         upsert=True,
     )
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Per-category delivery mode — the granular kill-switch
+# ─────────────────────────────────────────────────────────────────────
+
+async def get_category_modes(db) -> dict[str, str]:
+    """Return the {category → mode} dict as saved by the admin.
+    Categories the owner hasn't explicitly configured are ABSENT
+    from the dict — the caller (`_resolve_category_mode`) falls back
+    to the master manual-mode flag for those.
+
+    Adding a fresh category to `ALL_CATEGORIES` therefore requires
+    zero data migration; it just inherits the master flag until the
+    owner picks a specific mode for it.
+    """
+    doc = await db.website_settings.find_one({"key": _CATEGORY_MODES_KEY}, {"_id": 0})
+    if not doc:
+        return {}
+    raw = doc.get("value") or {}
+    # Guard against stale entries (deprecated categories) + invalid modes.
+    return {
+        k: v for k, v in raw.items()
+        if k in ALL_CATEGORIES and v in ALL_MODES
+    }
+
+
+async def set_category_mode(
+    db, category: str, mode: str, actor_email: str = "",
+) -> None:
+    if category not in ALL_CATEGORIES:
+        raise ValueError(f"Unknown category: {category}")
+    if mode not in ALL_MODES:
+        raise ValueError(f"Invalid mode (must be off/manual/auto): {mode}")
+    current = await get_category_modes(db)
+    current[category] = mode
+    await db.website_settings.update_one(
+        {"key": _CATEGORY_MODES_KEY},
+        {"$set": {
+            "key": _CATEGORY_MODES_KEY,
+            "value": current,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "updated_by": actor_email or "system",
+        }},
+        upsert=True,
+    )
+
+
+async def _resolve_category_mode(db, category: str) -> str:
+    """Return the effective mode for `category`.
+    Precedence:
+      1. Explicit per-category setting saved by the admin.
+      2. Master flag: manual_mode ON → MODE_MANUAL, OFF → MODE_AUTO.
+    """
+    per_cat = await get_category_modes(db)
+    if category in per_cat:
+        return per_cat[category]
+    return MODE_MANUAL if await is_manual_mode(db) else MODE_AUTO
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -264,6 +354,28 @@ async def queue_email(
         "extra": extra or {},
     }
 
+    # ── Resolve per-category delivery mode (Off / Manual / Auto) ──
+    # Runs BEFORE the recent-order guard so that a fully-off category
+    # doesn't even generate an outbox record for someone with a fresh
+    # paid order (which would just be double-noise in the "Blocked"
+    # bucket). Ordering: category-mode → paid-order guard → dispatch.
+    effective_mode = await _resolve_category_mode(db, category)
+
+    if effective_mode == MODE_OFF:
+        doc["status"] = STATUS_CATEGORY_DISABLED
+        doc["acted_at"] = now.isoformat()
+        doc["acted_by"] = "category-off"
+        await db.marketing_email_outbox.insert_one(doc)
+        logger.info(
+            "[outbox] %s to %s skipped — category set to OFF",
+            category, lowered_to,
+        )
+        return {
+            "queued": True, "sent": False,
+            "outbox_id": doc["id"],
+            "skipped_reason": "category_disabled",
+        }
+
     # ── Safety net: skip anyone with a paid order in the last week ──
     if not skip_recent_order_guard and category in {
         CAT_ABANDONED_DAY_0, CAT_ABANDONED_DAY_1, CAT_ABANDONED_LAST_CHANCE,
@@ -289,7 +401,7 @@ async def queue_email(
             )
 
     # ── Manual mode: park it for admin review ──
-    if await is_manual_mode(db):
+    if effective_mode == MODE_MANUAL:
         await db.marketing_email_outbox.insert_one(doc)
         logger.info(
             "[outbox] Queued %s to %s for manual review (id=%s)",

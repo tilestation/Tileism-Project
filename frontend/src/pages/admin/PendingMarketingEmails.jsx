@@ -47,6 +47,7 @@ const STATUS_TABS = [
   { key: 'auto_sent', label: 'Auto-sent',     tone: 'bg-blue-100 text-blue-900 border-blue-200' },
   { key: 'skipped',  label: 'Skipped',        tone: 'bg-gray-100 text-gray-700 border-gray-200' },
   { key: 'blocked_recent_order', label: 'Blocked (paid customer)', tone: 'bg-rose-100 text-rose-900 border-rose-200' },
+  { key: 'category_disabled', label: 'Turned off', tone: 'bg-gray-100 text-gray-700 border-gray-200' },
   { key: 'failed',   label: 'Failed',         tone: 'bg-rose-100 text-rose-900 border-rose-200' },
 ];
 
@@ -64,6 +65,8 @@ export default function PendingMarketingEmails() {
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState(null);
   const [manualMode, setManualMode] = useState(true);
+  const [categoryModes, setCategoryModes] = useState([]);   // per-cat rows [{category,label,mode,explicit}]
+  const [modeChoices, setModeChoices] = useState([]);        // [{key,label,desc}]
   const [selected, setSelected] = useState(new Set());
   const [previewDoc, setPreviewDoc] = useState(null);
   const [batchBusy, setBatchBusy] = useState(false);
@@ -77,6 +80,43 @@ export default function PendingMarketingEmails() {
       console.warn('stats fetch failed', err);
     }
   }, []);
+
+  // Per-category delivery mode — mirrors the settings row order.
+  // Refetched on every stats refresh + after each mode change so
+  // the UI stays in sync with what queue_email() will actually do.
+  const fetchCategoryModes = useCallback(async () => {
+    try {
+      const res = await axios.get(
+        `${API_URL}/api/marketing-outbox/category-modes`,
+        { headers: authHeader() },
+      );
+      setCategoryModes(res.data.categories || []);
+      setModeChoices(res.data.modes || []);
+    } catch (err) {
+      console.warn('category-modes fetch failed', err);
+    }
+  }, []);
+
+  const changeCategoryMode = async (category, mode) => {
+    try {
+      await axios.put(
+        `${API_URL}/api/marketing-outbox/category-modes`,
+        { category, mode },
+        { headers: authHeader() },
+      );
+      // Optimistic + authoritative refetch so any drift shows up.
+      setCategoryModes(prev => prev.map(r => r.category === category
+        ? { ...r, mode, explicit: true } : r));
+      const labels = { off: 'OFF', manual: 'manual review', auto: 'auto-send' };
+      toast.success(`Set to ${labels[mode] || mode}`, {
+        description: (categoryModes.find(r => r.category === category) || {}).label,
+      });
+      fetchCategoryModes();
+      fetchStats();
+    } catch (err) {
+      toast.error(`Failed to change mode: ${err?.response?.data?.detail || err.message}`);
+    }
+  };
 
   const fetchList = useCallback(async () => {
     setLoading(true);
@@ -98,7 +138,7 @@ export default function PendingMarketingEmails() {
     }
   }, [statusFilter, categoryFilter, search]);
 
-  useEffect(() => { fetchStats(); }, [fetchStats]);
+  useEffect(() => { fetchStats(); fetchCategoryModes(); }, [fetchStats, fetchCategoryModes]);
   useEffect(() => { fetchList(); }, [fetchList]);
 
   const toggleSelect = (id) => {
@@ -236,27 +276,62 @@ export default function PendingMarketingEmails() {
         </div>
       </header>
 
-      {/* Master toggle — manual mode ON/OFF */}
-      <Card className="p-4 flex items-center justify-between gap-4 border-l-4 border-l-amber-500">
-        <div>
-          <div className="text-sm font-semibold flex items-center gap-2">
-            <Filter className="h-4 w-4" />
-            Manual review mode
-            <span className={`text-[10px] px-2 py-0.5 rounded-full font-mono uppercase ${manualMode ? 'bg-emerald-100 text-emerald-900' : 'bg-gray-100 text-gray-700'}`}>
-              {manualMode ? 'On' : 'Off'}
-            </span>
+      {/* Per-category delivery mode — the granular kill-switch owner
+          asked for (23 Jun 2026). Each row shows one email TYPE
+          (abandoned-cart 10%-off, sample follow-up, lead welcome…)
+          with a 3-way segmented control:
+             OFF        → email never generated at all
+             MANUAL     → queues in the outbox for owner review
+             AUTO-SEND  → immediately dispatched (old behaviour)
+          Changing a row saves instantly (no Save button). The master
+          switch below is now a "default for everything else" fallback
+          — used only for categories the owner hasn't explicitly set. */}
+      <Card className="p-4 space-y-3 border-l-4 border-l-amber-500" data-testid="category-modes-panel">
+        <div className="flex items-start justify-between flex-wrap gap-2">
+          <div>
+            <h2 className="text-base font-semibold flex items-center gap-2">
+              <Filter className="h-4 w-4" />
+              Discount code &amp; promotional email settings
+            </h2>
+            <p className="text-xs text-muted-foreground mt-1">
+              Turn each type off entirely, keep it manual (queues for
+              your approval below), or let it auto-send. Changes save
+              instantly.
+            </p>
           </div>
-          <p className="text-xs text-muted-foreground mt-1">
-            {manualMode
-              ? 'Every promo email queues here for you to review + send. Recommended.'
-              : 'Promo emails send automatically as they used to. You can still review after-the-fact in the "Auto-sent" tab.'}
-          </p>
         </div>
-        <Switch
-          checked={manualMode}
-          onCheckedChange={flipManualMode}
-          data-testid="manual-mode-switch"
-        />
+        <div className="divide-y">
+          {categoryModes.length === 0 ? (
+            <div className="py-6 text-center text-sm text-muted-foreground">Loading settings…</div>
+          ) : categoryModes.map(row => (
+            <CategoryModeRow
+              key={row.category}
+              row={row}
+              modes={modeChoices}
+              onChange={changeCategoryMode}
+            />
+          ))}
+        </div>
+
+        {/* Master fallback — controls what happens for any category
+            not explicitly set above (i.e. rows marked "inherited"). */}
+        <div className="pt-3 mt-2 border-t flex items-center justify-between gap-4">
+          <div>
+            <div className="text-xs font-semibold uppercase tracking-wider text-gray-500">
+              Default for any category not set above
+            </div>
+            <div className="text-[11px] text-muted-foreground mt-0.5">
+              {manualMode
+                ? 'Manual review — any new promo type added later will queue here.'
+                : 'Auto-send — any new promo type added later will fire immediately.'}
+            </div>
+          </div>
+          <Switch
+            checked={manualMode}
+            onCheckedChange={flipManualMode}
+            data-testid="manual-mode-switch"
+          />
+        </div>
       </Card>
 
       {/* Stats strip */}
@@ -518,6 +593,86 @@ function StatTile({ label, value, tone, icon: Icon }) {
         <Icon className="h-3 w-3" /> {label}
       </div>
       <div className="text-2xl font-bold mt-0.5">{value ?? 0}</div>
+    </div>
+  );
+}
+
+
+/**
+ * CategoryModeRow — one row in the "Discount code & promotional
+ * email settings" panel. Shows the label of a promo email type
+ * (e.g. "Abandoned cart — 10% off promo") alongside a 3-way
+ * segmented control that persists the choice on click.
+ *
+ * Mode colours mirror the same semantic scale the app uses
+ * elsewhere:
+ *   Off     — grey pill (stops the send entirely)
+ *   Manual  — amber pill (safe default, queues for review)
+ *   Auto    — green pill (fires immediately)
+ * Inherited rows (never explicitly set by the admin) get a small
+ * "inherited" hint so it's obvious the value is coming from the
+ * master fallback rather than a specific decision.
+ */
+function CategoryModeRow({ row, modes, onChange }) {
+  const iconFor = {
+    abandoned_day_0: ShoppingCart,
+    abandoned_day_1: ShoppingCart,
+    abandoned_last_chance: ShoppingCart,
+    lead_welcome: Gift,
+    sample_followup: Sparkles,
+  };
+  const Icon = iconFor[row.category] || Mail;
+  const activeStyle = {
+    off:    'bg-gray-700 text-white shadow-sm',
+    manual: 'bg-amber-500 text-white shadow-sm',
+    auto:   'bg-emerald-600 text-white shadow-sm',
+  };
+  const desc = modes.find(m => m.key === row.mode)?.desc;
+
+  return (
+    <div className="py-3 flex items-center justify-between gap-4">
+      <div className="flex items-start gap-3">
+        <Icon className="h-4 w-4 mt-0.5 text-gray-600" />
+        <div>
+          <div className="text-sm font-medium text-gray-900 flex items-center gap-2">
+            {row.label}
+            {!row.explicit && (
+              <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded bg-gray-100 text-gray-500">
+                inherited
+              </span>
+            )}
+          </div>
+          {desc && (
+            <div className="text-[11px] text-muted-foreground mt-0.5">{desc}</div>
+          )}
+        </div>
+      </div>
+      <div
+        className="inline-flex rounded-md border border-gray-200 bg-gray-50 p-0.5 flex-shrink-0"
+        role="radiogroup"
+        data-testid={`category-mode-${row.category}`}
+      >
+        {modes.map(m => {
+          const active = row.mode === m.key;
+          return (
+            <button
+              key={m.key}
+              type="button"
+              role="radio"
+              aria-checked={active}
+              title={m.desc}
+              onClick={() => onChange(row.category, m.key)}
+              className={
+                'px-2.5 py-1 text-[11px] font-medium rounded-[5px] transition-colors ' +
+                (active ? activeStyle[m.key] : 'text-gray-600 hover:text-gray-900')
+              }
+              data-testid={`category-mode-${row.category}-${m.key}`}
+            >
+              {m.label}
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }
