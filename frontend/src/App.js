@@ -137,6 +137,7 @@ const PermissionsAdmin = React.lazy(() => import('./pages/admin/PermissionsAdmin
 const NotificationAuthorizations = React.lazy(() => import('./pages/admin/NotificationAuthorizations'));
 const MySubscriptions = React.lazy(() => import('./pages/admin/MySubscriptions'));
 const AbandonedCartsAdmin = React.lazy(() => import('./pages/admin/AbandonedCartsAdmin'));
+const PendingMarketingEmails = React.lazy(() => import('./pages/admin/PendingMarketingEmails'));
 const PromoCodesAdmin = React.lazy(() => import('./pages/admin/PromoCodesAdmin'));
 const WeeklyDigestAdmin = React.lazy(() => import('./pages/admin/WeeklyDigestAdmin'));
 const StorefrontFeaturesAdmin = React.lazy(() => import('./pages/admin/StorefrontFeaturesAdmin'));
@@ -641,6 +642,7 @@ function App() {
             <Route path="notification-permissions" element={<NotificationAuthorizations />} />
             <Route path="me/subscriptions" element={<MySubscriptions />} />
             <Route path="abandoned-baskets" element={<AbandonedCartsAdmin />} />
+            <Route path="marketing/pending-emails" element={<PendingMarketingEmails />} />
             <Route path="promo-codes" element={<PromoCodesAdmin />} />
             <Route path="weekly-digest" element={<WeeklyDigestAdmin />} />
             <Route path="storefront-features" element={<StorefrontFeaturesAdmin />} />

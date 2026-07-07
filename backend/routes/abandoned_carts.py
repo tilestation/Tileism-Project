@@ -260,13 +260,30 @@ def _day_1_html(name: str, items: list, total: float, code: str, percent: int, e
 # ============ SEND ============
 
 async def _send_day_0(cart: dict) -> bool:
+    """Route the day-0 reminder through the marketing outbox.
+
+    22 Jun 2026 — every promotional email now flows through
+    `services.marketing_outbox.queue_email` so the owner can review
+    each one in `/admin/marketing/pending-emails` before it goes out
+    (manual mode = default post-Luke incident). When manual mode is
+    off, the outbox dispatches immediately — behaviour identical to
+    the pre-outbox code. Either way, the "recipient has a paid order
+    in the last 7 days" safety net kicks in before sending, so the
+    Luke incident (10% off email to a fresh paying customer) can't
+    recur regardless of race conditions in the cart-recovery hook.
+    """
+    from services.marketing_outbox import queue_email, CAT_ABANDONED_DAY_0
     html = _day_0_html(cart.get("customer_name") or "", cart.get("items") or [], float(cart.get("cart_total") or 0))
-    return await send_email_notification(
-        to_emails=[cart["customer_email"]],
+    result = await queue_email(
+        category=CAT_ABANDONED_DAY_0,
+        to=cart["customer_email"],
         subject="You left something in your basket — your tiles are waiting",
-        html_content=html,
-        from_name="Tile Station",
+        html=html,
+        recipient_name=cart.get("customer_name") or "",
+        source_ref=cart.get("id"),
+        preview=f"Reminder to {cart.get('customer_name') or 'customer'} — cart worth £{float(cart.get('cart_total') or 0):.2f}",
     )
+    return bool(result.get("queued"))
 
 
 def _last_chance_html(name: str, code: str, percent: int, expires_at_iso: str, referrer_email: str = "") -> str:
@@ -304,7 +321,11 @@ def _last_chance_html(name: str, code: str, percent: int, expires_at_iso: str, r
 
 
 async def _send_last_chance(db, cart: dict) -> bool:
-    """Resend the cart's existing promo with an urgency message. Code is NOT regenerated."""
+    """Resend the cart's existing promo with an urgency message. Code is NOT regenerated.
+
+    Routes through the marketing outbox (see `_send_day_0` docstring for
+    the full rationale — manual review + recent-order safety net)."""
+    from services.marketing_outbox import queue_email, CAT_ABANDONED_LAST_CHANCE
     code = cart.get("promo_code")
     if not code:
         return False
@@ -316,17 +337,29 @@ async def _send_last_chance(db, cart: dict) -> bool:
     percent = int(promo_doc.get("percent_off") or 0)
 
     html = _last_chance_html(cart.get("customer_name") or "", code, percent, expires_iso, cart.get("customer_email") or "")
-    return await send_email_notification(
-        to_emails=[cart["customer_email"]],
+    result = await queue_email(
+        category=CAT_ABANDONED_LAST_CHANCE,
+        to=cart["customer_email"],
         subject=f"Last chance — your {percent}% off code expires soon",
-        html_content=html,
-        from_name="Tile Station",
+        html=html,
+        recipient_name=cart.get("customer_name") or "",
+        source_ref=cart.get("id"),
+        preview=f"Last-chance nudge on code {code} ({percent}% off) — expires {expires_iso[:10]}",
     )
+    return bool(result.get("queued"))
 
 
 async def _send_day_1(db, cart: dict, settings: dict) -> Optional[str]:
-    """Mint a single-use promo and send the day-1 email (and optionally WhatsApp).
-    Returns the code on email success, None otherwise."""
+    """Mint a single-use promo and queue the day-1 email (and optionally WhatsApp).
+    Returns the code on queue success, None otherwise.
+
+    22 Jun 2026 — routes through the marketing outbox (`services.
+    marketing_outbox.queue_email`) so the owner reviews the email
+    before it goes to Resend. The promo code IS still minted here
+    even in manual mode, so it's ready when the admin clicks Send in
+    the outbox UI. WhatsApp still fires immediately when enabled
+    (WhatsApp templates have their own approval flow at Meta's end)."""
+    from services.marketing_outbox import queue_email, CAT_ABANDONED_DAY_1
     promo = await generate_promo_code_for_email(
         db,
         email=cart["customer_email"],
@@ -344,11 +377,15 @@ async def _send_day_1(db, cart: dict, settings: dict) -> Optional[str]:
         promo.get("expires_at", ""),
         cart.get("customer_email") or "",
     )
-    sent = await send_email_notification(
-        to_emails=[cart["customer_email"]],
+    result = await queue_email(
+        category=CAT_ABANDONED_DAY_1,
+        to=cart["customer_email"],
         subject=f"Here's {promo['percent_off']}% off your tiles — code inside",
-        html_content=html,
-        from_name="Tile Station",
+        html=html,
+        recipient_name=cart.get("customer_name") or "",
+        source_ref=cart.get("id"),
+        preview=f"Code {promo['code']} ({promo['percent_off']}% off) for cart £{float(cart.get('cart_total') or 0):.2f}",
+        extra={"promo_code": promo["code"], "percent_off": promo["percent_off"]},
     )
 
     # Optional WhatsApp augmentation — same code, different channel.
@@ -377,7 +414,7 @@ async def _send_day_1(db, cart: dict, settings: dict) -> Optional[str]:
         except Exception as wa_err:
             logger.exception(f"WhatsApp augment failed for {cart.get('customer_email')}: {wa_err}")
 
-    return promo["code"] if sent else None
+    return promo["code"] if result.get("queued") else None
 
 
 def _normalize_phone(phone: str) -> str:

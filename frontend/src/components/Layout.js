@@ -347,6 +347,7 @@ export const Layout = () => {
         { to: '/admin/marketing', icon: Megaphone, label: 'Marketing Campaigns', permission: 'marketing', legacyPermission: 'marketing' },
         { to: '/admin/promo-codes', icon: Tag, label: 'Promo Codes', permission: 'marketing', legacyPermission: 'marketing' },
         { to: '/admin/abandoned-baskets', icon: ShoppingCart, label: 'Abandoned Baskets', permission: 'marketing', legacyPermission: 'marketing' },
+        { to: '/admin/marketing/pending-emails', icon: Mail, label: 'Pending Marketing Emails', permission: 'marketing', legacyPermission: 'marketing' },
         { to: '/admin/email-hub', icon: Mail, label: 'Email Hub', permission: 'marketing', legacyPermission: 'marketing' },
         { to: '/admin/pinterest-pack', icon: ImageIcon, label: 'Pinterest Pack', permission: 'marketing', legacyPermission: 'marketing' },
         { to: '/admin/trade-credit-emails', icon: Mail, label: 'Trade Credit Emails', permission: 'marketing', legacyPermission: 'marketing' },

@@ -267,8 +267,17 @@ async def showroom_signup(payload: ShowroomSignupPayload, request: Request):
             await db.marketing_leads.update_one(
                 {"email": email},
                 {"$set": {
-                    "welcome_email_sent_at": now if result.get("sent") else None,
+                    # `sent` = actually left our servers via Resend
+                    # (only true in auto-mode or after admin clicks
+                    # Send in the outbox). `queued=True` means it's
+                    # sitting in the outbox — we still stamp the row
+                    # so we don't offer another voucher on every re-
+                    # submit while the admin's yet to approve.
+                    "welcome_email_sent_at": now if (
+                        result.get("sent") or result.get("queued")
+                    ) else None,
                     "voucher_code": voucher_code,
+                    "welcome_outbox_id": result.get("outbox_id"),
                 }},
             )
     except Exception as _welcome_err:

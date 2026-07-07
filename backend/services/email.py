@@ -751,18 +751,41 @@ async def send_sample_followup_email(
     """
 
     try:
-        resend.api_key = RESEND_API_KEY
-        await asyncio.to_thread(resend.Emails.send, {
-            "from": "Tile Station <samples@tilestation.co.uk>",
-            "to": [customer_email],
-            "reply_to": "samples@tilestation.co.uk",
-            "subject": subject,
-            "html": html_content,
-        })
-        return {"sent": True, "error": None}
+        # 22 Jun 2026 — route through the marketing outbox so this
+        # promotional follow-up gets admin approval in manual mode.
+        # See services/marketing_outbox.py docstring for the full
+        # rationale + the recent-completed-order safety net that
+        # prevents Luke-style "you just paid full price but here's a
+        # discount" incidents.
+        from services.marketing_outbox import queue_email, CAT_SAMPLE_FOLLOWUP
+        result = await queue_email(
+            category=CAT_SAMPLE_FOLLOWUP,
+            to=customer_email,
+            subject=subject,
+            html=html_content,
+            recipient_name=customer_name or "",
+            source_ref=order.get("order_number") or order.get("id"),
+            preview=(
+                f"Sample follow-up · voucher £{voucher_amount_gbp:.2f} ({voucher_code})"
+                if voucher_code else "Sample follow-up · soft nudge (no voucher)"
+            ),
+            from_override="Tile Station <samples@tilestation.co.uk>",
+            extra={
+                "voucher_code": voucher_code,
+                "voucher_amount_gbp": voucher_amount_gbp,
+                "free_count": free_count,
+                "paid_count": paid_count,
+            },
+        )
+        return {
+            "sent": bool(result.get("sent")),
+            "queued": bool(result.get("queued")),
+            "outbox_id": result.get("outbox_id"),
+            "error": None,
+        }
     except Exception as exc:  # noqa: BLE001
-        logging.exception("Sample followup email failed for %s: %s", customer_email, exc)
-        return {"sent": False, "error": str(exc)[:200]}
+        logging.exception("Sample followup outbox queue failed for %s: %s", customer_email, exc)
+        return {"sent": False, "queued": False, "outbox_id": None, "error": str(exc)[:200]}
 
 
 async def send_sample_shipped_email(
@@ -928,12 +951,16 @@ async def send_lead_welcome_email(*, name: str, email: str, voucher_code: str, p
     tablet (showroom-signup flow). Includes a single-use voucher code so the
     next online order is the natural conversion step.
 
-    Resend failure is non-fatal — the lead is already saved to the DB by the
-    caller, the email is bonus. Returns {sent: bool, error: str|None}.
-    """
-    if not RESEND_AVAILABLE or not RESEND_API_KEY:
-        return {"sent": False, "error": "Email service not configured"}
+    22 Jun 2026 — this now routes through the marketing outbox instead
+    of firing directly to Resend. In manual mode (the post-Luke
+    default) the message parks in `/admin/marketing/pending-emails`
+    for owner review; in auto mode the outbox dispatches immediately.
+    The recent-completed-order safety net (7-day look-back) still
+    catches the "already paid" case in either mode.
 
+    Returns {sent: bool, queued: bool, outbox_id: str|None, error: str|None}
+    so the caller can log what happened without re-querying the DB.
+    """
     safe_name = (name or "there").split(" ")[0]
     expires_str = ""
     try:
@@ -982,20 +1009,26 @@ async def send_lead_welcome_email(*, name: str, email: str, voucher_code: str, p
         </div>
     </div>
     """
-
     try:
-        resend.api_key = RESEND_API_KEY
-        await asyncio.to_thread(resend.Emails.send, {
-            "from": "Tile Station <hello@tilestation.co.uk>",
-            "to": [email],
-            "reply_to": "hello@tilestation.co.uk",
-            "subject": f"Welcome to Tile Station — here's {percent_off}% off your first online order",
-            "html": html_content,
-        })
-        return {"sent": True, "error": None}
+        from services.marketing_outbox import queue_email, CAT_LEAD_WELCOME
+        result = await queue_email(
+            category=CAT_LEAD_WELCOME,
+            to=email,
+            subject=f"Welcome to Tile Station — here's {percent_off}% off your first online order",
+            html=html_content,
+            recipient_name=name or "",
+            preview=f"Welcome voucher {voucher_code} ({percent_off}% off) for new lead",
+            extra={"voucher_code": voucher_code, "percent_off": percent_off},
+        )
+        return {
+            "sent": bool(result.get("sent")),
+            "queued": bool(result.get("queued")),
+            "outbox_id": result.get("outbox_id"),
+            "error": None,
+        }
     except Exception as exc:  # noqa: BLE001
-        logging.exception("Lead welcome email failed for %s: %s", email, exc)
-        return {"sent": False, "error": str(exc)[:200]}
+        logging.exception("Lead welcome outbox queue failed for %s: %s", email, exc)
+        return {"sent": False, "queued": False, "outbox_id": None, "error": str(exc)[:200]}
 
 
 async def send_refund_email(refund: dict, recipient_email: str):

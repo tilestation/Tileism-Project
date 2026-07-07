@@ -86,6 +86,7 @@ from .email_hub import router as email_hub_router
 from .pinterest_pack import router as pinterest_pack_router
 from .stripe_reconcile import router as stripe_reconcile_router
 from .marketing_admin import router as marketing_admin_router
+from .marketing_outbox import router as marketing_outbox_router
 from .seo_drafts import router as seo_drafts_router
 from .search_insights import router as search_insights_router
 from .seo_command import router as seo_command_router
@@ -187,6 +188,7 @@ api_router.include_router(recently_viewed_router)
 api_router.include_router(staff_performance_router)
 api_router.include_router(loyalty_router)
 api_router.include_router(marketing_admin_router)
+api_router.include_router(marketing_outbox_router)
 api_router.include_router(seo_drafts_router)
 api_router.include_router(search_insights_router)
 api_router.include_router(seo_command_router)
