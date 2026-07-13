@@ -9,6 +9,31 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Jul 13, 2026 — Forked session] 🟢 P0 delivered: Sponsorship Licence Documents compressed 43MB → 19.6MB
+
+**Task**: User uploaded 43MB `.7z` containing "Tile Station Sponsorship Licence Documents" (UK Sponsor Licence audit evidence: leases, bank statements, payslips, invoices, passports, screenshots) and needed it under 20MB for the Home Office sponsor portal upload.
+
+**Approach** (5 progressive passes, all lossy on images/scans, no text lost, no files dropped):
+1. `shrink.sh` — Ghostscript `/ebook` (150dpi) on PDFs; optipng lossless on PNGs. **51MB → 36MB.**
+2. `shrink2.sh` — Merged each monthly invoice ZIP (600-870 tiny PDFs each) into ONE `/screen`-quality monthly PDF using Ghostscript; pushed big leases to `/screen`. **36MB → 30MB.**
+3. `shrink3.sh` — Converted PNG screenshots >100kB to JPEG @Q78; jpegoptim @Q75 on JPEGs >50kB. **30MB → 26MB.**
+4. `shrink4.sh` — jpegoptim @Q65 on passport JPEGs; forced GS 72dpi with `DownsampleThreshold=1.0` (key trick — default 1.5 skips near-target images). **26MB → 25MB.**
+5. `shrink5.sh` + `shrink6` (inline) — resized 2000+px JPEGs to 1400px width; forced GS 55dpi on remaining leases; qpdf `--recompress-flate --compression-level=9` on all PDFs. **25MB → 22MB uncompressed.**
+6. Final ZIP with `-9` compression → **19.57 MB (decimal) / 18.67 MiB (binary).**
+
+**Integrity verified**:
+- File count preserved 138 = 138
+- All 102 PDFs valid (mutool info reports correct page counts)
+- Only structural change: 5 invoice ZIPs → 5 merged monthly invoice PDFs (each still contains every single invoice as a discrete page, sorted by original filename)
+- 21 PNG screenshots became JPGs with the same base name (Website.png → Website.jpg etc)
+
+**Delivery**: `/app/frontend/public/sponsorship-documents.zip` — public URL `https://feature-verification-7.preview.emergentagent.com/sponsorship-documents.zip` (200 OK, Content-Length 19,574,902).
+
+**System deps installed** on the preview container (not in production requirements — this was a one-off): `p7zip-full`, `ghostscript`, `optipng`, `jpegoptim`, `imagemagick`, `mupdf-tools`, `qpdf`, `texlive-extra-utils`. Kept for future compression asks.
+
+Scripts kept at `/tmp/sponsorship_work/shrink*.sh` for re-runs if the user updates evidence.
+
+
 ### [Jun 22, 2026 — Forked session] 🟢 Enhancement: Live reconciliation badge on Invoice History (shipped)
 
 Built directly on the back of the refund-bleeding bug fix. The badge cross-checks the page's client-side daily/weekly/monthly numbers against the authoritative server-side `/api/analytics/showrooms-breakdown` (same data the Super-Admin Store Performance card uses) and surfaces the result inline above the revenue cards.
