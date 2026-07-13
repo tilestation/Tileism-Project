@@ -1,0 +1,20 @@
+{
+  "summary": "Re-ran all 8 assertions from iteration_189 against the freshly re-built /sponsorship-documents.zip. Result: 8/8 PASS. The leading-whitespace fix for the Metro Bank Statement PDFs is verified — every PDF inside the ZIP now begins with the '%PDF' magic bytes at byte 0.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_sponsorship_zip.py",
+    "/app/test_reports/pytest/sponsorship_zip_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Fix is a static-asset re-encoding only; no code paths changed. Nothing further to review."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100% (8/8)", "frontend": "not tested (per request)"},
+  "seed_data_creation": "None",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Per-assertion re-verification against https://feature-verification-7.preview.emergentagent.com/sponsorship-documents.zip (cache-busted):\n\n1. PASS: Content-Type application/zip, Content-Length 19,548,319 (matches expected exactly; < 20MB). Downloaded byte count == Content-Length.\n2. PASS: zipfile.testzip() returned None (valid PKZIP).\n3. PASS: 138 file entries.\n4. PASS: Max relative path length <= 200 characters.\n5. PASS: No outer wrapper folder; top-level = {Bank Statements, HR Documents, Staff Documents, Systems}.\n6. PASS: All payslip filenames match ^Payslip [A-Z][a-z]{2}-\\d{4} - .+\\.pdf$; none use the old long name.\n7. PASS (previously FAIL): Every PDF starts with '%PDF' at byte 0. All 6 Metro Bank Statement PDFs verified individually: Jan/Feb/March/April/May/June 2026 — first 8 bytes are '%PDF-1.4' (April is '%PDF-1.5'). Leading whitespace fully stripped.\n8. PASS: 5 monthly merged invoice PDFs at Systems/Customer Invoices/invoices_*.pdf each have 600+ pages (Feb:670, Mar:638, Apr:707, May:786, Jun:867).\n\nCommand to re-run: pytest /app/backend/tests/test_sponsorship_zip.py -v",
+  "rca of the issue": "No new bug. Previous iteration_189 issue (leading whitespace before %PDF header in 5 Metro Bank Statement PDFs) has been resolved by the main agent trimming the leading bytes. Verified fix directly by reading the first 8 bytes of each of the 6 Metro Bank Statement PDFs inside the ZIP — all now start with '%PDF-1.x'."
+}
