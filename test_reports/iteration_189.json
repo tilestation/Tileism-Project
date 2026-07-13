@@ -1,0 +1,32 @@
+{
+  "summary": "Verified /sponsorship-documents.zip served from frontend public URL against all 8 checks in the review request. 7/8 passed. One failure: 5 Metro Bank Statement PDFs do not start with the %PDF magic bytes at offset 0 (they have leading whitespace/newline before the header).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "/sponsorship-documents.zip",
+        "issue": "5 PDFs inside the ZIP do not start with '%PDF' magic bytes at byte 0. Files: 'Bank Statements/Metro Bank Statement {Feb/Mar/May/Jun} 2026.pdf' have 332 bytes of leading ASCII spaces before '%PDF'; 'Bank Statements/Metro Bank Statement Jan 2026.pdf' has 1 leading '\\n' byte. pypdf still parses them (17-19 pages each) with warnings ('invalid pdf header'). This is a defect in the source Metro Bank statement PDFs themselves (not introduced by the ZIP rebuild) but violates the review request assertion 'starts with %PDF magic bytes'. Strict PDF viewers and some Windows preview handlers may reject these."
+      }
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_sponsorship_zip.py",
+    "/app/test_reports/pytest/sponsorship_zip_results.xml"
+  ],
+  "action_items": [
+    "Sanitize the 5 Metro Bank Statement PDFs so their %PDF header is at byte 0. Simplest fix: strip leading whitespace bytes before the first '%PDF' occurrence, or re-encode via `qpdf --linearize input.pdf output.pdf` / `gs -o out.pdf -sDEVICE=pdfwrite in.pdf` and then re-inject into the ZIP. Once fixed, all 8 assertions will pass."
+  ],
+  "critical_code_review_comments": [
+    "Delivered artifact is a static ZIP served by Express static handler in frontend/server.js. No React/API code involved.",
+    "ZIP structure and payslip filename hygiene are correct per Windows MAX_PATH mitigation. Longest path is well under the 200-char safe margin.",
+    "The 5 monthly merged invoice PDFs are large (638-867 pages) but valid, contributing most of the ZIP size."
+  ],
+  "updated_files": ["/app/backend/tests/test_sponsorship_zip.py"],
+  "success_rate": {"backend": "87.5% (7/8)", "frontend": "not tested (per request)"},
+  "seed_data_creation": "None",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Detailed per-assertion results (all downloaded from https://feature-verification-7.preview.emergentagent.com/sponsorship-documents.zip, 19,548,338 bytes):\n\n1. PASS: URL headers — Content-Type application/zip, Content-Length 19,548,338 < 20,000,000, actual bytes match header.\n2. PASS: zipfile.testzip() returns None — valid PKZIP archive.\n3. PASS: 138 file entries.\n4. PASS: Max relative path length is <= 200 chars.\n5. PASS: No outer 'Tile Station Sponsorship Licence Documents/' wrapper. Top-level = {Bank Statements, HR Documents, Staff Documents, Systems} plus loose root PDFs.\n6. PASS: All payslip filenames match regex ^Payslip [A-Z][a-z]{2}-\\d{4} - .+\\.pdf$; none start with 'TILE STATION LTD - Employee Payslip for'.\n7. FAIL: 5 PDFs do not start with '%PDF' at byte 0:\n   - Metro Bank Statement Feb 2026.pdf → first 40 bytes = 40 spaces; %PDF found at offset 332\n   - Metro Bank Statement Mar 2026.pdf → same (332 leading spaces)\n   - Metro Bank Statement May 2026.pdf → same (332 leading spaces)\n   - Metro Bank Statement June 2026.pdf → same (332 leading spaces)\n   - Metro Bank Statement Jan 2026.pdf → first byte is '\\n', %PDF at offset 1\n   All 5 still parse successfully with pypdf (17-19 pages each) with warnings 'invalid pdf header'.\n8. PASS: 5 monthly merged invoice PDFs found — page counts: invoices_2026-02: 670, 03: 638, 04: 707, 05: 786, 06: 867. All > 600 pages.\n\nRun tests via: pytest /app/backend/tests/test_sponsorship_zip.py -v",
+  "rca of the issue": "RCA: The Metro Bank Statement PDFs were pre-existing source files uploaded by the user (part of the original 43MB archive). Metro Bank's PDF statement generator (or an intermediate tool) prepends whitespace before the %PDF header — 332 spaces for Feb/Mar/May/Jun 2026, one newline for Jan 2026. The ZIP rebuild script (/tmp/sponsorship_work/rebuild_windows_safe.sh) preserved these files byte-for-byte, so the defect flowed through. Mitigation: Add a sanitization pass before zipping — for every *.pdf, locate first '%PDF' occurrence with data.find(b'%PDF') and rewrite the file starting from that offset (or run through qpdf/gs to re-linearize). Then reflow the ZIP."
+}
