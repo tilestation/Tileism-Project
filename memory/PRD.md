@@ -27,11 +27,23 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - Only structural change: 5 invoice ZIPs → 5 merged monthly invoice PDFs (each still contains every single invoice as a discrete page, sorted by original filename)
 - 21 PNG screenshots became JPGs with the same base name (Website.png → Website.jpg etc)
 
-**Delivery**: `/app/frontend/public/sponsorship-documents.zip` — public URL `https://feature-verification-7.preview.emergentagent.com/sponsorship-documents.zip` (200 OK, Content-Length 19,574,902).
+**Delivery**: `/app/frontend/public/sponsorship-documents.zip` — public URL `https://feature-verification-7.preview.emergentagent.com/sponsorship-documents.zip` (200 OK, Content-Length **19,548,319**).
 
-**System deps installed** on the preview container (not in production requirements — this was a one-off): `p7zip-full`, `ghostscript`, `optipng`, `jpegoptim`, `imagemagick`, `mupdf-tools`, `qpdf`, `texlive-extra-utils`. Kept for future compression asks.
+**Follow-up fix — Windows MAX_PATH (260 char)**: First ZIP triggered Windows Explorer's *"destination path is too long"* error. Root cause: worst path was 217 chars, plus the user's Downloads folder pushed it over 260. Fix (`/tmp/sponsorship_work/rebuild_windows_safe.sh`):
+- Dropped the outer wrapper folder `Tile Station Sponsorship Licence Documents/` (–43 chars).
+- Renamed `Staff Documents, Contracts, Payslips and Other Documents` → `Staff Documents` (–42).
+- Renamed `In Store and Online System Documents` → `Systems` (–30).
+- Shortened 55 payslip filenames `TILE STATION LTD - Employee Payslip for Jun-2026 for GOKUL KARUKAMATTATHIL GOPAKUMAR.pdf` → `Payslip Jun-2026 - Gokul Karukamattathil Gopakumar.pdf`.
+- Shortened the 128-char Sydenham Counterpart Lease filename.
+- **New worst path: 103 chars** — safely under Windows 260 limit.
 
-Scripts kept at `/tmp/sponsorship_work/shrink*.sh` for re-runs if the user updates evidence.
+**Follow-up fix — 5 Metro Bank Statement PDFs**: source PDFs had 332 leading spaces / a leading newline before `%PDF` header (Metro Bank's PDF generator quirk). Trimmed leading bytes so all PDFs now start with `%PDF` at byte 0.
+
+**Verification** (testing_agent iterations 189 → 190): 8/8 assertions pass — valid PKZIP, 138 files preserved, no outer wrapper, all payslips renamed, every PDF starts with %PDF magic bytes, 5 monthly merged invoice PDFs each have 600+ pages (Feb:670, Mar:638, Apr:707, May:786, Jun:867). Pytest at `/app/backend/tests/test_sponsorship_zip.py`.
+
+**System deps installed** on the preview container (not in production requirements — one-off): `p7zip-full`, `ghostscript`, `optipng`, `jpegoptim`, `imagemagick`, `mupdf-tools`, `qpdf`, `texlive-extra-utils`. Kept for future compression asks.
+
+Scripts kept at `/tmp/sponsorship_work/shrink*.sh` and `/tmp/sponsorship_work/rebuild_windows_safe.sh` for re-runs.
 
 
 ### [Jun 22, 2026 — Forked session] 🟢 Enhancement: Live reconciliation badge on Invoice History (shipped)
