@@ -16,7 +16,7 @@ import { toast } from 'sonner';
 import {
   Warehouse as WarehouseIcon, Search, Sliders, Send, RefreshCw, PackageOpen,
   ArrowUpDown, ChevronDown, ChevronUp, Info, Plus, Edit2, Trash2,
-  Package, Image as ImageIcon, Boxes, Layers, ExternalLink,
+  Package, Image as ImageIcon, Boxes, Layers, ExternalLink, MapPin,
 } from 'lucide-react';
 import axios from 'axios';
 import { getAuthHeader } from '../../lib/api';
@@ -146,6 +146,7 @@ function BatchesTable({ product, canManage, onAddBatch, onEditBatch, onDeleteBat
                 <th className="text-right py-2 px-3">Tiles / box</th>
                 <th className="text-right py-2 px-3">Extra pcs</th>
                 <th className="text-right py-2 px-3">Total pcs</th>
+                <th className="text-left py-2 px-3">Location</th>
                 <th className="text-left py-2 px-3">Notes</th>
                 <th className="text-left py-2 px-3">Logged</th>
                 {canManage && <th className="text-right py-2 px-3">Actions</th>}
@@ -159,6 +160,15 @@ function BatchesTable({ product, canManage, onAddBatch, onEditBatch, onDeleteBat
                   <td className="py-2 px-3 text-right">{b.tiles_per_box}</td>
                   <td className="py-2 px-3 text-right">{b.extra_pieces}</td>
                   <td className="py-2 px-3 text-right font-semibold text-slate-900">{b.total_pieces}</td>
+                  <td className="py-2 px-3 text-xs" data-testid={`warehouse-batch-location-${b.id}`}>
+                    {b.location ? (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-slate-100 rounded text-slate-700 font-mono">
+                        <MapPin className="w-3 h-3" /> {b.location}
+                      </span>
+                    ) : (
+                      <span className="text-slate-300 italic">unslotted</span>
+                    )}
+                  </td>
                   <td className="py-2 px-3 text-xs text-slate-500 max-w-xs truncate" title={b.notes}>{b.notes || '—'}</td>
                   <td className="py-2 px-3 text-xs text-slate-500 whitespace-nowrap">
                     {formatDateTime(b.created_at)}
@@ -407,6 +417,11 @@ export default function Warehouse() {
                       <div className="text-xs text-slate-500 font-mono">
                         {p.sku || '—'}
                         {p.category_name && <span className="ml-2 text-slate-400">· {p.category_name}</span>}
+                        {p.warehouse_location && (
+                          <span className="ml-2 inline-flex items-center gap-1 px-1.5 py-0.5 bg-slate-100 rounded text-slate-700" data-testid={`warehouse-product-location-${p.sku || p.id}`}>
+                            <MapPin className="w-3 h-3" /> {p.warehouse_location}
+                          </span>
+                        )}
                       </div>
                       <CoverageLine product={p} />
                     </div>
@@ -700,6 +715,7 @@ function QuickAddProductForm({ onCreated }) {
   const [width, setWidth] = useState('');
   const [height, setHeight] = useState('');
   const [tilesPerBox, setTilesPerBox] = useState('');
+  const [location, setLocation] = useState('');
   const [imageUrl, setImageUrl] = useState('');
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -736,6 +752,7 @@ function QuickAddProductForm({ onCreated }) {
         tile_height: height ? parseFloat(height) : null,
         tiles_per_box: tilesPerBox ? parseInt(tilesPerBox, 10) : null,
         image_url: imageUrl || null,
+        warehouse_location: location.trim() || null,
       };
       const res = await axios.post(`${API}/warehouse/products/quick-add`, payload, {
         headers: getAuthHeader(),
@@ -797,6 +814,22 @@ function QuickAddProductForm({ onCreated }) {
       )}
 
       <div>
+        <label className="text-xs font-medium text-slate-700 uppercase tracking-wide flex items-center gap-1">
+          <MapPin className="w-3 h-3" /> Default warehouse location
+        </label>
+        <Input
+          value={location}
+          onChange={(e) => setLocation(e.target.value)}
+          placeholder="e.g. Rack A3-12, Yard Bay 4, Container 7"
+          data-testid="warehouse-new-location"
+          maxLength={100}
+        />
+        <p className="text-xs text-slate-400 mt-1">
+          Where this product usually lives. New batches inherit this — you can override per batch.
+        </p>
+      </div>
+
+      <div>
         <label className="text-xs font-medium text-slate-700 uppercase tracking-wide">Product image</label>
         <div className="flex items-center gap-3 mt-1">
           <label className="cursor-pointer">
@@ -845,6 +878,7 @@ function BatchForm({ product, onSuccess, onBack }) {
   const [boxes, setBoxes] = useState('0');
   const [tilesPerBox, setTilesPerBox] = useState(String(product.tiles_per_box || ''));
   const [extraPieces, setExtraPieces] = useState('0');
+  const [location, setLocation] = useState(product.warehouse_location || '');
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
 
@@ -871,6 +905,7 @@ function BatchForm({ product, onSuccess, onBack }) {
         boxes: b,
         tiles_per_box: tpb,
         extra_pieces: extra,
+        location: location.trim() || null,
         notes: notes || null,
       }, { headers: getAuthHeader() });
       toast.success(`Batch logged: +${totalPieces} pcs of ${product.name}`);
@@ -953,6 +988,18 @@ function BatchForm({ product, onSuccess, onBack }) {
       </div>
 
       <div>
+        <label className="text-xs font-medium text-slate-700 uppercase tracking-wide flex items-center gap-1">
+          <MapPin className="w-3 h-3" /> Location {product.warehouse_location && <span className="text-slate-400 normal-case font-normal">(default: {product.warehouse_location})</span>}
+        </label>
+        <Input
+          value={location} onChange={(e) => setLocation(e.target.value)}
+          placeholder="e.g. Rack A3-12, Yard Bay 4"
+          maxLength={100}
+          data-testid="warehouse-batch-location-input"
+        />
+      </div>
+
+      <div>
         <label className="text-xs font-medium text-slate-700 uppercase tracking-wide">Notes (optional)</label>
         <Input
           value={notes} onChange={(e) => setNotes(e.target.value)}
@@ -1000,6 +1047,7 @@ function EditBatchDialog({ state, onOpenChange, onDone }) {
   const [boxes, setBoxes] = useState('0');
   const [tilesPerBox, setTilesPerBox] = useState('1');
   const [extraPieces, setExtraPieces] = useState('0');
+  const [location, setLocation] = useState('');
   const [notes, setNotes] = useState('');
   const [reason, setReason] = useState('stocktake_correction');
   const [saving, setSaving] = useState(false);
@@ -1010,6 +1058,7 @@ function EditBatchDialog({ state, onOpenChange, onDone }) {
       setBoxes(String(state.batch.boxes ?? 0));
       setTilesPerBox(String(state.batch.tiles_per_box ?? 1));
       setExtraPieces(String(state.batch.extra_pieces ?? 0));
+      setLocation(state.batch.location || '');
       setNotes(state.batch.notes || '');
       setReason('stocktake_correction');
     }
@@ -1028,6 +1077,7 @@ function EditBatchDialog({ state, onOpenChange, onDone }) {
         boxes: b,
         tiles_per_box: tpb,
         extra_pieces: extra,
+        location: location.trim(),
         notes,
         reason,
       }, { headers: getAuthHeader() });
@@ -1081,6 +1131,17 @@ function EditBatchDialog({ state, onOpenChange, onDone }) {
                 ))}
               </SelectContent>
             </Select>
+          </div>
+          <div>
+            <label className="text-xs font-medium uppercase tracking-wide text-slate-700 flex items-center gap-1">
+              <MapPin className="w-3 h-3" /> Location
+            </label>
+            <Input
+              value={location} onChange={(e) => setLocation(e.target.value)}
+              placeholder="e.g. Rack A3-12"
+              maxLength={100}
+              data-testid="warehouse-edit-batch-location"
+            />
           </div>
           <div>
             <label className="text-xs font-medium uppercase tracking-wide text-slate-700">Notes</label>

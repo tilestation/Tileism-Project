@@ -691,3 +691,152 @@ class TestBatchPermissionGates:
 
         # Cleanup — reset overrides
         self._reset_overrides(admin_hdr, test_staff["email"])
+
+
+
+# =============================================================================
+# WAREHOUSE LOCATION (Jan, 2026) — product default + per-batch location
+# =============================================================================
+
+LOC_RUN_ID = uuid.uuid4().hex[:8]
+LOC_SKU = f"TEST-WH-LOC-{LOC_RUN_ID}"
+LOC_NAME = f"TEST Warehouse Location Product {LOC_RUN_ID}"
+DEFAULT_LOCATION = "Rack A3-12"
+OVERRIDE_LOCATION = "Yard - Bay 4"
+
+
+@pytest.fixture(scope="module")
+def loc_product(admin_hdr):
+    """Quick-add a product WITH warehouse_location set — used across the
+    location suite so we can verify inheritance and PUT /location updates."""
+    payload = {
+        "name": LOC_NAME,
+        "sku": LOC_SKU,
+        "category_name": "TEST Warehouse Location",
+        "tile_width": 300,
+        "tile_height": 300,
+        "tiles_per_box": 6,
+        "warehouse_location": DEFAULT_LOCATION,
+    }
+    r = requests.post(f"{API}/warehouse/products/quick-add", json=payload, headers=admin_hdr)
+    assert r.status_code == 200, f"quick-add w/ location failed: {r.status_code} {r.text}"
+    product = r.json().get("product")
+    assert product and product.get("id")
+    return product
+
+
+class TestWarehouseLocation:
+    """Coverage for the newly added location field.
+    - quick-add saves warehouse_location
+    - search returns it on product row
+    - POST /batches inherits product default when location omitted
+    - POST /batches with explicit location overrides the default
+    - PUT /batches/{id} updates location
+    - PUT /products/{id}/location updates the product default (and 403 for
+      non-permitted staff)."""
+
+    inherited_batch_id: str = ""
+    explicit_batch_id: str = ""
+
+    def test_quick_add_saves_warehouse_location(self, loc_product):
+        assert loc_product.get("warehouse_location") == DEFAULT_LOCATION
+
+    def test_search_returns_warehouse_location_on_product(self, admin_hdr, loc_product):
+        r = requests.get(f"{API}/warehouse/products", params={"q": LOC_SKU}, headers=admin_hdr)
+        assert r.status_code == 200
+        matched = next((p for p in r.json()["products"] if p["id"] == loc_product["id"]), None)
+        assert matched, "location product not returned by search"
+        assert matched.get("warehouse_location") == DEFAULT_LOCATION
+
+    def test_batch_without_location_inherits_product_default(self, admin_hdr, loc_product):
+        payload = {
+            "product_id": loc_product["id"],
+            "batch_number": f"LOC-INHERIT-{LOC_RUN_ID}",
+            "boxes": 2,
+            "tiles_per_box": 6,
+            "extra_pieces": 0,
+            # location intentionally omitted
+        }
+        r = requests.post(f"{API}/warehouse/batches", json=payload, headers=admin_hdr)
+        assert r.status_code == 200, r.text
+        b = r.json()["batch"]
+        assert b.get("location") == DEFAULT_LOCATION, \
+            f"batch should inherit default location '{DEFAULT_LOCATION}', got '{b.get('location')}'"
+        TestWarehouseLocation.inherited_batch_id = b["id"]
+
+        # Verify via GET /products/{id}/batches
+        r2 = requests.get(f"{API}/warehouse/products/{loc_product['id']}/batches", headers=admin_hdr)
+        assert r2.status_code == 200
+        found = next((x for x in r2.json()["batches"] if x["id"] == b["id"]), None)
+        assert found and found.get("location") == DEFAULT_LOCATION
+
+    def test_batch_with_explicit_location_overrides_default(self, admin_hdr, loc_product):
+        payload = {
+            "product_id": loc_product["id"],
+            "batch_number": f"LOC-EXPLICIT-{LOC_RUN_ID}",
+            "boxes": 1,
+            "tiles_per_box": 6,
+            "extra_pieces": 0,
+            "location": OVERRIDE_LOCATION,
+        }
+        r = requests.post(f"{API}/warehouse/batches", json=payload, headers=admin_hdr)
+        assert r.status_code == 200, r.text
+        b = r.json()["batch"]
+        assert b.get("location") == OVERRIDE_LOCATION
+        TestWarehouseLocation.explicit_batch_id = b["id"]
+
+        # Search should surface location on each batch
+        r2 = requests.get(f"{API}/warehouse/products", params={"q": LOC_SKU}, headers=admin_hdr)
+        assert r2.status_code == 200
+        matched = next((p for p in r2.json()["products"] if p["id"] == loc_product["id"]), None)
+        assert matched
+        by_id = {x["id"]: x for x in matched.get("batches", [])}
+        assert by_id.get(TestWarehouseLocation.inherited_batch_id, {}).get("location") == DEFAULT_LOCATION
+        assert by_id.get(TestWarehouseLocation.explicit_batch_id, {}).get("location") == OVERRIDE_LOCATION
+
+    def test_put_batch_updates_location(self, admin_hdr):
+        assert TestWarehouseLocation.inherited_batch_id, "prior test must create inherited batch"
+        new_loc = "Mezzanine - Slot 7"
+        r = requests.put(
+            f"{API}/warehouse/batches/{TestWarehouseLocation.inherited_batch_id}",
+            json={"location": new_loc},
+            headers=admin_hdr,
+        )
+        assert r.status_code == 200, r.text
+        assert r.json()["batch"].get("location") == new_loc
+
+    def test_put_product_default_location(self, admin_hdr, loc_product):
+        new_default = "Rack B1-05"
+        r = requests.put(
+            f"{API}/warehouse/products/{loc_product['id']}/location",
+            json={"warehouse_location": new_default},
+            headers=admin_hdr,
+        )
+        assert r.status_code == 200, r.text
+        data = r.json()
+        assert data.get("success") is True
+        assert data.get("warehouse_location") == new_default
+
+        # Verify persistence via search
+        r2 = requests.get(f"{API}/warehouse/products", params={"q": LOC_SKU}, headers=admin_hdr)
+        assert r2.status_code == 200
+        matched = next((p for p in r2.json()["products"] if p["id"] == loc_product["id"]), None)
+        assert matched and matched.get("warehouse_location") == new_default
+
+    def test_put_product_location_requires_warehouse_manage(
+        self, admin_hdr, test_staff, loc_product,
+    ):
+        # Ensure staff has no override
+        requests.put(
+            f"{API}/permissions/users/{test_staff['email']}/overrides",
+            json={"extra_pages": [], "denied_pages": [], "extra_actions": [], "denied_actions": []},
+            headers=admin_hdr,
+        )
+        tok = _login(test_staff["email"], test_staff["password"])
+        hdr = {"Authorization": f"Bearer {tok}"}
+        r = requests.put(
+            f"{API}/warehouse/products/{loc_product['id']}/location",
+            json={"warehouse_location": "Should-Not-Save"},
+            headers=hdr,
+        )
+        assert r.status_code == 403, f"expected 403 without warehouse_manage, got {r.status_code} {r.text}"

@@ -185,6 +185,7 @@ async def search_warehouse_products(
         "tile_height": 1,
         "tile_m2_per_piece": 1,
         "tiles_per_box": 1,
+        "warehouse_location": 1,
     }
 
     products = await db.products.find(query, projection).limit(limit).to_list(limit)
@@ -258,6 +259,7 @@ async def search_warehouse_products(
             "tile_height": p.get("tile_height"),
             "tile_m2_per_piece": m2_per_piece,
             "tiles_per_box": p.get("tiles_per_box"),
+            "warehouse_location": p.get("warehouse_location") or "",
             "warehouse_stock": warehouse_qty,
             "coverage_m2": coverage_m2,
             "batches": product_batches,
@@ -487,6 +489,7 @@ class BatchCreatePayload(BaseModel):
     boxes: int = Field(default=0, ge=0)
     tiles_per_box: int = Field(default=1, gt=0)
     extra_pieces: int = Field(default=0, ge=0)
+    location: Optional[str] = Field(default=None, max_length=100)
     notes: Optional[str] = Field(default=None, max_length=500)
 
 
@@ -495,6 +498,7 @@ class BatchUpdatePayload(BaseModel):
     boxes: Optional[int] = Field(default=None, ge=0)
     tiles_per_box: Optional[int] = Field(default=None, gt=0)
     extra_pieces: Optional[int] = Field(default=None, ge=0)
+    location: Optional[str] = Field(default=None, max_length=100)
     notes: Optional[str] = Field(default=None, max_length=500)
     reason: Optional[str] = Field(default=None, max_length=64)
 
@@ -503,7 +507,7 @@ class QuickAddProductPayload(BaseModel):
     """Minimal product-creation payload for the warehouse's inline form.
     Full product management (pricing, categories, variants) still lives on
     /admin/products. This flow only captures what the warehouse team needs
-    to log batches: identity + tile dimensions."""
+    to log batches: identity + tile dimensions + default warehouse bay."""
     name: str = Field(..., min_length=1, max_length=200)
     sku: str = Field(..., min_length=1, max_length=100)
     barcode: Optional[str] = Field(default=None, max_length=100)
@@ -512,6 +516,7 @@ class QuickAddProductPayload(BaseModel):
     tile_height: Optional[float] = Field(default=None, gt=0)  # mm
     tiles_per_box: Optional[int] = Field(default=None, gt=0)
     image_url: Optional[str] = Field(default=None, max_length=1000)
+    warehouse_location: Optional[str] = Field(default=None, max_length=100)
 
 
 def _compute_batch_total(boxes: int, tiles_per_box: int, extra_pieces: int) -> int:
@@ -641,6 +646,7 @@ async def quick_add_product(
         "reorder_level": 10,
         "images": images,
         "showroom_stock": {},
+        "warehouse_location": (payload.warehouse_location or "").strip(),
         "created_at": now.isoformat(),
         "updated_at": now.isoformat(),
         "source": "warehouse_quick_add",
@@ -678,6 +684,49 @@ async def list_product_batches(
     return {"batches": rows}
 
 
+class ProductLocationPayload(BaseModel):
+    warehouse_location: str = Field(default="", max_length=100)
+
+
+@router.put("/products/{product_id}/location")
+async def set_product_default_location(
+    product_id: str,
+    payload: ProductLocationPayload,
+    current_user: dict = Depends(get_current_user),
+):
+    """Set the product's DEFAULT warehouse bay/rack. New batches created
+    for this product without an explicit location will inherit this. Does
+    NOT retroactively move existing batches — the location on already-
+    logged batches is intentionally sticky (the stock physically sits where
+    it sits until someone edits that batch)."""
+    _require_manage(current_user)
+    db = get_db()
+    product = await db.products.find_one({"id": product_id})
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+
+    new_loc = (payload.warehouse_location or "").strip()
+    await db.products.update_one(
+        {"id": product_id},
+        {"$set": {
+            "warehouse_location": new_loc,
+            "updated_at": datetime.now(timezone.utc),
+        }},
+    )
+    await log_audit(
+        action="UPDATE",
+        entity_type="product",
+        user=current_user,
+        entity_id=product_id,
+        entity_name=product.get("name"),
+        before_data={"warehouse_location": product.get("warehouse_location") or ""},
+        after_data={"warehouse_location": new_loc},
+        details=f"Default warehouse location set to '{new_loc}'",
+    )
+    return {"success": True, "warehouse_location": new_loc}
+
+
+
 @router.post("/batches")
 async def create_batch(
     payload: BatchCreatePayload,
@@ -710,6 +759,13 @@ async def create_batch(
         payload.boxes, payload.tiles_per_box, payload.extra_pieces,
     )
 
+    # If the caller didn't specify a location, fall back to the product's
+    # default warehouse_location (set at quick-add time). Empty string is
+    # allowed — some batches genuinely aren't slotted yet.
+    location = (payload.location or "").strip()
+    if not location:
+        location = (product.get("warehouse_location") or "").strip()
+
     now = datetime.now(timezone.utc).isoformat()
     batch_id = str(uuid.uuid4())
     batch_doc = {
@@ -723,6 +779,7 @@ async def create_batch(
         "tiles_per_box": int(payload.tiles_per_box),
         "extra_pieces": int(payload.extra_pieces),
         "total_pieces": total_pieces,
+        "location": location,
         "notes": payload.notes or "",
         "is_active": True,
         "created_at": now,
@@ -807,6 +864,8 @@ async def update_batch(
         updates["tiles_per_box"] = int(payload.tiles_per_box)
     if payload.extra_pieces is not None:
         updates["extra_pieces"] = int(payload.extra_pieces)
+    if payload.location is not None:
+        updates["location"] = payload.location.strip()
     if payload.notes is not None:
         updates["notes"] = payload.notes
 
