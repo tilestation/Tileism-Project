@@ -75,6 +75,28 @@ This fix is app-wide — any endpoint calling `has_permission()` now correctly r
 - Add a DB-level unique compound index on `(product_id, batch_number_ci)` for is_active batches — defence in depth against direct DB writes.
 - Split `Warehouse.jsx` (~1350 lines) into `/pages/admin/warehouse/dialogs/*.jsx` — maintainability, not a bug.
 
+### [Jul 17, 2026 — Same session, extension] 🟢 Location field for warehouse
+
+**Ask**: "Add a location field for a warehouse." (physical bay/rack where the stock sits).
+
+**Shipped**:
+- Each PRODUCT can have a `warehouse_location` default (set in the quick-add form or via new `PUT /api/warehouse/products/{id}/location`).
+- Each BATCH has its own `location`. When a batch is created without an explicit location, it INHERITS the product's default. Users can override per batch (e.g. one dye lot goes to a different rack).
+- New Location column in the expanded batch table with a MapPin badge.
+- Location badge next to SKU on the collapsed product row so staff can spot bay assignments at a glance.
+- Editable via the Edit Batch dialog.
+
+**Backend**: `location` added to `BatchCreatePayload` & `BatchUpdatePayload`; `warehouse_location` added to `QuickAddProductPayload`; new `PUT /api/warehouse/products/{product_id}/location`; inheritance logic in `create_batch` (falls back to `product.warehouse_location` if payload omits).
+
+**Frontend**: Location input in QuickAddProductForm (with helper text), BatchForm (shows product default as hint), EditBatchDialog. MapPin icon everywhere the location renders.
+
+**Testing** (`testing_agent_v3_fork` iteration 194): **40/40 backend tests pass** (7 new location tests). Verified: quick-add saves location, batch inheritance from product default, explicit override, PUT updates on both product default and batch, search returns location on product + all batches, permission gate 403 for staff without `warehouse_manage`.
+
+**UX notes** (from testing agent, worth surfacing in tooltips later):
+- Blank `warehouse_location` on PUT silently clears the product default.
+- Whitespace-only batch location falls back to product default (matches empty-string semantics).
+- Renaming a product's default location does NOT retroactively move existing batches (they stay at their previously-saved string — intentional, per spec).
+
 
 ### [Jul 13, 2026 — Forked session] 🟢 P0 delivered: Sponsorship Licence Documents compressed 43MB → 19.6MB
 
