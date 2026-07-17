@@ -58,6 +58,8 @@ PAGE_REGISTRY: List[Dict] = [
     # Stock
     {"key": "stock_hub", "label": "Stock Hub", "group": "Stock"},
     {"key": "stock_allocation", "label": "Stock Allocation", "group": "Stock"},
+    {"key": "warehouse", "label": "Tonbridge Warehouse", "group": "Stock"},
+    {"key": "warehouse_manage", "label": "Warehouse — Adjust Stock", "group": "Stock"},
     {"key": "bulk_stock", "label": "Bulk Stock Edit", "group": "Stock"},
     {"key": "stock_import", "label": "Stock Import", "group": "Stock"},
     {"key": "delivery_check_in", "label": "Delivery Check-In", "group": "Stock"},
@@ -191,7 +193,7 @@ SYSTEM_ROLE_DEFAULTS: Dict[str, Dict[str, List[str]]] = {
     "admin": {
         "pages": [
             p["key"] for p in PAGE_REGISTRY
-            if p["key"] not in {"audit_trail", "permissions_admin", "user_management", "staff_pins", "staff_invites", "trash", "stock_import", "notifications"}
+            if p["key"] not in {"audit_trail", "permissions_admin", "user_management", "staff_pins", "staff_invites", "trash", "stock_import", "notifications", "warehouse_manage"}
         ],
         # Admin keeps preview only by default — matches the recently-shipped restriction
         "actions": ["supplier_products.action.preview"],
@@ -205,7 +207,7 @@ SYSTEM_ROLE_DEFAULTS: Dict[str, Dict[str, List[str]]] = {
             "delivery_management", "online_orders",
             "products_hub", "supplier_products", "stock_hub", "stock_allocation",
             "bulk_stock", "delivery_check_in", "stock_transfers", "reorder_suggestions",
-            "batch_tracking", "to_order_report",
+            "batch_tracking", "to_order_report", "warehouse",
             "customers_hub", "trade_accounts", "customer_pricing", "bulk_inquiries",
             "communication_hub", "staff_chat", "tasks", "inbox",
             "reports_hub", "analytics", "reports",
@@ -239,6 +241,7 @@ SYSTEM_ROLE_DEFAULTS: Dict[str, Dict[str, List[str]]] = {
             "stock_hub", "stock_allocation", "bulk_stock",
             "delivery_check_in", "stock_transfers", "reorder_suggestions",
             "batch_tracking", "to_order_report", "stock_cost", "stocktake_report",
+            "warehouse",
             # Customers
             "customers_hub", "trade_accounts", "customer_pricing",
             "customer_invites", "bulk_inquiries", "trade_list",
@@ -277,6 +280,7 @@ DEFAULT_CUSTOM_ROLES = {
             "suppliers", "supplier_sync",
             "stock_hub", "stock_allocation", "bulk_stock",
             "delivery_check_in", "batch_tracking",
+            "warehouse",
             "customers_hub", "trade_accounts",
             "customer_invites", "bulk_inquiries", "trade_list",
             "communication_hub", "staff_chat", "tasks", "inbox", "email_composer",

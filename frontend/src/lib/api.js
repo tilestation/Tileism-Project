@@ -8,6 +8,8 @@ const getAuthHeader = () => {
   return token ? { Authorization: `Bearer ${token}` } : {};
 };
 
+export { getAuthHeader };
+
 export const api = {
   // Generic HTTP methods for flexible API calls
   get: (url, config = {}) => 

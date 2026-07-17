@@ -136,6 +136,7 @@ from .hr_settings import router as hr_settings_router
 from .hr_compliance_checklist import router as hr_compliance_checklist_router
 from .voice import router as voice_router
 from .voice_showroom_routes import router as voice_showroom_routes_router
+from .warehouse import router as warehouse_router
 
 # Create main API router that includes all sub-routers
 api_router = APIRouter()
@@ -280,6 +281,7 @@ api_router.include_router(pinterest_pack_router)
 api_router.include_router(stripe_reconcile_router)
 api_router.include_router(radio_studio_router)
 api_router.include_router(radio_studio_public_router)
+api_router.include_router(warehouse_router)
 __all__ = [
     "api_router",
     "showrooms_router",

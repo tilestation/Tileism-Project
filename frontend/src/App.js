@@ -127,6 +127,7 @@ const StockTransfers = React.lazy(() => import('./pages/admin/StockTransfers'));
 const QuoteRequests = React.lazy(() => import('./pages/admin/QuoteRequests'));
 const BatchTracking = React.lazy(() => import('./pages/admin/BatchTracking'));
 const StockHub = React.lazy(() => import('./pages/admin/StockHub'));
+const Warehouse = React.lazy(() => import('./pages/admin/Warehouse'));
 const CustomersHub = React.lazy(() => import('./pages/admin/CustomersHub'));
 const CommunicationHub = React.lazy(() => import('./pages/admin/CommunicationHub'));
 const DocumentStorage = React.lazy(() => import('./pages/admin/DocumentStorage'));
@@ -589,6 +590,7 @@ function App() {
             <Route path="products-hub" element={<ProductsHub />} />
             <Route path="sales-hub" element={<SalesHub />} />
             <Route path="stock-hub" element={<StockHub />} />
+            <Route path="warehouse" element={<Warehouse />} />
             <Route path="customers-hub" element={<CustomersHub />} />
             <Route path="communication-hub" element={<CommunicationHub />} />
             <Route path="documents" element={<DocumentStorage />} />

@@ -8,6 +8,14 @@ import {
 export default function StockHub() {
   const cards = [
     {
+      title: 'Tonbridge Warehouse',
+      description: 'Live warehouse stock — visible to every store',
+      icon: Warehouse,
+      link: '/admin/warehouse',
+      color: 'bg-slate-900',
+      permission: 'warehouse', legacyPermission: 'products',
+    },
+    {
       title: 'Stock Allocation',
       description: 'Allocate stock to stores and locations',
       icon: Boxes,

@@ -1,0 +1,31 @@
+{
+  "summary": "Re-verified Tonbridge Warehouse permission-gate fix from iteration_191. The updated has_permission() in services/auth.py now correctly honours extra_pages / denied_pages overrides. Full pytest suite for /app/backend/tests/test_warehouse.py now passes 18/18 (added one new regression test for denied_pages precedence). All three regression cases confirmed: (1) super_admin still 200, (2) staff with no override still 403, (3) staff with extra_pages=['warehouse_manage'] AND denied_pages=['warehouse_manage'] correctly gets 403 (denials win).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_warehouse.py",
+    "/app/test_reports/pytest/warehouse_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "services/auth.py has_permission() fix is correct and well-documented. Resolution order is unambiguous (super_admin > denied_pages > extra_pages > legacy permissions).",
+    "Note: role-default pages are still NOT consulted by has_permission() — the docstring correctly flags this. If any future action-level key (e.g. 'warehouse_manage') ever gets baked into a role default page list, callers of has_permission() would still 403 unless the user is granted via extra_pages or legacy permissions. Consider a follow-up to also read the effective role_pages for parity with /permissions/me, or add a clear comment in code where role defaults are defined."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_warehouse.py"
+  ],
+  "success_rate": {"backend": "100% (18/18)", "frontend": "not tested (per review request)"},
+  "test_credentials": "admin@test.com / admin123 (super_admin). Test staff users are created & deleted per-run with prefix TEST_warehouse_staff_*.",
+  "seed_data_creation": "Test staff user is created and deleted by the pytest fixture (best-effort cleanup). Warehouse stock adjustments persist across runs — 'Floor Tile Grey 600x600' (SKU FT-001) toggled between 50 and 85.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "The permission-gate bug from iteration_191 is fully fixed. test_warehouse.py has 18 test cases including test_denied_pages_wins_over_extra_pages regression. All 4 review-request scenarios verified: super_admin=200, staff-without-override=403, staff-with-extra_pages=200, extra+denied=403. Frontend was not retested per explicit instruction.",
+  "rca of the issue": "N/A — fix has been verified. Iteration_191 RCA is preserved in that report."
+}

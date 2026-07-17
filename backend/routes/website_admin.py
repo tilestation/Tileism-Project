@@ -4638,9 +4638,10 @@ async def get_all_showrooms():
 async def get_public_showrooms():
     """Get active showrooms for public contact page (no auth required)"""
     try:
-        # Match showrooms where is_active is True OR field doesn't exist (default active)
+        # Match showrooms where is_active is True OR field doesn't exist (default active),
+        # AND exclude warehouses (they are internal-only, not customer-facing).
         showrooms = await db.showrooms.find(
-            {"is_active": {"$ne": False}}
+            {"is_active": {"$ne": False}, "is_warehouse": {"$ne": True}}
         ).sort("display_order", 1).to_list(50)
         
         result = []

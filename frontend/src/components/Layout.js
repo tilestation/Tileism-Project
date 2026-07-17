@@ -297,6 +297,7 @@ export const Layout = () => {
       hubLink: '/admin/stock-hub',
       items: [
         { to: '/admin/stock-allocation', icon: Boxes, label: 'Stock Allocation', permission: 'stock_allocation', legacyPermission: 'products' },
+        { to: '/admin/warehouse', icon: Warehouse, label: 'Tonbridge Warehouse', permission: 'warehouse', legacyPermission: 'products' },
         { to: '/admin/bulk-stock', icon: Layers, label: 'Bulk Stock Edit', permission: 'bulk_stock', legacyPermission: 'products' },
         { to: '/admin/stock-import', icon: Upload, label: 'Stock Import', permission: 'stock_import', legacyPermission: 'products', superAdminOnly: true },
         { to: '/admin/delivery-check-in', icon: Truck, label: 'Delivery Check-In', permission: 'delivery_check_in', legacyPermission: 'products' },

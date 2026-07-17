@@ -1,0 +1,58 @@
+{
+  "summary": "Comprehensive backend + frontend tests for the Tonbridge Warehouse feature. 16/17 pytest cases pass. One CRITICAL permission-gate bug found: staff granted 'warehouse_manage' via /api/permissions/users/{email}/overrides still gets 403 from POST /api/warehouse/adjust because services/auth.py has_permission() only reads user.permissions and never merges the extra_pages override. Also confirmed the review-request-referenced path /api/showrooms/public is 405; the real endpoint is /api/website-admin/showrooms/public (which correctly excludes the warehouse). Frontend page loads, sidebar, search, adjust modal + success toast all work.",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "POST /api/warehouse/adjust (permission gate)",
+        "issue": "Staff user with `extra_pages=['warehouse_manage']` override still receives 403. Root cause: services/auth.py has_permission() checks only user['permissions'] (legacy list) and never consults the effective/merged pages from user['extra_pages']. The unified permissions-admin endpoint /api/permissions/users/{email}/overrides writes to extra_pages only. The two systems are disconnected. Fix: either (a) update has_permission to also merge extra_pages / role effective pages, or (b) rewrite /warehouse routes to use the effective-pages computation used by /permissions/me.",
+        "priority": "CRITICAL"
+      }
+    ],
+    "minor": [
+      {
+        "endpoint": "GET /api/showrooms/public",
+        "issue": "Route returns 405 (Method Not Allowed). The GET handler is defined in routes/website_admin.py which is mounted with prefix '/website-admin', so the real path is /api/website-admin/showrooms/public. The plain /api/showrooms/public is shadowed by PUT /showrooms/{showroom_id} from routes/showrooms.py. Review request called it `/showrooms/public` but that path does not exist. Note: the actual /website-admin/showrooms/public correctly excludes the warehouse (is_warehouse filter works)."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "Warehouse.jsx (page-level)",
+        "issue": "Very large React dev-mode overlay 'Uncaught runtime errors: ResizeObserver loop completed with undelivered notifications' floods the page after opening a Radix Dialog / Select. Blocks pointer events over the dialog until dismissed. Benign in prod builds, but dev UX is broken. Consider adding a global listener to suppress ResizeObserver loop errors (window.addEventListener('error', ...)) or wrap Radix components differently.",
+        "selector": "[data-testid=\"warehouse-request-dialog\"]",
+        "priority": "MEDIUM"
+      }
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_warehouse.py",
+    "/app/test_reports/pytest/warehouse_results.xml"
+  ],
+  "action_items": [
+    "CRITICAL: Fix permission check in services/auth.py has_permission() to honour extra_pages / effective-pages so /warehouse/adjust grants access to users given 'warehouse_manage' via the override endpoint. Currently the override is a no-op for this endpoint.",
+    "Add automated re-test after fix (re-run test_staff_with_warehouse_manage_succeeds).",
+    "Decide whether GET /api/showrooms/public should exist at that path or update the requirement to /api/website-admin/showrooms/public. Warehouse-exclusion filter itself is working correctly.",
+    "Suppress the noisy ResizeObserver runtime-errors overlay in dev to unblock playwright tests around Radix modals."
+  ],
+  "critical_code_review_comments": [
+    "warehouse.py `_can_manage` delegates to services.auth.has_permission which only checks user['permissions']. This bypasses the entire /permissions/users/{email}/overrides mechanism. Any code path using has_permission() with a page/action key stored only in extra_pages is broken today.",
+    "In routes/warehouse.py the /products endpoint has a local `import re` inside the function — cheap but unusual; move to module-level.",
+    "In routes/warehouse.py adjust endpoint mutates `showroom_stock` in place then writes it back — works because it's a fresh dict from Mongo, but merit a comment noting we treat legacy list shape as authoritative on read only.",
+    "log_audit is called from adjust and request-transfer synchronously — good, but adjust's audit runs AFTER the insert, so on audit failure we'd have an orphan adjustment row. Consider try/except around log_audit or run in a background task.",
+    "website_admin.py get_public_showrooms returns id=str(s['_id']) — inconsistent with the rest of the codebase which uses UUID `id`. Not a warehouse bug but worth noting.",
+    "Route shadowing: PUT /showrooms/{showroom_id} from routes/showrooms.py intercepts GET /showrooms/public. The GET handler is under a different prefix. Consider moving /showrooms/public into routes/showrooms.py so the intended path resolves."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_warehouse.py"
+  ],
+  "success_rate": {"backend": "94% (16/17)", "frontend": "~85% (adjust flow fully verified; request-dialog opens and populates but end-to-end submit blocked by dev-mode error overlay)"},
+  "test_credentials": "admin@test.com / admin123 (super_admin). Test staff users are created & deleted per-run with prefix TEST_warehouse_staff_*.",
+  "seed_data_creation": "Adjustments persisted from earlier runs are visible in /warehouse/adjustments (Floor Tile Grey 600x600 SKU FT-001 stock repeatedly toggled between 85/100/42). Test staff user is created and deleted by the pytest fixture (best-effort cleanup).",
+  "retest_needed": true,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "The single failing test is TestWarehousePermissions::test_staff_with_warehouse_manage_succeeds. To re-verify after fix, run: REACT_APP_BACKEND_URL=<url> pytest /app/backend/tests/test_warehouse.py::TestWarehousePermissions -v. All other 16 tests should keep passing. The permission bug is not isolated to warehouse_manage — any permission granted only via extra_pages will silently fail for endpoints calling has_permission(). Consider a broader regression sweep once the fix lands.",
+  "rca of the issue": "has_permission() in /app/backend/services/auth.py line 71-75:\n\n    def has_permission(user: dict, permission: str) -> bool:\n        if user.get('role') == 'super_admin':\n            return True\n        return permission in user.get('permissions', [])\n\nThis only reads user['permissions']. The permissions-admin endpoint PUT /api/permissions/users/{email}/overrides writes to user['extra_pages'] / user['denied_pages'] and never touches user['permissions']. /warehouse/adjust → _can_manage → has_permission(user, 'warehouse_manage') therefore returns False even after the override is set to ['warehouse_manage']. Confirmed via /permissions/me: warehouse_manage IS in effective 'pages' but adjust still 403s.\n\nReproduction:\n1. POST /api/admin/users (staff role)\n2. PUT /api/permissions/users/{email}/overrides body {\"extra_pages\":[\"warehouse_manage\"]}\n3. Login as that staff.\n4. POST /api/warehouse/adjust {product_id, mode:'set', quantity:50, reason:'stocktake_correction'} → 403.\n\nMitigation: Update has_permission to compute effective pages using the same merge as /permissions/me (role_pages ∪ extra_pages − denied_pages), OR update warehouse._can_manage to call the merged-computation helper directly."
+}

@@ -69,10 +69,26 @@ def require_admin_access(user: dict):
 
 
 def has_permission(user: dict, permission: str) -> bool:
-    """Check if user has a specific permission"""
+    """Check if a user has a specific permission.
+
+    Resolution order (matches /api/permissions/me):
+      1. Super admins bypass all checks.
+      2. Explicit denial via user.denied_pages → False.
+      3. Explicit grant via user.extra_pages → True.
+      4. Legacy user.permissions list (still used by older seed data).
+
+    Role default permissions ARE NOT checked here because roles carry
+    dozens of default pages, and callers that need role-level access
+    should use is_admin_user() or a role check instead. This function
+    exists to gate action-level permissions like `warehouse_manage`.
+    """
     if user.get("role") == "super_admin":
         return True
-    return permission in user.get("permissions", [])
+    if permission in (user.get("denied_pages") or []):
+        return False
+    if permission in (user.get("extra_pages") or []):
+        return True
+    return permission in (user.get("permissions") or [])
 
 
 def require_permission(user: dict, permission: str):
