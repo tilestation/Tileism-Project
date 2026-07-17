@@ -1,0 +1,49 @@
+{
+  "summary": "Full-stack verification of Tonbridge Warehouse per-batch stock tracking (Jul 17, 2026). Extended /app/backend/tests/test_warehouse.py from 18 to 33 tests — all 33 pass. Frontend E2E flow walked end-to-end: login → warehouse page → Add stock dialog with Existing/Create-new tabs → quick-add product → transition to BatchForm with prefilled tiles_per_box → live total_pieces preview (43 pcs verified) → batch created → product appears in search with expandable row → second batch added → Recent Adjustments audit trail confirmed. Edit dialog and Delete dialog both open correctly (visually confirmed) but Playwright hit a strict-mode ambiguity because the Create-batch, Add-another-batch, and Edit-batch dialogs share the exact same input testids (warehouse-batch-boxes-input, warehouse-batch-tpb-input, warehouse-batch-extra-input, warehouse-batch-total-preview). Since only one dialog is open at a time from a user's perspective this doesn't affect real functionality, but it makes automation brittle. All 4 permission-gated mutations (quick-add, batch create, batch update, batch delete) verified at API level for both without-permission (403) and with warehouse_manage extra_page (200). Auto-computed tile_m2_per_piece (600×600 → 0.36), 409 on duplicate SKU, 409 on duplicate batch_number (case-insensitive), 409 on rename collision, soft-delete drops warehouse_total, coverage_m2 aggregation, images/dimensions in search response — all verified.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {
+        "screen": "Warehouse admin dashboard load",
+        "issues": [
+          "Non-blocking React warning on Admin Dashboard: 'Each child in a list should have a unique key prop' — surfaced during warehouse page load (route lands via admin shell). Not caused by Warehouse.jsx per se but visible in console. Also multiple 403s on other admin resources unrelated to warehouse (background dashboard widgets).",
+          "Non-blocking Recharts warning: 'width(-1) and height(-1) of chart should be greater than 0' from a chart component during warehouse load."
+        ]
+      },
+      {
+        "screen": "Batch dialogs (Create / Edit / Add-another)",
+        "issues": [
+          "Duplicate data-testid across Create-batch, Add-another-batch and Edit-batch dialogs — all share warehouse-batch-number-input, warehouse-batch-boxes-input, warehouse-batch-tpb-input, warehouse-batch-extra-input, warehouse-batch-notes-input, warehouse-batch-total-preview. This is fine for a real user (only one dialog is open at a time) but breaks Playwright strict-mode locators when the DOM temporarily has both. Recommend scoping testids per dialog, e.g. warehouse-add-batch-boxes-input vs warehouse-edit-batch-boxes-input."
+        ]
+      }
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_warehouse.py",
+    "/app/test_reports/pytest/warehouse_results.xml"
+  ],
+  "action_items": [
+    "OPTIONAL: Namespace batch-form data-testids per host dialog (e.g. warehouse-add-batch-boxes-input vs warehouse-edit-batch-boxes-input) to make Playwright automation robust. No user-visible bug — cosmetic testability improvement."
+  ],
+  "critical_code_review_comments": [
+    "warehouse.py — _resync_product_warehouse_stock is called *after* the batch insert; if the resync fails mid-flight (e.g. DB blip) the batch row stays but product.showroom_stock is stale. Given this is a background-op tool for admins and the very next mutation resyncs correctly, this is acceptable, but consider wrapping create/update/delete + resync in a transaction if MongoDB replica set is available.",
+    "warehouse.py — Batch has both batch_number and batch_number_ci fields; the CI copy is only updated on rename. If someone bypasses this API and inserts a batch directly (or if a future migration is added), the CI index will be stale and the 409 duplicate guard fails silently. A DB-level unique compound index on (product_id, batch_number_ci) among is_active=true batches would be defensive.",
+    "warehouse.py:735-736 — 'before_qty' computation uses the local product dict (loaded before the batch insert), which is correct for create; but for update/delete it also uses the pre-mutation product. Since audit rows are written after resync, before_qty=stale-cache, after_qty=fresh-DB — verified consistent with the tests (43 → 63, 63 → 71, etc.), but the pattern is subtle. A helper _read_warehouse_qty(db, product_id, warehouse_id) would clarify intent.",
+    "Frontend Warehouse.jsx is 1356 lines with 6 dialogs inline — over the 700-line guideline. Consider splitting AddStockDialog, AddBatchDialog, EditBatchDialog, DeleteBatchDialog, AdjustDialog, RequestDialog into separate files under /pages/admin/warehouse/dialogs/. Purely maintainability, no bug."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_warehouse.py"
+  ],
+  "success_rate": {"backend": "100% (33/33)", "frontend": "core happy-path verified (login → quick-add → 2 batches created → row expansion → Recent Adjustments); Edit & Delete dialogs opened correctly (screenshot-confirmed) but Playwright fill inside them was blocked by strict-mode testid duplication — the underlying APIs are 100% covered by pytest"},
+  "test_credentials": "admin@test.com / admin123 (super_admin). Staff test users created & deleted per-run with prefix TEST_warehouse_staff_*",
+  "seed_data_creation": "Per pytest run a new product is created via quick-add with SKU TEST-WH-QA-<run_id> and two batches (BATCH-A-<run_id>, BATCH-B-<run_id>). No cleanup — the warehouse quick-add endpoint has no delete endpoint, and unique run-id prevents collisions. Similarly UI test created UI-TEST-<timestamp> products, e.g. UI-TEST-285882 with BATCH-A-285882 + BATCH-B-285882 still in DB (won't interfere with future runs).",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "All 33 backend tests in /app/backend/tests/test_warehouse.py pass (18 legacy + 15 new for batches + quick-add + permission gates). To re-run: REACT_APP_BACKEND_URL=<preview_url> python -m pytest backend/tests/test_warehouse.py -v — REACT_APP_BACKEND_URL must be exported in the shell since pytest doesn't auto-load frontend/.env. UI walk-through: watch out for the shared testids issue in batch dialogs; if writing Playwright tests, always scope your locator to page.locator('[data-testid=\"warehouse-{add,edit}-batch-dialog\"]').locator('...') to survive strict mode. Recent Adjustments card is collapsible via warehouse-history-toggle — expand it to see batch_added / batch_edited / batch_removed rows.",
+  "rca of the issue": "N/A — no bugs found. Only one non-critical testability nit (shared testids across batch dialogs) reported to main agent."
+}

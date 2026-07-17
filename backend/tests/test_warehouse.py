@@ -374,3 +374,320 @@ class TestPublicShowroomsExcludeWarehouse:
         for s in showrooms:
             assert s.get("name") != "Tonbridge Warehouse"
             assert s.get("is_warehouse") is not True
+
+
+# =============================================================================
+# BATCH TRACKING (Jul 17, 2026) — per-batch stock + quick-add product
+# =============================================================================
+
+# Unique SKU per pytest run so 409 duplicate guard doesn't trip across runs
+BATCH_RUN_ID = uuid.uuid4().hex[:8]
+QUICK_ADD_SKU = f"TEST-WH-QA-{BATCH_RUN_ID}"
+QUICK_ADD_NAME = f"TEST Warehouse Batch Product {BATCH_RUN_ID}"
+
+
+@pytest.fixture(scope="module")
+def quick_added_product(admin_hdr):
+    """Create a fresh product via /warehouse/products/quick-add. Reused
+    across the batch tests so we exercise the true real-world flow: quick
+    add → create batches → edit → delete."""
+    payload = {
+        "name": QUICK_ADD_NAME,
+        "sku": QUICK_ADD_SKU,
+        "category_name": "TEST Warehouse",
+        "tile_width": 600,
+        "tile_height": 600,
+        "tiles_per_box": 4,
+        "image_url": "https://example.com/tile.jpg",
+    }
+    r = requests.post(f"{API}/warehouse/products/quick-add", json=payload, headers=admin_hdr)
+    assert r.status_code == 200, f"quick-add failed: {r.status_code} {r.text}"
+    product = r.json().get("product")
+    assert product and product.get("id")
+    yield product
+    # NOTE: no product delete endpoint on warehouse router. Leave in DB —
+    # SKU includes run-id so subsequent runs won't collide.
+
+
+class TestQuickAddProduct:
+    """POST /api/warehouse/products/quick-add"""
+
+    def test_quick_add_creates_product_with_computed_m2(self, quick_added_product):
+        p = quick_added_product
+        assert p["name"] == QUICK_ADD_NAME
+        assert p["sku"] == QUICK_ADD_SKU
+        # (600 * 600) / 1_000_000 = 0.36
+        assert p.get("tile_m2_per_piece") == 0.36
+        assert p.get("tiles_per_box") == 4
+        # box_m2_coverage = 0.36 * 4 = 1.44
+        assert p.get("box_m2_coverage") == 1.44
+        assert p.get("source") == "warehouse_quick_add"
+        assert isinstance(p.get("images"), list) and len(p["images"]) == 1
+
+    def test_quick_add_returns_409_on_duplicate_sku(self, admin_hdr, quick_added_product):
+        payload = {
+            "name": QUICK_ADD_NAME + " duplicate",
+            "sku": QUICK_ADD_SKU,  # same SKU as fixture
+            "tile_width": 300,
+            "tile_height": 300,
+            "tiles_per_box": 6,
+        }
+        r = requests.post(f"{API}/warehouse/products/quick-add", json=payload, headers=admin_hdr)
+        assert r.status_code == 409, r.text
+        assert QUICK_ADD_SKU in r.json().get("detail", "")
+
+    def test_search_returns_quick_added_product_with_image_and_dimensions(self, admin_hdr, quick_added_product):
+        r = requests.get(f"{API}/warehouse/products", params={"q": QUICK_ADD_SKU}, headers=admin_hdr)
+        assert r.status_code == 200
+        products = r.json().get("products") or []
+        matched = next((p for p in products if p["id"] == quick_added_product["id"]), None)
+        assert matched, "quick-added product not returned by search"
+        assert matched.get("image") == "https://example.com/tile.jpg"
+        assert matched.get("tile_width") == 600
+        assert matched.get("tile_height") == 600
+        assert matched.get("tile_m2_per_piece") == 0.36
+        assert matched.get("tiles_per_box") == 4
+        assert matched.get("batch_count") == 0
+        assert matched.get("batches") == []
+
+
+class TestBatchCRUD:
+    """POST/PUT/DELETE /api/warehouse/batches + GET /products/{id}/batches"""
+
+    # Shared batch IDs across tests in this class
+    batch_a_id: str = ""
+    batch_b_id: str = ""
+
+    def test_create_first_batch(self, admin_hdr, quick_added_product):
+        payload = {
+            "product_id": quick_added_product["id"],
+            "batch_number": f"BATCH-A-{BATCH_RUN_ID}",
+            "boxes": 10,
+            "tiles_per_box": 4,
+            "extra_pieces": 3,
+            "notes": "TEST first batch",
+        }
+        r = requests.post(f"{API}/warehouse/batches", json=payload, headers=admin_hdr)
+        assert r.status_code == 200, r.text
+        data = r.json()
+        assert data["success"] is True
+        b = data["batch"]
+        # 10 * 4 + 3 = 43
+        assert b["total_pieces"] == 43
+        assert b["is_active"] is True
+        assert b["batch_number"] == f"BATCH-A-{BATCH_RUN_ID}"
+        assert data["warehouse_total"] == 43
+        TestBatchCRUD.batch_a_id = b["id"]
+
+    def test_create_second_batch_same_product(self, admin_hdr, quick_added_product):
+        payload = {
+            "product_id": quick_added_product["id"],
+            "batch_number": f"BATCH-B-{BATCH_RUN_ID}",
+            "boxes": 5,
+            "tiles_per_box": 4,
+            "extra_pieces": 0,
+        }
+        r = requests.post(f"{API}/warehouse/batches", json=payload, headers=admin_hdr)
+        assert r.status_code == 200, r.text
+        data = r.json()
+        # 5*4+0 = 20 ; warehouse total = 43 + 20 = 63
+        assert data["batch"]["total_pieces"] == 20
+        assert data["warehouse_total"] == 63
+        TestBatchCRUD.batch_b_id = data["batch"]["id"]
+
+    def test_duplicate_batch_number_case_insensitive_rejected_409(self, admin_hdr, quick_added_product):
+        payload = {
+            "product_id": quick_added_product["id"],
+            "batch_number": f"batch-a-{BATCH_RUN_ID}",  # lowercase clash with BATCH-A
+            "boxes": 1,
+            "tiles_per_box": 4,
+            "extra_pieces": 0,
+        }
+        r = requests.post(f"{API}/warehouse/batches", json=payload, headers=admin_hdr)
+        assert r.status_code == 409, r.text
+        assert "already exists" in r.json().get("detail", "").lower()
+
+    def test_get_active_batches_for_product(self, admin_hdr, quick_added_product):
+        r = requests.get(f"{API}/warehouse/products/{quick_added_product['id']}/batches", headers=admin_hdr)
+        assert r.status_code == 200
+        batches = r.json().get("batches") or []
+        assert len(batches) == 2
+        for b in batches:
+            assert b.get("is_active") is not False
+            assert b.get("product_id") == quick_added_product["id"]
+
+    def test_search_shows_batches_array_and_coverage(self, admin_hdr, quick_added_product):
+        r = requests.get(f"{API}/warehouse/products", params={"q": QUICK_ADD_SKU}, headers=admin_hdr)
+        assert r.status_code == 200
+        matched = next((p for p in r.json()["products"] if p["id"] == quick_added_product["id"]), None)
+        assert matched
+        assert matched["warehouse_stock"] == 63
+        assert matched["batch_count"] == 2
+        assert len(matched["batches"]) == 2
+        # coverage_m2 = 63 * 0.36 = 22.68
+        assert matched["coverage_m2"] == 22.68
+
+    def test_update_batch_boxes_recomputes_total_and_resyncs_stock(self, admin_hdr, quick_added_product):
+        assert TestBatchCRUD.batch_a_id, "batch_a_id not set"
+        payload = {
+            "boxes": 12,  # was 10, +2 boxes = +8 pcs. New total = 12*4+3 = 51
+            "reason": "stocktake_correction",
+        }
+        r = requests.put(f"{API}/warehouse/batches/{TestBatchCRUD.batch_a_id}", json=payload, headers=admin_hdr)
+        assert r.status_code == 200, r.text
+        data = r.json()
+        assert data["batch"]["total_pieces"] == 51
+        # 51 + 20 (batch B) = 71
+        assert data["warehouse_total"] == 71
+
+    def test_update_batch_rename_collision_409(self, admin_hdr, quick_added_product):
+        assert TestBatchCRUD.batch_a_id and TestBatchCRUD.batch_b_id
+        # Try to rename batch B to batch A's number
+        payload = {"batch_number": f"BATCH-A-{BATCH_RUN_ID}"}
+        r = requests.put(f"{API}/warehouse/batches/{TestBatchCRUD.batch_b_id}", json=payload, headers=admin_hdr)
+        assert r.status_code == 409, r.text
+
+    def test_delete_batch_soft_deletes_and_drops_total(self, admin_hdr, quick_added_product):
+        assert TestBatchCRUD.batch_b_id
+        r = requests.delete(
+            f"{API}/warehouse/batches/{TestBatchCRUD.batch_b_id}",
+            params={"reason": "TEST cleanup"},
+            headers=admin_hdr,
+        )
+        assert r.status_code == 200, r.text
+        data = r.json()
+        # Batch B (20 pcs) removed. warehouse_total = 51 (batch A only)
+        assert data["warehouse_total"] == 51
+
+        # Verify list_product_batches no longer returns batch B
+        r2 = requests.get(f"{API}/warehouse/products/{quick_added_product['id']}/batches", headers=admin_hdr)
+        assert r2.status_code == 200
+        remaining = r2.json().get("batches") or []
+        ids = [b["id"] for b in remaining]
+        assert TestBatchCRUD.batch_b_id not in ids
+        assert TestBatchCRUD.batch_a_id in ids
+
+    def test_delete_nonexistent_batch_returns_404(self, admin_hdr):
+        r = requests.delete(f"{API}/warehouse/batches/no-such-batch-{uuid.uuid4().hex}", headers=admin_hdr)
+        assert r.status_code == 404
+
+    def test_batch_mutations_appear_in_adjustments_audit(self, admin_hdr, quick_added_product):
+        r = requests.get(
+            f"{API}/warehouse/adjustments",
+            params={"product_id": quick_added_product["id"], "limit": 50},
+            headers=admin_hdr,
+        )
+        assert r.status_code == 200
+        rows = r.json().get("adjustments") or []
+        reasons = [row.get("reason") for row in rows]
+        # Should include batch_added (from create), batch_edited/stocktake_correction (from update),
+        # and batch_removed (from delete).
+        assert "batch_added" in reasons
+        assert "batch_removed" in reasons
+        # Update used explicit reason=stocktake_correction — the code uses payload.reason
+        # or 'batch_edited' as fallback. Both are acceptable here.
+        assert ("stocktake_correction" in reasons) or ("batch_edited" in reasons)
+
+
+# -----------------------------------------------------------------------------
+# Permission gates for the 4 new mutations (quick-add + 3 batch mutations)
+# -----------------------------------------------------------------------------
+class TestBatchPermissionGates:
+    """Staff without super_admin AND without warehouse_manage must be 403
+    on all 4 batch-related mutations. Then grant warehouse_manage and
+    verify they succeed."""
+
+    def _reset_overrides(self, admin_hdr, email):
+        requests.put(
+            f"{API}/permissions/users/{email}/overrides",
+            json={"extra_pages": [], "denied_pages": [], "extra_actions": [], "denied_actions": []},
+            headers=admin_hdr,
+        )
+
+    def test_staff_without_override_gets_403_on_all_mutations(
+        self, admin_hdr, test_staff, quick_added_product,
+    ):
+        self._reset_overrides(admin_hdr, test_staff["email"])
+        tok = _login(test_staff["email"], test_staff["password"])
+        hdr = {"Authorization": f"Bearer {tok}"}
+
+        # quick-add
+        r = requests.post(
+            f"{API}/warehouse/products/quick-add",
+            json={"name": f"TEST denied {uuid.uuid4().hex[:6]}", "sku": f"TEST-DENIED-{uuid.uuid4().hex[:6]}"},
+            headers=hdr,
+        )
+        assert r.status_code == 403, f"quick-add expected 403, got {r.status_code} {r.text}"
+
+        # create batch
+        r = requests.post(
+            f"{API}/warehouse/batches",
+            json={"product_id": quick_added_product["id"], "batch_number": f"NO-PERM-{uuid.uuid4().hex[:6]}",
+                  "boxes": 1, "tiles_per_box": 1, "extra_pieces": 0},
+            headers=hdr,
+        )
+        assert r.status_code == 403, f"create batch expected 403, got {r.status_code} {r.text}"
+
+        # update batch (need an existing batch id — TestBatchCRUD.batch_a_id)
+        if TestBatchCRUD.batch_a_id:
+            r = requests.put(
+                f"{API}/warehouse/batches/{TestBatchCRUD.batch_a_id}",
+                json={"boxes": 99}, headers=hdr,
+            )
+            assert r.status_code == 403, f"update batch expected 403, got {r.status_code} {r.text}"
+
+            # delete batch
+            r = requests.delete(f"{API}/warehouse/batches/{TestBatchCRUD.batch_a_id}", headers=hdr)
+            assert r.status_code == 403, f"delete batch expected 403, got {r.status_code} {r.text}"
+
+    def test_staff_with_warehouse_manage_can_mutate_all(
+        self, admin_hdr, test_staff, quick_added_product,
+    ):
+        # Grant override
+        r_ovr = requests.put(
+            f"{API}/permissions/users/{test_staff['email']}/overrides",
+            json={"extra_pages": ["warehouse_manage"]},
+            headers=admin_hdr,
+        )
+        assert r_ovr.status_code == 200
+
+        tok = _login(test_staff["email"], test_staff["password"])
+        hdr = {"Authorization": f"Bearer {tok}"}
+
+        # quick-add succeeds
+        qa_sku = f"TEST-STAFF-QA-{uuid.uuid4().hex[:8]}"
+        r = requests.post(
+            f"{API}/warehouse/products/quick-add",
+            json={"name": f"TEST staff qa {qa_sku}", "sku": qa_sku,
+                  "tile_width": 300, "tile_height": 300, "tiles_per_box": 8},
+            headers=hdr,
+        )
+        assert r.status_code == 200, f"quick-add w/ perm expected 200, got {r.status_code} {r.text}"
+        new_product = r.json()["product"]
+
+        # create batch
+        r = requests.post(
+            f"{API}/warehouse/batches",
+            json={"product_id": new_product["id"], "batch_number": f"STAFF-B-{uuid.uuid4().hex[:6]}",
+                  "boxes": 2, "tiles_per_box": 8, "extra_pieces": 1},
+            headers=hdr,
+        )
+        assert r.status_code == 200, f"create batch w/ perm expected 200, got {r.status_code} {r.text}"
+        batch_id = r.json()["batch"]["id"]
+        assert r.json()["batch"]["total_pieces"] == 17
+
+        # update batch
+        r = requests.put(
+            f"{API}/warehouse/batches/{batch_id}",
+            json={"boxes": 3},  # 3*8+1 = 25
+            headers=hdr,
+        )
+        assert r.status_code == 200
+        assert r.json()["batch"]["total_pieces"] == 25
+
+        # delete batch
+        r = requests.delete(f"{API}/warehouse/batches/{batch_id}", params={"reason": "cleanup"}, headers=hdr)
+        assert r.status_code == 200
+
+        # Cleanup — reset overrides
+        self._reset_overrides(admin_hdr, test_staff["email"])
