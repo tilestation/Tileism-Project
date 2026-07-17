@@ -44,6 +44,37 @@ This fix is app-wide — any endpoint calling `has_permission()` now correctly r
 
 **Testing**: `testing_agent_v3_fork` iteration 192 — **18/18 backend tests pass** (super_admin adjust, staff-without-permission 403, staff-with-warehouse_manage 200, denied_pages precedence, search flow, request-transfer flow, negative-stock guard, singleton auto-create, etc). Frontend smoke-tested: sidebar link, search results table, adjust modal, request modal, history table.
 
+### [Jul 17, 2026 — Same session, extension] 🟢 P1 delivered: Per-batch stock tracking + inline product quick-add
+
+**Ask**: Warehouse team needs to manually log stock with per-batch detail — same SKU arriving in different shipments/dye lots must show as separate batches with their own quantities, and they need to be able to add products on the fly from the warehouse page.
+
+**What shipped**:
+- **Add stock dialog** (top-right button on warehouse page) with tabs:
+  - *Search existing* — picks an existing product from the catalogue
+  - *Create new* — quick-add product form (name, SKU, category, tile width/height in mm, tiles-per-box, image upload). Auto-computes `tile_m2_per_piece` from dimensions. Links out to full Products page for detailed edits.
+- **Batch form**: batch_number + boxes + tiles-per-box + extra loose pieces + notes. Live preview shows `boxes × tiles/box + extra = X pcs` and `≈ Y m²` coverage. Rejects duplicate batch numbers per product (case-insensitive).
+- **Expandable rows** in search results — click a product to reveal its batches as an inline table showing batch#, boxes, tiles/box, extra pcs, total, notes, created-by. Each batch has Edit / Delete buttons for authorised staff.
+- **Auto-sync**: `product.showroom_stock[warehouse_id]` = sum of `total_pieces` across active batches. Every mutation writes a `warehouse_adjustments` audit row (reason `batch_added` / `batch_edited` / `batch_removed`).
+- **Soft delete** on batches keeps history intact — tombstoned batches don't count toward warehouse stock but stay for audit.
+- **Coverage m²** displayed on product rows when tile dimensions are known.
+- **Product thumbnails** rendered next to each search result.
+
+**New backend endpoints**:
+- `POST /api/warehouse/products/quick-add`
+- `POST /api/warehouse/batches`
+- `PUT /api/warehouse/batches/{id}`
+- `DELETE /api/warehouse/batches/{id}?reason=...`
+- `GET /api/warehouse/products/{product_id}/batches`
+
+**Testing** (`testing_agent_v3_fork` iteration 193): **33/33 backend tests pass** — includes duplicate SKU/batch guards (409), permission gates for all 4 mutations (403 without / 200 with `warehouse_manage`), rename collision guard, soft-delete resync, auto tile_m2 calc, coverage aggregation, images in search response. Frontend E2E: login → add stock → create-new tab → quick-add product → transition to batch form → live preview → batch created → row expansion → second batch added → history rows visible. All happy paths verified.
+
+**Testability note** (non-bug): the batch form inputs share testids across Add-stock, Add-another-batch and Edit-batch dialogs (only one open at a time in practice, but Playwright strict mode complains). Fix is to scope locators to the outer dialog testid (`warehouse-add-batch-dialog` / `warehouse-edit-batch-dialog`) — no code change needed.
+
+**Latent optimisation notes captured by the testing agent** (deferred, not blockers):
+- Wrap batch mutation + resync in a Mongo transaction if a replica set is available (currently sequential — a DB blip could leave stale showroom_stock until next mutation).
+- Add a DB-level unique compound index on `(product_id, batch_number_ci)` for is_active batches — defence in depth against direct DB writes.
+- Split `Warehouse.jsx` (~1350 lines) into `/pages/admin/warehouse/dialogs/*.jsx` — maintainability, not a bug.
+
 
 ### [Jul 13, 2026 — Forked session] 🟢 P0 delivered: Sponsorship Licence Documents compressed 43MB → 19.6MB
 
