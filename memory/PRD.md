@@ -9,6 +9,42 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Jul 17, 2026 — Forked session] 🟢 P1 delivered: Tonbridge Warehouse feature
+
+**Ask**: Owner wanted a dedicated "Tonbridge Warehouse" location where every store can view live stock, staff can search by product name/SKU, and only authorised persons can adjust. Also stores should be able to request stock.
+
+**What shipped**:
+- New sidebar link **Tonbridge Warehouse** under Stock Management (`/admin/warehouse`) — icon: Warehouse.
+- Warehouse showroom auto-created as singleton on first `/api/warehouse/info` call (`is_warehouse: True` flag, hidden from public store-finder & delivery slots).
+- **Search-first UI** (`Warehouse.jsx`, 620 lines): empty state until you type. Query hits SKU / name / barcode (case-insensitive, 50-row cap). Results show colour-coded stock badge (green / amber / red), last-adjusted meta, Adjust and Request buttons.
+- **Adjust dialog**: Set-to OR ±Delta modes, reason dropdown (Delivery received / Stocktake correction / Damage-writeoff / Transfer out / Other) + optional note. Blocks negative stock.
+- **Request-from-Warehouse dialog**: any store admin picks destination + qty + note → creates a `stock_transfers` row with `status='pending'`, `source='warehouse_request'`, `from_showroom_id=<warehouse>` → lands in the existing Stock Transfers workflow the warehouse team already uses.
+- **Audit trail**: every adjustment writes to `warehouse_adjustments` collection AND the app-wide audit log (who, when, before/after, reason, note).
+- **Permission gate**: only Super Admins OR users with `warehouse_manage` extra-page can adjust. Toggle-able per user on the existing Team Management permissions page.
+
+**Critical bug caught & fixed by testing_agent (iteration 191 → 192)**:
+Pre-existing `services/auth.py has_permission()` only read the legacy `user.permissions` list, ignoring the modern `extra_pages` / `denied_pages` overrides that the Team Management UI writes to. Fixed by making `has_permission()` honour resolution order:
+1. `super_admin` → True
+2. In `denied_pages` → False (denials win)
+3. In `extra_pages` → True
+4. Fallback: legacy `permissions` list
+
+This fix is app-wide — any endpoint calling `has_permission()` now correctly respects Team Management overrides.
+
+**Backend endpoints** (all under `/api/warehouse/`):
+- `GET /info` — returns warehouse doc + `can_manage` for the caller + reason list
+- `GET /products?q=<search>&limit=50` — search products with warehouse stock
+- `POST /adjust` — set / delta stock (permission-gated, audited)
+- `GET /adjustments?limit=50&product_id=<optional>` — history
+- `POST /request-transfer` — creates pending stock_transfers row
+
+**Files**:
+- New: `/app/backend/routes/warehouse.py`, `/app/frontend/src/pages/admin/Warehouse.jsx`, `/app/backend/tests/test_warehouse.py`
+- Modified: `permissions.py` (added `warehouse` & `warehouse_manage` to PAGE_REGISTRY + role defaults), `website_admin.py` (public store-finder filter), `Layout.js`, `App.js`, `StockHub.js`, `api.js` (export `getAuthHeader`), `services/auth.py` (has_permission fix)
+
+**Testing**: `testing_agent_v3_fork` iteration 192 — **18/18 backend tests pass** (super_admin adjust, staff-without-permission 403, staff-with-warehouse_manage 200, denied_pages precedence, search flow, request-transfer flow, negative-stock guard, singleton auto-create, etc). Frontend smoke-tested: sidebar link, search results table, adjust modal, request modal, history table.
+
+
 ### [Jul 13, 2026 — Forked session] 🟢 P0 delivered: Sponsorship Licence Documents compressed 43MB → 19.6MB
 
 **Task**: User uploaded 43MB `.7z` containing "Tile Station Sponsorship Licence Documents" (UK Sponsor Licence audit evidence: leases, bank statements, payslips, invoices, passports, screenshots) and needed it under 20MB for the Home Office sponsor portal upload.
