@@ -27,14 +27,15 @@ Extension (Jul 17, 2026): per-batch stock tracking.
   - Every batch create / edit / delete writes a warehouse_adjustments
     row so it appears in the Recent Adjustments audit trail.
 """
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import List, Optional
 import uuid
+import jwt
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from config import get_db
+from config import get_db, JWT_SECRET
 from services import get_current_user, has_permission, log_audit
 
 router = APIRouter(prefix="/warehouse", tags=["Warehouse"])
@@ -47,6 +48,12 @@ ADJUSTMENT_REASONS = {
     "transfer_out",
     "other",
 }
+
+# PIN session validity — a warehouse manager who authenticates once can
+# perform mutations for this long before being asked to re-enter their PIN.
+# Balances security (limits unattended terminal abuse) with UX (spare the
+# manager from typing a PIN on every single batch edit during a shift).
+PIN_SESSION_MINUTES = 15
 
 
 # ---------------------------------------------------------------------------
@@ -98,6 +105,88 @@ def _require_manage(user: dict):
 
 
 # ---------------------------------------------------------------------------
+# PIN session (second-factor confirmation for every mutation)
+# ---------------------------------------------------------------------------
+# The workflow: manager types their staff PIN into a modal on the warehouse
+# page. Backend validates the PIN via the existing `staff_pins` collection,
+# then signs a short-lived JWT ("pin_session_token") that the frontend
+# includes with subsequent mutation requests. The token embeds the staff
+# member's name so it can be recorded on every warehouse_adjustments row.
+# Once the token expires the modal re-prompts.
+
+class PinSessionCreatePayload(BaseModel):
+    pin: str = Field(..., min_length=3, max_length=12)
+
+
+async def _create_pin_session(db, user: dict, pin: str) -> dict:
+    """Verify PIN against staff_pins and mint a signed session token."""
+    # Support both is_active and active flags for legacy rows.
+    staff = await db.staff_pins.find_one({
+        "pin": pin,
+        "$or": [{"is_active": True}, {"active": True}, {"is_active": {"$exists": False}, "active": {"$exists": False}}],
+    })
+    if not staff:
+        raise HTTPException(status_code=401, detail="Invalid or inactive PIN")
+
+    expires_at = datetime.now(timezone.utc) + timedelta(minutes=PIN_SESSION_MINUTES)
+    payload = {
+        "typ": "warehouse_pin",
+        "user_email": user.get("email"),
+        "staff_id": staff.get("id"),
+        "staff_name": staff.get("name") or "",
+        "staff_role": staff.get("role") or "",
+        "exp": int(expires_at.timestamp()),
+    }
+    token = jwt.encode(payload, JWT_SECRET, algorithm="HS256")
+    return {
+        "session_token": token,
+        "staff_name": payload["staff_name"],
+        "staff_role": payload["staff_role"],
+        "expires_at": expires_at.isoformat(),
+    }
+
+
+def _verify_pin_session(user: dict, token: Optional[str]) -> dict:
+    """Decode + validate the PIN session token bound to the calling user."""
+    if not token:
+        raise HTTPException(status_code=401, detail="PIN required for this action")
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="PIN session expired — please re-enter your PIN")
+    except jwt.PyJWTError:
+        raise HTTPException(status_code=401, detail="Invalid PIN session")
+    if payload.get("typ") != "warehouse_pin":
+        raise HTTPException(status_code=401, detail="Invalid PIN session type")
+    # Bind to the JWT user — a token from user A can't be replayed by user B.
+    if payload.get("user_email") != user.get("email"):
+        raise HTTPException(status_code=401, detail="PIN session doesn't match current user")
+    return payload
+
+
+async def _require_pin(
+    current_user: dict, token: Optional[str], db,
+) -> dict:
+    """Combined guard: caller must have warehouse_manage AND a valid PIN.
+    Returns the decoded PIN session (with staff_name) for audit attribution."""
+    _require_manage(current_user)
+    return _verify_pin_session(current_user, token)
+
+
+@router.post("/pin-session")
+async def create_pin_session(
+    payload: PinSessionCreatePayload,
+    current_user: dict = Depends(get_current_user),
+):
+    """Verify PIN and issue a short-lived session token used to authorise
+    subsequent warehouse mutations. The caller MUST also be a Super Admin
+    or have `warehouse_manage` — otherwise even a valid PIN is refused."""
+    _require_manage(current_user)
+    db = get_db()
+    return await _create_pin_session(db, current_user, payload.pin)
+
+
+# ---------------------------------------------------------------------------
 # Pydantic models
 # ---------------------------------------------------------------------------
 
@@ -108,6 +197,7 @@ class AdjustPayload(BaseModel):
     quantity: int
     reason: str = Field(..., min_length=1, max_length=64)
     note: Optional[str] = Field(default=None, max_length=500)
+    pin_session_token: Optional[str] = Field(default=None)
 
 
 class RequestTransferPayload(BaseModel):
@@ -279,12 +369,12 @@ async def adjust_warehouse_stock(
     current_user: dict = Depends(get_current_user),
 ):
     """Set or delta the warehouse stock for one product. Audited."""
-    _require_manage(current_user)
+    db = get_db()
+    pin_session = await _require_pin(current_user, payload.pin_session_token, db)
 
     if payload.reason not in ADJUSTMENT_REASONS:
         raise HTTPException(status_code=400, detail="Invalid reason")
 
-    db = get_db()
     warehouse = await _get_or_create_warehouse(db)
     warehouse_id = warehouse["id"]
 
@@ -347,6 +437,8 @@ async def adjust_warehouse_stock(
         "actor_email": current_user.get("email"),
         "actor_name": current_user.get("name") or current_user.get("email"),
         "actor_role": current_user.get("role"),
+        "authorised_by_pin": pin_session.get("staff_name"),
+        "authorised_by_pin_staff_id": pin_session.get("staff_id"),
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
     await db.warehouse_adjustments.insert_one(adj_doc)
@@ -491,6 +583,7 @@ class BatchCreatePayload(BaseModel):
     extra_pieces: int = Field(default=0, ge=0)
     location: Optional[str] = Field(default=None, max_length=100)
     notes: Optional[str] = Field(default=None, max_length=500)
+    pin_session_token: Optional[str] = Field(default=None)
 
 
 class BatchUpdatePayload(BaseModel):
@@ -501,6 +594,7 @@ class BatchUpdatePayload(BaseModel):
     location: Optional[str] = Field(default=None, max_length=100)
     notes: Optional[str] = Field(default=None, max_length=500)
     reason: Optional[str] = Field(default=None, max_length=64)
+    pin_session_token: Optional[str] = Field(default=None)
 
 
 class QuickAddProductPayload(BaseModel):
@@ -517,6 +611,7 @@ class QuickAddProductPayload(BaseModel):
     tiles_per_box: Optional[int] = Field(default=None, gt=0)
     image_url: Optional[str] = Field(default=None, max_length=1000)
     warehouse_location: Optional[str] = Field(default=None, max_length=100)
+    pin_session_token: Optional[str] = Field(default=None)
 
 
 def _compute_batch_total(boxes: int, tiles_per_box: int, extra_pieces: int) -> int:
@@ -564,6 +659,7 @@ async def _resync_product_warehouse_stock(db, product_id: str, warehouse_id: str
 async def _log_batch_adjustment(
     db, product: dict, before_qty: int, after_qty: int,
     warehouse_id: str, reason: str, note: str, actor: dict,
+    pin_session: Optional[dict] = None,
 ):
     """Insert a warehouse_adjustments row so batch changes appear in the
     Recent Adjustments audit trail alongside direct adjust operations."""
@@ -582,6 +678,8 @@ async def _log_batch_adjustment(
         "actor_email": actor.get("email"),
         "actor_name": actor.get("name") or actor.get("email"),
         "actor_role": actor.get("role"),
+        "authorised_by_pin": (pin_session or {}).get("staff_name"),
+        "authorised_by_pin_staff_id": (pin_session or {}).get("staff_id"),
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
     await db.warehouse_adjustments.insert_one(adj_doc)
@@ -595,8 +693,8 @@ async def quick_add_product(
     """Create a minimal product from the warehouse page. Only for users
     who can manage the warehouse — otherwise regular staff could pollute
     the catalogue."""
-    _require_manage(current_user)
     db = get_db()
+    pin_session = await _require_pin(current_user, payload.pin_session_token, db)
 
     # Guard against duplicate SKU — the warehouse team already asks for
     # unique SKUs, but a friendly 409 beats a random uniqueness index.
@@ -686,6 +784,7 @@ async def list_product_batches(
 
 class ProductLocationPayload(BaseModel):
     warehouse_location: str = Field(default="", max_length=100)
+    pin_session_token: Optional[str] = Field(default=None)
 
 
 @router.put("/products/{product_id}/location")
@@ -699,8 +798,8 @@ async def set_product_default_location(
     NOT retroactively move existing batches — the location on already-
     logged batches is intentionally sticky (the stock physically sits where
     it sits until someone edits that batch)."""
-    _require_manage(current_user)
     db = get_db()
+    await _require_pin(current_user, payload.pin_session_token, db)
     product = await db.products.find_one({"id": product_id})
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
@@ -733,8 +832,8 @@ async def create_batch(
     current_user: dict = Depends(get_current_user),
 ):
     """Add a batch to a product. Bumps warehouse stock and logs audit."""
-    _require_manage(current_user)
     db = get_db()
+    pin_session = await _require_pin(current_user, payload.pin_session_token, db)
     warehouse = await _get_or_create_warehouse(db)
     warehouse_id = warehouse["id"]
 
@@ -799,6 +898,7 @@ async def create_batch(
         note=f"Batch {payload.batch_number}: {payload.boxes} boxes × "
              f"{payload.tiles_per_box}/box + {payload.extra_pieces} loose = {total_pieces} pcs",
         actor=current_user,
+        pin_session=pin_session,
     )
     await log_audit(
         action="CREATE",
@@ -827,8 +927,8 @@ async def update_batch(
     payload: BatchUpdatePayload,
     current_user: dict = Depends(get_current_user),
 ):
-    _require_manage(current_user)
     db = get_db()
+    pin_session = await _require_pin(current_user, payload.pin_session_token, db)
     warehouse = await _get_or_create_warehouse(db)
     warehouse_id = warehouse["id"]
 
@@ -891,6 +991,7 @@ async def update_batch(
         note=f"Batch {updates.get('batch_number', batch.get('batch_number'))}: "
              f"{old_total} → {new_total} pcs",
         actor=current_user,
+        pin_session=pin_session,
     )
     await log_audit(
         action="UPDATE",
@@ -911,13 +1012,14 @@ async def update_batch(
 async def delete_batch(
     batch_id: str,
     reason: Optional[str] = Query(default=None, max_length=200),
+    pin_session_token: Optional[str] = Header(default=None, alias="X-Warehouse-Pin"),
     current_user: dict = Depends(get_current_user),
 ):
     """Soft-delete a batch. Its total_pieces stop counting toward warehouse
     stock immediately. We keep the row for audit — a hard delete would
     lose the history."""
-    _require_manage(current_user)
     db = get_db()
+    pin_session = await _require_pin(current_user, pin_session_token, db)
     warehouse = await _get_or_create_warehouse(db)
     warehouse_id = warehouse["id"]
 
@@ -950,6 +1052,7 @@ async def delete_batch(
         note=f"Batch {batch.get('batch_number')} removed ({old_total} pcs). "
              f"{('Reason: ' + reason) if reason else ''}",
         actor=current_user,
+        pin_session=pin_session,
     )
     await log_audit(
         action="DELETE",

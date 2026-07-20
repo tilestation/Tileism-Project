@@ -1,22 +1,21 @@
 /*
- * Tonbridge Warehouse — stock page with per-batch tracking.
+ * Tonbridge Warehouse — stock page with per-batch tracking + PIN gate.
  *
- * Sections:
- *   1. Header + permission banner
- *   2. Search + "Add stock" button
- *   3. Expandable results (product rows → click to show batches)
- *   4. Recent adjustments audit table
- *   5. Dialogs: Add stock (search|create-new + batch form), Adjust,
- *      Edit batch, Delete batch, Request from warehouse.
- *
- * Feature contract signed off by owner on Jul 13 & 17, 2026.
+ * Every mutation (adjust total, add batch, edit batch, delete batch,
+ * quick-add product, set product default location) requires a fresh PIN
+ * session token. The token is minted by /api/warehouse/pin-session, lasts
+ * 15 minutes, and is cached in sessionStorage. When it's missing or
+ * expired the user is prompted via <PinPromptDialog> before the mutation
+ * fires. Every warehouse_adjustments row therefore records BOTH the JWT
+ * user AND the PIN holder — so an audit reads "Hafiz (via PIN of Rehan)".
  */
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import {
   Warehouse as WarehouseIcon, Search, Sliders, Send, RefreshCw, PackageOpen,
   ArrowUpDown, ChevronDown, ChevronUp, Info, Plus, Edit2, Trash2,
-  Package, Image as ImageIcon, Boxes, Layers, ExternalLink, MapPin,
+  Package, Image as ImageIcon, Layers, ExternalLink, MapPin, Lock,
+  User as UserIcon, ShieldCheck,
 } from 'lucide-react';
 import axios from 'axios';
 import { getAuthHeader } from '../../lib/api';
@@ -37,6 +36,32 @@ import {
 } from '../../components/ui/tabs';
 
 const API = process.env.REACT_APP_BACKEND_URL + '/api';
+const PIN_STORAGE_KEY = 'warehousePinSession';
+
+// ---------------------------------------------------------------------------
+// PIN session — cached in sessionStorage
+// ---------------------------------------------------------------------------
+
+function readPinSession() {
+  try {
+    const raw = sessionStorage.getItem(PIN_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    // Give ourselves a 30s buffer before the server-side clock says expired
+    if (!parsed?.session_token || !parsed?.expires_at) return null;
+    const expMs = new Date(parsed.expires_at).getTime();
+    if (isNaN(expMs) || expMs - 30_000 <= Date.now()) return null;
+    return parsed;
+  } catch { return null; }
+}
+
+function writePinSession(session) {
+  if (!session) {
+    sessionStorage.removeItem(PIN_STORAGE_KEY);
+    return;
+  }
+  sessionStorage.setItem(PIN_STORAGE_KEY, JSON.stringify(session));
+}
 
 function useDebounced(value, delay = 300) {
   const [debounced, setDebounced] = useState(value);
@@ -87,12 +112,10 @@ function StockBadge({ stock, unit }) {
     : s <= 5
     ? 'bg-amber-100 text-amber-800 hover:bg-amber-100'
     : 'bg-emerald-100 text-emerald-800 hover:bg-emerald-100';
-  return <Badge className={cls}>{s} {unit || ''}</Badge>;
+  return <Badge className={`${cls} text-sm px-2.5 py-0.5`}>{s} {unit || ''}</Badge>;
 }
 
 function CoverageLine({ product }) {
-  // Show "X.XX m²" when we know the dimensions, else fall back to a
-  // "N boxes + M loose" summary derived from batches.
   if (product.coverage_m2 != null) {
     return (
       <div className="text-xs text-slate-500 mt-0.5">
@@ -109,96 +132,227 @@ function CoverageLine({ product }) {
 }
 
 // ---------------------------------------------------------------------------
-// Batch table row (rendered inside expanded product row)
+// Batch card — replaces the dense table row. One card per batch.
 // ---------------------------------------------------------------------------
 
-function BatchesTable({ product, canManage, onAddBatch, onEditBatch, onDeleteBatch }) {
+function BatchCard({ batch, canManage, onEdit, onDelete }) {
+  return (
+    <div
+      className="bg-white rounded-lg border-2 border-slate-200 p-4 hover:border-slate-300 transition"
+      data-testid={`warehouse-batch-card-${batch.id}`}
+    >
+      {/* Top row: batch number + location + total */}
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        <div className="flex items-center gap-3 flex-wrap">
+          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-slate-900 text-white font-mono text-sm font-semibold">
+            <Layers className="w-4 h-4" />
+            {batch.batch_number}
+          </div>
+          {batch.location ? (
+            <div
+              className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-blue-100 text-blue-900 font-medium text-sm"
+              data-testid={`warehouse-batch-location-${batch.id}`}
+            >
+              <MapPin className="w-4 h-4" />
+              {batch.location}
+            </div>
+          ) : (
+            <div className="inline-flex items-center gap-1 px-3 py-1 rounded-lg bg-slate-100 text-slate-400 text-sm italic">
+              <MapPin className="w-4 h-4" />
+              Unslotted
+            </div>
+          )}
+        </div>
+        <div className="text-right">
+          <div className="text-2xl font-bold text-emerald-700 tabular-nums" data-testid={`warehouse-batch-total-${batch.id}`}>
+            {batch.total_pieces}
+          </div>
+          <div className="text-xs text-slate-500 uppercase tracking-wide">pieces</div>
+        </div>
+      </div>
+
+      {/* Middle: maths breakdown */}
+      <div className="mt-3 grid grid-cols-3 gap-2 text-center">
+        <div className="bg-slate-50 rounded p-2">
+          <div className="text-lg font-semibold text-slate-900">{batch.boxes}</div>
+          <div className="text-[10px] uppercase tracking-wide text-slate-500">Boxes</div>
+        </div>
+        <div className="bg-slate-50 rounded p-2">
+          <div className="text-lg font-semibold text-slate-900">{batch.tiles_per_box}</div>
+          <div className="text-[10px] uppercase tracking-wide text-slate-500">Tiles / box</div>
+        </div>
+        <div className="bg-slate-50 rounded p-2">
+          <div className="text-lg font-semibold text-slate-900">{batch.extra_pieces}</div>
+          <div className="text-[10px] uppercase tracking-wide text-slate-500">Loose pcs</div>
+        </div>
+      </div>
+
+      {/* Notes (visible, no truncation) */}
+      {batch.notes && (
+        <div className="mt-3 text-sm text-slate-700 bg-amber-50 border border-amber-200 rounded p-2">
+          <span className="font-semibold text-amber-900">Notes: </span>{batch.notes}
+        </div>
+      )}
+
+      {/* Bottom: meta + actions */}
+      <div className="mt-3 flex items-center justify-between flex-wrap gap-2 pt-3 border-t border-slate-100">
+        <div className="text-xs text-slate-500">
+          Logged {formatDateTime(batch.created_at)}
+          <span className="mx-1">·</span>
+          by {batch.created_by_name || batch.created_by_email}
+        </div>
+        {canManage && (
+          <div className="flex gap-2">
+            <Button
+              size="sm" variant="outline"
+              onClick={() => onEdit(batch)}
+              data-testid={`warehouse-batch-edit-btn-${batch.id}`}
+            >
+              <Edit2 className="w-3.5 h-3.5 mr-1.5" /> Edit
+            </Button>
+            <Button
+              size="sm" variant="outline"
+              className="border-red-200 text-red-700 hover:bg-red-50"
+              onClick={() => onDelete(batch)}
+              data-testid={`warehouse-batch-delete-btn-${batch.id}`}
+            >
+              <Trash2 className="w-3.5 h-3.5 mr-1.5" /> Remove
+            </Button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function BatchesPanel({ product, canManage, onAddBatch, onEditBatch, onDeleteBatch }) {
   const batches = product.batches || [];
   return (
-    <div className="bg-slate-50/70 border-t border-slate-200 p-4">
-      <div className="flex items-center justify-between mb-2">
-        <div className="text-xs font-semibold uppercase tracking-wide text-slate-600 flex items-center gap-2">
-          <Layers className="w-3.5 h-3.5" />
+    <div className="bg-slate-50/70 border-t-2 border-slate-200 p-4">
+      <div className="flex items-center justify-between mb-3">
+        <div className="text-sm font-semibold text-slate-700 flex items-center gap-2">
+          <Layers className="w-4 h-4" />
           Batches ({batches.length})
         </div>
         {canManage && (
           <Button
             size="sm"
-            variant="outline"
             onClick={() => onAddBatch(product)}
             data-testid={`warehouse-add-batch-btn-${product.sku || product.id}`}
           >
-            <Plus className="w-3.5 h-3.5 mr-1" /> Add batch
+            <Plus className="w-4 h-4 mr-1" /> Add batch
           </Button>
         )}
       </div>
       {batches.length === 0 ? (
-        <div className="text-sm text-slate-400 py-2">
-          No batches yet. {canManage && 'Click "Add batch" to log the first shipment.'}
+        <div className="text-sm text-slate-500 py-6 text-center bg-white border-2 border-dashed border-slate-200 rounded">
+          No batches yet. {canManage && (
+            <button
+              className="underline text-slate-700 hover:text-slate-900"
+              onClick={() => onAddBatch(product)}
+            >
+              Click here to log the first shipment.
+            </button>
+          )}
         </div>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm bg-white rounded border border-slate-200">
-            <thead className="bg-slate-100 text-xs uppercase tracking-wide text-slate-500">
-              <tr>
-                <th className="text-left py-2 px-3">Batch #</th>
-                <th className="text-right py-2 px-3">Boxes</th>
-                <th className="text-right py-2 px-3">Tiles / box</th>
-                <th className="text-right py-2 px-3">Extra pcs</th>
-                <th className="text-right py-2 px-3">Total pcs</th>
-                <th className="text-left py-2 px-3">Location</th>
-                <th className="text-left py-2 px-3">Notes</th>
-                <th className="text-left py-2 px-3">Logged</th>
-                {canManage && <th className="text-right py-2 px-3">Actions</th>}
-              </tr>
-            </thead>
-            <tbody>
-              {batches.map((b) => (
-                <tr key={b.id} className="border-t border-slate-100" data-testid={`warehouse-batch-row-${b.id}`}>
-                  <td className="py-2 px-3 font-mono text-xs text-slate-800">{b.batch_number}</td>
-                  <td className="py-2 px-3 text-right">{b.boxes}</td>
-                  <td className="py-2 px-3 text-right">{b.tiles_per_box}</td>
-                  <td className="py-2 px-3 text-right">{b.extra_pieces}</td>
-                  <td className="py-2 px-3 text-right font-semibold text-slate-900">{b.total_pieces}</td>
-                  <td className="py-2 px-3 text-xs" data-testid={`warehouse-batch-location-${b.id}`}>
-                    {b.location ? (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-slate-100 rounded text-slate-700 font-mono">
-                        <MapPin className="w-3 h-3" /> {b.location}
-                      </span>
-                    ) : (
-                      <span className="text-slate-300 italic">unslotted</span>
-                    )}
-                  </td>
-                  <td className="py-2 px-3 text-xs text-slate-500 max-w-xs truncate" title={b.notes}>{b.notes || '—'}</td>
-                  <td className="py-2 px-3 text-xs text-slate-500 whitespace-nowrap">
-                    {formatDateTime(b.created_at)}
-                    <div className="text-slate-400">{b.created_by_name || b.created_by_email}</div>
-                  </td>
-                  {canManage && (
-                    <td className="py-2 px-3 text-right whitespace-nowrap">
-                      <Button
-                        size="sm" variant="ghost"
-                        onClick={() => onEditBatch(product, b)}
-                        data-testid={`warehouse-batch-edit-btn-${b.id}`}
-                      >
-                        <Edit2 className="w-3.5 h-3.5" />
-                      </Button>
-                      <Button
-                        size="sm" variant="ghost"
-                        onClick={() => onDeleteBatch(product, b)}
-                        data-testid={`warehouse-batch-delete-btn-${b.id}`}
-                      >
-                        <Trash2 className="w-3.5 h-3.5 text-red-600" />
-                      </Button>
-                    </td>
-                  )}
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="space-y-3">
+          {batches.map((b) => (
+            <BatchCard
+              key={b.id}
+              batch={b}
+              canManage={canManage}
+              onEdit={(batch) => onEditBatch(product, batch)}
+              onDelete={(batch) => onDeleteBatch(product, batch)}
+            />
+          ))}
         </div>
       )}
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// PIN prompt — a promise-based imperative dialog
+// ---------------------------------------------------------------------------
+
+function PinPromptDialog({ open, onClose, onSuccess }) {
+  const [pin, setPin] = useState('');
+  const [verifying, setVerifying] = useState(false);
+  const [err, setErr] = useState('');
+  const inputRef = useRef(null);
+
+  useEffect(() => {
+    if (open) {
+      setPin(''); setErr('');
+      setTimeout(() => inputRef.current?.focus(), 100);
+    }
+  }, [open]);
+
+  const submit = async () => {
+    if (!pin.trim()) { setErr('Enter your staff PIN'); return; }
+    setVerifying(true); setErr('');
+    try {
+      const res = await axios.post(
+        `${API}/warehouse/pin-session`,
+        { pin: pin.trim() },
+        { headers: getAuthHeader() },
+      );
+      writePinSession(res.data);
+      toast.success(`PIN verified — ${res.data.staff_name}`);
+      onSuccess(res.data);
+    } catch (e) {
+      const msg = e.response?.data?.detail || 'PIN verification failed';
+      setErr(msg);
+    } finally {
+      setVerifying(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
+      <DialogContent className="max-w-sm" data-testid="warehouse-pin-dialog">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Lock className="w-5 h-5 text-slate-700" />
+            Enter your staff PIN
+          </DialogTitle>
+          <DialogDescription>
+            Warehouse changes are audited. Enter your PIN to authorise this action —
+            the PIN holder is recorded on every adjustment.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3">
+          <Input
+            ref={inputRef}
+            type="password"
+            inputMode="numeric"
+            autoComplete="off"
+            value={pin}
+            onChange={(e) => setPin(e.target.value.replace(/[^0-9]/g, ''))}
+            onKeyDown={(e) => { if (e.key === 'Enter') submit(); }}
+            className="text-center text-2xl tracking-[0.5em] font-mono h-14"
+            placeholder="••••"
+            maxLength={6}
+            data-testid="warehouse-pin-input"
+          />
+          {err && (
+            <div className="text-sm text-red-600 text-center" data-testid="warehouse-pin-error">
+              {err}
+            </div>
+          )}
+          <div className="text-xs text-slate-500 text-center">
+            Once verified, further changes in this browser tab are unlocked for 15 minutes.
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose} disabled={verifying}>Cancel</Button>
+          <Button onClick={submit} disabled={verifying || !pin} data-testid="warehouse-pin-submit-btn">
+            {verifying ? 'Verifying…' : 'Verify PIN'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -215,22 +369,54 @@ export default function Warehouse() {
   const debouncedQuery = useDebounced(query, 300);
   const [searching, setSearching] = useState(false);
   const [products, setProducts] = useState([]);
-  const [expanded, setExpanded] = useState({}); // productId -> bool
+  const [expanded, setExpanded] = useState({});
 
   const [adjustments, setAdjustments] = useState([]);
   const [historyExpanded, setHistoryExpanded] = useState(false);
 
-  // Dialogs
+  // PIN gate
+  const [pinPromptOpen, setPinPromptOpen] = useState(false);
+  const [pinSession, setPinSession] = useState(readPinSession());
+  // Queued action to run once PIN is validated
+  const pendingActionRef = useRef(null);
+
+  // Dialog state
   const [addStockOpen, setAddStockOpen] = useState(false);
-  const [addBatchState, setAddBatchState] = useState(null); // {product}
-  const [editBatchState, setEditBatchState] = useState(null); // {product, batch}
-  const [deleteBatchState, setDeleteBatchState] = useState(null); // {product, batch}
-  const [adjustState, setAdjustState] = useState(null); // {product}
-  const [requestState, setRequestState] = useState(null); // {product}
+  const [addBatchState, setAddBatchState] = useState(null);
+  const [editBatchState, setEditBatchState] = useState(null);
+  const [deleteBatchState, setDeleteBatchState] = useState(null);
+  const [adjustState, setAdjustState] = useState(null);
+  const [requestState, setRequestState] = useState(null);
 
   const canManage = !!info?.can_manage;
 
-  // ------------------------------------------------------------
+  /** ensureFreshPin(cb) — call cb(session) if PIN is fresh; otherwise open PIN
+   * dialog first and cb runs after successful verify. */
+  const ensureFreshPin = useCallback((cb) => {
+    const s = readPinSession();
+    if (s) {
+      setPinSession(s);
+      cb(s);
+    } else {
+      pendingActionRef.current = cb;
+      setPinPromptOpen(true);
+    }
+  }, []);
+
+  const onPinVerified = useCallback((session) => {
+    setPinSession(session);
+    setPinPromptOpen(false);
+    const cb = pendingActionRef.current;
+    pendingActionRef.current = null;
+    if (cb) cb(session);
+  }, []);
+
+  const clearPin = () => {
+    writePinSession(null);
+    setPinSession(null);
+    toast.info('PIN session cleared');
+  };
+
   const loadInfo = useCallback(async () => {
     setLoadingInfo(true);
     try {
@@ -285,7 +471,6 @@ export default function Warehouse() {
     await Promise.all([searchProducts(debouncedQuery), loadAdjustments()]);
   }, [searchProducts, debouncedQuery, loadAdjustments]);
 
-  // ------------------------------------------------------------
   const warehouseName = info?.warehouse?.name || 'Tonbridge Warehouse';
   const visibleHistory = useMemo(
     () => historyExpanded ? adjustments : adjustments.slice(0, 8),
@@ -314,10 +499,26 @@ export default function Warehouse() {
             </p>
           </div>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 items-center">
+          {canManage && pinSession && (
+            <div
+              className="flex items-center gap-1.5 px-2.5 py-1 bg-emerald-50 border border-emerald-200 rounded text-xs text-emerald-800"
+              data-testid="warehouse-pin-status"
+            >
+              <ShieldCheck className="w-3.5 h-3.5" />
+              PIN: {pinSession.staff_name}
+              <button
+                onClick={clearPin}
+                className="ml-1 underline hover:no-underline"
+                data-testid="warehouse-pin-clear"
+              >
+                lock
+              </button>
+            </div>
+          )}
           {canManage && (
             <Button
-              onClick={() => setAddStockOpen(true)}
+              onClick={() => ensureFreshPin(() => setAddStockOpen(true))}
               className="bg-slate-900 hover:bg-slate-800"
               data-testid="warehouse-add-stock-btn"
             >
@@ -335,8 +536,7 @@ export default function Warehouse() {
           <Info className="w-5 h-5 text-blue-600 mt-0.5 flex-shrink-0" />
           <div className="text-sm text-blue-900">
             You have <strong>view-only</strong> access to warehouse stock. To request stock for your
-            store, click <strong>Request from Warehouse</strong> on any product below — it lands in
-            Stock Transfers as a pending request.
+            store, click <strong>Request from Warehouse</strong> on any product below.
           </div>
         </Card>
       )}
@@ -375,7 +575,7 @@ export default function Warehouse() {
                 variant="outline"
                 size="sm"
                 className="mt-3"
-                onClick={() => setAddStockOpen(true)}
+                onClick={() => ensureFreshPin(() => setAddStockOpen(true))}
                 data-testid="warehouse-empty-add-btn"
               >
                 <Plus className="w-4 h-4 mr-1" /> Add a new product
@@ -395,16 +595,14 @@ export default function Warehouse() {
               const isOpen = !!expanded[p.id];
               return (
                 <div key={p.id} data-testid={`warehouse-row-${p.sku || p.id}`}>
-                  {/* Product row */}
                   <div
                     className="flex items-center gap-3 py-3 px-4 hover:bg-slate-50/70 cursor-pointer"
                     onClick={() => setExpanded({ ...expanded, [p.id]: !isOpen })}
                     data-testid={`warehouse-row-toggle-${p.sku || p.id}`}
                   >
                     <div className="w-6 text-slate-400">
-                      {isOpen ? <ChevronDown className="w-4 h-4" /> : <ChevronDown className="w-4 h-4 -rotate-90" />}
+                      <ChevronDown className={`w-4 h-4 transition-transform ${isOpen ? '' : '-rotate-90'}`} />
                     </div>
-                    {/* Thumbnail */}
                     <div className="w-12 h-12 bg-slate-100 rounded flex items-center justify-center overflow-hidden flex-shrink-0">
                       {p.image ? (
                         <img src={p.image} alt="" className="w-full h-full object-cover" />
@@ -414,11 +612,14 @@ export default function Warehouse() {
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="font-medium text-slate-900 truncate">{p.name}</div>
-                      <div className="text-xs text-slate-500 font-mono">
-                        {p.sku || '—'}
-                        {p.category_name && <span className="ml-2 text-slate-400">· {p.category_name}</span>}
+                      <div className="text-xs text-slate-500 font-mono flex flex-wrap items-center gap-1.5 mt-0.5">
+                        <span>{p.sku || '—'}</span>
+                        {p.category_name && <span className="text-slate-400">· {p.category_name}</span>}
                         {p.warehouse_location && (
-                          <span className="ml-2 inline-flex items-center gap-1 px-1.5 py-0.5 bg-slate-100 rounded text-slate-700" data-testid={`warehouse-product-location-${p.sku || p.id}`}>
+                          <span
+                            className="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-100 rounded text-blue-900 font-medium"
+                            data-testid={`warehouse-product-location-${p.sku || p.id}`}
+                          >
                             <MapPin className="w-3 h-3" /> {p.warehouse_location}
                           </span>
                         )}
@@ -438,18 +639,14 @@ export default function Warehouse() {
                         </div>
                       )}
                     </div>
-                    <div
-                      className="flex gap-1 flex-shrink-0"
-                      onClick={(e) => e.stopPropagation()}
-                    >
+                    <div className="flex gap-1 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
                       {canManage && (
                         <Button
                           size="sm" variant="outline"
-                          onClick={() => setAdjustState({ product: p })}
+                          onClick={() => ensureFreshPin(() => setAdjustState({ product: p }))}
                           data-testid={`warehouse-adjust-btn-${p.sku || p.id}`}
-                          title="Quick adjust total (bypasses batches)"
                         >
-                          <Sliders className="w-3.5 h-3.5" />
+                          <Sliders className="w-3.5 h-3.5 mr-1.5" /> Adjust
                         </Button>
                       )}
                       <Button
@@ -464,12 +661,12 @@ export default function Warehouse() {
                     </div>
                   </div>
                   {isOpen && (
-                    <BatchesTable
+                    <BatchesPanel
                       product={p}
                       canManage={canManage}
-                      onAddBatch={(product) => setAddBatchState({ product })}
-                      onEditBatch={(product, batch) => setEditBatchState({ product, batch })}
-                      onDeleteBatch={(product, batch) => setDeleteBatchState({ product, batch })}
+                      onAddBatch={(product) => ensureFreshPin(() => setAddBatchState({ product }))}
+                      onEditBatch={(product, batch) => ensureFreshPin(() => setEditBatchState({ product, batch }))}
+                      onDeleteBatch={(product, batch) => ensureFreshPin(() => setDeleteBatchState({ product, batch }))}
                     />
                   )}
                 </div>
@@ -541,7 +738,13 @@ export default function Warehouse() {
                       {a.note && <div className="text-xs text-slate-400 italic">&ldquo;{a.note}&rdquo;</div>}
                     </td>
                     <td className="py-2 px-4 text-xs text-slate-500">
-                      {a.actor_name || a.actor_email}
+                      <div>{a.actor_name || a.actor_email}</div>
+                      {a.authorised_by_pin && (
+                        <div className="text-emerald-700 flex items-center gap-1 mt-0.5">
+                          <UserIcon className="w-3 h-3" />
+                          PIN: {a.authorised_by_pin}
+                        </div>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -552,29 +755,39 @@ export default function Warehouse() {
       </Card>
 
       {/* Dialogs */}
+      <PinPromptDialog
+        open={pinPromptOpen}
+        onClose={() => { setPinPromptOpen(false); pendingActionRef.current = null; }}
+        onSuccess={onPinVerified}
+      />
       <AddStockDialog
         open={addStockOpen}
+        pinSession={pinSession}
         onOpenChange={setAddStockOpen}
         onDone={() => { setAddStockOpen(false); refreshAll(); }}
       />
       <AddBatchDialog
         state={addBatchState}
+        pinSession={pinSession}
         onOpenChange={(o) => { if (!o) setAddBatchState(null); }}
         onDone={() => { setAddBatchState(null); refreshAll(); }}
       />
       <EditBatchDialog
         state={editBatchState}
+        pinSession={pinSession}
         onOpenChange={(o) => { if (!o) setEditBatchState(null); }}
         onDone={() => { setEditBatchState(null); refreshAll(); }}
       />
       <DeleteBatchDialog
         state={deleteBatchState}
+        pinSession={pinSession}
         onOpenChange={(o) => { if (!o) setDeleteBatchState(null); }}
         onDone={() => { setDeleteBatchState(null); refreshAll(); }}
       />
       <AdjustDialog
         state={adjustState}
         reasons={info?.reasons || []}
+        pinSession={pinSession}
         onOpenChange={(o) => { if (!o) setAdjustState(null); }}
         onDone={() => { setAdjustState(null); refreshAll(); }}
       />
@@ -589,10 +802,10 @@ export default function Warehouse() {
 }
 
 // ===========================================================================
-// AddStockDialog — tabbed: pick existing product OR quick-add new, then batch
+// AddStockDialog
 // ===========================================================================
 
-function AddStockDialog({ open, onOpenChange, onDone }) {
+function AddStockDialog({ open, pinSession, onOpenChange, onDone }) {
   const [tab, setTab] = useState('existing');
   const [pickedProduct, setPickedProduct] = useState(null);
 
@@ -627,12 +840,13 @@ function AddStockDialog({ open, onOpenChange, onDone }) {
               <ExistingProductPicker onPick={setPickedProduct} />
             </TabsContent>
             <TabsContent value="new" className="pt-4">
-              <QuickAddProductForm onCreated={setPickedProduct} />
+              <QuickAddProductForm pinSession={pinSession} onCreated={setPickedProduct} />
             </TabsContent>
           </Tabs>
         ) : (
           <BatchForm
             product={pickedProduct}
+            pinSession={pinSession}
             onSuccess={onDone}
             onBack={() => setPickedProduct(null)}
           />
@@ -707,7 +921,7 @@ function ExistingProductPicker({ onPick }) {
   );
 }
 
-function QuickAddProductForm({ onCreated }) {
+function QuickAddProductForm({ onCreated, pinSession }) {
   const [name, setName] = useState('');
   const [sku, setSku] = useState('');
   const [barcode, setBarcode] = useState('');
@@ -753,6 +967,7 @@ function QuickAddProductForm({ onCreated }) {
         tiles_per_box: tilesPerBox ? parseInt(tilesPerBox, 10) : null,
         image_url: imageUrl || null,
         warehouse_location: location.trim() || null,
+        pin_session_token: pinSession?.session_token,
       };
       const res = await axios.post(`${API}/warehouse/products/quick-add`, payload, {
         headers: getAuthHeader(),
@@ -870,10 +1085,10 @@ function QuickAddProductForm({ onCreated }) {
 }
 
 // ===========================================================================
-// BatchForm — used inside AddStock (after picking a product) and AddBatch
+// BatchForm
 // ===========================================================================
 
-function BatchForm({ product, onSuccess, onBack }) {
+function BatchForm({ product, pinSession, onSuccess, onBack }) {
   const [batchNumber, setBatchNumber] = useState('');
   const [boxes, setBoxes] = useState('0');
   const [tilesPerBox, setTilesPerBox] = useState(String(product.tiles_per_box || ''));
@@ -889,14 +1104,8 @@ function BatchForm({ product, onSuccess, onBack }) {
   const totalM2 = product.tile_m2_per_piece ? totalPieces * product.tile_m2_per_piece : null;
 
   const submit = async () => {
-    if (!batchNumber.trim()) {
-      toast.error('Batch number is required');
-      return;
-    }
-    if (!tpb) {
-      toast.error('Tiles per box must be at least 1');
-      return;
-    }
+    if (!batchNumber.trim()) { toast.error('Batch number is required'); return; }
+    if (!tpb) { toast.error('Tiles per box must be at least 1'); return; }
     setSaving(true);
     try {
       await axios.post(`${API}/warehouse/batches`, {
@@ -907,6 +1116,7 @@ function BatchForm({ product, onSuccess, onBack }) {
         extra_pieces: extra,
         location: location.trim() || null,
         notes: notes || null,
+        pin_session_token: pinSession?.session_token,
       }, { headers: getAuthHeader() });
       toast.success(`Batch logged: +${totalPieces} pcs of ${product.name}`);
       onSuccess();
@@ -943,26 +1153,18 @@ function BatchForm({ product, onSuccess, onBack }) {
         </div>
         <div>
           <label className="text-xs font-medium text-slate-700 uppercase tracking-wide">Boxes</label>
-          <Input
-            type="number" min="0" value={boxes} onChange={(e) => setBoxes(e.target.value)}
-            data-testid="warehouse-batch-boxes-input"
-          />
+          <Input type="number" min="0" value={boxes} onChange={(e) => setBoxes(e.target.value)}
+            data-testid="warehouse-batch-boxes-input" />
         </div>
         <div>
           <label className="text-xs font-medium text-slate-700 uppercase tracking-wide">Tiles per box *</label>
-          <Input
-            type="number" min="1" value={tilesPerBox} onChange={(e) => setTilesPerBox(e.target.value)}
-            data-testid="warehouse-batch-tpb-input"
-          />
+          <Input type="number" min="1" value={tilesPerBox} onChange={(e) => setTilesPerBox(e.target.value)}
+            data-testid="warehouse-batch-tpb-input" />
         </div>
         <div className="col-span-2">
-          <label className="text-xs font-medium text-slate-700 uppercase tracking-wide">
-            Extra loose pieces
-          </label>
-          <Input
-            type="number" min="0" value={extraPieces} onChange={(e) => setExtraPieces(e.target.value)}
-            data-testid="warehouse-batch-extra-input"
-          />
+          <label className="text-xs font-medium text-slate-700 uppercase tracking-wide">Extra loose pieces</label>
+          <Input type="number" min="0" value={extraPieces} onChange={(e) => setExtraPieces(e.target.value)}
+            data-testid="warehouse-batch-extra-input" />
           <p className="text-xs text-slate-400 mt-1">
             Use this for part-boxes — e.g. 2 loose tiles left over from an opened box.
           </p>
@@ -1019,10 +1221,10 @@ function BatchForm({ product, onSuccess, onBack }) {
 }
 
 // ===========================================================================
-// AddBatchDialog — same as inner BatchForm but standalone (for existing products)
+// AddBatchDialog
 // ===========================================================================
 
-function AddBatchDialog({ state, onOpenChange, onDone }) {
+function AddBatchDialog({ state, pinSession, onOpenChange, onDone }) {
   const open = !!state;
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -1031,7 +1233,7 @@ function AddBatchDialog({ state, onOpenChange, onDone }) {
           <DialogTitle>Add batch</DialogTitle>
           <DialogDescription>Log a new shipment/dye lot for this product.</DialogDescription>
         </DialogHeader>
-        {state && <BatchForm product={state.product} onSuccess={onDone} />}
+        {state && <BatchForm product={state.product} pinSession={pinSession} onSuccess={onDone} />}
       </DialogContent>
     </Dialog>
   );
@@ -1041,7 +1243,7 @@ function AddBatchDialog({ state, onOpenChange, onDone }) {
 // EditBatchDialog
 // ===========================================================================
 
-function EditBatchDialog({ state, onOpenChange, onDone }) {
+function EditBatchDialog({ state, pinSession, onOpenChange, onDone }) {
   const open = !!state;
   const [batchNumber, setBatchNumber] = useState('');
   const [boxes, setBoxes] = useState('0');
@@ -1080,6 +1282,7 @@ function EditBatchDialog({ state, onOpenChange, onDone }) {
         location: location.trim(),
         notes,
         reason,
+        pin_session_token: pinSession?.session_token,
       }, { headers: getAuthHeader() });
       toast.success(`Batch updated: ${newTotal} pcs`);
       onDone();
@@ -1101,25 +1304,29 @@ function EditBatchDialog({ state, onOpenChange, onDone }) {
         <div className="space-y-3">
           <div>
             <label className="text-xs font-medium uppercase tracking-wide text-slate-700">Batch number</label>
-            <Input value={batchNumber} onChange={(e) => setBatchNumber(e.target.value)} />
+            <Input value={batchNumber} onChange={(e) => setBatchNumber(e.target.value)}
+              data-testid="warehouse-edit-batch-number" />
           </div>
           <div className="grid grid-cols-3 gap-2">
             <div>
               <label className="text-xs font-medium uppercase tracking-wide text-slate-700">Boxes</label>
-              <Input type="number" min="0" value={boxes} onChange={(e) => setBoxes(e.target.value)} />
+              <Input type="number" min="0" value={boxes} onChange={(e) => setBoxes(e.target.value)}
+                data-testid="warehouse-edit-batch-boxes" />
             </div>
             <div>
               <label className="text-xs font-medium uppercase tracking-wide text-slate-700">Tiles/box</label>
-              <Input type="number" min="1" value={tilesPerBox} onChange={(e) => setTilesPerBox(e.target.value)} />
+              <Input type="number" min="1" value={tilesPerBox} onChange={(e) => setTilesPerBox(e.target.value)}
+                data-testid="warehouse-edit-batch-tpb" />
             </div>
             <div>
               <label className="text-xs font-medium uppercase tracking-wide text-slate-700">Extra pcs</label>
-              <Input type="number" min="0" value={extraPieces} onChange={(e) => setExtraPieces(e.target.value)} />
+              <Input type="number" min="0" value={extraPieces} onChange={(e) => setExtraPieces(e.target.value)}
+                data-testid="warehouse-edit-batch-extra" />
             </div>
           </div>
           <div className="rounded-md bg-slate-50 p-2 text-sm flex justify-between">
             <span className="text-slate-500">New total</span>
-            <span className="font-semibold">{newTotal} pcs</span>
+            <span className="font-semibold" data-testid="warehouse-edit-batch-total">{newTotal} pcs</span>
           </div>
           <div>
             <label className="text-xs font-medium uppercase tracking-wide text-slate-700">Reason</label>
@@ -1163,7 +1370,7 @@ function EditBatchDialog({ state, onOpenChange, onDone }) {
 // DeleteBatchDialog
 // ===========================================================================
 
-function DeleteBatchDialog({ state, onOpenChange, onDone }) {
+function DeleteBatchDialog({ state, pinSession, onOpenChange, onDone }) {
   const open = !!state;
   const [reason, setReason] = useState('');
   const [saving, setSaving] = useState(false);
@@ -1175,7 +1382,12 @@ function DeleteBatchDialog({ state, onOpenChange, onDone }) {
     try {
       await axios.delete(
         `${API}/warehouse/batches/${state.batch.id}?reason=${encodeURIComponent(reason || 'No reason given')}`,
-        { headers: getAuthHeader() },
+        {
+          headers: {
+            ...getAuthHeader(),
+            'X-Warehouse-Pin': pinSession?.session_token || '',
+          },
+        },
       );
       toast.success(`Batch ${state.batch.batch_number} removed`);
       onDone();
@@ -1218,10 +1430,10 @@ function DeleteBatchDialog({ state, onOpenChange, onDone }) {
 }
 
 // ===========================================================================
-// AdjustDialog — direct total override (bypasses batches)
+// AdjustDialog
 // ===========================================================================
 
-function AdjustDialog({ state, reasons, onOpenChange, onDone }) {
+function AdjustDialog({ state, reasons, pinSession, onOpenChange, onDone }) {
   const open = !!state;
   const [mode, setMode] = useState('set');
   const [qty, setQty] = useState('0');
@@ -1249,6 +1461,7 @@ function AdjustDialog({ state, reasons, onOpenChange, onDone }) {
       const res = await axios.post(`${API}/warehouse/adjust`, {
         product_id: p.id, mode, quantity: n,
         reason, note: note || null,
+        pin_session_token: pinSession?.session_token,
       }, { headers: getAuthHeader() });
       toast.success(`Stock: ${res.data.before_qty} → ${res.data.after_qty}`, {
         description: 'Note: this bypasses batches — best used for stocktake corrections.',
