@@ -1,5 +1,6 @@
 import React from 'react';
 import * as Sentry from '@sentry/react';
+import { reportBoundaryCrash } from '../../lib/crashTelemetry';
 
 /**
  * Per-route error boundary for the storefront.
@@ -10,8 +11,9 @@ import * as Sentry from '@sentry/react';
  *   • Renders a recoverable fallback that links back to the shop
  *   • Reports the actual error name + stack to Sentry with a tag
  *     so we can filter for storefront crashes specifically
- *   • POSTs the error to /api/client-errors/log so it shows up in
- *     the admin Customer Issues panel without needing Sentry creds
+ *   • POSTs the error to /api/client-errors/log via the shared
+ *     crashTelemetry helper (tier-tagged so admins can see whether
+ *     the crash cost a trade sale or an anonymous browser)
  *   • Auto-retries ONCE after 1.5s (handles transient race-condition
  *     crashes during data hydration — common with React 19 strict mode)
  *   • Prints the stack in development
@@ -19,7 +21,6 @@ import * as Sentry from '@sentry/react';
  * Wrap individual pages where a crash on ONE product/collection
  * shouldn't take down the rest of the user's session.
  */
-const API_URL = process.env.REACT_APP_BACKEND_URL;
 
 export class StorefrontErrorBoundary extends React.Component {
   constructor(props) {
@@ -46,28 +47,13 @@ export class StorefrontErrorBoundary extends React.Component {
       // Sentry may not be initialised in dev — silently no-op.
     }
 
-    // 2. Report to backend Customer Issues panel via the existing
-    //    /api/client-errors/log endpoint. Best-effort — never throws.
+    // 2. Report to backend Customer Issues panel via shared telemetry helper.
+    //    Tier-tags the crash so admins can filter to trade-only in one click.
     try {
-      const url = typeof window !== 'undefined' ? window.location.href : 'ssr';
-      const sessionId = (typeof window !== 'undefined' && (window.localStorage?.getItem?.('session_id') || ''))
-        || `boundary-${Date.now()}`;
-      fetch(`${API_URL}/api/client-errors/log`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        keepalive: true,
-        body: JSON.stringify({
-          session_id: sessionId,
-          error_type: error?.name || 'BoundaryCrash',
-          message: String(error?.message || error || 'Unknown error'),
-          stack: String(error?.stack || ''),
-          url,
-          breadcrumbs: [
-            { type: 'route', value: this.props.routeName || 'unknown' },
-            { type: 'componentStack', value: errorInfo?.componentStack || '' },
-          ],
-        }),
-      }).catch(() => { /* swallow */ });
+      reportBoundaryCrash(error, errorInfo, {
+        boundary: 'storefront',
+        route: this.props.routeName || 'unknown',
+      });
     } catch (_) {
       // never let telemetry break the fallback
     }

@@ -740,7 +740,9 @@ function App() {
             <TileCartProvider>
               <WishlistProvider>
                 <SampleCartProvider>
-                  <TradeAccountPage />
+                  <StorefrontErrorBoundary routeName="trade-account">
+                    <TradeAccountPage />
+                  </StorefrontErrorBoundary>
                 </SampleCartProvider>
               </WishlistProvider>
             </TileCartProvider>
@@ -840,7 +842,9 @@ function App() {
             <TileCartProvider>
               <WishlistProvider>
                 <SampleCartProvider>
-                  <TileCartPage />
+                  <StorefrontErrorBoundary routeName="tile-cart">
+                    <TileCartPage />
+                  </StorefrontErrorBoundary>
                 </SampleCartProvider>
               </WishlistProvider>
             </TileCartProvider>
@@ -851,7 +855,9 @@ function App() {
             <TileCartProvider>
               <WishlistProvider>
                 <SampleCartProvider>
-                  <TileCheckoutPage />
+                  <StorefrontErrorBoundary routeName="tile-checkout">
+                    <TileCheckoutPage />
+                  </StorefrontErrorBoundary>
                 </SampleCartProvider>
               </WishlistProvider>
             </TileCartProvider>

@@ -9,6 +9,57 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Jul 22, 2026 — Forked session] 🟢 Enhancement: Root-level crash telemetry + tier tagging
+
+**Follow-on to the trade-cart P0 hotfix** — that crash cost us a live trade session AND stayed silent (no Telegram alert, no admin panel row, no email digest) because the crash landed in the ROOT `Sentry.ErrorBoundary` in `index.js` — which forwards to Sentry only, not the existing `/api/client-errors/log` pipeline. Only routes explicitly wrapped in `StorefrontErrorBoundary` were being logged; `/shop/tile-cart` was not.
+
+**What shipped**:
+
+1. **New shared helper** `/app/frontend/src/lib/crashTelemetry.js`:
+   - `getCrashSessionId()` — reuses the `customer_error_session` sessionStorage key so a whole browsing session maps to ONE session_id across toast/api/js crash events.
+   - `resolveUserTier()` — classifies the current viewer as `admin` (has admin_token) → `trade` (tile_shop_customer.is_trade) → `retail` (any tile_shop_customer) → `guest`. Priority order matters so an admin browsing the shop reports as admin, not trade.
+   - `resolveCustomerEmail()` — reads the canonical `tile_shop_customer` key.
+   - `reportBoundaryCrash(error, errorInfo, {boundary, route})` — one-line POST to `/api/client-errors/log` with the full payload (session_id, user_tier, customer_email, message, stack, page_url, breadcrumbs, user_agent). Uses `fetch` with `keepalive: true` so an unload race still gets the report out. Never throws.
+
+2. **Rewrote the root `index.js` boundary** — replaced the bare `Sentry.ErrorBoundary` with a custom `RootErrorBoundary` class that:
+   - POSTs every crash to `/api/client-errors/log` via `reportBoundaryCrash`.
+   - Also forwards to Sentry when a DSN is configured (preserves existing behaviour).
+   - Auto-retries ONCE after 1.5s (shrugs off transient React 19 StrictMode hydration races that would otherwise strand users on the fallback).
+   - Renders the SAME fallback UI as before so UX is bit-for-bit identical for successful crashes.
+
+3. **Wrapped high-value shop routes in `StorefrontErrorBoundary`**:
+   - `/shop/tile-cart` — the actual scene of the 22 Jul crash.
+   - `/shop/tile-checkout` — losing this = lost revenue.
+   - `/shop/trade/account` — the sibling `TradeAccountPage` had the same `.safeToFixed(saved, 2)` typo.
+   Each wraps in a per-route boundary that shows the "browse other collections" recoverable fallback INSTEAD of the whole-app root fallback.
+
+4. **StorefrontErrorBoundary now delegates to the shared helper** — dropped its own `fetch(/api/client-errors/log, ...)` block (which was manually building the payload without user_tier) in favour of `reportBoundaryCrash()`. One place to touch when we add new dimensions to the crash record (e.g. release SHA, feature-flag state).
+
+5. **Backend payload accepts `user_tier`** (`/app/backend/routes/client_errors.py`):
+   - Added `user_tier: Optional[str]` to `ClientErrorPayload` (max 20 chars).
+   - Coerced to `guest | retail | trade | admin` on insert (unknown values → guest so a bad frontend can never break a doc).
+   - Persisted to `client_errors.user_tier` and returned by `/recent`.
+
+6. **Admin `CustomerErrorsPanel` now shows the tier pill** — new emerald "TRADE", sky "RETAIL", slate "ADMIN", grey "GUEST" badge next to the error-type badge on each row. A wall of red JS-CRASH rows suddenly becomes "3 trade crashes + 47 anonymous browsers" at a glance — the admin knows exactly which crashes cost them money and which are cosmetic.
+
+**Files**:
+- `/app/backend/routes/client_errors.py` (added `user_tier` field, coerce+persist).
+- `/app/frontend/src/lib/crashTelemetry.js` (new — 105 lines).
+- `/app/frontend/src/index.js` (replaced Sentry.ErrorBoundary with RootErrorBoundary).
+- `/app/frontend/src/components/shop/StorefrontErrorBoundary.jsx` (delegated to helper).
+- `/app/frontend/src/components/admin/CustomerErrorsPanel.jsx` (new tier pill).
+- `/app/frontend/src/App.js` (wrapped tile-cart / tile-checkout / trade-account).
+
+**End-to-end verification**:
+- POSTed a `user_tier: 'trade'` crash → returned `{ok: true}` → showed up in `/api/client-errors/recent` with `tier=trade`.
+- Screenshotted admin `/admin/live-visitors` → new emerald "TRADE" pill visible on the crash row alongside the red "JS CRASH" badge, with clickable reproduce-URL and customer email. Panel header shows "1 in 24h".
+- Test crash cleared via `DELETE /api/client-errors/clear`.
+
+**Why this stops the next P0 going silent**: Any React error boundary in the entire app now feeds the exact same pipeline that already sends Telegram alerts within seconds, dedupes across sessions, redacts card numbers, TTLs on 24h, and emails a 09:00 UTC digest to every admin. Combined with the new tier pill, if another `ReferenceError: X is not defined` lands in the trade-checkout render tree tomorrow, the owner will see it on their phone within 60s of the first customer hitting it — with the actual message, page URL and TRADE badge already attached.
+
+
+
+
 ### [Jul 22, 2026 — Forked session] 🔴 P0 hotfix: trade users crashed on /shop/tile-cart
 
 **Symptom** (screenshot from user): Trade tradesman logs in, adds product to basket, navigates to Basket → the entire page crashes into the app-wide React ErrorBoundary showing **"Something went wrong — We've been notified. Please try refreshing the page."** Non-trade customers are unaffected — cart renders normally.

@@ -76,6 +76,12 @@ class ClientErrorPayload(BaseModel):
     user_agent: Optional[str] = Field(default=None, max_length=300)
     breadcrumbs: List[Breadcrumb] = Field(default_factory=list)
     stack: Optional[str] = Field(default=None, max_length=2000)
+    # NEW — who was hit. Helps the admin panel show at a glance whether a
+    # crash is losing trade revenue (£££) or hitting anonymous browsers.
+    # Frontend derives it from `tile_shop_customer.is_trade` / `admin_token`.
+    # Allowed values: guest | retail | trade | admin. Unknown values are
+    # coerced to "guest" so this can never break a payload.
+    user_tier: Optional[str] = Field(default=None, max_length=20)
 
 
 @router.post("/log")
@@ -193,6 +199,11 @@ async def log_client_error(payload: ClientErrorPayload, request: Request):
         for b in (payload.breadcrumbs or [])[-MAX_BREADCRUMBS:]
     ]
 
+    # Coerce user_tier to a known bucket so the admin filter stays consistent.
+    _tier = (payload.user_tier or "").strip().lower()
+    if _tier not in ("guest", "retail", "trade", "admin"):
+        _tier = "guest"
+
     doc = {
         "session_id": payload.session_id,
         "error_type": _truncate(payload.error_type, 40),
@@ -206,6 +217,7 @@ async def log_client_error(payload: ClientErrorPayload, request: Request):
         "ip_hash": hashlib.sha256(ip.encode()).hexdigest()[:12],
         "breadcrumbs": crumbs,
         "stack": _truncate(payload.stack, 2000),
+        "user_tier": _tier,
         "created_at": datetime.now(timezone.utc),
         "digest_sent": False,
     }

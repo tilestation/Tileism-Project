@@ -35,9 +35,19 @@ const TYPE_STYLES = {
   unhandled: { bg: 'bg-purple-50', text: 'text-purple-800', border: 'border-purple-200', label: 'Promise' },
 };
 
+/** user_tier badge — lets admins spot at a glance whether a crash cost
+ * a paying trade customer (£££ priority) or an anonymous browser. */
+const TIER_STYLES = {
+  trade:  { bg: 'bg-emerald-50', text: 'text-emerald-800', border: 'border-emerald-200', label: 'Trade' },
+  retail: { bg: 'bg-sky-50',     text: 'text-sky-800',     border: 'border-sky-200',     label: 'Retail' },
+  admin:  { bg: 'bg-slate-100',  text: 'text-slate-700',   border: 'border-slate-300',   label: 'Admin' },
+  guest:  { bg: 'bg-gray-50',    text: 'text-gray-600',    border: 'border-gray-200',    label: 'Guest' },
+};
+
 function ErrorRow({ row }) {
   const [open, setOpen] = useState(false);
   const style = TYPE_STYLES[row.error_type] || TYPE_STYLES.toast;
+  const tierStyle = TIER_STYLES[row.user_tier] || TIER_STYLES.guest;
   return (
     <div
       className="border-b border-gray-100 last:border-0"
@@ -50,6 +60,15 @@ function ErrorRow({ row }) {
       >
         <span className={`flex-shrink-0 inline-flex items-center text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded border ${style.bg} ${style.text} ${style.border}`}>
           {style.label}{row.status_code ? ` ${row.status_code}` : ''}
+        </span>
+        {/* Tier pill — trade & retail crashes are money-losing, admin is */}
+        {/* our own noise, guest is anonymous browsers. */}
+        <span
+          className={`flex-shrink-0 inline-flex items-center text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded border ${tierStyle.bg} ${tierStyle.text} ${tierStyle.border}`}
+          data-testid={`customer-error-tier-${row.user_tier || 'guest'}`}
+          title={`Viewer tier: ${tierStyle.label}`}
+        >
+          {tierStyle.label}
         </span>
         <div className="flex-1 min-w-0">
           <p className="text-sm text-gray-900 font-medium truncate" title={row.message}>
