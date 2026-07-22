@@ -3496,20 +3496,30 @@ async def get_checkout_status(session_id: str):
 
 @router.get("/stores")
 async def get_shop_stores():
-    """Get stores/showrooms for the stores page and click & collect"""
+    """Get retail showrooms for the public stores page and click & collect.
+
+    Filters out any doc flagged `is_warehouse: true` — warehouses aren't
+    open to customers (no counter, no parking, no showroom) so they must
+    never appear in the collection-point dropdown at checkout. This is
+    an API-level filter so it also protects the /shop/stores page and
+    any future customer-facing consumer of this endpoint.
+    """
     db = get_db()
-    
-    stores = await db.showrooms.find({}, {"_id": 0}).to_list(100)
-    
+
+    stores = await db.showrooms.find(
+        {"is_warehouse": {"$ne": True}},
+        {"_id": 0},
+    ).to_list(100)
+
     if not stores:
-        # Fallback: return hardcoded stores if none in DB
+        # Fallback: return hardcoded retail stores if none in DB
         stores = [
             {"id": "tonbridge", "name": "Tonbridge", "address": "Unit 2, Cannon Business Park, Cannon Lane, Tonbridge, TN9 1PP", "phone": "01732 424242", "email": "tonbridge@tilestation.co.uk", "opening_hours": "Mon-Fri: 9am-5pm, Sat: 10am-4pm"},
             {"id": "gravesend", "name": "Gravesend", "address": "Unit 1-2, Imperial Business Estate, Gravesend, DA12 5ND", "phone": "01474 352525", "email": "gravesend@tilestation.co.uk", "opening_hours": "Mon-Fri: 9am-5pm, Sat: 10am-4pm"},
             {"id": "chingford", "name": "Chingford", "address": "Unit 1, Chingford Industrial Centre, Hall Lane, London, E4 8DJ", "phone": "020 8527 4747", "email": "chingford@tilestation.co.uk", "opening_hours": "Mon-Fri: 9am-5pm, Sat: 10am-4pm"},
             {"id": "sydenham", "name": "Sydenham", "address": "329-331 Sydenham Road, London, SE26 5EQ", "phone": "020 8778 9797", "email": "sydenham@tilestation.co.uk", "opening_hours": "Mon-Fri: 9am-5pm, Sat: 10am-4pm"},
         ]
-    
+
     return [{
         "id": s.get("id"),
         "name": s.get("name"),
