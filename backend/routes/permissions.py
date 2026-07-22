@@ -140,6 +140,42 @@ PAGE_REGISTRY: List[Dict] = [
     {"key": "sitemap", "label": "Sitemap", "group": "Website"},
 ]
 
+# ---------------------------------------------------------------------------
+# Post-launch backfill list
+# ---------------------------------------------------------------------------
+# Pages/actions added to SYSTEM_ROLE_DEFAULTS AFTER the initial launch that
+# MUST be additively bootstrapped onto every applicable role — even roles a
+# super-admin has already customised via Team Management (user_modified=true).
+#
+# Why this exists:
+#   Production role docs stamped `user_modified=true` before a new feature
+#   shipped were being frozen out of the additive backfill in
+#   `_ensure_system_roles`, so brand-new pages never reached showroom staff.
+#   That's why Tonbridge showroom users still didn't see the "Tonbridge
+#   Warehouse" tab after the module was merged and deployed several times.
+#
+# Semantics:
+#   • For untouched roles, the normal additive backfill catches everything.
+#   • For customised roles, ONLY keys in this list are auto-added, and each
+#     key is added AT MOST ONCE per role (tracked by
+#     `bootstrap_applied_pages` on the role doc). If the admin later unticks
+#     an auto-added page, it stays unticked — this preserves the original
+#     "I unticked Sync Hub but it keeps coming back" fix.
+#
+# Maintenance rule:
+#   Any time a page or action is added to SYSTEM_ROLE_DEFAULTS for an
+#   existing role that has been running in production for at least one
+#   deploy, ALSO add its key here. Adding a page here is idempotent — once
+#   applied to a role it never runs again for that role.
+POST_LAUNCH_BACKFILL_PAGES: set = {
+    # 17 Jul 2026 — Tonbridge Warehouse module + hub card
+    "warehouse",
+    # 20 Jul 2026 — PIN-gated warehouse mutations
+    "warehouse_manage",
+}
+POST_LAUNCH_BACKFILL_ACTIONS: set = set()
+
+
 ACTION_REGISTRY: List[Dict] = [
     # Supplier Products page — granular control (matches the recently added super-admin gates)
     {"key": "supplier_products.cost_column", "label": "View Cost column", "page": "supplier_products"},
@@ -422,31 +458,59 @@ async def _ensure_system_roles(db) -> None:
 
         # Other system roles: additively backfill missing defaults so
         # extending the defaults list in code propagates automatically
-        # — BUT only if a super-admin hasn't yet touched the role via
-        # the UI. Once `user_modified=true` is stamped (set by the PUT
-        # /roles/{id} handler), we treat the admin's choices as
-        # authoritative and never auto-add pages back. This is the fix
-        # for the "I unticked Sync Hub but it keeps coming back" bug:
-        # the previous behaviour silently re-introduced any page the
-        # admin removed if it still appeared in SYSTEM_ROLE_DEFAULTS.
-        if existing.get("user_modified"):
-            continue
-
+        # to production role docs — even ones a super-admin has already
+        # customised via Team Management.
+        #
+        # BEHAVIOUR:
+        #   • Roles NOT yet edited by an admin (user_modified=false):
+        #     backfill every missing default. Same as before.
+        #   • Roles that HAVE been edited (user_modified=true): only
+        #     backfill pages listed in POST_LAUNCH_BACKFILL_PAGES that
+        #     have never been auto-added to this role before. This
+        #     surgically ships new-since-launch features (e.g. the
+        #     Tonbridge Warehouse module on 17 Jul 2026) to customised
+        #     roles without breaking the "I unticked Sync Hub" fix.
+        #   • `bootstrap_applied_pages` tracks every post-launch page
+        #     ever auto-added to this role so re-bootstrapping is a
+        #     one-shot: if the admin later unticks a bootstrapped
+        #     page, it stays unticked forever.
         current_pages = set(existing.get("pages", []))
         current_actions = set(existing.get("actions", []))
-        missing_pages = [p for p in defaults["pages"] if p not in current_pages]
-        missing_actions = [a for a in defaults["actions"] if a not in current_actions]
+        applied_pages = set(existing.get("bootstrap_applied_pages", []))
+        applied_actions = set(existing.get("bootstrap_applied_actions", []))
+
+        if not existing.get("user_modified"):
+            # Full additive backfill — untouched role.
+            missing_pages = [p for p in defaults["pages"] if p not in current_pages]
+            missing_actions = [a for a in defaults["actions"] if a not in current_actions]
+        else:
+            # Customised role — only ship post-launch pages that were
+            # added AFTER the admin last edited, and only once each.
+            missing_pages = [
+                p for p in defaults["pages"]
+                if p in POST_LAUNCH_BACKFILL_PAGES
+                and p not in current_pages
+                and p not in applied_pages
+            ]
+            missing_actions = [
+                a for a in defaults["actions"]
+                if a in POST_LAUNCH_BACKFILL_ACTIONS
+                and a not in current_actions
+                and a not in applied_actions
+            ]
+
         if missing_pages or missing_actions:
-            await db.roles.update_one(
-                {"role_id": role_id},
-                {
-                    "$addToSet": {
-                        "pages": {"$each": missing_pages} if missing_pages else {"$each": []},
-                        "actions": {"$each": missing_actions} if missing_actions else {"$each": []},
-                    },
-                    "$set": {"updated_at": now},
-                },
-            )
+            update_ops = {"$set": {"updated_at": now}}
+            add_ops = {}
+            if missing_pages:
+                add_ops["pages"] = {"$each": missing_pages}
+                add_ops["bootstrap_applied_pages"] = {"$each": missing_pages}
+            if missing_actions:
+                add_ops["actions"] = {"$each": missing_actions}
+                add_ops["bootstrap_applied_actions"] = {"$each": missing_actions}
+            if add_ops:
+                update_ops["$addToSet"] = add_ops
+            await db.roles.update_one({"role_id": role_id}, update_ops)
 
 
 def _require_super_admin(current_user: dict):
@@ -599,6 +663,22 @@ async def update_role(role_id: str, payload: RoleUpdate, current_user: dict = De
         update_doc["pages"] = [p for p in payload.pages if p in valid_pages]
     if payload.actions is not None:
         update_doc["actions"] = [a for a in payload.actions if a in valid_actions]
+
+    # 22 Jul 2026 — Freeze the current default set into the role doc as
+    # `bootstrap_applied_pages/actions`. This is the "I unticked X but it
+    # keeps coming back" guarantee for the new one-time-additive-backfill
+    # semantics in `_ensure_system_roles`. Any default that existed at
+    # the moment the admin saved the role is remembered as "already
+    # bootstrapped", so it will never be auto-re-added — even if the
+    # admin subsequently unticks it. Only NEW defaults (added to the
+    # code after this save) will be additively bootstrapped on future
+    # deploys. Existing values are merged (via $addToSet upstream) so
+    # multiple saves accumulate rather than overwrite.
+    defaults = SYSTEM_ROLE_DEFAULTS.get(role_id, {"pages": [], "actions": []})
+    prev_applied_pages = set(existing.get("bootstrap_applied_pages", []))
+    prev_applied_actions = set(existing.get("bootstrap_applied_actions", []))
+    update_doc["bootstrap_applied_pages"] = sorted(prev_applied_pages | set(defaults["pages"]))
+    update_doc["bootstrap_applied_actions"] = sorted(prev_applied_actions | set(defaults["actions"]))
 
     await db.roles.update_one({"role_id": role_id}, {"$set": update_doc})
     updated = await db.roles.find_one({"role_id": role_id}, {"_id": 0})

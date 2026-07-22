@@ -9,6 +9,44 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Jul 22, 2026 — Forked session] 🔴 P0 fix: Tonbridge Warehouse tab missing for showroom users after deploy
+
+**User report** — "I have deployed to GitHub/Railway many times. But I still can't see 'Tonbridge Warehouse' in the sidebar when I log in as a showroom user."
+
+**Root cause** — `permissions.py::_ensure_system_roles()` had this at line 432 (from a 16 May 2026 fix for the "I unticked Sync Hub but it keeps coming back" bug):
+
+```python
+if existing.get("user_modified"):
+    continue
+```
+
+Once a super-admin ever edits a system role via Team Management → Roles, the role's doc gets `user_modified=true` stamped. From that moment on, the additive backfill in `_ensure_system_roles` is a **no-op** for that role — even for genuinely new pages introduced by later releases.
+
+The production `staff` role was customised by the owner long before the Warehouse module was built, so when `warehouse` and `warehouse_manage` were later added to `SYSTEM_ROLE_DEFAULTS["staff"]`, they never actually propagated to the production role doc. Result: `hasPage('warehouse')` returned false for every showroom user → sidebar tab hidden → same after every subsequent deploy.
+
+**Fix** — surgical, minimal:
+
+1. **New explicit `POST_LAUNCH_BACKFILL_PAGES` set** at the top of `permissions.py`. Currently contains `{"warehouse", "warehouse_manage"}`. Any page/action added to `SYSTEM_ROLE_DEFAULTS` for an already-live role MUST also be added here.
+2. **Refactored `_ensure_system_roles` for user_modified roles**: instead of skipping entirely, additively add pages from `POST_LAUNCH_BACKFILL_PAGES` that (a) belong to the role's defaults, (b) aren't already in `pages`, and (c) aren't already recorded in a new `bootstrap_applied_pages` marker on the role doc. Each bootstrap is a **one-shot** — recorded in `bootstrap_applied_pages`.
+3. **`PUT /roles/{role_id}` now stamps `bootstrap_applied_pages`** with the union of previous values and the current defaults so any subsequent admin untick is respected forever. Preserves the original "Sync Hub" fix.
+
+**End-to-end validation** on the preview:
+- Simulated the exact production state: staff role with `user_modified=true`, `warehouse` and `warehouse_manage` NOT in `pages`, no `bootstrap_applied_pages` field.
+- Ran `_ensure_system_roles(db)` once → both pages added; `bootstrap_applied_pages = ['warehouse', 'warehouse_manage']`. ✅
+- Second run → zero writes. ✅
+- Simulated admin unticking `warehouse` via UI → re-ran `_ensure_system_roles` → `warehouse` stayed absent from `pages` (still in `bootstrap_applied_pages`). ✅
+
+**Files**:
+- `/app/backend/routes/permissions.py`:
+  - Added `POST_LAUNCH_BACKFILL_PAGES` / `POST_LAUNCH_BACKFILL_ACTIONS` sets.
+  - Rewrote the `user_modified` branch of `_ensure_system_roles` to surgically ship post-launch defaults.
+  - Extended `PUT /roles/{role_id}` to stamp `bootstrap_applied_pages`.
+
+**What the owner needs to do** — push this to production and redeploy. On the first backend boot after this commit, every showroom staff role that was previously customised will additively pick up `warehouse` and `warehouse_manage`; the sidebar tab appears immediately without needing to log the users out and back in (JWTs don't cache role pages — `/api/permissions/me` reads live). Owner-customised untick choices are preserved.
+
+
+
+
 ### [Jul 22, 2026 — Forked session] 🟢 Enhancement: Root-level crash telemetry + tier tagging
 
 **Follow-on to the trade-cart P0 hotfix** — that crash cost us a live trade session AND stayed silent (no Telegram alert, no admin panel row, no email digest) because the crash landed in the ROOT `Sentry.ErrorBoundary` in `index.js` — which forwards to Sentry only, not the existing `/api/client-errors/log` pipeline. Only routes explicitly wrapped in `StorefrontErrorBoundary` were being logged; `/shop/tile-cart` was not.
