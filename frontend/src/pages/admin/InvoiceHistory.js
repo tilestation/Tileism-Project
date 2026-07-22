@@ -1211,7 +1211,9 @@ export const InvoiceHistory = () => {
       console.log('[InvoiceHistory] Filtered to', filtered.length, 'invoices for date:', filterDate, '(includes invoices with deposits on this date)');
       setInvoices(filtered);
       setStaffList(staffRes.data || []);
-      setStores(showroomsRes.data || []);
+      // Filter out warehouses — they aren't retail stores and shouldn't appear
+      // in the Store dropdown on the Invoice History page (screenshot 20 Jul 2026).
+      setStores((showroomsRes.data || []).filter(s => !s.is_warehouse));
       
       // Increment data version to force re-render of revenue calculations
       setDataVersion(prev => prev + 1);

@@ -89,14 +89,38 @@ async def _get_or_create_warehouse(db) -> dict:
 
 
 def _can_manage(user: dict) -> bool:
-    """Only Super Admins or users granted `warehouse_manage` may adjust."""
+    """Legacy synchronous check — kept for callers that only need a quick
+    boolean and can tolerate false-negatives on role-based grants. New code
+    should await `_can_manage_async` so custom roles (e.g. Warehouse
+    Operator) that carry `warehouse_manage` in their role.pages are
+    honoured. Both funnel through the same denied/extra/legacy logic.
+    """
     if user.get("role") == "super_admin":
         return True
     return has_permission(user, "warehouse_manage")
 
 
-def _require_manage(user: dict):
-    if not _can_manage(user):
+async def _can_manage_async(user: dict) -> bool:
+    """Role-aware permission check. Returns True when the user is either
+    Super Admin, has `warehouse_manage` in their per-user extra_pages, or
+    belongs to a role whose stored `pages` list includes it. This lets a
+    dedicated "Warehouse Operator" role grant floor staff the ability to
+    adjust warehouse stock without adding an extras override to every
+    single user record."""
+    if user.get("role") == "super_admin":
+        return True
+    if "warehouse_manage" in (user.get("denied_pages") or []):
+        return False
+    if has_permission(user, "warehouse_manage"):
+        return True
+    role_id = user.get("role") or "staff"
+    db = get_db()
+    role = await db.roles.find_one({"role_id": role_id}, {"_id": 0, "pages": 1})
+    return bool(role and "warehouse_manage" in (role.get("pages") or []))
+
+
+async def _require_manage(user: dict):
+    if not await _can_manage_async(user):
         raise HTTPException(
             status_code=403,
             detail="Warehouse stock adjustments require Super Admin or the "
@@ -169,7 +193,7 @@ async def _require_pin(
 ) -> dict:
     """Combined guard: caller must have warehouse_manage AND a valid PIN.
     Returns the decoded PIN session (with staff_name) for audit attribution."""
-    _require_manage(current_user)
+    await _require_manage(current_user)
     return _verify_pin_session(current_user, token)
 
 
@@ -181,7 +205,7 @@ async def create_pin_session(
     """Verify PIN and issue a short-lived session token used to authorise
     subsequent warehouse mutations. The caller MUST also be a Super Admin
     or have `warehouse_manage` — otherwise even a valid PIN is refused."""
-    _require_manage(current_user)
+    await _require_manage(current_user)
     db = get_db()
     return await _create_pin_session(db, current_user, payload.pin)
 
@@ -221,7 +245,7 @@ async def get_warehouse_info(current_user: dict = Depends(get_current_user)):
     warehouse = await _get_or_create_warehouse(db)
     return {
         "warehouse": warehouse,
-        "can_manage": _can_manage(current_user),
+        "can_manage": await _can_manage_async(current_user),
         "reasons": [
             {"key": "delivery_received", "label": "Delivery received"},
             {"key": "stocktake_correction", "label": "Stocktake correction"},

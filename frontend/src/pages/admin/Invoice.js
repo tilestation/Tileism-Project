@@ -735,7 +735,8 @@ export const Invoice = () => {
       // FIRST PAINT — set main products only, so the page becomes interactive.
       setProducts(mainProducts);
       setCustomers(customersRes.data || []);
-      setStores(showroomsRes.data || []);
+      // Warehouses are not retail stores — hide from Invoice creation dropdown.
+      setStores((showroomsRes.data || []).filter(s => !s.is_warehouse));
       setSuppliers(suppliersRes.data || []);
 
       // BACKGROUND — fetch supplier products without blocking. When done,

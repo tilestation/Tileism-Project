@@ -294,6 +294,32 @@ DEFAULT_CUSTOM_ROLES = {
         ],
         "actions": [],
     },
+    "warehouse_operator": {
+        "role_name": "Warehouse Operator",
+        # Dedicated role for staff who work primarily out of the Tonbridge
+        # Warehouse. They need to LOG shipments (add batches), CORRECT
+        # stocktakes and REMOVE damaged batches — so they get the
+        # `warehouse_manage` gate on top of the standard `warehouse` view.
+        # Deliberately kept narrow: no invoicing, no pricing, no CRM. If
+        # this person also sells, super-admin can either upgrade them to
+        # Staff or grant extras via Team Management.
+        "pages": [
+            "dashboard",
+            # Stock hub + all stock-management surfaces they actually use
+            "stock_hub", "warehouse", "warehouse_manage",
+            "stock_allocation", "bulk_stock",
+            "delivery_check_in", "stock_transfers",
+            "batch_tracking", "reorder_suggestions",
+            "to_order_report", "stock_cost", "stocktake_report",
+            # Product lookup so they can find SKUs when logging batches
+            "products_hub", "supplier_products",
+            # Basic comms + tasks so ops can co-ordinate
+            "communication_hub", "staff_chat", "tasks", "inbox",
+            # Own settings profile
+            "general_settings",
+        ],
+        "actions": [],
+    },
 }
 
 

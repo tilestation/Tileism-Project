@@ -9,6 +9,56 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Jul 20, 2026 — Forked session] 🟢 Warehouse polish: hide warehouse from retail store dropdowns + new "Warehouse Operator" role
+
+**Owner asks** (three items on 20 July 2026):
+1. Screenshot: "Tonbridge Warehouse" appearing in the **Store** dropdown on Invoice History (and by extension every other retail-only store picker).
+2. Make the Tonbridge Warehouse page visible to all stores.
+3. Ensure Team Management has a Warehouse Operator permission — if not, create one.
+
+**What shipped**:
+
+1. **Filter warehouses out of retail store dropdowns** — surgical inline `.filter(s => !s.is_warehouse)` applied to the point where each retail-workflow page hydrates its Store dropdown:
+   - `InvoiceHistory.js` (screenshot report — Store filter dropdown)
+   - `Invoice.js` (new invoice creation)
+   - `Quotation.js` (new quotation)
+   - `CashQuotation.js` (new cash quotation)
+   - `ProformaInvoice.js` (new proforma)
+   
+   Warehouse pages that legitimately need to see the warehouse (Warehouse.jsx, Stock Allocation, Stock Transfers, Showrooms management, User Management, StaffPins) are untouched — they either filter locally or need the full list.
+
+2. **Warehouse page already visible to all stores** — verified. The `warehouse` page permission is in the default `pages` list for the Staff (line 244 of `permissions.py`), Manager (line 210), Admin, Showroom Lead and Super Admin roles. Sidebar item at `Layout.js:300` renders when `hasPage('warehouse')` is true. Because roles are seeded on backend boot (`_ensure_system_roles` additively backfills any new default pages onto existing role docs that a super-admin hasn't customised), every user at every store now sees Stock Management → Tonbridge Warehouse in the sidebar. No code change needed for this item — the previous session's Warehouse rollout already made it universal.
+
+3. **New "Warehouse Operator" custom role** — seeded to `DEFAULT_CUSTOM_ROLES` in `permissions.py`:
+   - Role name: "Warehouse Operator"
+   - Pages: dashboard, stock_hub, **warehouse**, **warehouse_manage** (the key one — gate for adjustments), stock_allocation, bulk_stock, delivery_check_in, stock_transfers, batch_tracking, reorder_suggestions, to_order_report, stock_cost, stocktake_report, products_hub, supplier_products, communication_hub, staff_chat, tasks, inbox, general_settings (20 pages).
+   - Deliberately narrow: no invoicing, no pricing, no CRM. Super Admin can extend via Team Management on a per-user basis.
+   - Seeded on first request to `GET /api/permissions/roles` (via `_ensure_default_custom_roles`, uses `system_state` marker so deletion is respected).
+
+4. **Backend `_can_manage` now honours role-based `warehouse_manage`** — the pre-existing `services/auth.py::has_permission()` intentionally does NOT check role-level pages (docstring says: "callers that need role-level access should use is_admin_user() or a role check instead"). That meant assigning the new Warehouse Operator role to a user would show `warehouse_manage` in the frontend effective-permissions set but the backend would still 403 them.
+   - Fix in `warehouse.py`: added `_can_manage_async(user)` that consults the user's `roles` doc from Mongo and grants `warehouse_manage` when it's in the role's `pages` list. Falls back through denied_pages → extra_pages → role.pages.
+   - All warehouse mutation guards (`_require_manage`, `/pin-session`, `/info`) updated to `await _can_manage_async` / `await _require_manage(user)`.
+   - Legacy synchronous `_can_manage()` retained for callers that can tolerate false-negatives on role-based grants; new code should prefer the async variant.
+
+**Files**:
+- `/app/backend/routes/permissions.py` (+`warehouse_operator` role in DEFAULT_CUSTOM_ROLES).
+- `/app/backend/routes/warehouse.py` (async `_can_manage_async` + updated callers).
+- `/app/frontend/src/pages/admin/InvoiceHistory.js` (filter warehouses from Store dropdown).
+- `/app/frontend/src/pages/admin/Invoice.js` (same).
+- `/app/frontend/src/pages/admin/Quotation.js` (same).
+- `/app/frontend/src/pages/admin/CashQuotation.js` (same).
+- `/app/frontend/src/pages/admin/ProformaInvoice.js` (same).
+
+**Live verification** (curl):
+- `GET /api/showrooms` returns 5 (4 retail + 1 warehouse) — unchanged, backwards-compatible.
+- `GET /api/permissions/roles` now returns 6 rows including `warehouse_operator` with `warehouse_manage` in its pages.
+- `GET /api/warehouse/info` still returns `can_manage: True` for super_admin.
+
+**Testing** (`testing_agent_v3_fork` iteration 195): PIN authentication + role-based warehouse_manage + retail dropdown warehouse-hiding all verified end-to-end.
+
+
+
+
 ### [Jul 17, 2026 — Forked session] 🟢 P1 delivered: Tonbridge Warehouse feature
 
 **Ask**: Owner wanted a dedicated "Tonbridge Warehouse" location where every store can view live stock, staff can search by product name/SKU, and only authorised persons can adjust. Also stores should be able to request stock.

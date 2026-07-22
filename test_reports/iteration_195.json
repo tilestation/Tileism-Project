@@ -1,0 +1,37 @@
+{
+  "summary": "Extended /app/backend/tests/test_warehouse.py from 40 → 57 tests to cover the PIN-session gating, per-user token binding, warehouse_operator custom role seeding, plain-staff denial matrix, and the DELETE /batches header-vs-body PIN quirk. All 57 backend tests PASS. Frontend E2E: verified Store dropdowns on /admin/invoice, /admin/quotation, /admin/cash-quotation only expose the 4 retail stores (Chingford, Tonbridge, Gravesend, Sydenham) — NO Tonbridge Warehouse leak. Warehouse PIN dialog (data-testid warehouse-pin-dialog / warehouse-pin-input / warehouse-pin-submit-btn / warehouse-pin-error) opens on Add stock, correctly shows 'Invalid or inactive PIN' on wrong PIN.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_warehouse.py",
+    "/app/test_reports/pytest/warehouse_pin_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "warehouse.py L91-100 — the legacy synchronous _can_manage is still present alongside the new async _can_manage_async but is no longer called anywhere in this module (except by has_permission fallback). Keeping it is fine as a safety net for external callers, but consider marking it deprecated in the docstring so future callers don't accidentally bypass role.pages lookups.",
+    "warehouse.py L186-188 — 'PIN session doesn't match current user' returns 401 when user_email mismatch. Acceptable, but the docstring says 'token from user A cant be replayed by user B' — worth noting this is also enforced case-sensitively; changing the user's email casing in the DB would silently invalidate their token. Low priority.",
+    "permissions.py L297-322 — warehouse_operator's pages list includes 'warehouse_manage' AND all stock surfaces but excludes 'invoice', 'quotation', 'refund', etc. This narrow scope matches the docstring intent; however 'sync_hub' and 'supplier_health' are NOT included even though supplier_products is — a warehouse operator can view supplier products but not check their sync health. Confirm this is intentional; if not, the seed spec should be tweaked.",
+    "InvoiceHistory.js L1216 — setStores filters out is_warehouse at data-load time. That's the correct choke point. Confirmed via E2E that Store dropdowns on Invoice/Quotation/CashQuotation only list the 4 retail stores. Same guard implicitly protects InvoiceHistory even though its store filter widget is not a native <select>.",
+    "test_warehouse.py — POST /api/admin/users only accepts admin/manager/staff role values, so the warehouse_operator user must be created as staff then promoted via PUT /api/admin/users/{email}/permissions. This is the correct workflow to use in future tests when creating users with custom role_ids."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_warehouse.py"
+  ],
+  "success_rate": {
+    "backend": "100% (57/57)",
+    "frontend": "PIN dialog verified + 3/3 Store dropdowns verified (Invoice, Quotation, CashQuotation). InvoiceHistory relies on same is_warehouse filter at data-load (code-reviewed OK, no native <select> to enumerate). ProformaInvoice has no App.js route so was not E2E-tested."
+  },
+  "test_credentials": "admin@test.com / admin123. Per-run test staff, staff_pin, warehouse operator, and plain staff users are created and cleaned up automatically.",
+  "seed_data_creation": "Per pytest run: (1) TEST_warehouse_staff_<hex>@example.com — staff user, deleted on teardown; (2) TEST Warehouse PIN <hex> — staff_pin row, deleted on teardown; (3) TEST_warehouse_op_<hex>@example.com — warehouse_operator user, created inside test and deleted; (4) TEST_plain_staff_<hex>@example.com — plain staff, created and deleted. Products created by quick-add (SKU prefixed TEST-WH-QA-, TEST-WH-LOC-, TEST-PINGATE-, TEST-STAFF-QA-) remain in DB — no product-delete endpoint on warehouse router. SKUs include run-id so subsequent runs never collide.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Warehouse pytest count is now 57. Class breakdown: TestWarehouseInfo(2) + TestWarehouseProducts(3) + TestWarehouseAdjust(5) + TestWarehousePermissions(3) + TestWarehouseAdjustments(2) + TestWarehouseRequestTransfer(2) + TestPublicShowroomsExcludeWarehouse(1) + TestQuickAddProduct(3) + TestBatchCRUD(9) + TestBatchPermissionGates(2) + TestWarehouseLocation(7) + TestPinSession(3) + TestAdjustPinGate(4) + TestPinTokenBinding(1) + TestMutationPinGates(5) + TestWarehouseOperatorRole(3) + TestInfoCanManageMatrix(1). To re-run: REACT_APP_BACKEND_URL=<preview_url> pytest backend/tests/test_warehouse.py -v. New fixtures added at top of file: staff_pin (creates staff_pins row), admin_pin_token (mints token via /pin-session as admin), plus helpers _pin(payload, token) and _pin_hdr(admin_hdr, token) for the DELETE header case. All existing mutation tests were updated to include pin_session_token.",
+  "rca of the issue": "N/A — feature works end-to-end. PIN gate returns 401 when token missing/tampered/expired/mismatched-user, 200 with fresh token, and correctly stamps authorised_by_pin + authorised_by_pin_staff_id on adjustment rows. The warehouse_operator custom role is seeded on first GET /api/permissions/roles and _can_manage_async correctly reads role.pages to authorise a warehouse_operator user (with NO extra_pages override) to adjust warehouse stock."
+}

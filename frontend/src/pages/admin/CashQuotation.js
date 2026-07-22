@@ -202,16 +202,18 @@ export const CashQuotation = () => {
         ]);
         setProducts(productsRes.data);
         setCustomers(customersRes.data || []);
-        setStores(showroomsRes.data || []);
+        // Warehouses aren't retail stores — hide from Cash Quotation store dropdown.
+        const retailStores = (showroomsRes.data || []).filter(s => !s.is_warehouse);
+        setStores(retailStores);
         setSuppliers(suppliersRes.data || []);
         
-        if (showroomsRes.data?.length > 0 && !selectedStore) {
+        if (retailStores.length > 0 && !selectedStore) {
           let defaultStore;
           if (user?.showroom_id) {
-            defaultStore = showroomsRes.data.find(s => s.id === user.showroom_id);
+            defaultStore = retailStores.find(s => s.id === user.showroom_id);
           }
           if (!defaultStore) {
-            defaultStore = showroomsRes.data[0];
+            defaultStore = retailStores[0];
           }
           
           setSelectedStore(defaultStore);

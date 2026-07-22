@@ -150,7 +150,8 @@ export const ProformaInvoice = () => {
         ]);
         setProducts(productsRes.data || []);
         setCustomers(customersRes.data || []);
-        setStores(showroomsRes.data || []);
+        // Warehouses aren't retail stores — hide from Proforma Invoice store dropdown.
+        setStores((showroomsRes.data || []).filter(s => !s.is_warehouse));
       } catch (error) {
         console.error('Error fetching data:', error);
         toast.error('Failed to load data');
