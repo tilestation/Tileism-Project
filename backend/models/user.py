@@ -81,6 +81,14 @@ class StaffPinCreate(BaseModel):
     role: str = "staff"  # staff, manager, admin
     active: bool = True
     showroom_id: Optional[str] = None
+    # 22 Jul 2026 — Explicit per-PIN toggle that grants the ability to
+    # adjust warehouse stock. The Warehouse PIN dialog decides who can
+    # click Adjust/Add/Edit/Delete based on THIS flag on the PIN — not
+    # on the logged-in browser user. That way a Tonbridge showroom
+    # user (who has "warehouse" view but not "warehouse_manage") can
+    # still authorize a floor manager to adjust stock by handing them
+    # the terminal and asking them to punch in their PIN.
+    can_manage_warehouse: bool = False
 
 
 class StaffPinUpdate(BaseModel):
@@ -89,6 +97,7 @@ class StaffPinUpdate(BaseModel):
     role: Optional[str] = None
     active: Optional[bool] = None
     showroom_id: Optional[str] = None
+    can_manage_warehouse: Optional[bool] = None
 
 
 class StaffPinVerify(BaseModel):

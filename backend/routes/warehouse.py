@@ -142,6 +142,37 @@ class PinSessionCreatePayload(BaseModel):
     pin: str = Field(..., min_length=3, max_length=12)
 
 
+def _pin_can_manage_warehouse(staff: dict) -> bool:
+    """Whether the *PIN holder* (as recorded in staff_pins) is authorised
+    to adjust warehouse stock.
+
+    A PIN's authority is now decoupled from the JWT user's own permissions
+    — a Tonbridge showroom staff account (no warehouse_manage) can still
+    hand the terminal to a floor manager and let them punch in their PIN
+    to Adjust / Add / Edit / Delete a batch. The check happens here on
+    PIN redemption so an unauthorised PIN never mints a session token.
+
+    Priority order:
+      1. Explicit `can_manage_warehouse` toggle on the staff_pins doc
+         (set by Super Admin via the Staff PINs admin page). This wins
+         in both directions — a True unlocks, a False locks even if the
+         PIN's role would otherwise allow it.
+      2. Legacy PINs created before the toggle existed and therefore
+         missing the field: fall back to the PIN's `role` — admin and
+         super_admin PINs stay authorised. Manager / staff / everything
+         else must be explicitly re-enabled by Super Admin.
+    """
+    explicit = staff.get("can_manage_warehouse")
+    if explicit is True:
+        return True
+    if explicit is False:
+        return False
+    # Legacy fallback for PINs pre-dating the toggle. Keeps admin PINs
+    # working after the feature ships without requiring a data migration.
+    role = (staff.get("role") or "").strip().lower()
+    return role in ("super_admin", "admin")
+
+
 async def _create_pin_session(db, user: dict, pin: str) -> dict:
     """Verify PIN against staff_pins and mint a signed session token."""
     # Support both is_active and active flags for legacy rows.
@@ -151,6 +182,21 @@ async def _create_pin_session(db, user: dict, pin: str) -> dict:
     })
     if not staff:
         raise HTTPException(status_code=401, detail="Invalid or inactive PIN")
+
+    # Authorisation now lives on the PIN itself. This lets any logged-in
+    # showroom user attempt a warehouse edit — the PIN they enter decides
+    # whether it proceeds. An unauthorised PIN gets a clear 403 that names
+    # the PIN holder so the shop-floor knows who to escalate to.
+    if not _pin_can_manage_warehouse(staff):
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                f"{staff.get('name') or 'This PIN'} does not have permission "
+                "to adjust warehouse stock. Ask a Super Admin to enable "
+                "\"Warehouse: can adjust stock\" on this staff PIN in Team "
+                "Management → Staff PINs."
+            ),
+        )
 
     expires_at = datetime.now(timezone.utc) + timedelta(minutes=PIN_SESSION_MINUTES)
     payload = {
@@ -191,9 +237,13 @@ def _verify_pin_session(user: dict, token: Optional[str]) -> dict:
 async def _require_pin(
     current_user: dict, token: Optional[str], db,
 ) -> dict:
-    """Combined guard: caller must have warehouse_manage AND a valid PIN.
-    Returns the decoded PIN session (with staff_name) for audit attribution."""
-    await _require_manage(current_user)
+    """Guard: caller must present a valid PIN session token. Authorisation
+    for warehouse edits is now carried by the PIN itself (verified when
+    the token was minted in `_create_pin_session`), so we no longer
+    re-check the JWT user's warehouse_manage. This is the design the
+    owner asked for on 22 Jul 2026: showroom users can hand the terminal
+    to any authorised floor manager who has a valid PIN.
+    Returns the decoded PIN session (with staff_name) for audit."""
     return _verify_pin_session(current_user, token)
 
 
@@ -203,9 +253,10 @@ async def create_pin_session(
     current_user: dict = Depends(get_current_user),
 ):
     """Verify PIN and issue a short-lived session token used to authorise
-    subsequent warehouse mutations. The caller MUST also be a Super Admin
-    or have `warehouse_manage` — otherwise even a valid PIN is refused."""
-    await _require_manage(current_user)
+    subsequent warehouse mutations. The PIN is now the sole authority —
+    any authenticated user can attempt entry, but only PINs flagged
+    `can_manage_warehouse=true` (or legacy admin/super_admin PINs) will
+    receive a token."""
     db = get_db()
     return await _create_pin_session(db, current_user, payload.pin)
 
@@ -240,12 +291,25 @@ class RequestTransferPayload(BaseModel):
 @router.get("/info")
 async def get_warehouse_info(current_user: dict = Depends(get_current_user)):
     """Return the warehouse doc + permissions of the calling user.
-    Auto-creates the warehouse on first call — no manual seed needed."""
+    Auto-creates the warehouse on first call — no manual seed needed.
+
+    Since 22 Jul 2026 the warehouse edit permission model is PIN-gated:
+    any authenticated user can *attempt* an edit, and the PIN they enter
+    decides whether it goes through. So `can_manage` is now True for
+    every authenticated caller. The frontend uses this to render the
+    edit buttons — the PIN dialog handles the actual authorisation and
+    returns a specific 403 if the PIN isn't flagged for warehouse edits.
+
+    The legacy `can_manage_legacy` field is preserved for any external
+    tooling that still expects the old JWT-user check semantic.
+    """
     db = get_db()
     warehouse = await _get_or_create_warehouse(db)
     return {
         "warehouse": warehouse,
-        "can_manage": await _can_manage_async(current_user),
+        "can_manage": True,  # anyone authenticated can *try* — PIN decides
+        "can_manage_legacy": await _can_manage_async(current_user),
+        "pin_gated": True,   # frontend hint: all edits require PIN dialog
         "reasons": [
             {"key": "delivery_received", "label": "Delivery received"},
             {"key": "stocktake_correction", "label": "Stocktake correction"},

@@ -9,6 +9,53 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Jul 22, 2026 — Forked session] 🟢 Warehouse PIN authorization: per-PIN toggle instead of per-user permission
+
+**User ask** — "I have set up permission for certain staff to adjust stocks. Can you allow to enter the pin number. If that staff is not permit it should decline and only allow into edit/add/adjustment mode if the staff has permission upon entering correct pin number."
+
+**Design shift** — moved the warehouse-edit authorisation from the JWT user's `warehouse_manage` permission to a per-PIN flag. Previously a showroom staff account had to hold `warehouse_manage` themselves before they could even see the Adjust/Add/Edit buttons — meaning a Tonbridge staff terminal user couldn't hand it off to a passing floor manager. Now any authenticated staff can *attempt* an edit, and the PIN they enter decides whether it goes through.
+
+**What shipped**:
+
+1. **New `can_manage_warehouse: bool` field on staff_pins** (`models/user.py`, `routes/staff_pins.py`):
+   - Persisted on create/update, returned by GET.
+   - Defaults to `False` — Super Admin must explicitly tick to enable.
+   - Legacy PINs (missing the field) fall back to their `role`: `admin` / `super_admin` PINs stay authorised so pre-existing behaviour doesn't break.
+
+2. **New `_pin_can_manage_warehouse(staff)` helper in `warehouse.py`** — priority: explicit toggle (True/False both win) → fallback to role-based defaults for legacy rows.
+
+3. **`/api/warehouse/pin-session` now gates on PIN toggle, not JWT user**:
+   - Removed `_require_manage(current_user)` guard.
+   - On PIN match, checks `_pin_can_manage_warehouse(staff)`. If False, returns HTTP 403 with a message that names the PIN holder:  
+     *"Alice Smith does not have permission to adjust warehouse stock. Ask a Super Admin to enable "Warehouse: can adjust stock" on this staff PIN in Team Management → Staff PINs."*
+   - If True, mints the same short-lived session token as before.
+
+4. **`_require_pin` no longer double-gates on JWT user's warehouse_manage** — the PIN itself is now the authorisation. Session tokens are still user-bound so tokens minted by user A can't be replayed by user B (unchanged).
+
+5. **`/api/warehouse/info::can_manage` now always returns True for authenticated callers** — the frontend uses this to render the Adjust/Add/Edit buttons; the PIN dialog handles the actual authorisation. Also returns `can_manage_legacy` (old check, for any external tooling still consuming it) and `pin_gated: true` (frontend hint).
+
+6. **Frontend Staff PINs admin page** (`StaffPins.js`) — new amber-bordered toggle "Warehouse: can adjust stock" in the create/edit dialog, with a two-line explanation. Data-testid `staff-warehouse-manage-checkbox` for automation. State plumbed through `formData.can_manage_warehouse` → `POST /staff-pins` + `PUT /staff-pins/{id}`.
+
+7. **PIN dialog error styling** — bumped the inline error message from a bare red line to a properly-bordered red-tinted card so the multi-line "Ask a Super Admin to enable ..." message reads cleanly.
+
+**Files**:
+- `/app/backend/models/user.py`
+- `/app/backend/routes/staff_pins.py`
+- `/app/backend/routes/warehouse.py`
+- `/app/frontend/src/pages/admin/StaffPins.js`
+- `/app/frontend/src/pages/admin/Warehouse.jsx`
+
+**End-to-end verification (curl)**:
+- Created PIN A (Alice, `can_manage_warehouse=false`) → `POST /warehouse/pin-session` with Alice's PIN → **HTTP 403** with the "Ask a Super Admin to enable..." message. ✅
+- Created PIN B (Bob, `can_manage_warehouse=true`) → `POST /warehouse/pin-session` with Bob's PIN → **HTTP 200** with signed session token. ✅
+- `PUT /staff-pins/{alice_id} {can_manage_warehouse: true}` → re-try Alice's PIN → now **HTTP 200**. ✅
+- Screenshot on preview confirms the new "Warehouse: can adjust stock" toggle renders inside the Add Staff Member dialog with the amber hint box.
+
+**Backwards compatibility**: existing production PINs with `role=admin` or `role=super_admin` continue to authorise without needing a data migration; managers / staff / operators must be explicitly re-enabled by Super Admin.
+
+
+
+
 ### [Jul 22, 2026 — Forked session] 🔴 P0 fix: Tonbridge Warehouse tab missing for showroom users after deploy
 
 **User report** — "I have deployed to GitHub/Railway many times. But I still can't see 'Tonbridge Warehouse' in the sidebar when I log in as a showroom user."

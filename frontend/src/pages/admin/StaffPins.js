@@ -68,7 +68,8 @@ export const StaffPins = () => {
         pin: '', // Don't show existing PIN
         role: staff.role,
         active: staff.active,
-        showroom_id: staff.showroom_id || ''
+        showroom_id: staff.showroom_id || '',
+        can_manage_warehouse: !!staff.can_manage_warehouse,
       });
     } else {
       setEditingStaff(null);
@@ -77,7 +78,8 @@ export const StaffPins = () => {
         pin: '',
         role: 'staff',
         active: true,
-        showroom_id: ''
+        showroom_id: '',
+        can_manage_warehouse: false,
       });
     }
     setShowDialog(true);
@@ -86,7 +88,7 @@ export const StaffPins = () => {
   const handleCloseDialog = () => {
     setShowDialog(false);
     setEditingStaff(null);
-    setFormData({ name: '', pin: '', role: 'staff', active: true, showroom_id: '' });
+    setFormData({ name: '', pin: '', role: 'staff', active: true, showroom_id: '', can_manage_warehouse: false });
   };
 
   const handleSubmit = async (e) => {
@@ -115,7 +117,8 @@ export const StaffPins = () => {
           name: formData.name,
           role: formData.role,
           active: formData.active,
-          showroom_id: formData.showroom_id || null
+          showroom_id: formData.showroom_id || null,
+          can_manage_warehouse: !!formData.can_manage_warehouse,
         };
         // Only include PIN if it was changed
         if (formData.pin) {
@@ -126,7 +129,8 @@ export const StaffPins = () => {
       } else {
         await api.createStaffPin({
           ...formData,
-          showroom_id: formData.showroom_id || null
+          showroom_id: formData.showroom_id || null,
+          can_manage_warehouse: !!formData.can_manage_warehouse,
         });
         toast.success('Staff member created');
       }
@@ -395,6 +399,31 @@ export const StaffPins = () => {
                 data-testid="staff-active-checkbox"
               />
               <label htmlFor="active" className="text-sm">Active (can use PIN)</label>
+            </div>
+
+            {/* Warehouse permission — gates whether the PIN can Add / */}
+            {/* Adjust / Edit / Delete stock on the Tonbridge Warehouse */}
+            {/* page. When ticked, this staff member's PIN unlocks the */}
+            {/* warehouse edit dialogs; when unticked, entering the PIN */}
+            {/* on the warehouse page returns a clear 403 that names */}
+            {/* this person so the floor knows who to escalate to. */}
+            <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50/60 px-3 py-2.5">
+              <input
+                type="checkbox"
+                id="can_manage_warehouse"
+                checked={!!formData.can_manage_warehouse}
+                onChange={(e) => setFormData({ ...formData, can_manage_warehouse: e.target.checked })}
+                className="mt-0.5 rounded"
+                data-testid="staff-warehouse-manage-checkbox"
+              />
+              <label htmlFor="can_manage_warehouse" className="text-sm leading-tight cursor-pointer">
+                <span className="font-medium text-amber-900">Warehouse: can adjust stock</span>
+                <span className="block text-xs text-amber-800/80 mt-0.5">
+                  Allows this PIN to Add batches, Adjust quantities, Edit and Delete stock on
+                  the Tonbridge Warehouse page. Every action is stamped with this staff
+                  member&apos;s name in the audit trail.
+                </span>
+              </label>
             </div>
             
             <DialogFooter>

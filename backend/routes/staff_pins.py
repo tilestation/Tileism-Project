@@ -45,6 +45,10 @@ async def create_staff_pin(input: StaffPinCreate, current_user: dict = Depends(g
         "active": input.active,
         "showroom_id": input.showroom_id,
         "showroom_name": showroom_name,
+        # 22 Jul 2026 — Warehouse edit authorization now lives on the PIN.
+        # Default False so freshly-created PINs cannot accidentally adjust
+        # stock — super_admin must explicitly tick the toggle.
+        "can_manage_warehouse": bool(input.can_manage_warehouse),
         "created_by": current_user["email"],
         "created_at": datetime.now(timezone.utc).isoformat(),
         "updated_at": datetime.now(timezone.utc).isoformat()
@@ -59,7 +63,7 @@ async def create_staff_pin(input: StaffPinCreate, current_user: dict = Depends(g
         user=current_user,
         entity_id=staff_id,
         entity_name=input.name,
-        after_data={"name": input.name, "role": input.role, "store": showroom_name},
+        after_data={"name": input.name, "role": input.role, "store": showroom_name, "can_manage_warehouse": staff_pin["can_manage_warehouse"]},
         details=f"Staff PIN created: {input.name}"
     )
     
@@ -71,6 +75,7 @@ async def create_staff_pin(input: StaffPinCreate, current_user: dict = Depends(g
         "active": staff_pin["active"],
         "showroom_id": staff_pin["showroom_id"],
         "showroom_name": staff_pin["showroom_name"],
+        "can_manage_warehouse": staff_pin["can_manage_warehouse"],
         "created_at": staff_pin["created_at"]
     }
 
@@ -161,6 +166,8 @@ async def update_staff_pin(staff_id: str, input: StaffPinUpdate, current_user: d
         if existing:
             raise HTTPException(status_code=400, detail="This PIN is already in use")
         update_data["pin"] = input.pin
+    if input.can_manage_warehouse is not None:
+        update_data["can_manage_warehouse"] = bool(input.can_manage_warehouse)
     
     await db.staff_pins.update_one({"id": staff_id}, {"$set": update_data})
     
