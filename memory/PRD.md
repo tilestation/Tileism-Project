@@ -9,6 +9,43 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Jul 22, 2026 — Forked session] 🔴 P0 hotfix: trade users crashed on /shop/tile-cart
+
+**Symptom** (screenshot from user): Trade tradesman logs in, adds product to basket, navigates to Basket → the entire page crashes into the app-wide React ErrorBoundary showing **"Something went wrong — We've been notified. Please try refreshing the page."** Non-trade customers are unaffected — cart renders normally.
+
+**Reproduced in preview** by seeding `localStorage` with a trade customer + a valid cart item, then loading `/shop/tile-cart`. Console captured:
+```
+ReferenceError: saved is not defined
+    at .../TileCartPage_js.chunk.js:3624:70
+    at Array.map (<anonymous>)
+    at TileCartPage (...)
+```
+
+**Root cause** — a bungled auto-refactor left an invalid method call in the "trade savings tooltip" render path:
+
+```jsx
+// TileCartPage.js:932 (BROKEN)
+<span>−£{row.safeToFixed(saved, 2)}</span>
+```
+
+That's parsed as `row["safeToFixed"](saved, 2)` — Row has no `.safeToFixed` method and `saved` isn't in scope. The intended call was `safeToFixed(row.saved, 2)` (using the imported helper at line 17). Because the savings-breakdown map inside the Radix `<TooltipContent>` is evaluated on every render (React evaluates children eagerly even for portal-lazy tooltips), the crash fires the moment `savingsBreakdown` has ≥1 row — i.e. every single trade user with items in the basket.
+
+The exact same broken refactor also shipped in **TradeAccountPage.jsx:954** (last-order savings strip). Would have crashed the /trade/account page for any trade user whose last order had savings > 0.
+
+**Fix** — one-liner in each file:
+
+- `/app/frontend/src/pages/shop/TileCartPage.js:932` → `safeToFixed(row.saved, 2)`.
+- `/app/frontend/src/pages/shop/TradeAccountPage.jsx:954` → `safeToFixed(savings.last_order.saved, 2)`.
+
+**Verification** — reproduced the crash pre-fix, verified the trade basket renders correctly post-fix: 1 item · 25.92 m² · £22.87/m² ex VAT · Volume tier −12% + Trade −4% breakdown · £807.34 total inc VAT · welcome toast "your basket switched to trade pricing. You just saved £148.26" all display cleanly. Sweep confirmed no other `.safeToFixed(bareIdent, 2)` typos in the codebase.
+
+**Files**:
+- `/app/frontend/src/pages/shop/TileCartPage.js`
+- `/app/frontend/src/pages/shop/TradeAccountPage.jsx`
+
+
+
+
 ### [Jul 20, 2026 — Forked session] 🟢 Warehouse polish: hide warehouse from retail store dropdowns + new "Warehouse Operator" role
 
 **Owner asks** (three items on 20 July 2026):

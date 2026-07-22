@@ -951,7 +951,7 @@ const TradeAccountPage = () => {
                             <> on <span className="font-semibold">{new Date(savings.last_order.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</span></>
                           ) : null}
                           {' '}saved you{' '}
-                          <span className="font-bold text-emerald-700 tabular-nums">£{savings.last_order.safeToFixed(saved, 2)}</span>
+                          <span className="font-bold text-emerald-700 tabular-nums">£{safeToFixed(savings.last_order.saved, 2)}</span>
                           {' '}vs retail.
                         </p>
                         {savings.last_order.order_number && (

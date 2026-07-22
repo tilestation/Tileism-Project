@@ -929,7 +929,7 @@ const TileCartPage = () => {
                             {savingsBreakdown.map((row) => (
                               <div key={row.name} className="flex justify-between gap-3">
                                 <span className="text-white/70 truncate max-w-[180px]">{row.name}</span>
-                                <span className="text-amber-300 shrink-0">−£{row.safeToFixed(saved, 2)}</span>
+                                <span className="text-amber-300 shrink-0">−£{safeToFixed(row.saved, 2)}</span>
                               </div>
                             ))}
                             {cart.length > savingsBreakdown.length && (
