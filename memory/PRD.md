@@ -9,6 +9,37 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Jul 23, 2026 — Forked session] 🟢 Adjustment timeline modal — full lifecycle at a glance
+
+**Enhancement follow-up** to the full-editor + edit_history work earlier today. Every adjustment row that has been edited (or is linked to a reversal) now shows a **History** icon in its Actions column. Clicking it opens a **TimelineDialog** that renders the row's complete lifecycle chronologically:
+
+- **Booked** event (emerald dot) — snapshot of the original 6 fields (product name, reason, note, before/after/delta) as they existed at creation.
+- **Edit #N** events (amber dot) — one card per edit in `edit_history`, each field diffed as `<red strikethrough>previous</red>` → `<green bold>next</green>`, with the PIN of whoever authorised it and the timestamp.
+- **Reversed** event (red dot) — if the row was reversed, shows a red card with the compensating row's delta.
+
+**Cross-linking**: if the row `reverses_adjustment_id`, an indigo info banner at the top of the timeline shows the original it reverses (with delta + timestamp). If the row `reversed_adjustment_id`, the banner shows the compensating row.
+
+**Button badge**: when a row has more than one edit, the History icon shows a small indigo count badge (e.g. "2") so the number of edits is visible in the table without opening the modal.
+
+**Visibility rules**:
+- Non-reversed rows: History icon appears only when `edit_history.length > 0` OR the row is a reversal (`reverses_adjustment_id`). Keeps the actions column tidy for plain rows.
+- Reversed rows: History icon appears alongside the "history only" italic hint, since the reversal is itself a lifecycle event worth reviewing.
+
+**No new API**: all data (`edit_history`, `reversed`, `reversed_at`, `reversed_by_pin`, `reversed_adjustment_id`, `reverses_adjustment_id`) is already carried on the adjustment doc from earlier work. The dialog reads it in-memory from the already-fetched `adjustments` list.
+
+**Data-testids**:
+- `warehouse-history-timeline-{id}` (row button)
+- `warehouse-timeline-dialog` (dialog)
+- `warehouse-timeline-event-{index}` (each event card)
+- `warehouse-timeline-close-btn`
+
+**Files**: `/app/frontend/src/pages/admin/Warehouse.jsx` — added `History` import, `timelineAdjState` hook, action-column button, `TimelineDialog` component (~145 lines).
+
+**Verified live**: seeded a product + adjustment, applied two edits (reason/note change, then before/after/product-name change), opened the timeline — 3 events rendered (Booked + Edit #1 + Edit #2) with correct field-level diffs, PIN attribution and colour-coded dots. Screenshot confirms the two-edit indigo badge on the row button.
+
+
+
+
 ### [Jul 23, 2026 — Forked session] 🟢 Full editor on Recent Adjustments — every field editable
 
 **Owner ask** — expand the previously-shipped "Edit reason/note" dialog into a **full** editor. Every field on the audit row should be changeable including product name and numeric quantities, in addition to the existing quick-adjust flow.

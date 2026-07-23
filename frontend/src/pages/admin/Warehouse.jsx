@@ -15,7 +15,7 @@ import {
   Warehouse as WarehouseIcon, Search, Sliders, Send, RefreshCw, PackageOpen,
   ArrowUpDown, ChevronDown, ChevronUp, Info, Plus, Edit2, Trash2,
   Package, Image as ImageIcon, Layers, ExternalLink, MapPin, Lock,
-  User as UserIcon, ShieldCheck,
+  User as UserIcon, ShieldCheck, History,
 } from 'lucide-react';
 import axios from 'axios';
 import { getAuthHeader } from '../../lib/api';
@@ -391,6 +391,7 @@ export default function Warehouse() {
   const [adjustState, setAdjustState] = useState(null);
   const [editAdjState, setEditAdjState] = useState(null);
   const [reverseAdjState, setReverseAdjState] = useState(null);
+  const [timelineAdjState, setTimelineAdjState] = useState(null);
   const [requestState, setRequestState] = useState(null);
 
   const canManage = !!info?.can_manage;
@@ -783,11 +784,49 @@ export default function Warehouse() {
                       {/* Reversed rows are read-only history — a compensating */}
                       {/* row already lives elsewhere in the audit trail. */}
                       {a.reversed ? (
-                        <div className="text-right text-[11px] italic text-slate-400 whitespace-nowrap">
-                          history only
+                        <div className="flex items-center justify-end gap-1">
+                          {(a.edit_history?.length > 0 || a.reversed) && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7 text-slate-500 hover:text-indigo-700 hover:bg-indigo-50"
+                              title="View timeline"
+                              onClick={() => setTimelineAdjState(a)}
+                              data-testid={`warehouse-history-timeline-${a.id}`}
+                            >
+                              <History className="h-3.5 w-3.5" />
+                            </Button>
+                          )}
+                          <span className="text-[11px] italic text-slate-400 whitespace-nowrap pr-1">
+                            history only
+                          </span>
                         </div>
                       ) : (
                         <div className="flex items-center justify-end gap-1">
+                          {/* Timeline — only shown when there's something to */}
+                          {/* see (edited or has a reversal back-link). Keeps */}
+                          {/* the actions column tidy for plain rows. */}
+                          {(a.edit_history?.length > 0 || a.reverses_adjustment_id) && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7 text-slate-500 hover:text-indigo-700 hover:bg-indigo-50 relative"
+                              title={a.edit_history?.length > 1
+                                ? `View timeline — ${a.edit_history.length} edits`
+                                : (a.edit_history?.length === 1
+                                    ? 'View timeline — 1 edit'
+                                    : 'View timeline — reversal record')}
+                              onClick={() => setTimelineAdjState(a)}
+                              data-testid={`warehouse-history-timeline-${a.id}`}
+                            >
+                              <History className="h-3.5 w-3.5" />
+                              {a.edit_history?.length > 1 && (
+                                <span className="absolute -top-1 -right-1 h-3.5 min-w-[14px] px-0.5 rounded-full bg-indigo-600 text-white text-[9px] font-bold leading-[14px] text-center">
+                                  {a.edit_history.length}
+                                </span>
+                              )}
+                            </Button>
+                          )}
                           <Button
                             variant="ghost"
                             size="icon"
@@ -892,6 +931,11 @@ export default function Warehouse() {
         pinSession={pinSession}
         onOpenChange={(o) => { if (!o) setReverseAdjState(null); }}
         onDone={() => { setReverseAdjState(null); refreshAll(); }}
+      />
+      <TimelineDialog
+        state={timelineAdjState}
+        allAdjustments={adjustments}
+        onOpenChange={(o) => { if (!o) setTimelineAdjState(null); }}
       />
     </div>
   );
@@ -2023,3 +2067,203 @@ function ReverseAdjustmentDialog({ state, pinSession, onOpenChange, onDone }) {
     </Dialog>
   );
 }
+
+// ===========================================================================
+// TimelineDialog — full lifecycle of an adjustment
+// ===========================================================================
+// Turns the audit trail from "I know it changed" into "I know exactly what
+// changed, when, and by whom" in a single glance. Sources of truth (all
+// already stored on the doc — no new API):
+//   • state.created_at + original fields → the "Booked" event
+//   • state.edit_history[]              → each edit event with field-level diff
+//   • state.reversed / reversed_at      → the "Reversed" event
+//   • state.reversed_adjustment_id      → link to the compensating row
+//   • state.reverses_adjustment_id      → link to the original this row reverses
+// Events are rendered chronologically with red strikethrough for old values
+// and green highlight for new values, plus the PIN name of whoever did it.
+
+function TimelineDialog({ state, allAdjustments, onOpenChange }) {
+  const open = !!state;
+  if (!state) return null;
+
+  const FIELD_LABELS = {
+    reason: 'Reason',
+    note: 'Note',
+    before_qty: 'Before qty',
+    after_qty: 'After qty',
+    delta: 'Delta',
+    product_name: 'Product name',
+  };
+
+  const formatVal = (k, v) => {
+    if (v == null || v === '') return <em className="text-slate-400">(empty)</em>;
+    if (k === 'delta' && typeof v === 'number') return (v > 0 ? '+' : '') + v;
+    return String(v);
+  };
+
+  // Build an ordered event list. Sort by timestamp so any interleaving reads
+  // chronologically without callers having to care about ordering rules.
+  const events = [];
+
+  events.push({
+    kind: 'booked',
+    ts: state.created_at,
+    who: state.authorised_by_pin || state.actor_name || state.actor_email,
+    payload: {
+      product_name: state.edit_history?.[0]?.previous_values?.product_name ?? state.product_name,
+      reason: state.edit_history?.[0]?.previous_values?.reason ?? state.reason,
+      note: state.edit_history?.[0]?.previous_values?.note ?? state.note,
+      before_qty: state.edit_history?.[0]?.previous_values?.before_qty ?? state.before_qty,
+      after_qty: state.edit_history?.[0]?.previous_values?.after_qty ?? state.after_qty,
+      delta: state.edit_history?.[0]?.previous_values?.delta ?? state.delta,
+    },
+    mode: state.mode,
+  });
+
+  (state.edit_history || []).forEach((e, idx) => {
+    events.push({
+      kind: 'edited',
+      ts: e.edited_at,
+      who: e.edited_by_pin || e.edited_by_email,
+      previous: e.previous_values || {},
+      next: e.new_values || {},
+      index: idx + 1,
+    });
+  });
+
+  if (state.reversed) {
+    events.push({
+      kind: 'reversed',
+      ts: state.reversed_at,
+      who: state.reversed_by_pin || state.reversed_by_email,
+      compensating_id: state.reversed_adjustment_id,
+    });
+  }
+
+  events.sort((a, b) => String(a.ts).localeCompare(String(b.ts)));
+
+  // Resolve linked compensating / original row (for the little "See row" links)
+  const compensating = state.reversed_adjustment_id
+    ? allAdjustments.find(r => r.id === state.reversed_adjustment_id)
+    : null;
+  const reverses = state.reverses_adjustment_id
+    ? allAdjustments.find(r => r.id === state.reverses_adjustment_id)
+    : null;
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto" data-testid="warehouse-timeline-dialog">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <History className="w-5 h-5 text-indigo-600" />
+            Adjustment timeline
+          </DialogTitle>
+          <DialogDescription>
+            <span className="font-medium">{state.product_name}</span> · <span className="font-mono text-xs">{state.product_sku}</span>
+            <span className="block text-xs text-slate-500 mt-0.5">
+              {events.length} event{events.length === 1 ? '' : 's'} · row id <span className="font-mono">{state.id.slice(0, 8)}</span>
+            </span>
+          </DialogDescription>
+        </DialogHeader>
+
+        {(reverses || compensating) && (
+          <div className="mb-2 rounded-md bg-indigo-50 border border-indigo-200 p-2 text-xs text-indigo-900 space-y-1">
+            {reverses && (
+              <div>
+                This row reverses adjustment <span className="font-mono">{reverses.id.slice(0, 8)}</span>{' '}
+                (<em>{reverses.reason}</em>, delta {reverses.delta > 0 ? '+' : ''}{reverses.delta}) from {formatDateTime(reverses.created_at)}.
+              </div>
+            )}
+            {compensating && (
+              <div>
+                Compensating row <span className="font-mono">{compensating.id.slice(0, 8)}</span>{' '}
+                (delta {compensating.delta > 0 ? '+' : ''}{compensating.delta}) was booked on {formatDateTime(compensating.created_at)}.
+              </div>
+            )}
+          </div>
+        )}
+
+        <div className="relative pl-4">
+          {/* Vertical timeline line */}
+          <div className="absolute left-[7px] top-2 bottom-2 w-px bg-slate-200" />
+
+          {events.map((ev, i) => (
+            <div key={i} className="relative pb-4 last:pb-0" data-testid={`warehouse-timeline-event-${i}`}>
+              {/* Timeline dot */}
+              <div
+                className={`absolute left-[-1px] top-1.5 w-4 h-4 rounded-full border-2 border-white
+                  ${ev.kind === 'booked' ? 'bg-emerald-500' :
+                    ev.kind === 'edited' ? 'bg-amber-500' :
+                    ev.kind === 'reversed' ? 'bg-red-500' : 'bg-slate-400'}
+                `}
+              />
+              <div className="pl-5">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className={`text-xs font-bold uppercase tracking-wide
+                    ${ev.kind === 'booked' ? 'text-emerald-700' :
+                      ev.kind === 'edited' ? 'text-amber-700' :
+                      ev.kind === 'reversed' ? 'text-red-700' : 'text-slate-500'}
+                  `}>
+                    {ev.kind === 'booked' && (ev.mode === 'batch' ? 'Booked via batch' : ev.mode === 'reverse' ? 'Booked as reversal' : 'Booked')}
+                    {ev.kind === 'edited' && `Edit #${ev.index}`}
+                    {ev.kind === 'reversed' && 'Reversed'}
+                  </span>
+                  <span className="text-xs text-slate-500">{formatDateTime(ev.ts)}</span>
+                  {ev.who && (
+                    <span className="text-xs text-emerald-700 flex items-center gap-1">
+                      <UserIcon className="w-3 h-3" /> PIN: {ev.who}
+                    </span>
+                  )}
+                </div>
+
+                {ev.kind === 'booked' && (
+                  <div className="mt-1.5 grid grid-cols-2 gap-x-4 gap-y-0.5 text-xs bg-slate-50 rounded px-3 py-2 border border-slate-200">
+                    {Object.entries(ev.payload).map(([k, v]) => (
+                      <div key={k} className="flex gap-1.5">
+                        <span className="text-slate-500 min-w-[80px]">{FIELD_LABELS[k]}:</span>
+                        <span className="text-slate-800 font-medium truncate">{formatVal(k, v)}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {ev.kind === 'edited' && (
+                  <div className="mt-1.5 space-y-1">
+                    {Object.keys(ev.next).map((k) => (
+                      <div key={k} className="text-xs bg-slate-50 rounded px-3 py-1.5 border border-slate-200">
+                        <div className="text-slate-500 font-medium mb-0.5">{FIELD_LABELS[k] || k}</div>
+                        <div className="flex items-start gap-2 flex-wrap">
+                          <span className="text-red-700 line-through">{formatVal(k, ev.previous[k])}</span>
+                          <span className="text-slate-400">→</span>
+                          <span className="text-emerald-700 font-semibold">{formatVal(k, ev.next[k])}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {ev.kind === 'reversed' && (
+                  <div className="mt-1.5 text-xs bg-red-50 border border-red-200 rounded px-3 py-2 text-red-900">
+                    Row struck out; a compensating adjustment (delta{' '}
+                    {compensating ? (
+                      <span className="font-mono font-semibold">
+                        {compensating.delta > 0 ? '+' : ''}{compensating.delta}
+                      </span>
+                    ) : 'n/a'}) was booked at the same time.
+                  </div>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)} data-testid="warehouse-timeline-close-btn">
+            Close
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
