@@ -9,6 +9,42 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Jul 23, 2026 — Forked session] 🟢 Warehouse product display polish — 5 owner asks + m² fix
+
+**Owner asks**:
+1. Show warehouse stock in **m²** alongside pieces.
+2. Show warehouse stock in **pieces** clearly.
+3. **Bold** batch numbers on batch cards.
+4. **Bold** locations on batch cards + product rows.
+5. Rename Recent Adjustments column **"Reason" → "Details"**.
+6. **Group same product's rows** in Recent Adjustments — same product with different batches shows as one summary row that expands.
+
+**What shipped**:
+
+- `StockBadge` redesigned to stack **pieces (text-lg font-bold)** + **m² subtotal (text-sm font-semibold, thin divider)** in one rounded card. Colour bands stay: emerald / amber / red for stock levels.
+- Batch cards upgraded (`BatchCard` in `Warehouse.jsx`):
+  - **Batch number pill** — dark slate, white text, `text-lg font-black`, Layers icon. Reads from arm's length.
+  - **Location pill** — blue-600 background, white bold text, MapPin icon. Slate italic "Unslotted" fallback when unset.
+  - **Total pieces** — `text-3xl font-black text-emerald-700 tabular-nums`. With a **m² subtotal** below it when the product carries `sqm_per_piece` / `tile_m2_per_piece` / `tile_width`+`tile_height`.
+- Product row location pill upgraded to `bg-blue-600 text-white font-bold` for parity.
+- Recent Adjustments header column renamed to **"Details"**.
+- New **"Group by product"** toggle at the top-right of the Recent Adjustments panel (default ON, `data-testid=warehouse-history-group-toggle`). When ON, same-product events collapse into a single summary row (`event count · click to expand`) with a chevron; click to reveal individual events. When OFF, flat chronological view.
+- `HistoryRow` extracted to a file-scope component so grouped and flat views share identical row markup + all four action buttons (Timeline / Edit / Delete / Adjust).
+- Backend `search_warehouse_products` + `list_product_batches` both now enrich embedded batches with `total_m2` using a unified derivation: `tile_m2_per_piece → sqm_per_piece → tile_width*tile_height/1_000_000`. Missing / bad values are handled silently — endpoint always returns 200.
+
+**Testing** — verified by `testing_agent_v3_fork`:
+
+- **Iter197** (initial): 5/5 backend tests, 4/5 frontend UI checks passed; found a single MEDIUM bug — batch card m² not rendering because the search endpoint (which the frontend actually reads from) wasn't enriched. **Fix applied**.
+- **Iter198** (retest): **8/8 backend tests + 100% frontend** — batch card `3.60 m²` subtotal now renders in the live UI; product-row StockBadge shows both `10 PIECE` and `3.60 m²`; regression checks on iter196 soft-delete filter and iter197 per-product-endpoint enrichment all pass.
+
+**Files**:
+- `/app/backend/routes/warehouse.py` — `search_warehouse_products` + `list_product_batches` enrichment.
+- `/app/frontend/src/pages/admin/Warehouse.jsx` — StockBadge, BatchCard, HistoryRow, group toggle, memoised groupedHistory, DETAILS header.
+- `/app/backend/tests/test_warehouse_batch_m2.py` — 8 pytest cases (added by testing agent).
+
+
+
+
 ### [Jul 23, 2026 — Forked session] 🔴 P0 fix — "Deleted items are coming back" (compensation chains)
 
 **Reported symptom** (owner screenshot 23 Jul): Recent Adjustments panel filled with nested `Reversed adj X (Reversed adj Y (Reversed adj Z ...))` rows. Every click of the trash icon **added another row instead of removing one**.
