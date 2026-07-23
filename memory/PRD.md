@@ -9,7 +9,37 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
-### [Jul 23, 2026 — Forked session] 🟢 Multi-batch highlight — spot multi-batch products at a glance
+### [Jul 24, 2026 — Forked session] 🟢 Bug fix: batch_added rows now show BATCH SIZE, not cumulative running total
+
+**Owner spotted a subtle but critical audit bug**:
+- Group header `Slate Rock White 30x60` showed `TOTAL STOCK NOW: 31.86 m²`.
+- Child row "Batch 001H added +93" showed **31.86 m²** in the Available Stock cell.
+- Child row "Batch U03J added +84" showed **15.12 m²** in the Available Stock cell.
+- The user's instinct: "if I add the two batches I should get the total" — but `31.86 + 15.12 = 46.98`, not `31.86`. That's because `after_qty` on Row 1 was the CUMULATIVE stock after both batches, whilst Row 2 was just after Batch U03J.
+- Result: the child rows didn't add up to the group total → confusion.
+
+**Fix**:
+- For `batch_added` and `delivery_received` rows the Available Stock cell now displays **the batch's own size** (`delta × m²`), labelled **"This batch"**, instead of the running `after_qty` snapshot.
+- All other reasons (`stocktake_correction`, `damage_writeoff`, `other`, `sale`, etc.) still show the cumulative `after_qty`, labelled **"Stock after"**.
+- The details popup mirrors the same logic — it now says **"This batch adds"** for batch-add rows, with a small secondary line showing `Warehouse total after this batch: X pcs · Y m²` so the audit trail is still available.
+- Column header stays "Available Stock"; the sub-label (`This batch` vs `Stock after`) disambiguates per row.
+
+**Now**: For Slate Rock White 30x60 (177 pcs total = 31.86 m²):
+  - Batch 001H (+93) row → shows **16.74 m² · 93 piece** ("This batch")
+  - Batch U03J (+84) row → shows **15.12 m² · 84 piece** ("This batch")
+  - Adds up to **31.86 m²** ✓ (matches the group header total).
+
+**Files**:
+- `/app/frontend/src/pages/admin/Warehouse.jsx` — `HistoryRow` AvailableStockCell wrapper + `AdjustmentDetailsDialog` stock section.
+
+**Verification** — screenshot on `/admin/warehouse` with "Group by product" + "Show all 50":
+- Floor Tile Grey 600x600 → mixed reasons visible:
+  - Stocktake correction rows label **"STOCK AFTER"** = 86 PCS ✅
+  - Damage / write-off row labels **"STOCK AFTER"** = 85 PCS ✅
+  - Delivery received (+49) row labels **"THIS BATCH"** = 49 PCS (batch size!) ✅
+
+
+
 
 **Owner ask** (after v2 shipped): products with more than one batch should be **visually highlighted** so warehouse staff can spot them at a glance. Also make it obvious what the "total stock" means so the audit rows aren't mentally added together (owner's screenshot showed them trying to add `31.86 m² + 15.12 m² = 46.98 m²`, which is arithmetically wrong because `after_qty` is cumulative — the true total is the latest `after_qty`).
 

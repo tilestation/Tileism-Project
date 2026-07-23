@@ -219,14 +219,36 @@ function HistoryRow({
         <div className="text-xs font-mono text-slate-400">{a.product_sku || ''}</div>
       </td>
       <td className="py-2.5 px-4 align-top">
-        <AvailableStockCell
-          pieces={a.after_qty}
-          tilesPerBox={a.product_tiles_per_box}
-          m2PerPiece={a.product_tile_m2_per_piece}
-          unit={a.product_unit}
-          size="sm"
-          testId={`warehouse-history-stock-${a.id}`}
-        />
+        {(() => {
+          // For "batch added" style events, showing the running "after_qty"
+          // is misleading — staff instinctively read the number next to
+          // "Batch 001H" as the size of THAT batch, but after_qty is the
+          // cumulative total after every batch up to that point. Bug spotted
+          // 24 Jul 2026: Slate Rock White row showed 31.86 m² for the +93
+          // batch even though that batch itself is only 16.74 m². Fix — for
+          // batch_added / delivery_received rows we display the batch size
+          // (delta * m²) instead. Now the child rows add up to the group
+          // total, which is what users expect.
+          const isBatchAdd = a.reason === 'batch_added' || a.reason === 'delivery_received';
+          const showBatchSize = isBatchAdd && a.delta > 0;
+          const piecesForCell = showBatchSize ? a.delta : a.after_qty;
+          const label = showBatchSize ? 'This batch' : 'Stock after';
+          return (
+            <div>
+              <div className="text-[9px] uppercase tracking-widest font-bold text-slate-400 text-right mb-0.5">
+                {label}
+              </div>
+              <AvailableStockCell
+                pieces={piecesForCell}
+                tilesPerBox={a.product_tiles_per_box}
+                m2PerPiece={a.product_tile_m2_per_piece}
+                unit={a.product_unit}
+                size="sm"
+                testId={`warehouse-history-stock-${a.id}`}
+              />
+            </div>
+          );
+        })()}
       </td>
       <td className="py-2.5 px-4 text-right whitespace-nowrap align-top">
         <span
@@ -2712,20 +2734,47 @@ function AdjustmentDetailsDialog({
           </div>
         )}
 
-        {/* Available Stock — the anchor number staff care about */}
-        <div className="rounded-lg border-2 border-emerald-200 bg-emerald-50/40 p-4">
-          <div className="text-[11px] uppercase tracking-widest text-emerald-800 font-bold mb-2">
-            Available stock after this adjustment
-          </div>
-          <AvailableStockCell
-            pieces={a.after_qty}
-            tilesPerBox={a.product_tiles_per_box}
-            m2PerPiece={a.product_tile_m2_per_piece}
-            unit={a.product_unit}
-            size="lg"
-            testId={`warehouse-adjustment-details-stock-${a.id}`}
-          />
-        </div>
+        {/* Available Stock — the anchor number staff care about.
+            For batch_added / delivery_received rows we now show the SIZE
+            OF THIS BATCH (delta * m²), not the running total — this matches
+            the child-row display in the audit table and lines up with the
+            user's mental model ("Batch 001H adds 16.74 m²"). For other
+            reasons (stocktake_correction, damage_writeoff etc.) we keep
+            showing the resulting after_qty. */}
+        {(() => {
+          const isBatchAdd = a.reason === 'batch_added' || a.reason === 'delivery_received';
+          const showBatchSize = isBatchAdd && a.delta > 0;
+          const piecesForCell = showBatchSize ? a.delta : a.after_qty;
+          const heading = showBatchSize
+            ? 'This batch adds'
+            : 'Available stock after this adjustment';
+          return (
+            <div className="rounded-lg border-2 border-emerald-200 bg-emerald-50/40 p-4">
+              <div className="text-[11px] uppercase tracking-widest text-emerald-800 font-bold mb-2">
+                {heading}
+              </div>
+              <AvailableStockCell
+                pieces={piecesForCell}
+                tilesPerBox={a.product_tiles_per_box}
+                m2PerPiece={a.product_tile_m2_per_piece}
+                unit={a.product_unit}
+                size="lg"
+                testId={`warehouse-adjustment-details-stock-${a.id}`}
+              />
+              {showBatchSize && (
+                <div className="mt-2 pt-2 border-t border-emerald-200 text-xs text-slate-600">
+                  Warehouse total after this batch:{' '}
+                  <span className="font-bold text-slate-800 tabular-nums">
+                    {a.after_qty} {a.product_unit || 'pcs'}
+                    {a.product_tile_m2_per_piece && Number(a.product_tile_m2_per_piece) > 0 && (
+                      <> · {(Number(a.after_qty) * Number(a.product_tile_m2_per_piece)).toFixed(2)} m²</>
+                    )}
+                  </span>
+                </div>
+              )}
+            </div>
+          );
+        })()}
 
         {/* Delta callout */}
         <div className="rounded-lg border border-slate-200 bg-white p-3 flex items-center justify-between">
