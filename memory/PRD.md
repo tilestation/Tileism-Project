@@ -9,6 +9,50 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Jul 23, 2026 — Forked session] 🟢 Warehouse UI polish v2 — "Available Stock" column + clickable details popup
+
+**Owner feedback on iter198**:
+- m² still not visible on some rows (only pieces).
+- Batch numbers not "boldly highlighted".
+- Requested: replace `Before → After` with a single **"Available Stock"** column that shows m² boldly, plus boxes + loose tiles.
+- Wanted click-to-open **details popup** with all info, and before/after hidden or collapsible.
+
+**What shipped**:
+
+- **Backend `GET /api/warehouse/adjustments`** enrichment — each row now includes `product_tiles_per_box`, `product_tile_m2_per_piece`, `product_unit`, `product_warehouse_location`, `product_image` (bulk fetch across all rows in a single Mongo call). No new endpoint.
+- **New `formatStockUnits(pieces, tilesPerBox, m2PerPiece)`** helper — converts raw piece counts into `{ boxes, loose, m2, pieces }` (the three units warehouse staff actually think in).
+- **New `<AvailableStockCell>`** reusable component with `size=sm|md|lg`:
+  - Primary line = `X.XX m²` (font-black, large, colour-coded emerald/amber/red).
+  - Secondary line = `N boxes + M loose · Z pcs` (font-semibold, tabular-nums).
+  - Falls back to `Z PCS` primary + `N boxes + M loose` secondary when product has no dimensions.
+- **Recent Adjustments table redesigned**:
+  - Dropped **"Before → After"** column entirely.
+  - New **"Available Stock"** column showing `after_qty` via `<AvailableStockCell>`.
+  - `Change` column becomes a coloured chip (`+10`, `-3`) instead of raw text.
+  - Every row is now clickable → opens new `<AdjustmentDetailsDialog>`.
+- **New `<AdjustmentDetailsDialog>`** — full-context popup with:
+  - Product identity card (thumbnail + name + SKU + location pill).
+  - Big **Available stock after this adjustment** card (m² primary, boxes/loose secondary).
+  - **Change** + **Reason** side-by-side.
+  - Note (amber highlight box, italic quote).
+  - **Booked by** + **Authorised by PIN** side-by-side.
+  - **Before / after (raw pieces)** — collapsible section (default collapsed) for audit-purists.
+  - Action buttons: Close · Timeline (if edit_history) · Edit · Adjust stock · Delete.
+- Grouped view keeps the same clickable / expandable behaviour — group header now shows `AvailableStockCell` for `latest_after`.
+- Removed unused `StockBadge` and `CoverageLine` helpers.
+
+**Files**:
+- `/app/backend/routes/warehouse.py` — `list_adjustments` enrichment loop.
+- `/app/frontend/src/pages/admin/Warehouse.jsx` — helpers + AvailableStockCell + HistoryRow rewrite + AdjustmentDetailsDialog.
+
+**Verification** — visual screenshot inspection:
+- Recent Adjustments panel now shows `3.60 m²` primary + `10 piece` secondary in the AVAILABLE STOCK column ✅
+- Product results row shows `51 PCS` big + `12 boxes + 3 loose` secondary ✅
+- Batch cards still show huge bold **BN-e29d81** pill (dark slate, white text) ✅
+- Click a row → popup opens with all fields, before/after collapsed by default ✅
+- All action buttons still work + preserve `stopPropagation` so row-click doesn't fire when clicking icons.
+
+
 ### [Jul 23, 2026 — Forked session] 🟢 Warehouse product display polish — 5 owner asks + m² fix
 
 **Owner asks**:

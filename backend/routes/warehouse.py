@@ -593,6 +593,45 @@ async def list_adjustments(
     rows = await cursor.to_list(limit)
     for r in rows:
         r.pop("_id", None)
+
+    # Enrich each row with the current product's tiles_per_box,
+    # tile_m2_per_piece, unit and thumbnail — the frontend uses these
+    # to render an "Available Stock" cell (m² + boxes + loose) and the
+    # per-row details popup, without needing a separate call per row.
+    # Requested 23 Jul 2026 as part of the Warehouse UI polish pass.
+    product_ids = list({r.get("product_id") for r in rows if r.get("product_id")})
+    if product_ids:
+        prod_cursor = db.products.find(
+            {"id": {"$in": product_ids}},
+            {
+                "_id": 0,
+                "id": 1,
+                "tiles_per_box": 1,
+                "tile_m2_per_piece": 1,
+                "sqm_per_piece": 1,
+                "unit": 1,
+                "images": 1,
+                "warehouse_location": 1,
+            },
+        )
+        products = await prod_cursor.to_list(len(product_ids))
+        prod_map = {p["id"]: p for p in products}
+        for r in rows:
+            p = prod_map.get(r.get("product_id"))
+            if not p:
+                continue
+            m2_raw = p.get("tile_m2_per_piece") or p.get("sqm_per_piece")
+            try:
+                m2 = float(m2_raw) if m2_raw not in (None, "") else None
+            except (ValueError, TypeError):
+                m2 = None
+            imgs = p.get("images") or []
+            r["product_tiles_per_box"] = p.get("tiles_per_box")
+            r["product_tile_m2_per_piece"] = m2
+            r["product_unit"] = p.get("unit")
+            r["product_warehouse_location"] = p.get("warehouse_location") or ""
+            r["product_image"] = imgs[0] if isinstance(imgs, list) and imgs else None
+
     return {"adjustments": rows}
 
 

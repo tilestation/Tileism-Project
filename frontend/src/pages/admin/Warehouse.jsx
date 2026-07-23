@@ -82,6 +82,75 @@ function formatDateTime(iso) {
   } catch { return '—'; }
 }
 
+// Convert a raw piece count into the three units the warehouse floor
+// staff actually think in: m² (the primary — that's what the customer
+// buys), boxes (how it's palletised) and loose (the odd tiles left over
+// from a half-opened box). Any of these may be null when the product
+// hasn't got dimensions or a tiles-per-box value recorded.
+function formatStockUnits(pieces, tilesPerBox, m2PerPiece) {
+  const p = Number(pieces || 0);
+  const tpb = Number(tilesPerBox || 0);
+  const m2p = Number(m2PerPiece || 0);
+  const boxes = tpb > 0 ? Math.floor(p / tpb) : null;
+  const loose = tpb > 0 ? p % tpb : null;
+  const m2 = m2p > 0 ? Number((p * m2p).toFixed(2)) : null;
+  return { pieces: p, boxes, loose, m2, tilesPerBox: tpb };
+}
+
+// Renders the "Available Stock" cell used in the results list AND the
+// Recent Adjustments table. Big bold m² as the primary line, and a
+// smaller secondary line broken down into boxes + loose + pieces so
+// the shop floor can cross-check without a calculator.
+function AvailableStockCell({ pieces, tilesPerBox, m2PerPiece, unit, size = 'md', testId }) {
+  const u = formatStockUnits(pieces, tilesPerBox, m2PerPiece);
+  const empty = u.pieces === 0;
+  const primaryCls = empty
+    ? 'text-red-700'
+    : u.pieces <= 5
+    ? 'text-amber-700'
+    : 'text-emerald-700';
+  const sizeCls = size === 'lg'
+    ? { primary: 'text-2xl', secondary: 'text-xs' }
+    : size === 'sm'
+    ? { primary: 'text-base', secondary: 'text-[10px]' }
+    : { primary: 'text-xl', secondary: 'text-[11px]' };
+
+  const unitLabel = unit || 'pcs';
+  return (
+    <div className="text-right leading-tight" data-testid={testId}>
+      {u.m2 != null ? (
+        <>
+          <div className={`${sizeCls.primary} font-black tabular-nums ${primaryCls}`}>
+            {u.m2.toFixed(2)} <span className="font-bold">m²</span>
+          </div>
+          <div className={`${sizeCls.secondary} text-slate-600 font-semibold tabular-nums mt-0.5`}>
+            {u.boxes != null ? (
+              <>
+                {u.boxes} {u.boxes === 1 ? 'box' : 'boxes'}
+                {u.loose > 0 && <> + {u.loose} loose</>}
+                <span className="text-slate-400"> · </span>
+              </>
+            ) : null}
+            {u.pieces} {unitLabel}
+          </div>
+        </>
+      ) : (
+        <>
+          <div className={`${sizeCls.primary} font-black tabular-nums ${primaryCls}`}>
+            {u.pieces} <span className="text-sm font-bold uppercase">{unitLabel}</span>
+          </div>
+          {u.boxes != null && (
+            <div className={`${sizeCls.secondary} text-slate-600 font-semibold tabular-nums mt-0.5`}>
+              {u.boxes} {u.boxes === 1 ? 'box' : 'boxes'}
+              {u.loose > 0 && <> + {u.loose} loose</>}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 const REASON_LABELS = {
   delivery_received: 'Delivery received',
   stocktake_correction: 'Stocktake correction',
@@ -105,68 +174,69 @@ const BATCH_REASONS = [
 // Small subcomponents
 // ---------------------------------------------------------------------------
 
-function StockBadge({ stock, unit, m2 }) {
-  const s = stock ?? 0;
-  const cls = s === 0
-    ? 'bg-red-50 text-red-800 border-red-200'
-    : s <= 5
-    ? 'bg-amber-50 text-amber-800 border-amber-200'
-    : 'bg-emerald-50 text-emerald-800 border-emerald-200';
-  return (
-    <div className={`rounded-md border px-2.5 py-1 text-right ${cls}`}>
-      <div className="text-lg font-bold leading-none tabular-nums">{s}</div>
-      <div className="text-[10px] uppercase tracking-wide opacity-80">
-        {unit || 'pcs'}
-      </div>
-      {m2 != null && Number(m2) > 0 && (
-        <div className="text-[11px] font-semibold mt-0.5 border-t border-current/20 pt-0.5 tabular-nums">
-          {Number(m2).toFixed(2)} m²
-        </div>
-      )}
-    </div>
-  );
-}
-
-function CoverageLine() { return null; /* superseded — coverage now inside StockBadge */ }
-
 // ===========================================================================
 // HistoryRow — extracted so grouped + flat views share the same row markup
 // ===========================================================================
 // Renders one row of the Recent Adjustments table. `inGroup` = true adds a
 // small left indent so grouped rows sit clearly under their parent header.
+// 23 Jul 2026 rework: dropped the "Before → After" column entirely. The
+// available stock (in m² + boxes + loose) is now the anchor of every row.
+// Before/after is preserved but hidden inside the details popup, which
+// opens on click anywhere on the row (buttons still stopPropagation).
 function HistoryRow({
   a, reasonLabels, inGroup,
   setEditAdjState, setReverseAdjState, setTimelineAdjState, setAdjustState,
-  ensureFreshPin,
+  setDetailsAdjState, ensureFreshPin,
 }) {
   const REASON_LABELS = reasonLabels || {};
+  const openDetails = () => setDetailsAdjState(a);
+  const stop = (e) => e.stopPropagation();
   return (
     <tr
-      className={`border-t border-slate-100 ${a.reversed ? 'bg-slate-50/60' : ''} ${inGroup ? 'bg-slate-50/40' : ''}`}
+      className={`border-t border-slate-100 cursor-pointer hover:bg-indigo-50/40 transition ${a.reversed ? 'bg-slate-50/60' : ''} ${inGroup ? 'bg-slate-50/40' : ''}`}
+      onClick={openDetails}
       data-testid={`warehouse-history-row-${a.id}`}
     >
-      <td className={`py-2 px-4 text-xs text-slate-500 whitespace-nowrap ${inGroup ? 'pl-10' : ''}`}>
+      <td className={`py-2.5 px-4 text-xs text-slate-500 whitespace-nowrap align-top ${inGroup ? 'pl-10' : ''}`}>
         {formatDateTime(a.created_at)}
       </td>
-      <td className="py-2 px-4">
-        <div className={`font-medium ${a.reversed ? 'text-slate-400 line-through' : 'text-slate-900'}`}>
+      <td className="py-2.5 px-4 align-top">
+        <div className={`font-semibold ${a.reversed ? 'text-slate-400 line-through' : 'text-slate-900'}`}>
           {a.product_name}
         </div>
         <div className="text-xs font-mono text-slate-400">{a.product_sku || ''}</div>
       </td>
-      <td className={`py-2 px-4 text-right whitespace-nowrap ${a.reversed ? 'text-slate-400 line-through' : 'text-slate-600'}`}>
-        {a.before_qty} → <strong>{a.after_qty}</strong>
+      <td className="py-2.5 px-4 align-top">
+        <AvailableStockCell
+          pieces={a.after_qty}
+          tilesPerBox={a.product_tiles_per_box}
+          m2PerPiece={a.product_tile_m2_per_piece}
+          unit={a.product_unit}
+          size="sm"
+          testId={`warehouse-history-stock-${a.id}`}
+        />
       </td>
-      <td className="py-2 px-4 text-right whitespace-nowrap">
-        <span className={`${a.reversed ? 'line-through text-slate-400' : a.delta > 0 ? 'text-emerald-700' : a.delta < 0 ? 'text-red-700' : 'text-slate-500'}`}>
+      <td className="py-2.5 px-4 text-right whitespace-nowrap align-top">
+        <span
+          className={`inline-flex items-center px-2 py-0.5 rounded font-bold text-sm tabular-nums ${
+            a.reversed
+              ? 'line-through text-slate-400 bg-slate-100'
+              : a.delta > 0
+              ? 'text-emerald-800 bg-emerald-50 border border-emerald-200'
+              : a.delta < 0
+              ? 'text-red-800 bg-red-50 border border-red-200'
+              : 'text-slate-500 bg-slate-50 border border-slate-200'
+          }`}
+          data-testid={`warehouse-history-delta-${a.id}`}
+        >
           {a.delta > 0 ? '+' : ''}{a.delta}
         </span>
       </td>
-      <td className="py-2 px-4">
-        <div className={`${a.reversed ? 'text-slate-400 line-through' : 'text-slate-700'}`}>
+      <td className="py-2.5 px-4 align-top">
+        <div className={`${a.reversed ? 'text-slate-400 line-through' : 'text-slate-700'} font-medium`}>
           {REASON_LABELS[a.reason] || a.reason}
         </div>
-        {a.note && <div className="text-xs text-slate-400 italic">&ldquo;{a.note}&rdquo;</div>}
+        {a.note && <div className="text-xs text-slate-500 italic truncate max-w-[220px]">&ldquo;{a.note}&rdquo;</div>}
         {a.reversed && (
           <div
             className="inline-flex items-center gap-1 mt-1 px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide bg-red-100 text-red-800 border border-red-200"
@@ -186,7 +256,7 @@ function HistoryRow({
           </div>
         )}
       </td>
-      <td className="py-2 px-4 text-xs text-slate-500">
+      <td className="py-2.5 px-4 text-xs text-slate-500 align-top">
         <div>{a.actor_name || a.actor_email}</div>
         {a.authorised_by_pin && (
           <div className="text-emerald-700 flex items-center gap-1 mt-0.5">
@@ -195,7 +265,7 @@ function HistoryRow({
           </div>
         )}
       </td>
-      <td className="py-2 px-4">
+      <td className="py-2.5 px-4 align-top" onClick={stop}>
         {a.reversed ? (
           <div className="flex items-center justify-end gap-1">
             {(a.edit_history?.length > 0 || a.reversed) && (
@@ -563,6 +633,7 @@ export default function Warehouse() {
   const [editAdjState, setEditAdjState] = useState(null);
   const [reverseAdjState, setReverseAdjState] = useState(null);
   const [timelineAdjState, setTimelineAdjState] = useState(null);
+  const [detailsAdjState, setDetailsAdjState] = useState(null);
   const [requestState, setRequestState] = useState(null);
 
   const canManage = !!info?.can_manage;
@@ -832,14 +903,28 @@ export default function Warehouse() {
                           </span>
                         )}
                       </div>
-                      <CoverageLine product={p} />
                     </div>
                     <div className="text-right flex-shrink-0">
-                      <div className="flex items-center gap-2 justify-end">
+                      <div className="flex items-center gap-3 justify-end">
                         <Badge variant="secondary" className="text-xs">
                           {p.batch_count} batch{p.batch_count === 1 ? '' : 'es'}
                         </Badge>
-                        <StockBadge stock={p.warehouse_stock} unit={p.unit} m2={p.coverage_m2} />
+                        <div className={`rounded-md border px-3 py-1.5 ${
+                          (p.warehouse_stock ?? 0) === 0
+                            ? 'bg-red-50 border-red-200'
+                            : (p.warehouse_stock ?? 0) <= 5
+                            ? 'bg-amber-50 border-amber-200'
+                            : 'bg-emerald-50 border-emerald-200'
+                        }`}>
+                          <AvailableStockCell
+                            pieces={p.warehouse_stock}
+                            tilesPerBox={p.tiles_per_box}
+                            m2PerPiece={p.tile_m2_per_piece}
+                            unit={p.unit}
+                            size="md"
+                            testId={`warehouse-product-stock-${p.sku || p.id}`}
+                          />
+                        </div>
                       </div>
                       {p.last_adjusted_at && (
                         <div className="text-xs text-slate-400 mt-1">
@@ -935,9 +1020,9 @@ export default function Warehouse() {
                 <tr>
                   <th className="text-left py-2 px-4">When</th>
                   <th className="text-left py-2 px-4">Product</th>
-                  <th className="text-right py-2 px-4">Before → After</th>
-                  <th className="text-right py-2 px-4">Δ</th>
-                  <th className="text-left py-2 px-4">Details</th>
+                  <th className="text-right py-2 px-4">Available stock</th>
+                  <th className="text-right py-2 px-4">Change</th>
+                  <th className="text-left py-2 px-4">Reason</th>
                   <th className="text-left py-2 px-4">Who</th>
                   <th className="text-right py-2 px-4 w-24">Actions</th>
                 </tr>
@@ -948,37 +1033,53 @@ export default function Warehouse() {
                   // reveal the individual adjustment events.
                   groupedHistory.map((g) => {
                     const isOpen = !!expandedGroups[g.key];
+                    // Use the latest adjustment's product-level context for
+                    // the boxes / m² breakdown on the group header cell.
+                    const latestRow = g.rows[0] || {};
                     return (
                       <React.Fragment key={g.key}>
                         <tr
-                          className="border-t border-slate-200 bg-slate-50 hover:bg-slate-100 cursor-pointer"
+                          className="border-t-2 border-slate-200 bg-slate-100 hover:bg-slate-200/60 cursor-pointer"
                           onClick={() => setExpandedGroups({ ...expandedGroups, [g.key]: !isOpen })}
                           data-testid={`warehouse-history-group-${g.key}`}
                         >
-                          <td className="py-2 px-4 text-xs text-slate-500 whitespace-nowrap">
+                          <td className="py-2.5 px-4 text-xs text-slate-500 whitespace-nowrap">
                             <div className="flex items-center gap-1">
                               <ChevronDown className={`w-3 h-3 transition-transform ${isOpen ? '' : '-rotate-90'}`} />
                               {formatDateTime(g.latest_at)}
                             </div>
                           </td>
-                          <td className="py-2 px-4">
-                            <div className="font-semibold text-slate-900">{g.product_name}</div>
-                            <div className="text-xs font-mono text-slate-400">{g.product_sku || ''}</div>
+                          <td className="py-2.5 px-4">
+                            <div className="font-bold text-slate-900">{g.product_name}</div>
+                            <div className="text-xs font-mono text-slate-500">{g.product_sku || ''}</div>
                           </td>
-                          <td className="py-2 px-4 text-right whitespace-nowrap text-slate-600">
-                            {g.earliest_before} → <strong>{g.latest_after}</strong>
+                          <td className="py-2.5 px-4">
+                            <AvailableStockCell
+                              pieces={g.latest_after}
+                              tilesPerBox={latestRow.product_tiles_per_box}
+                              m2PerPiece={latestRow.product_tile_m2_per_piece}
+                              unit={latestRow.product_unit}
+                              size="sm"
+                              testId={`warehouse-history-group-stock-${g.key}`}
+                            />
                           </td>
-                          <td className="py-2 px-4 text-right whitespace-nowrap">
-                            <span className={g.net_delta > 0 ? 'text-emerald-700 font-semibold' : g.net_delta < 0 ? 'text-red-700 font-semibold' : 'text-slate-500'}>
+                          <td className="py-2.5 px-4 text-right whitespace-nowrap">
+                            <span className={`inline-flex items-center px-2 py-0.5 rounded font-bold text-sm tabular-nums ${
+                              g.net_delta > 0
+                                ? 'text-emerald-800 bg-emerald-50 border border-emerald-200'
+                                : g.net_delta < 0
+                                ? 'text-red-800 bg-red-50 border border-red-200'
+                                : 'text-slate-500 bg-slate-50 border border-slate-200'
+                            }`}>
                               {g.net_delta > 0 ? '+' : ''}{g.net_delta}
                             </span>
                           </td>
-                          <td className="py-2 px-4 text-slate-600 text-xs">
+                          <td className="py-2.5 px-4 text-slate-600 text-xs">
                             <span className="font-semibold">{g.rows.length}</span> event{g.rows.length === 1 ? '' : 's'}
                             <span className="text-slate-400"> · click to {isOpen ? 'collapse' : 'expand'}</span>
                           </td>
-                          <td className="py-2 px-4" />
-                          <td className="py-2 px-4" />
+                          <td className="py-2.5 px-4" />
+                          <td className="py-2.5 px-4" />
                         </tr>
                         {isOpen && g.rows.map((a) => (
                           <HistoryRow
@@ -990,6 +1091,7 @@ export default function Warehouse() {
                             setReverseAdjState={setReverseAdjState}
                             setTimelineAdjState={setTimelineAdjState}
                             setAdjustState={setAdjustState}
+                            setDetailsAdjState={setDetailsAdjState}
                             ensureFreshPin={ensureFreshPin}
                           />
                         ))}
@@ -1006,6 +1108,7 @@ export default function Warehouse() {
                       setReverseAdjState={setReverseAdjState}
                       setTimelineAdjState={setTimelineAdjState}
                       setAdjustState={setAdjustState}
+                      setDetailsAdjState={setDetailsAdjState}
                       ensureFreshPin={ensureFreshPin}
                     />
                   ))
@@ -1075,6 +1178,28 @@ export default function Warehouse() {
         state={timelineAdjState}
         allAdjustments={adjustments}
         onOpenChange={(o) => { if (!o) setTimelineAdjState(null); }}
+      />
+      <AdjustmentDetailsDialog
+        state={detailsAdjState}
+        reasonLabels={REASON_LABELS}
+        onOpenChange={(o) => { if (!o) setDetailsAdjState(null); }}
+        onEdit={(a) => { setDetailsAdjState(null); ensureFreshPin(() => setEditAdjState(a)); }}
+        onReverse={(a) => { setDetailsAdjState(null); ensureFreshPin(() => setReverseAdjState(a)); }}
+        onTimeline={(a) => { setDetailsAdjState(null); setTimelineAdjState(a); }}
+        onAdjust={(a) => {
+          setDetailsAdjState(null);
+          ensureFreshPin(() => setAdjustState({
+            product: {
+              id: a.product_id,
+              name: a.product_name,
+              sku: a.product_sku,
+              warehouse_stock: a.after_qty,
+              tiles_per_box: a.product_tiles_per_box,
+              tile_m2_per_piece: a.product_tile_m2_per_piece,
+              unit: a.product_unit,
+            },
+          }));
+        }}
       />
     </div>
   );
@@ -1192,7 +1317,13 @@ function ExistingProductPicker({ onPick }) {
               <div className="font-medium text-sm truncate">{p.name}</div>
               <div className="text-xs font-mono text-slate-500">{p.sku}</div>
             </div>
-            <StockBadge stock={p.warehouse_stock} unit={p.unit} />
+            <AvailableStockCell
+              pieces={p.warehouse_stock}
+              tilesPerBox={p.tiles_per_box}
+              m2PerPiece={p.tile_m2_per_piece}
+              unit={p.unit}
+              size="sm"
+            />
           </button>
         ))}
       </div>
@@ -2423,3 +2554,207 @@ function TimelineDialog({ state, allAdjustments, onOpenChange }) {
   );
 }
 
+
+// ===========================================================================
+// AdjustmentDetailsDialog — click-to-open row inspector
+// ===========================================================================
+// Requested 23 Jul 2026: the Recent Adjustments row should be clickable and
+// open a rich details popup instead of showing Before/After inline. This
+// component renders the anchor stock (Available Stock in m² + boxes +
+// loose) prominently at the top, then a collapsible "Before / After
+// pieces" section for the audit-purists, plus all remaining metadata.
+// It also surfaces the primary actions (Edit / Delete / Timeline / Adjust)
+// so the user doesn't have to close it and hunt for the icon buttons.
+
+function AdjustmentDetailsDialog({
+  state, reasonLabels, onOpenChange,
+  onEdit, onReverse, onTimeline, onAdjust,
+}) {
+  const open = !!state;
+  const [showRaw, setShowRaw] = useState(false);
+  useEffect(() => { if (!open) setShowRaw(false); }, [open]);
+  if (!state) return null;
+
+  const a = state;
+  const REASON_LABELS = reasonLabels || {};
+  const isReversed = !!a.reversed;
+  const wasEdited = !!a.last_edited_at && !isReversed;
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto" data-testid="warehouse-adjustment-details-dialog">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Info className="w-5 h-5 text-indigo-600" />
+            Adjustment details
+          </DialogTitle>
+          <DialogDescription className="flex items-center gap-2 flex-wrap">
+            <span className="text-xs text-slate-500">{formatDateTime(a.created_at)}</span>
+            <span className="text-slate-400">·</span>
+            <span className="text-xs font-mono text-slate-500">{a.id.slice(0, 8)}</span>
+            {isReversed && (
+              <span className="ml-2 px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide bg-red-100 text-red-800 border border-red-200">
+                Reversed
+              </span>
+            )}
+            {wasEdited && (
+              <span className="ml-2 px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide bg-amber-100 text-amber-800 border border-amber-200">
+                Edited
+              </span>
+            )}
+          </DialogDescription>
+        </DialogHeader>
+
+        {/* Product identity card */}
+        <div className="flex items-center gap-3 p-3 rounded-lg bg-slate-50 border border-slate-200">
+          <div className="w-14 h-14 bg-white rounded flex items-center justify-center overflow-hidden border border-slate-200 flex-shrink-0">
+            {a.product_image ? (
+              <img src={a.product_image} alt="" className="w-full h-full object-cover" />
+            ) : (
+              <Package className="w-6 h-6 text-slate-300" />
+            )}
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="font-bold text-slate-900 truncate">{a.product_name}</div>
+            <div className="text-xs font-mono text-slate-500">{a.product_sku || '—'}</div>
+            {a.product_warehouse_location && (
+              <div className="inline-flex items-center gap-1 mt-1 px-1.5 py-0.5 bg-blue-600 rounded text-white font-bold text-[11px]">
+                <MapPin className="w-3 h-3" /> {a.product_warehouse_location}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Available Stock — the anchor number staff care about */}
+        <div className="rounded-lg border-2 border-emerald-200 bg-emerald-50/40 p-4">
+          <div className="text-[11px] uppercase tracking-widest text-emerald-800 font-bold mb-2">
+            Available stock after this adjustment
+          </div>
+          <AvailableStockCell
+            pieces={a.after_qty}
+            tilesPerBox={a.product_tiles_per_box}
+            m2PerPiece={a.product_tile_m2_per_piece}
+            unit={a.product_unit}
+            size="lg"
+            testId={`warehouse-adjustment-details-stock-${a.id}`}
+          />
+        </div>
+
+        {/* Delta callout */}
+        <div className="rounded-lg border border-slate-200 bg-white p-3 flex items-center justify-between">
+          <div>
+            <div className="text-[11px] uppercase tracking-widest text-slate-500 font-semibold">Change</div>
+            <div className={`text-2xl font-black tabular-nums mt-0.5 ${
+              isReversed
+                ? 'line-through text-slate-400'
+                : a.delta > 0
+                ? 'text-emerald-700'
+                : a.delta < 0
+                ? 'text-red-700'
+                : 'text-slate-500'
+            }`}>
+              {a.delta > 0 ? '+' : ''}{a.delta} <span className="text-sm font-bold uppercase">{a.product_unit || 'pcs'}</span>
+            </div>
+          </div>
+          <div className="text-right">
+            <div className="text-[11px] uppercase tracking-widest text-slate-500 font-semibold">Reason</div>
+            <div className="font-semibold text-slate-900 mt-0.5">
+              {REASON_LABELS[a.reason] || a.reason || '—'}
+            </div>
+          </div>
+        </div>
+
+        {/* Note */}
+        {a.note && (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-slate-700">
+            <div className="text-[11px] uppercase tracking-widest text-amber-800 font-bold mb-1">Note</div>
+            <div className="italic">&ldquo;{a.note}&rdquo;</div>
+          </div>
+        )}
+
+        {/* Who + PIN */}
+        <div className="grid grid-cols-2 gap-3">
+          <div className="rounded-lg border border-slate-200 bg-white p-3">
+            <div className="text-[11px] uppercase tracking-widest text-slate-500 font-semibold mb-1">Booked by</div>
+            <div className="text-sm font-semibold text-slate-900">{a.actor_name || a.actor_email || '—'}</div>
+            {a.actor_role && <div className="text-xs text-slate-500 mt-0.5">{a.actor_role}</div>}
+          </div>
+          <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3">
+            <div className="text-[11px] uppercase tracking-widest text-emerald-800 font-semibold mb-1 flex items-center gap-1">
+              <ShieldCheck className="w-3 h-3" /> Authorised by PIN
+            </div>
+            <div className="text-sm font-semibold text-emerald-900">{a.authorised_by_pin || '—'}</div>
+          </div>
+        </div>
+
+        {/* Collapsible raw before/after — audit purists only */}
+        <div className="rounded-lg border border-slate-200 bg-slate-50">
+          <button
+            type="button"
+            className="w-full flex items-center justify-between px-3 py-2 text-xs text-slate-600 hover:bg-slate-100"
+            onClick={() => setShowRaw(!showRaw)}
+            data-testid="warehouse-adjustment-details-toggle-raw"
+          >
+            <span className="font-semibold uppercase tracking-widest">
+              Before / after (raw pieces)
+            </span>
+            <ChevronDown className={`w-4 h-4 transition-transform ${showRaw ? '' : '-rotate-90'}`} />
+          </button>
+          {showRaw && (
+            <div className="px-3 pb-3 text-sm tabular-nums grid grid-cols-2 gap-3">
+              <div className="rounded bg-white border border-slate-200 p-2">
+                <div className="text-[10px] uppercase text-slate-400 font-semibold tracking-widest">Before</div>
+                <div className="text-lg font-bold text-slate-700">{a.before_qty} pcs</div>
+              </div>
+              <div className="rounded bg-white border border-slate-200 p-2">
+                <div className="text-[10px] uppercase text-slate-400 font-semibold tracking-widest">After</div>
+                <div className="text-lg font-bold text-slate-900">{a.after_qty} pcs</div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <DialogFooter className="flex flex-wrap gap-2">
+          <Button variant="outline" onClick={() => onOpenChange(false)}
+            data-testid="warehouse-adjustment-details-close-btn">
+            Close
+          </Button>
+          {(a.edit_history?.length > 0 || a.reverses_adjustment_id || isReversed) && (
+            <Button variant="outline" onClick={() => onTimeline(a)}
+              data-testid="warehouse-adjustment-details-timeline-btn">
+              <History className="w-4 h-4 mr-1.5" />
+              Timeline
+              {a.edit_history?.length > 0 && (
+                <span className="ml-1 px-1.5 py-0.5 rounded-full bg-indigo-600 text-white text-[10px] font-bold">
+                  {a.edit_history.length}
+                </span>
+              )}
+            </Button>
+          )}
+          {!isReversed && (
+            <>
+              <Button variant="outline" onClick={() => onEdit(a)}
+                data-testid="warehouse-adjustment-details-edit-btn">
+                <Edit2 className="w-4 h-4 mr-1.5" /> Edit
+              </Button>
+              {a.product_id && (
+                <Button variant="outline" onClick={() => onAdjust(a)}
+                  data-testid="warehouse-adjustment-details-adjust-btn">
+                  <ArrowUpDown className="w-4 h-4 mr-1.5" /> Adjust stock
+                </Button>
+              )}
+            </>
+          )}
+          <Button
+            variant="outline"
+            className="border-red-200 text-red-700 hover:bg-red-50"
+            onClick={() => onReverse(a)}
+            data-testid="warehouse-adjustment-details-delete-btn"
+          >
+            <Trash2 className="w-4 h-4 mr-1.5" /> Delete
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
