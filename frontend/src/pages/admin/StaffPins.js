@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../../lib/api';
 import { toast } from 'sonner';
-import { Users, Plus, Edit2, Trash2, Key, Shield, ShieldCheck, ShieldAlert, Building2 } from 'lucide-react';
+import { Users, Plus, Edit2, Trash2, Key, Shield, ShieldCheck, ShieldAlert, Building2, Warehouse, Minus } from 'lucide-react';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
 import { Card } from '../../components/ui/card';
@@ -235,6 +235,14 @@ export const StaffPins = () => {
                 )}
                 <th className="px-4 py-3 text-left text-sm font-semibold">Store</th>
                 <th className="px-4 py-3 text-left text-sm font-semibold">Role</th>
+                {/* At-a-glance warehouse permission audit — green tick if */}
+                {/* the PIN can adjust stock, dash otherwise. Hover for tooltip. */}
+                <th
+                  className="px-4 py-3 text-center text-sm font-semibold"
+                  title="Can this PIN adjust warehouse stock?"
+                >
+                  Warehouse
+                </th>
                 <th className="px-4 py-3 text-center text-sm font-semibold">Status</th>
                 <th className="px-4 py-3 text-center text-sm font-semibold">Actions</th>
               </tr>
@@ -242,7 +250,7 @@ export const StaffPins = () => {
             <tbody className="divide-y">
               {staffList.length === 0 ? (
                 <tr>
-                  <td colSpan={isSuperAdmin ? 6 : 5} className="px-4 py-8 text-center text-muted-foreground">
+                  <td colSpan={isSuperAdmin ? 7 : 6} className="px-4 py-8 text-center text-muted-foreground">
                     <Users className="h-12 w-12 mx-auto mb-3 opacity-30" />
                     <p>No staff members yet</p>
                     <p className="text-sm">Add a staff member to get started</p>
@@ -276,6 +284,40 @@ export const StaffPins = () => {
                     </td>
                     <td className="px-4 py-3">
                       {getRoleBadge(staff.role)}
+                    </td>
+                    <td className="px-4 py-3 text-center">
+                      {/* Warehouse permission at-a-glance. Consistent with the */}
+                      {/* legacy fallback used in warehouse.py::_pin_can_manage_warehouse — */}
+                      {/* explicit True/False wins, else admin/super_admin roles */}
+                      {/* stay authorised for pre-toggle PINs. */}
+                      {(() => {
+                        const explicit = staff.can_manage_warehouse;
+                        const legacyAllowed = ['admin', 'super_admin'].includes((staff.role || '').toLowerCase());
+                        const canManage = explicit === true || (explicit == null && legacyAllowed);
+                        return canManage ? (
+                          <span
+                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800 border border-emerald-200"
+                            title={
+                              explicit === true
+                                ? 'Explicitly enabled — this PIN can Add / Adjust / Edit / Delete warehouse stock.'
+                                : 'Legacy admin role — inherits warehouse edit permission. Explicitly tick to lock in.'
+                            }
+                            data-testid={`warehouse-perm-yes-${staff.id}`}
+                          >
+                            <Warehouse className="h-3 w-3" />
+                            <span>Yes</span>
+                          </span>
+                        ) : (
+                          <span
+                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-500 border border-gray-200"
+                            title="This PIN cannot adjust warehouse stock. Edit the PIN to enable."
+                            data-testid={`warehouse-perm-no-${staff.id}`}
+                          >
+                            <Minus className="h-3 w-3" />
+                            <span className="sr-only">Not authorised</span>
+                          </span>
+                        );
+                      })()}
                     </td>
                     <td className="px-4 py-3 text-center">
                       <button

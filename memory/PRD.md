@@ -9,6 +9,28 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Jul 23, 2026 — Forked session] 🟢 Staff PINs list: at-a-glance "Warehouse" permission column
+
+**Follow-up enhancement to the per-PIN warehouse-authorisation feature shipped 22 Jul.**
+
+Added a new **Warehouse** column to the Staff PINs admin list table (`/admin/staff-pins`) between Role and Status. Purpose: 30-second permission audit — see which PINs can adjust warehouse stock without opening each row.
+
+**States rendered**:
+- **Emerald "Yes" pill** with a Warehouse icon → explicit `can_manage_warehouse=true` OR legacy admin/super_admin PIN with no explicit flag (matches the backend fallback in `_pin_can_manage_warehouse`).
+- **Grey dash pill** → cannot adjust warehouse stock.
+
+Tooltips on each pill explain the reason ("Explicitly enabled — this PIN can Add / Adjust / Edit / Delete..." vs "Legacy admin role — inherits warehouse edit permission" vs "This PIN cannot adjust warehouse stock. Edit the PIN to enable.").
+
+**Data-testids**: `warehouse-perm-yes-{id}` / `warehouse-perm-no-{id}` for automation.
+
+**Files**:
+- `/app/frontend/src/pages/admin/StaffPins.js` (new column header, cell renderer, empty-state colspan bumped 6→7).
+
+**Verified on preview** by seeding three PINs — staff+off / staff+on / admin+default-off — reloading the list and confirming the row for the toggled-on PIN shows the emerald "Yes" pill, the other two show the grey dash.
+
+
+
+
 ### [Jul 22, 2026 — Forked session] 🟢 Warehouse PIN authorization: per-PIN toggle instead of per-user permission
 
 **User ask** — "I have set up permission for certain staff to adjust stocks. Can you allow to enter the pin number. If that staff is not permit it should decline and only allow into edit/add/adjustment mode if the staff has permission upon entering correct pin number."
