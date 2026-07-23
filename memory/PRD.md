@@ -9,6 +9,36 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Jul 23, 2026 — Forked session] 🔴 P0 fix — "Deleted items are coming back" (compensation chains)
+
+**Reported symptom** (owner screenshot 23 Jul): Recent Adjustments panel filled with nested `Reversed adj X (Reversed adj Y (Reversed adj Z ...))` rows. Every click of the trash icon **added another row instead of removing one**.
+
+**Root cause** — the previous `POST /adjustments/{id}/reverse` implementation booked a **compensating** row (`mode: reverse`, negated delta, `reverses_adjustment_id`) and marked the original as `reversed=true`. Both rows stayed visible. Clicking the trash icon on the compensator booked ANOTHER compensator referencing the previous one, so the list grew every time — the opposite of what "delete" should mean.
+
+**Fix** — semantics redesigned:
+
+- **Backend `POST /api/warehouse/adjustments/{id}/reverse`** now soft-deletes (`deleted_at` + `deleted_by_pin` + `deleted_by_email`) instead of creating a compensating row. Three cascade cases handled:
+  1. **Standalone row** — set `deleted_at`, roll back stock by `-delta`.
+  2. **Row previously reversed by legacy compensation logic** (has `reversed=true` + `reversed_adjustment_id`) — soft-delete BOTH original + compensator in one call, stock unchanged (they netted to zero already).
+  3. **Compensating row** (has `reverses_adjustment_id`) — soft-delete just the compensator, un-mark the target's `reversed=true`, roll back stock by `-compensator.delta`.
+  - Repeat delete → 409 "already been deleted".
+
+- **Backend `GET /api/warehouse/adjustments`** now filters out `deleted_at != null` rows by default. New optional query param `?include_deleted=true` returns them for forensic review.
+
+- **Frontend `Warehouse.jsx`** — the trash icon's tooltip and dialog copy switched from **"Reverse"** to **"Delete"** so the wording matches the semantics. Dialog previews the exact stock change (`stock unchanged when part of a previously-reversed pair` / `stock will change by X to undo this row's effect`). Trash icon is now also present on rows that are already marked reversed, so the owner can clean up historical compensation chains.
+
+- **Row disappearance** — because the API filters `deleted_at` out, the trash-click → PIN → delete → refresh cycle actually removes the row from the panel. Toast confirms: `Adjustment deleted` (or `Deleted 2 linked rows` for the paired-cascade case).
+
+**Verified via testing_agent_v3_fork (iter196)** — 7/7 backend focused tests + full frontend E2E all green. Reported bug (rows multiplying via nested "Reversed adj X" text) confirmed **gone**.
+
+**Files**:
+- `/app/backend/routes/warehouse.py` — `list_adjustments` + `reverse_adjustment` rewritten.
+- `/app/frontend/src/pages/admin/Warehouse.jsx` — `ReverseAdjustmentDialog` copy + logic; trash icon now enabled on reversed rows.
+- `/app/backend/tests/test_warehouse_reverse_softdelete.py` — new focused pytest suite added by testing agent.
+
+
+
+
 ### [Jul 23, 2026 — Forked session] 🟢 Adjustment timeline modal — full lifecycle at a glance
 
 **Enhancement follow-up** to the full-editor + edit_history work earlier today. Every adjustment row that has been edited (or is linked to a reversal) now shows a **History** icon in its Actions column. Clicking it opens a **TimelineDialog** that renders the row's complete lifecycle chronologically:
