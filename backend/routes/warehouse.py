@@ -556,13 +556,19 @@ async def adjust_warehouse_stock(
 async def list_adjustments(
     limit: int = Query(50, ge=1, le=200),
     product_id: Optional[str] = Query(default=None),
+    include_deleted: bool = Query(default=False),
     current_user: dict = Depends(get_current_user),
 ):
-    """Recent adjustment history — visible to every authenticated user."""
+    """Recent adjustment history — visible to every authenticated user.
+    Soft-deleted rows (see DELETE endpoint) are hidden by default so the
+    Recent Adjustments panel actually shrinks when the owner hits Delete.
+    Pass `include_deleted=true` to review previously-deleted rows."""
     db = get_db()
     query: dict = {}
     if product_id:
         query["product_id"] = product_id
+    if not include_deleted:
+        query["deleted_at"] = {"$in": [None, ""]}
 
     cursor = db.warehouse_adjustments.find(query).sort("created_at", -1).limit(limit)
     rows = await cursor.to_list(limit)
@@ -758,86 +764,102 @@ async def reverse_adjustment(
     payload: AdjustmentReversePayload,
     current_user: dict = Depends(get_current_user),
 ):
-    """Book a compensating adjustment that undoes this one. The original
-    row is marked `reversed=True` so the UI can show a strikethrough;
-    the compensating row appears in the audit trail as a normal entry."""
+    """Soft-delete an adjustment row and roll back its stock effect. The
+    row disappears from the Recent Adjustments panel; a copy is preserved
+    in the DB with `deleted_at` so `?include_deleted=true` can still show
+    it if the owner wants a forensic view.
+
+    Renamed semantically 23 Jul 2026 — the previous implementation booked
+    a compensating row and left both in the audit trail, but the owner
+    reported the compensating chain kept growing every time they clicked
+    Delete (rows "coming back") so we switched to a proper soft-delete
+    with cascade cleanup:
+
+      • Regular row (never reversed / never deleted): subtract its delta
+        from product stock so the row's effect is truly undone.
+      • Row that was previously reversed (has `reversed_adjustment_id`):
+        this row and its compensating partner cancel to zero. Deleting
+        the pair leaves stock untouched — but we ALSO soft-delete the
+        compensating row so the audit doesn't end up with orphans.
+      • Row that IS itself a compensating row (has `reverses_adjustment_id`):
+        deleting the compensator un-reverses its target. Stock: undo the
+        compensator's delta (which was applied when it was booked).
+
+    Anything else is a no-op on stock. The response includes the list of
+    ids that were soft-deleted so the caller can toast "2 rows removed".
+    """
     db = get_db()
     pin_session = await _require_pin(current_user, payload.pin_session_token, db)
 
     original = await db.warehouse_adjustments.find_one({"id": adjustment_id}, {"_id": 0})
     if not original:
         raise HTTPException(status_code=404, detail="Adjustment not found")
-    if original.get("reversed"):
-        raise HTTPException(
-            status_code=409,
-            detail="This adjustment has already been reversed.",
-        )
+    if original.get("deleted_at"):
+        raise HTTPException(status_code=409, detail="This adjustment has already been deleted.")
 
     warehouse = await _get_or_create_warehouse(db)
     warehouse_id = warehouse["id"]
-
     product = await db.products.find_one({"id": original["product_id"]}, {"_id": 0})
     if not product:
-        raise HTTPException(
-            status_code=404,
-            detail="Product no longer exists — cannot reverse (delete the audit row via Super Admin tools if truly needed).",
+        raise HTTPException(status_code=404, detail="Product no longer exists.")
+
+    ids_to_delete: list = [adjustment_id]
+    stock_delta_change: int = 0  # what to add to product stock
+
+    if original.get("reverses_adjustment_id"):
+        # Deleting a compensating row → un-reverse its target and undo the
+        # compensator's own delta effect.
+        target_id = original["reverses_adjustment_id"]
+        target = await db.warehouse_adjustments.find_one({"id": target_id}, {"_id": 0})
+        if target and target.get("reversed"):
+            await db.warehouse_adjustments.update_one(
+                {"id": target_id},
+                {
+                    "$unset": {
+                        "reversed": "",
+                        "reversed_at": "",
+                        "reversed_by_pin": "",
+                        "reversed_by_email": "",
+                        "reversed_adjustment_id": "",
+                    },
+                },
+            )
+        stock_delta_change = -int(original.get("delta") or 0)
+
+    elif original.get("reversed") and original.get("reversed_adjustment_id"):
+        # Deleting a row that has a compensating partner — soft-delete both;
+        # the pair nets to zero on stock so no delta change is needed.
+        comp_id = original["reversed_adjustment_id"]
+        comp = await db.warehouse_adjustments.find_one({"id": comp_id}, {"_id": 0})
+        if comp and not comp.get("deleted_at"):
+            ids_to_delete.append(comp_id)
+        stock_delta_change = 0
+
+    else:
+        # Standalone row → undo its delta effect on stock.
+        stock_delta_change = -int(original.get("delta") or 0)
+
+    # Apply stock adjustment.
+    if stock_delta_change != 0:
+        current_stock = int((product.get("showroom_stock") or {}).get(warehouse_id, 0) or 0)
+        new_stock = max(0, current_stock + stock_delta_change)
+        await db.products.update_one(
+            {"id": original["product_id"]},
+            {"$set": {
+                f"showroom_stock.{warehouse_id}": new_stock,
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }},
         )
 
-    # Apply compensating delta to the product's warehouse stock.
-    before_qty = int((product.get("showroom_stock") or {}).get(warehouse_id, 0) or 0)
-    reverse_delta = -int(original.get("delta") or 0)
-    after_qty = max(0, before_qty + reverse_delta)
-
-    await db.products.update_one(
-        {"id": original["product_id"]},
+    # Soft-delete every impacted row in one hit.
+    now_iso = datetime.now(timezone.utc).isoformat()
+    await db.warehouse_adjustments.update_many(
+        {"id": {"$in": ids_to_delete}},
         {"$set": {
-            f"showroom_stock.{warehouse_id}": after_qty,
-            "updated_at": datetime.now(timezone.utc).isoformat(),
-        }},
-    )
-
-    # Insert compensating row — appears in the same Recent Adjustments list.
-    original_summary = (
-        f"Reversed adj {original.get('id', '')[:8]} "
-        f"({original.get('reason') or 'adjustment'}, "
-        f"{'+' if (original.get('delta') or 0) > 0 else ''}{original.get('delta')})"
-    )
-    reverse_note_default = (
-        f"Reversed by {pin_session.get('staff_name')}. "
-        f"Original: {original.get('reason') or 'n/a'}"
-    )
-    reverse_doc = {
-        "id": str(uuid.uuid4()),
-        "product_id": original["product_id"],
-        "product_name": original.get("product_name"),
-        "product_sku": original.get("product_sku"),
-        "warehouse_id": warehouse_id,
-        "before_qty": before_qty,
-        "after_qty": after_qty,
-        "delta": after_qty - before_qty,
-        "mode": "reverse",
-        "reason": original_summary,
-        "note": (payload.note or reverse_note_default)[:500],
-        "actor_email": current_user.get("email"),
-        "actor_name": current_user.get("name") or current_user.get("email"),
-        "actor_role": current_user.get("role"),
-        "authorised_by_pin": pin_session.get("staff_name"),
-        "authorised_by_pin_staff_id": pin_session.get("staff_id"),
-        "reverses_adjustment_id": adjustment_id,
-        "created_at": datetime.now(timezone.utc).isoformat(),
-    }
-    await db.warehouse_adjustments.insert_one(reverse_doc)
-    reverse_doc.pop("_id", None)
-
-    # Flag original as reversed so the UI can render it struck-through.
-    await db.warehouse_adjustments.update_one(
-        {"id": adjustment_id},
-        {"$set": {
-            "reversed": True,
-            "reversed_at": datetime.now(timezone.utc).isoformat(),
-            "reversed_by_pin": pin_session.get("staff_name"),
-            "reversed_by_email": current_user.get("email"),
-            "reversed_adjustment_id": reverse_doc["id"],
+            "deleted_at": now_iso,
+            "deleted_by_pin": pin_session.get("staff_name"),
+            "deleted_by_email": current_user.get("email"),
+            "deleted_reason_note": (payload.note or "")[:500] or None,
         }},
     )
 
@@ -847,19 +869,25 @@ async def reverse_adjustment(
         user=current_user,
         entity_id=adjustment_id,
         entity_name=original.get("product_name"),
-        before_data={"warehouse_stock": before_qty, "reversing_delta": original.get("delta")},
-        after_data={"warehouse_stock": after_qty, "compensating_delta": reverse_doc["delta"]},
+        before_data={
+            "delta": original.get("delta"),
+            "after_qty": original.get("after_qty"),
+            "reversed": bool(original.get("reversed")),
+        },
+        after_data={
+            "deleted_row_ids": ids_to_delete,
+            "stock_delta_applied": stock_delta_change,
+        },
         details=(
-            f"Reversed warehouse adjustment ({original.get('product_name')}) — "
+            f"Deleted warehouse adjustment for {original.get('product_name')} — "
             f"authorised by PIN: {pin_session.get('staff_name')}"
         ),
     )
 
     return {
         "success": True,
-        "before_qty": before_qty,
-        "after_qty": after_qty,
-        "reverse_adjustment": reverse_doc,
+        "deleted_ids": ids_to_delete,
+        "stock_delta_applied": stock_delta_change,
     }
 
 

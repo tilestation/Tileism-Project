@@ -797,9 +797,18 @@ export default function Warehouse() {
                               <History className="h-3.5 w-3.5" />
                             </Button>
                           )}
-                          <span className="text-[11px] italic text-slate-400 whitespace-nowrap pr-1">
-                            history only
-                          </span>
+                          {/* Delete still works on reversed rows so the owner */}
+                          {/* can clean up an old compensating chain. */}
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-slate-500 hover:text-red-700 hover:bg-red-50"
+                            title="Delete this row (also cleans up the linked compensating row)"
+                            onClick={() => ensureFreshPin(() => setReverseAdjState(a))}
+                            data-testid={`warehouse-history-reverse-${a.id}`}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
                         </div>
                       ) : (
                         <div className="flex items-center justify-end gap-1">
@@ -841,7 +850,7 @@ export default function Warehouse() {
                             variant="ghost"
                             size="icon"
                             className="h-7 w-7 text-slate-500 hover:text-red-700 hover:bg-red-50"
-                            title="Reverse this adjustment"
+                            title="Delete this adjustment"
                             onClick={() => ensureFreshPin(() => setReverseAdjState(a))}
                             data-testid={`warehouse-history-reverse-${a.id}`}
                           >
@@ -1970,12 +1979,14 @@ function EditAdjustmentDialog({ state, pinSession, onOpenChange, onDone }) {
 
 
 // ===========================================================================
-// ReverseAdjustmentDialog — books a compensating row to undo this one
+// ReverseAdjustmentDialog — hard-delete the row (soft-delete on the backend)
 // ===========================================================================
-// This is the "delete" affordance requested by the owner. The original row
-// stays with a strikethrough + "Reversed" pill so the audit trail keeps its
-// history intact; a new row appears in the same table showing who reversed
-// it and what the compensating delta was.
+// 23 Jul 2026 rework: the previous implementation booked a compensating row
+// which caused "Reversed adj X" rows to multiply every time the owner
+// clicked the trash icon. New semantics: the row is soft-deleted, the
+// stock is rolled back to as-if the row never happened, and the row
+// disappears from the Recent Adjustments panel entirely. When a row is
+// part of a previously-reversed pair, both rows are cleaned up together.
 
 function ReverseAdjustmentDialog({ state, pinSession, onOpenChange, onDone }) {
   const open = !!state;
@@ -1987,7 +1998,14 @@ function ReverseAdjustmentDialog({ state, pinSession, onOpenChange, onDone }) {
   }, [state]);
 
   if (!state) return null;
-  const reverseDelta = -(state.delta || 0);
+
+  // Preview the stock change the delete will apply — helps the user
+  // understand what's about to happen before they commit.
+  const isCompensating = !!state.reverses_adjustment_id;
+  const isReversedOriginal = !!state.reversed && !!state.reversed_adjustment_id;
+  const stockRollback = (isCompensating)
+    ? -(state.delta || 0)
+    : (isReversedOriginal ? 0 : -(state.delta || 0));
 
   const submit = async () => {
     setSaving(true);
@@ -1997,12 +2015,16 @@ function ReverseAdjustmentDialog({ state, pinSession, onOpenChange, onDone }) {
         { pin_session_token: pinSession?.session_token, note: note || null },
         { headers: getAuthHeader() },
       );
-      toast.success(`Reversed: ${res.data.before_qty} → ${res.data.after_qty}`, {
-        description: `PIN: ${pinSession?.staff_name}`,
-      });
+      const removed = res.data.deleted_ids?.length || 1;
+      toast.success(
+        removed > 1
+          ? `Deleted ${removed} linked rows`
+          : 'Adjustment deleted',
+        { description: `PIN: ${pinSession?.staff_name}` }
+      );
       onDone();
     } catch (e) {
-      toast.error(e.response?.data?.detail || 'Failed to reverse');
+      toast.error(e.response?.data?.detail || 'Failed to delete');
     } finally { setSaving(false); }
   };
 
@@ -2012,7 +2034,7 @@ function ReverseAdjustmentDialog({ state, pinSession, onOpenChange, onDone }) {
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-red-700">
             <Trash2 className="w-5 h-5" />
-            Reverse this adjustment?
+            Delete this adjustment?
           </DialogTitle>
           <DialogDescription>
             {state.product_name} · <span className="font-mono">{state.product_sku}</span>
@@ -2020,23 +2042,27 @@ function ReverseAdjustmentDialog({ state, pinSession, onOpenChange, onDone }) {
         </DialogHeader>
         <div className="space-y-3">
           <div className="rounded-md bg-red-50 border border-red-200 p-3 text-sm text-red-900">
-            <div className="font-semibold mb-1">Compensating adjustment will book:</div>
-            <div className="font-mono text-xs">
-              {state.after_qty} → <strong>{Math.max(0, state.after_qty + reverseDelta)}</strong>
-              {'  '}
-              <span className={reverseDelta > 0 ? 'text-emerald-700' : 'text-red-700'}>
-                ({reverseDelta > 0 ? '+' : ''}{reverseDelta})
-              </span>
+            <div className="font-semibold mb-1">This row will be removed from Recent adjustments.</div>
+            <div className="text-xs">
+              Change: <span className="font-mono">{state.before_qty} → {state.after_qty}</span>{' '}
+              (<span className={state.delta > 0 ? 'text-emerald-700' : 'text-red-700'}>
+                {state.delta > 0 ? '+' : ''}{state.delta}
+              </span>)
             </div>
             <div className="mt-2 text-xs">
-              The original row stays in the audit trail with a strikethrough
-              + <strong>Reversed</strong> badge. A new row is added showing
-              who did the reversal.
+              {stockRollback === 0
+                ? 'Stock is unchanged — this row was part of a previously-reversed pair; both rows will be cleaned up together.'
+                : `Stock will change by ${stockRollback > 0 ? '+' : ''}${stockRollback} to undo this row's effect.`}
             </div>
+            {isCompensating && (
+              <div className="mt-2 text-xs">
+                Deleting a compensating row will also un-mark the original as reversed.
+              </div>
+            )}
           </div>
           <div>
             <label className="text-xs font-medium uppercase tracking-wide text-slate-700">
-              Note (why are you reversing?)
+              Note (optional — why are you deleting?)
             </label>
             <Input
               value={note}
@@ -2060,7 +2086,7 @@ function ReverseAdjustmentDialog({ state, pinSession, onOpenChange, onDone }) {
             className="bg-red-600 hover:bg-red-700 text-white"
             data-testid="warehouse-reverse-adjustment-submit-btn"
           >
-            {saving ? 'Reversing…' : 'Reverse adjustment'}
+            {saving ? 'Deleting…' : 'Delete adjustment'}
           </Button>
         </DialogFooter>
       </DialogContent>
