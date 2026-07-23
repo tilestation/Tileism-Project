@@ -9,6 +9,44 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Jul 23, 2026 — Forked session] 🟢 Recent adjustments: inline edit / reverse / adjust — PIN-gated
+
+**Owner ask** — from the Recent Adjustments audit table, make every row *"directly editable, deleteable, adjustable"* — but only under a live PIN session. Once the PIN has been entered, the same session unlocks all three actions until it expires.
+
+**Design constraint** — audit history must stay honest. Rewriting historical `delta`/`before`/`after` fields defeats the point of the audit. Solution:
+
+- **Edit** touches only human-facing text (reason, note). Numeric fields are frozen. The row gets a `last_edited_at` + `last_edited_by_pin` stamp so the audit panel shows an amber **Edited** pill.
+- **Reverse** ("delete" affordance) is a compensating adjustment — original row stays with a red strikethrough + **Reversed** pill; a new compensating row appears in the same table with `mode: reverse`, PIN attribution and `reverses_adjustment_id`. Stock math ends up net-zero; audit trail keeps both sides.
+- **Adjust** (third icon) is a shortcut into the existing Adjust dialog pre-loaded with the row's product.
+
+Every button funnels through the existing `ensureFreshPin()` helper, so the first click opens the PIN prompt and subsequent clicks re-use the 15-minute session — matches the "once PIN session is locked in, the member should be able to make changes" behaviour the owner asked for.
+
+**Backend** (`/app/backend/routes/warehouse.py`):
+
+- New `PATCH /api/warehouse/adjustments/{id}` — edits reason/note. Requires valid PIN session. Rejects with 409 if the row is already reversed. Stamps `last_edited_at` / `last_edited_by_pin` / `last_edited_by_email` and writes an audit trail entry.
+- New `POST /api/warehouse/adjustments/{id}/reverse` — books a compensating adjustment doc (`mode: reverse`, negated `delta`, `reverses_adjustment_id` back-pointer), flips the original's `reversed=true` + `reversed_at` + `reversed_by_pin`. Updates the product's warehouse stock atomically. Rejects with 409 if already reversed, 404 if product deleted.
+- Both routes gated by `_require_pin` (which after yesterday's PIN-authorisation shift means the PIN itself is the sole authority — the JWT user only needs to be authenticated).
+
+**Frontend** (`/app/frontend/src/pages/admin/Warehouse.jsx`):
+
+- New **Actions** column on the Recent Adjustments table, right-aligned, 3 icon buttons per row (Edit / Reverse / Adjust) — hidden and replaced with an italic "history only" hint on rows already reversed.
+- Reversed rows render struck-through with a red **Reversed** pill; edited rows render with an amber **Edited** pill.
+- Two new dialog components at the bottom of the file: `EditAdjustmentDialog` (reason + note fields with an amber "Reverse if the quantity was wrong" hint) and `ReverseAdjustmentDialog` (red confirmation dialog that shows the exact compensating math `X → Y (±Δ)` before you click Reverse).
+- Data-testids: `warehouse-history-edit-{id}` / `warehouse-history-reverse-{id}` / `warehouse-history-adjust-{id}` / `warehouse-history-reversed-{id}` / `warehouse-history-edited-{id}` / `warehouse-edit-adjustment-dialog` / `warehouse-reverse-adjustment-dialog` / `warehouse-edit-adjustment-submit-btn` / `warehouse-reverse-adjustment-submit-btn`.
+
+**End-to-end verification (curl)**:
+1. Create warehouse PIN with `can_manage_warehouse=true` → mint session → quick-add a test product → book a `+7` adjustment.
+2. `PATCH /adjustments/{id}` with new reason + note → **200**; response shows `last_edited_by_pin: "TEST Adj Editor"`, reason updated, note updated.
+3. `POST /adjustments/{id}/reverse` → **200**; response includes the compensating adjustment (`delta: -7`, `mode: reverse`, `reverses_adjustment_id: <original>`).
+4. Second `POST /reverse` on same row → **409** "This adjustment has already been reversed."
+5. `PATCH` on the reversed row → **409** "This adjustment has been reversed — edits are no longer allowed on the original row."
+6. Non-authorised PIN (`can_manage_warehouse=false`) tries to mint a session → **403** at `/pin-session` — no way to reach the edit/reverse endpoints at all.
+
+Frontend screenshot confirms 8 rows × 3 icon buttons render, empty search state above, and the reversed / edited pills would render on any historical row carrying the flags.
+
+
+
+
 ### [Jul 23, 2026 — Forked session] 🟢 Staff PINs list: at-a-glance "Warehouse" permission column
 
 **Follow-up enhancement to the per-PIN warehouse-authorisation feature shipped 22 Jul.**

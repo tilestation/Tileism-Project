@@ -389,6 +389,8 @@ export default function Warehouse() {
   const [editBatchState, setEditBatchState] = useState(null);
   const [deleteBatchState, setDeleteBatchState] = useState(null);
   const [adjustState, setAdjustState] = useState(null);
+  const [editAdjState, setEditAdjState] = useState(null);
+  const [reverseAdjState, setReverseAdjState] = useState(null);
   const [requestState, setRequestState] = useState(null);
 
   const canManage = !!info?.can_manage;
@@ -716,29 +718,56 @@ export default function Warehouse() {
                   <th className="text-right py-2 px-4">Δ</th>
                   <th className="text-left py-2 px-4">Reason</th>
                   <th className="text-left py-2 px-4">Who</th>
+                  <th className="text-right py-2 px-4 w-24">Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {visibleHistory.map((a) => (
-                  <tr key={a.id} className="border-t border-slate-100" data-testid={`warehouse-history-row-${a.id}`}>
+                  <tr
+                    key={a.id}
+                    className={`border-t border-slate-100 ${a.reversed ? 'bg-slate-50/60' : ''}`}
+                    data-testid={`warehouse-history-row-${a.id}`}
+                  >
                     <td className="py-2 px-4 text-xs text-slate-500 whitespace-nowrap">
                       {formatDateTime(a.created_at)}
                     </td>
                     <td className="py-2 px-4">
-                      <div className="font-medium text-slate-900">{a.product_name}</div>
+                      <div className={`font-medium ${a.reversed ? 'text-slate-400 line-through' : 'text-slate-900'}`}>
+                        {a.product_name}
+                      </div>
                       <div className="text-xs font-mono text-slate-400">{a.product_sku || ''}</div>
                     </td>
-                    <td className="py-2 px-4 text-right text-slate-600 whitespace-nowrap">
+                    <td className={`py-2 px-4 text-right whitespace-nowrap ${a.reversed ? 'text-slate-400 line-through' : 'text-slate-600'}`}>
                       {a.before_qty} → <strong>{a.after_qty}</strong>
                     </td>
                     <td className="py-2 px-4 text-right whitespace-nowrap">
-                      <span className={a.delta > 0 ? 'text-emerald-700' : a.delta < 0 ? 'text-red-700' : 'text-slate-500'}>
+                      <span className={`${a.reversed ? 'line-through text-slate-400' : a.delta > 0 ? 'text-emerald-700' : a.delta < 0 ? 'text-red-700' : 'text-slate-500'}`}>
                         {a.delta > 0 ? '+' : ''}{a.delta}
                       </span>
                     </td>
                     <td className="py-2 px-4">
-                      <div className="text-slate-700">{REASON_LABELS[a.reason] || a.reason}</div>
+                      <div className={`${a.reversed ? 'text-slate-400 line-through' : 'text-slate-700'}`}>
+                        {REASON_LABELS[a.reason] || a.reason}
+                      </div>
                       {a.note && <div className="text-xs text-slate-400 italic">&ldquo;{a.note}&rdquo;</div>}
+                      {a.reversed && (
+                        <div
+                          className="inline-flex items-center gap-1 mt-1 px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide bg-red-100 text-red-800 border border-red-200"
+                          title={`Reversed at ${formatDateTime(a.reversed_at)} by ${a.reversed_by_pin || a.reversed_by_email || 'unknown'}`}
+                          data-testid={`warehouse-history-reversed-${a.id}`}
+                        >
+                          Reversed
+                        </div>
+                      )}
+                      {a.last_edited_at && !a.reversed && (
+                        <div
+                          className="inline-flex items-center gap-1 mt-1 px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide bg-amber-100 text-amber-800 border border-amber-200"
+                          title={`Edited at ${formatDateTime(a.last_edited_at)} by ${a.last_edited_by_pin || 'unknown'}`}
+                          data-testid={`warehouse-history-edited-${a.id}`}
+                        >
+                          Edited
+                        </div>
+                      )}
                     </td>
                     <td className="py-2 px-4 text-xs text-slate-500">
                       <div>{a.actor_name || a.actor_email}</div>
@@ -746,6 +775,58 @@ export default function Warehouse() {
                         <div className="text-emerald-700 flex items-center gap-1 mt-0.5">
                           <UserIcon className="w-3 h-3" />
                           PIN: {a.authorised_by_pin}
+                        </div>
+                      )}
+                    </td>
+                    <td className="py-2 px-4">
+                      {/* Row-level actions — every click is PIN-gated. */}
+                      {/* Reversed rows are read-only history — a compensating */}
+                      {/* row already lives elsewhere in the audit trail. */}
+                      {a.reversed ? (
+                        <div className="text-right text-[11px] italic text-slate-400 whitespace-nowrap">
+                          history only
+                        </div>
+                      ) : (
+                        <div className="flex items-center justify-end gap-1">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-slate-500 hover:text-amber-700 hover:bg-amber-50"
+                            title="Edit reason / note"
+                            onClick={() => ensureFreshPin(() => setEditAdjState(a))}
+                            data-testid={`warehouse-history-edit-${a.id}`}
+                          >
+                            <Edit2 className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-slate-500 hover:text-red-700 hover:bg-red-50"
+                            title="Reverse this adjustment"
+                            onClick={() => ensureFreshPin(() => setReverseAdjState(a))}
+                            data-testid={`warehouse-history-reverse-${a.id}`}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                          {a.product_id && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7 text-slate-500 hover:text-slate-900 hover:bg-slate-100"
+                              title="Open Adjust dialog for this product"
+                              onClick={() => ensureFreshPin(() => setAdjustState({
+                                product: {
+                                  id: a.product_id,
+                                  name: a.product_name,
+                                  sku: a.product_sku,
+                                  warehouse_stock: a.after_qty,
+                                },
+                              }))}
+                              data-testid={`warehouse-history-adjust-${a.id}`}
+                            >
+                              <ArrowUpDown className="h-3.5 w-3.5" />
+                            </Button>
+                          )}
                         </div>
                       )}
                     </td>
@@ -799,6 +880,18 @@ export default function Warehouse() {
         showrooms={showrooms}
         onOpenChange={(o) => { if (!o) setRequestState(null); }}
         onDone={() => setRequestState(null)}
+      />
+      <EditAdjustmentDialog
+        state={editAdjState}
+        pinSession={pinSession}
+        onOpenChange={(o) => { if (!o) setEditAdjState(null); }}
+        onDone={() => { setEditAdjState(null); refreshAll(); }}
+      />
+      <ReverseAdjustmentDialog
+        state={reverseAdjState}
+        pinSession={pinSession}
+        onOpenChange={(o) => { if (!o) setReverseAdjState(null); }}
+        onDone={() => { setReverseAdjState(null); refreshAll(); }}
       />
     </div>
   );
@@ -1625,6 +1718,207 @@ function RequestDialog({ state, showrooms, onOpenChange, onDone }) {
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
           <Button onClick={submit} disabled={saving || !store} data-testid="warehouse-request-submit-btn">
             {saving ? 'Sending…' : 'Send request'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+
+// ===========================================================================
+// EditAdjustmentDialog — edit reason / note on an existing audit row
+// ===========================================================================
+// Deliberately does NOT expose delta / before / after / product for edit.
+// Rewriting historical numbers would break the audit. If the quantity was
+// wrong, reverse the row and book a fresh adjustment.
+
+function EditAdjustmentDialog({ state, pinSession, onOpenChange, onDone }) {
+  const open = !!state;
+  const [reason, setReason] = useState('');
+  const [note, setNote] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (state) {
+      setReason(state.reason || '');
+      setNote(state.note || '');
+    }
+  }, [state]);
+
+  if (!state) return null;
+
+  const submit = async () => {
+    if (!reason.trim()) { toast.error('Reason cannot be empty'); return; }
+    setSaving(true);
+    try {
+      await axios.patch(
+        `${API}/warehouse/adjustments/${state.id}`,
+        { pin_session_token: pinSession?.session_token, reason: reason.trim(), note },
+        { headers: getAuthHeader() },
+      );
+      toast.success('Adjustment updated', {
+        description: `PIN: ${pinSession?.staff_name}`,
+      });
+      onDone();
+    } catch (e) {
+      toast.error(e.response?.data?.detail || 'Failed to update');
+    } finally { setSaving(false); }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-md" data-testid="warehouse-edit-adjustment-dialog">
+        <DialogHeader>
+          <DialogTitle>Edit adjustment reason / note</DialogTitle>
+          <DialogDescription>
+            {state.product_name} · <span className="font-mono">{state.product_sku}</span>
+            <span className="block text-xs text-slate-500 mt-1">
+              {state.before_qty} → <strong>{state.after_qty}</strong>{'  '}
+              <span className={state.delta > 0 ? 'text-emerald-700' : 'text-red-700'}>
+                ({state.delta > 0 ? '+' : ''}{state.delta})
+              </span>
+              {'  '}· {formatDateTime(state.created_at)}
+            </span>
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div className="rounded-md bg-amber-50 border border-amber-200 p-2 text-xs text-amber-900">
+            You can edit the reason and note. The numeric change stays
+            historical — use <strong>Reverse</strong> if the quantity was wrong.
+          </div>
+          <div>
+            <label className="text-xs font-medium uppercase tracking-wide text-slate-700">Reason</label>
+            <Input
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              maxLength={200}
+              data-testid="warehouse-edit-adjustment-reason-input"
+            />
+          </div>
+          <div>
+            <label className="text-xs font-medium uppercase tracking-wide text-slate-700">Note</label>
+            <Input
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              maxLength={500}
+              data-testid="warehouse-edit-adjustment-note-input"
+            />
+          </div>
+          {pinSession?.staff_name && (
+            <div className="text-xs text-slate-500">
+              Authorised by PIN: <strong className="text-slate-700">{pinSession.staff_name}</strong>
+            </div>
+          )}
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button
+            onClick={submit}
+            disabled={saving || !reason.trim()}
+            data-testid="warehouse-edit-adjustment-submit-btn"
+          >
+            {saving ? 'Saving…' : 'Save changes'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+
+// ===========================================================================
+// ReverseAdjustmentDialog — books a compensating row to undo this one
+// ===========================================================================
+// This is the "delete" affordance requested by the owner. The original row
+// stays with a strikethrough + "Reversed" pill so the audit trail keeps its
+// history intact; a new row appears in the same table showing who reversed
+// it and what the compensating delta was.
+
+function ReverseAdjustmentDialog({ state, pinSession, onOpenChange, onDone }) {
+  const open = !!state;
+  const [note, setNote] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (state) setNote('');
+  }, [state]);
+
+  if (!state) return null;
+  const reverseDelta = -(state.delta || 0);
+
+  const submit = async () => {
+    setSaving(true);
+    try {
+      const res = await axios.post(
+        `${API}/warehouse/adjustments/${state.id}/reverse`,
+        { pin_session_token: pinSession?.session_token, note: note || null },
+        { headers: getAuthHeader() },
+      );
+      toast.success(`Reversed: ${res.data.before_qty} → ${res.data.after_qty}`, {
+        description: `PIN: ${pinSession?.staff_name}`,
+      });
+      onDone();
+    } catch (e) {
+      toast.error(e.response?.data?.detail || 'Failed to reverse');
+    } finally { setSaving(false); }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-md" data-testid="warehouse-reverse-adjustment-dialog">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 text-red-700">
+            <Trash2 className="w-5 h-5" />
+            Reverse this adjustment?
+          </DialogTitle>
+          <DialogDescription>
+            {state.product_name} · <span className="font-mono">{state.product_sku}</span>
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div className="rounded-md bg-red-50 border border-red-200 p-3 text-sm text-red-900">
+            <div className="font-semibold mb-1">Compensating adjustment will book:</div>
+            <div className="font-mono text-xs">
+              {state.after_qty} → <strong>{Math.max(0, state.after_qty + reverseDelta)}</strong>
+              {'  '}
+              <span className={reverseDelta > 0 ? 'text-emerald-700' : 'text-red-700'}>
+                ({reverseDelta > 0 ? '+' : ''}{reverseDelta})
+              </span>
+            </div>
+            <div className="mt-2 text-xs">
+              The original row stays in the audit trail with a strikethrough
+              + <strong>Reversed</strong> badge. A new row is added showing
+              who did the reversal.
+            </div>
+          </div>
+          <div>
+            <label className="text-xs font-medium uppercase tracking-wide text-slate-700">
+              Note (why are you reversing?)
+            </label>
+            <Input
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              placeholder="e.g. Duplicate entry — batch was double-counted"
+              maxLength={500}
+              data-testid="warehouse-reverse-adjustment-note-input"
+            />
+          </div>
+          {pinSession?.staff_name && (
+            <div className="text-xs text-slate-500">
+              Authorised by PIN: <strong className="text-slate-700">{pinSession.staff_name}</strong>
+            </div>
+          )}
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button
+            onClick={submit}
+            disabled={saving}
+            className="bg-red-600 hover:bg-red-700 text-white"
+            data-testid="warehouse-reverse-adjustment-submit-btn"
+          >
+            {saving ? 'Reversing…' : 'Reverse adjustment'}
           </Button>
         </DialogFooter>
       </DialogContent>

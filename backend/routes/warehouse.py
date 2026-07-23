@@ -571,6 +571,212 @@ async def list_adjustments(
     return {"adjustments": rows}
 
 
+# ---------------------------------------------------------------------------
+# Adjustment editing / reversal (23 Jul 2026)
+# ---------------------------------------------------------------------------
+# The owner asked for the Recent Adjustments rows themselves to be
+# editable / deletable / adjustable — but any change MUST run under a
+# valid PIN session so the audit stays honest.
+#
+# We do NOT allow mutating the historical delta / before / after / product
+# fields — that would silently rewrite history. Instead:
+#
+#   • PATCH  /adjustments/{id}          — edits the human-facing reason
+#                                          + note strings (no stock math
+#                                          impact). Stamps last_edited_*
+#                                          fields on the row so the audit
+#                                          panel can flag it as edited.
+#   • POST   /adjustments/{id}/reverse  — books a compensating adjustment
+#                                          that undoes the row's delta.
+#                                          Original row stays untouched;
+#                                          a new "Reversed adjustment"
+#                                          row appears in the audit trail
+#                                          with the reverser's PIN name.
+#                                          This is the "delete" affordance:
+#                                          the effect on stock is deleted,
+#                                          the record is preserved.
+
+class AdjustmentEditPayload(BaseModel):
+    pin_session_token: str = Field(..., min_length=10)
+    reason: Optional[str] = Field(default=None, max_length=200)
+    note: Optional[str] = Field(default=None, max_length=500)
+
+
+class AdjustmentReversePayload(BaseModel):
+    pin_session_token: str = Field(..., min_length=10)
+    note: Optional[str] = Field(default=None, max_length=500)
+
+
+@router.patch("/adjustments/{adjustment_id}")
+async def edit_adjustment(
+    adjustment_id: str,
+    payload: AdjustmentEditPayload,
+    current_user: dict = Depends(get_current_user),
+):
+    """Edit the human-facing reason/note of an existing adjustment.
+    Never touches the numeric delta — that stays historical."""
+    db = get_db()
+    pin_session = await _require_pin(current_user, payload.pin_session_token, db)
+
+    existing = await db.warehouse_adjustments.find_one({"id": adjustment_id}, {"_id": 0})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Adjustment not found")
+    if existing.get("reversed"):
+        raise HTTPException(
+            status_code=409,
+            detail="This adjustment has been reversed — edits are no longer allowed on the original row.",
+        )
+
+    update_doc: dict = {
+        "last_edited_at": datetime.now(timezone.utc).isoformat(),
+        "last_edited_by_pin": pin_session.get("staff_name"),
+        "last_edited_by_email": current_user.get("email"),
+    }
+    changed_fields = []
+    if payload.reason is not None and payload.reason.strip() and payload.reason.strip() != existing.get("reason"):
+        update_doc["reason"] = payload.reason.strip()
+        changed_fields.append("reason")
+    if payload.note is not None and payload.note != existing.get("note"):
+        update_doc["note"] = payload.note
+        changed_fields.append("note")
+
+    if not changed_fields:
+        return {"success": True, "unchanged": True, "adjustment": existing}
+
+    await db.warehouse_adjustments.update_one(
+        {"id": adjustment_id}, {"$set": update_doc}
+    )
+
+    await log_audit(
+        action="UPDATE",
+        entity_type="warehouse_adjustment",
+        user=current_user,
+        entity_id=adjustment_id,
+        entity_name=existing.get("product_name"),
+        before_data={k: existing.get(k) for k in changed_fields},
+        after_data={k: update_doc.get(k) for k in changed_fields},
+        details=(
+            f"Edited warehouse adjustment reason/note "
+            f"(fields: {', '.join(changed_fields)}) — authorised by PIN: "
+            f"{pin_session.get('staff_name')}"
+        ),
+    )
+
+    updated = await db.warehouse_adjustments.find_one({"id": adjustment_id}, {"_id": 0})
+    return {"success": True, "adjustment": updated}
+
+
+@router.post("/adjustments/{adjustment_id}/reverse")
+async def reverse_adjustment(
+    adjustment_id: str,
+    payload: AdjustmentReversePayload,
+    current_user: dict = Depends(get_current_user),
+):
+    """Book a compensating adjustment that undoes this one. The original
+    row is marked `reversed=True` so the UI can show a strikethrough;
+    the compensating row appears in the audit trail as a normal entry."""
+    db = get_db()
+    pin_session = await _require_pin(current_user, payload.pin_session_token, db)
+
+    original = await db.warehouse_adjustments.find_one({"id": adjustment_id}, {"_id": 0})
+    if not original:
+        raise HTTPException(status_code=404, detail="Adjustment not found")
+    if original.get("reversed"):
+        raise HTTPException(
+            status_code=409,
+            detail="This adjustment has already been reversed.",
+        )
+
+    warehouse = await _get_or_create_warehouse(db)
+    warehouse_id = warehouse["id"]
+
+    product = await db.products.find_one({"id": original["product_id"]}, {"_id": 0})
+    if not product:
+        raise HTTPException(
+            status_code=404,
+            detail="Product no longer exists — cannot reverse (delete the audit row via Super Admin tools if truly needed).",
+        )
+
+    # Apply compensating delta to the product's warehouse stock.
+    before_qty = int((product.get("showroom_stock") or {}).get(warehouse_id, 0) or 0)
+    reverse_delta = -int(original.get("delta") or 0)
+    after_qty = max(0, before_qty + reverse_delta)
+
+    await db.products.update_one(
+        {"id": original["product_id"]},
+        {"$set": {
+            f"showroom_stock.{warehouse_id}": after_qty,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }},
+    )
+
+    # Insert compensating row — appears in the same Recent Adjustments list.
+    original_summary = (
+        f"Reversed adj {original.get('id', '')[:8]} "
+        f"({original.get('reason') or 'adjustment'}, "
+        f"{'+' if (original.get('delta') or 0) > 0 else ''}{original.get('delta')})"
+    )
+    reverse_note_default = (
+        f"Reversed by {pin_session.get('staff_name')}. "
+        f"Original: {original.get('reason') or 'n/a'}"
+    )
+    reverse_doc = {
+        "id": str(uuid.uuid4()),
+        "product_id": original["product_id"],
+        "product_name": original.get("product_name"),
+        "product_sku": original.get("product_sku"),
+        "warehouse_id": warehouse_id,
+        "before_qty": before_qty,
+        "after_qty": after_qty,
+        "delta": after_qty - before_qty,
+        "mode": "reverse",
+        "reason": original_summary,
+        "note": (payload.note or reverse_note_default)[:500],
+        "actor_email": current_user.get("email"),
+        "actor_name": current_user.get("name") or current_user.get("email"),
+        "actor_role": current_user.get("role"),
+        "authorised_by_pin": pin_session.get("staff_name"),
+        "authorised_by_pin_staff_id": pin_session.get("staff_id"),
+        "reverses_adjustment_id": adjustment_id,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.warehouse_adjustments.insert_one(reverse_doc)
+    reverse_doc.pop("_id", None)
+
+    # Flag original as reversed so the UI can render it struck-through.
+    await db.warehouse_adjustments.update_one(
+        {"id": adjustment_id},
+        {"$set": {
+            "reversed": True,
+            "reversed_at": datetime.now(timezone.utc).isoformat(),
+            "reversed_by_pin": pin_session.get("staff_name"),
+            "reversed_by_email": current_user.get("email"),
+            "reversed_adjustment_id": reverse_doc["id"],
+        }},
+    )
+
+    await log_audit(
+        action="DELETE",
+        entity_type="warehouse_adjustment",
+        user=current_user,
+        entity_id=adjustment_id,
+        entity_name=original.get("product_name"),
+        before_data={"warehouse_stock": before_qty, "reversing_delta": original.get("delta")},
+        after_data={"warehouse_stock": after_qty, "compensating_delta": reverse_doc["delta"]},
+        details=(
+            f"Reversed warehouse adjustment ({original.get('product_name')}) — "
+            f"authorised by PIN: {pin_session.get('staff_name')}"
+        ),
+    )
+
+    return {
+        "success": True,
+        "before_qty": before_qty,
+        "after_qty": after_qty,
+        "reverse_adjustment": reverse_doc,
+    }
+
+
 @router.post("/request-transfer")
 async def request_transfer_from_warehouse(
     payload: RequestTransferPayload,
