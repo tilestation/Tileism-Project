@@ -1727,20 +1727,33 @@ function RequestDialog({ state, showrooms, onOpenChange, onDone }) {
 
 
 // ===========================================================================
-// EditAdjustmentDialog — edit reason / note on an existing audit row
+// EditAdjustmentDialog — FULL editor. Every field can be corrected.
 // ===========================================================================
-// Deliberately does NOT expose delta / before / after / product for edit.
-// Rewriting historical numbers would break the audit. If the quantity was
-// wrong, reverse the row and book a fresh adjustment.
+// The owner asked (23 Jul 2026) for every field to be changeable — including
+// product name, before/after quantities and delta. Behaviour:
+//   • Reason / Note — pure metadata, no stock math impact.
+//   • Before / After — recomputes delta, and re-normalises the product's
+//     current warehouse stock by (new_delta − old_delta) so the running
+//     total matches the row's new numbers.
+//   • Product name — updates the linked product globally (propagates to
+//     every other page that shows the product).
+// Every changed field is snapshotted in the row's `edit_history` array
+// so nothing is truly lost — the trail keeps the diff.
 
 function EditAdjustmentDialog({ state, pinSession, onOpenChange, onDone }) {
   const open = !!state;
+  const [productName, setProductName] = useState('');
+  const [beforeQty, setBeforeQty] = useState('');
+  const [afterQty, setAfterQty] = useState('');
   const [reason, setReason] = useState('');
   const [note, setNote] = useState('');
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (state) {
+      setProductName(state.product_name || '');
+      setBeforeQty(String(state.before_qty ?? 0));
+      setAfterQty(String(state.after_qty ?? 0));
       setReason(state.reason || '');
       setNote(state.note || '');
     }
@@ -1748,13 +1761,35 @@ function EditAdjustmentDialog({ state, pinSession, onOpenChange, onDone }) {
 
   if (!state) return null;
 
+  // Live-computed diff so the user sees exactly what will change before saving.
+  const beforeNum = parseInt(beforeQty, 10);
+  const afterNum = parseInt(afterQty, 10);
+  const numericValid = Number.isFinite(beforeNum) && Number.isFinite(afterNum);
+  const newDelta = numericValid ? (afterNum - beforeNum) : (state.delta ?? 0);
+  const oldDelta = state.delta ?? 0;
+  const deltaShift = newDelta - oldDelta;
+  const numericChanged = numericValid && (beforeNum !== state.before_qty || afterNum !== state.after_qty);
+  const nameChanged = productName.trim() && productName.trim() !== state.product_name;
+  const anythingChanged = numericChanged || nameChanged
+    || (reason.trim() && reason.trim() !== state.reason)
+    || (note !== state.note);
+
   const submit = async () => {
     if (!reason.trim()) { toast.error('Reason cannot be empty'); return; }
+    if (!numericValid) { toast.error('Before / After must be valid numbers'); return; }
     setSaving(true);
     try {
+      const body = {
+        pin_session_token: pinSession?.session_token,
+        reason: reason.trim(),
+        note,
+        before_qty: beforeNum,
+        after_qty: afterNum,
+        product_name: productName.trim() || null,
+      };
       await axios.patch(
         `${API}/warehouse/adjustments/${state.id}`,
-        { pin_session_token: pinSession?.session_token, reason: reason.trim(), note },
+        body,
         { headers: getAuthHeader() },
       );
       toast.success('Adjustment updated', {
@@ -1768,13 +1803,13 @@ function EditAdjustmentDialog({ state, pinSession, onOpenChange, onDone }) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md" data-testid="warehouse-edit-adjustment-dialog">
+      <DialogContent className="max-w-lg" data-testid="warehouse-edit-adjustment-dialog">
         <DialogHeader>
-          <DialogTitle>Edit adjustment reason / note</DialogTitle>
+          <DialogTitle>Edit adjustment — full editor</DialogTitle>
           <DialogDescription>
-            {state.product_name} · <span className="font-mono">{state.product_sku}</span>
+            <span className="font-mono">{state.product_sku}</span>
             <span className="block text-xs text-slate-500 mt-1">
-              {state.before_qty} → <strong>{state.after_qty}</strong>{'  '}
+              Original: {state.before_qty} → <strong>{state.after_qty}</strong>{'  '}
               <span className={state.delta > 0 ? 'text-emerald-700' : 'text-red-700'}>
                 ({state.delta > 0 ? '+' : ''}{state.delta})
               </span>
@@ -1784,9 +1819,69 @@ function EditAdjustmentDialog({ state, pinSession, onOpenChange, onDone }) {
         </DialogHeader>
         <div className="space-y-3">
           <div className="rounded-md bg-amber-50 border border-amber-200 p-2 text-xs text-amber-900">
-            You can edit the reason and note. The numeric change stays
-            historical — use <strong>Reverse</strong> if the quantity was wrong.
+            Every field below is editable. Changes to quantities or product
+            name are logged with your PIN and the previous values are kept in
+            the row&apos;s <strong>edit history</strong>. To wipe out the
+            adjustment entirely, use <strong>Reverse</strong> instead.
           </div>
+
+          {/* Product name — global change */}
+          <div>
+            <label className="text-xs font-medium uppercase tracking-wide text-slate-700">
+              Product name
+              {nameChanged && (
+                <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded bg-orange-100 text-orange-700 border border-orange-200 normal-case tracking-normal font-semibold">
+                  will update everywhere
+                </span>
+              )}
+            </label>
+            <Input
+              value={productName}
+              onChange={(e) => setProductName(e.target.value)}
+              maxLength={200}
+              data-testid="warehouse-edit-adjustment-product-name-input"
+            />
+          </div>
+
+          {/* Before / After */}
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="text-xs font-medium uppercase tracking-wide text-slate-700">Before qty</label>
+              <Input
+                type="number"
+                value={beforeQty}
+                onChange={(e) => setBeforeQty(e.target.value)}
+                data-testid="warehouse-edit-adjustment-before-input"
+              />
+            </div>
+            <div>
+              <label className="text-xs font-medium uppercase tracking-wide text-slate-700">After qty</label>
+              <Input
+                type="number"
+                value={afterQty}
+                onChange={(e) => setAfterQty(e.target.value)}
+                data-testid="warehouse-edit-adjustment-after-input"
+              />
+            </div>
+          </div>
+
+          {/* Live delta preview */}
+          <div className="flex items-center justify-between text-xs bg-slate-50 border border-slate-200 rounded px-3 py-2">
+            <span className="text-slate-500">New delta</span>
+            <span
+              className={`font-mono font-semibold ${newDelta > 0 ? 'text-emerald-700' : newDelta < 0 ? 'text-red-700' : 'text-slate-500'}`}
+              data-testid="warehouse-edit-adjustment-new-delta"
+            >
+              {newDelta > 0 ? '+' : ''}{newDelta}
+              {numericChanged && (
+                <span className="ml-2 text-[10px] text-slate-500 font-normal">
+                  (was {oldDelta > 0 ? '+' : ''}{oldDelta} · stock will shift by {deltaShift > 0 ? '+' : ''}{deltaShift})
+                </span>
+              )}
+            </span>
+          </div>
+
+          {/* Reason */}
           <div>
             <label className="text-xs font-medium uppercase tracking-wide text-slate-700">Reason</label>
             <Input
@@ -1796,6 +1891,8 @@ function EditAdjustmentDialog({ state, pinSession, onOpenChange, onDone }) {
               data-testid="warehouse-edit-adjustment-reason-input"
             />
           </div>
+
+          {/* Note */}
           <div>
             <label className="text-xs font-medium uppercase tracking-wide text-slate-700">Note</label>
             <Input
@@ -1805,6 +1902,7 @@ function EditAdjustmentDialog({ state, pinSession, onOpenChange, onDone }) {
               data-testid="warehouse-edit-adjustment-note-input"
             />
           </div>
+
           {pinSession?.staff_name && (
             <div className="text-xs text-slate-500">
               Authorised by PIN: <strong className="text-slate-700">{pinSession.staff_name}</strong>
@@ -1815,7 +1913,7 @@ function EditAdjustmentDialog({ state, pinSession, onOpenChange, onDone }) {
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
           <Button
             onClick={submit}
-            disabled={saving || !reason.trim()}
+            disabled={saving || !reason.trim() || !anythingChanged}
             data-testid="warehouse-edit-adjustment-submit-btn"
           >
             {saving ? 'Saving…' : 'Save changes'}

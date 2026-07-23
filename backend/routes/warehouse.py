@@ -598,8 +598,21 @@ async def list_adjustments(
 
 class AdjustmentEditPayload(BaseModel):
     pin_session_token: str = Field(..., min_length=10)
+    # Text fields — pure metadata, no stock math impact.
     reason: Optional[str] = Field(default=None, max_length=200)
     note: Optional[str] = Field(default=None, max_length=500)
+    # Numeric corrections — allow the owner to fix bad historical data.
+    # Provided values REPLACE the row's before/after; the delta is
+    # derived automatically. The current product stock is re-normalised
+    # by adding (new_delta - old_delta) so the running total stays
+    # consistent with the row's new numbers.
+    before_qty: Optional[int] = Field(default=None, ge=0)
+    after_qty: Optional[int] = Field(default=None, ge=0)
+    # Product name — updates the LINKED product doc, not just the audit
+    # row's cached copy. This propagates to every other page that shows
+    # the product. Because this is a global change, the audit sub-doc
+    # captures the previous name so the trail is honest.
+    product_name: Optional[str] = Field(default=None, min_length=1, max_length=200)
 
 
 class AdjustmentReversePayload(BaseModel):
@@ -613,8 +626,14 @@ async def edit_adjustment(
     payload: AdjustmentEditPayload,
     current_user: dict = Depends(get_current_user),
 ):
-    """Edit the human-facing reason/note of an existing adjustment.
-    Never touches the numeric delta — that stays historical."""
+    """Full edit of an adjustment row — reason, note, before/after
+    quantities and even the linked product's name. Numeric edits
+    re-normalise the current warehouse stock so the running total
+    stays consistent with the row's new numbers.
+
+    Every changed field is snapshotted into a `previous_values`
+    array on the doc so the audit is preserved end-to-end — an
+    edit does NOT overwrite history, it appends a diff."""
     db = get_db()
     pin_session = await _require_pin(current_user, payload.pin_session_token, db)
 
@@ -627,24 +646,91 @@ async def edit_adjustment(
             detail="This adjustment has been reversed — edits are no longer allowed on the original row.",
         )
 
-    update_doc: dict = {
-        "last_edited_at": datetime.now(timezone.utc).isoformat(),
-        "last_edited_by_pin": pin_session.get("staff_name"),
-        "last_edited_by_email": current_user.get("email"),
-    }
-    changed_fields = []
+    # Track everything that changes so both the audit sub-doc and the
+    # global audit log carry the full before/after diff.
+    changed: dict = {}
+    old_snapshot: dict = {}
     if payload.reason is not None and payload.reason.strip() and payload.reason.strip() != existing.get("reason"):
-        update_doc["reason"] = payload.reason.strip()
-        changed_fields.append("reason")
+        old_snapshot["reason"] = existing.get("reason")
+        changed["reason"] = payload.reason.strip()
     if payload.note is not None and payload.note != existing.get("note"):
-        update_doc["note"] = payload.note
-        changed_fields.append("note")
+        old_snapshot["note"] = existing.get("note")
+        changed["note"] = payload.note
 
-    if not changed_fields:
+    # ---- Numeric corrections ---------------------------------------
+    new_before = payload.before_qty if payload.before_qty is not None else existing.get("before_qty")
+    new_after = payload.after_qty if payload.after_qty is not None else existing.get("after_qty")
+    numeric_changed = (
+        (payload.before_qty is not None and payload.before_qty != existing.get("before_qty"))
+        or (payload.after_qty is not None and payload.after_qty != existing.get("after_qty"))
+    )
+    if numeric_changed:
+        old_delta = int(existing.get("delta") or 0)
+        new_delta = int(new_after) - int(new_before)
+        old_snapshot["before_qty"] = existing.get("before_qty")
+        old_snapshot["after_qty"] = existing.get("after_qty")
+        old_snapshot["delta"] = existing.get("delta")
+        changed["before_qty"] = int(new_before)
+        changed["after_qty"] = int(new_after)
+        changed["delta"] = new_delta
+        # Re-normalise the current warehouse stock. The row's new numbers
+        # differ from the old by (new_delta - old_delta); apply that
+        # difference to the product's live stock so the running total
+        # matches the row again.
+        product = await db.products.find_one({"id": existing["product_id"]}, {"_id": 0})
+        if product:
+            warehouse_id = existing.get("warehouse_id")
+            current_stock = int((product.get("showroom_stock") or {}).get(warehouse_id, 0) or 0)
+            adjusted_stock = max(0, current_stock + (new_delta - old_delta))
+            await db.products.update_one(
+                {"id": existing["product_id"]},
+                {"$set": {
+                    f"showroom_stock.{warehouse_id}": adjusted_stock,
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                }},
+            )
+
+    # ---- Product name (global change) ------------------------------
+    if payload.product_name is not None:
+        new_name = payload.product_name.strip()
+        if new_name and new_name != existing.get("product_name"):
+            old_snapshot["product_name"] = existing.get("product_name")
+            changed["product_name"] = new_name
+            # Update the linked product globally.
+            await db.products.update_one(
+                {"id": existing["product_id"]},
+                {"$set": {
+                    "name": new_name,
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                }},
+            )
+
+    if not changed:
         return {"success": True, "unchanged": True, "adjustment": existing}
 
+    # Append this edit to the row's edit history sub-array so we never
+    # actually lose the previous numbers or text. The UI can render
+    # this as a small "edited 2x — see history" pill on the row.
+    edit_record = {
+        "edited_at": datetime.now(timezone.utc).isoformat(),
+        "edited_by_pin": pin_session.get("staff_name"),
+        "edited_by_email": current_user.get("email"),
+        "previous_values": old_snapshot,
+        "new_values": {k: v for k, v in changed.items()},
+    }
+
+    update_doc: dict = {
+        **changed,
+        "last_edited_at": edit_record["edited_at"],
+        "last_edited_by_pin": edit_record["edited_by_pin"],
+        "last_edited_by_email": current_user.get("email"),
+    }
     await db.warehouse_adjustments.update_one(
-        {"id": adjustment_id}, {"$set": update_doc}
+        {"id": adjustment_id},
+        {
+            "$set": update_doc,
+            "$push": {"edit_history": edit_record},
+        },
     )
 
     await log_audit(
@@ -652,12 +738,12 @@ async def edit_adjustment(
         entity_type="warehouse_adjustment",
         user=current_user,
         entity_id=adjustment_id,
-        entity_name=existing.get("product_name"),
-        before_data={k: existing.get(k) for k in changed_fields},
-        after_data={k: update_doc.get(k) for k in changed_fields},
+        entity_name=changed.get("product_name") or existing.get("product_name"),
+        before_data=old_snapshot,
+        after_data=changed,
         details=(
-            f"Edited warehouse adjustment reason/note "
-            f"(fields: {', '.join(changed_fields)}) — authorised by PIN: "
+            f"Edited warehouse adjustment "
+            f"(fields: {', '.join(changed.keys())}) — authorised by PIN: "
             f"{pin_session.get('staff_name')}"
         ),
     )

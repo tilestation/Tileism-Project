@@ -9,6 +9,51 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Jul 23, 2026 — Forked session] 🟢 Full editor on Recent Adjustments — every field editable
+
+**Owner ask** — expand the previously-shipped "Edit reason/note" dialog into a **full** editor. Every field on the audit row should be changeable including product name and numeric quantities, in addition to the existing quick-adjust flow.
+
+**What shipped**:
+
+1. **Backend PATCH `/api/warehouse/adjustments/{id}` now accepts**:
+   - `reason`, `note` (existing — pure metadata)
+   - `before_qty`, `after_qty` (**new** — recomputes delta; re-normalises the product's current warehouse stock by `new_delta − old_delta` so the running total matches the corrected row)
+   - `product_name` (**new** — updates the linked product globally, not just the row's cached copy)
+2. **`edit_history` sub-array** on the adjustment doc — every edit appends a record with `edited_at`, `edited_by_pin`, `edited_by_email`, `previous_values` and `new_values` (full diff of what changed). Nothing is ever lost — the trail keeps the entire lineage.
+3. **Frontend `EditAdjustmentDialog` rewritten** as a full editor:
+   - Product name input with an orange "**will update everywhere**" pill that appears the moment the value diverges from the current name
+   - Before qty / After qty inputs
+   - Live-computed **New delta** preview with a "was X · stock will shift by Y" hint the moment the numbers change
+   - Reason + Note inputs (existing)
+   - Amber hint at the top explaining that changes are logged and previous values are kept in the row's edit history
+4. **Save button disabled** unless something actually changed AND reason is non-empty — prevents accidental no-op writes.
+
+**End-to-end verified with curl** — created a `+10` adjustment on a test product, then a single PATCH request:
+- Renamed reason `delivery_received` → `stocktake_correction`
+- Rewrote note
+- Changed before `0 → 2`
+- Changed after `10 → 17`
+- Delta auto-recalculated: `10 → 15`
+- **Renamed the product** `Old Product Name` → `NEW Product Name (renamed globally)` — verified the linked product doc in `db.products` now shows the new name
+- **Stock re-normalised**: `db.products.showroom_stock[warehouse] = 15` (was 10, shifted by `+5` = `new_delta − old_delta`)
+- Response includes `edit_history: [{previous_values: {...full old...}, new_values: {...full new...}}]` — audit intact
+
+**Data-testids for automation**:
+- `warehouse-edit-adjustment-product-name-input`
+- `warehouse-edit-adjustment-before-input`
+- `warehouse-edit-adjustment-after-input`
+- `warehouse-edit-adjustment-reason-input`
+- `warehouse-edit-adjustment-note-input`
+- `warehouse-edit-adjustment-new-delta` (live-computed preview)
+- `warehouse-edit-adjustment-submit-btn`
+
+**Files**:
+- `/app/backend/routes/warehouse.py` — `AdjustmentEditPayload` extended; `edit_adjustment` handler rewritten with stock re-normalisation + edit_history append.
+- `/app/frontend/src/pages/admin/Warehouse.jsx` — `EditAdjustmentDialog` component fully replaced.
+
+
+
+
 ### [Jul 23, 2026 — Forked session] 🟢 Recent adjustments: inline edit / reverse / adjust — PIN-gated
 
 **Owner ask** — from the Recent Adjustments audit table, make every row *"directly editable, deleteable, adjustable"* — but only under a live PIN session. Once the PIN has been entered, the same session unlocks all three actions until it expires.
