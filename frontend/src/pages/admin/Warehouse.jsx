@@ -105,30 +105,189 @@ const BATCH_REASONS = [
 // Small subcomponents
 // ---------------------------------------------------------------------------
 
-function StockBadge({ stock, unit }) {
+function StockBadge({ stock, unit, m2 }) {
   const s = stock ?? 0;
   const cls = s === 0
-    ? 'bg-red-100 text-red-800 hover:bg-red-100'
+    ? 'bg-red-50 text-red-800 border-red-200'
     : s <= 5
-    ? 'bg-amber-100 text-amber-800 hover:bg-amber-100'
-    : 'bg-emerald-100 text-emerald-800 hover:bg-emerald-100';
-  return <Badge className={`${cls} text-sm px-2.5 py-0.5`}>{s} {unit || ''}</Badge>;
+    ? 'bg-amber-50 text-amber-800 border-amber-200'
+    : 'bg-emerald-50 text-emerald-800 border-emerald-200';
+  return (
+    <div className={`rounded-md border px-2.5 py-1 text-right ${cls}`}>
+      <div className="text-lg font-bold leading-none tabular-nums">{s}</div>
+      <div className="text-[10px] uppercase tracking-wide opacity-80">
+        {unit || 'pcs'}
+      </div>
+      {m2 != null && Number(m2) > 0 && (
+        <div className="text-[11px] font-semibold mt-0.5 border-t border-current/20 pt-0.5 tabular-nums">
+          {Number(m2).toFixed(2)} m²
+        </div>
+      )}
+    </div>
+  );
 }
 
-function CoverageLine({ product }) {
-  if (product.coverage_m2 != null) {
-    return (
-      <div className="text-xs text-slate-500 mt-0.5">
-        {product.coverage_m2.toFixed(2)} m² total
-        {product.tile_width && product.tile_height && (
-          <span className="ml-1 text-slate-400">
-            · {product.tile_width}×{product.tile_height}mm
-          </span>
+function CoverageLine() { return null; /* superseded — coverage now inside StockBadge */ }
+
+// ===========================================================================
+// HistoryRow — extracted so grouped + flat views share the same row markup
+// ===========================================================================
+// Renders one row of the Recent Adjustments table. `inGroup` = true adds a
+// small left indent so grouped rows sit clearly under their parent header.
+function HistoryRow({
+  a, reasonLabels, inGroup,
+  setEditAdjState, setReverseAdjState, setTimelineAdjState, setAdjustState,
+  ensureFreshPin,
+}) {
+  const REASON_LABELS = reasonLabels || {};
+  return (
+    <tr
+      className={`border-t border-slate-100 ${a.reversed ? 'bg-slate-50/60' : ''} ${inGroup ? 'bg-slate-50/40' : ''}`}
+      data-testid={`warehouse-history-row-${a.id}`}
+    >
+      <td className={`py-2 px-4 text-xs text-slate-500 whitespace-nowrap ${inGroup ? 'pl-10' : ''}`}>
+        {formatDateTime(a.created_at)}
+      </td>
+      <td className="py-2 px-4">
+        <div className={`font-medium ${a.reversed ? 'text-slate-400 line-through' : 'text-slate-900'}`}>
+          {a.product_name}
+        </div>
+        <div className="text-xs font-mono text-slate-400">{a.product_sku || ''}</div>
+      </td>
+      <td className={`py-2 px-4 text-right whitespace-nowrap ${a.reversed ? 'text-slate-400 line-through' : 'text-slate-600'}`}>
+        {a.before_qty} → <strong>{a.after_qty}</strong>
+      </td>
+      <td className="py-2 px-4 text-right whitespace-nowrap">
+        <span className={`${a.reversed ? 'line-through text-slate-400' : a.delta > 0 ? 'text-emerald-700' : a.delta < 0 ? 'text-red-700' : 'text-slate-500'}`}>
+          {a.delta > 0 ? '+' : ''}{a.delta}
+        </span>
+      </td>
+      <td className="py-2 px-4">
+        <div className={`${a.reversed ? 'text-slate-400 line-through' : 'text-slate-700'}`}>
+          {REASON_LABELS[a.reason] || a.reason}
+        </div>
+        {a.note && <div className="text-xs text-slate-400 italic">&ldquo;{a.note}&rdquo;</div>}
+        {a.reversed && (
+          <div
+            className="inline-flex items-center gap-1 mt-1 px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide bg-red-100 text-red-800 border border-red-200"
+            title={`Reversed at ${formatDateTime(a.reversed_at)} by ${a.reversed_by_pin || a.reversed_by_email || 'unknown'}`}
+            data-testid={`warehouse-history-reversed-${a.id}`}
+          >
+            Reversed
+          </div>
         )}
-      </div>
-    );
-  }
-  return null;
+        {a.last_edited_at && !a.reversed && (
+          <div
+            className="inline-flex items-center gap-1 mt-1 px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide bg-amber-100 text-amber-800 border border-amber-200"
+            title={`Edited at ${formatDateTime(a.last_edited_at)} by ${a.last_edited_by_pin || 'unknown'}`}
+            data-testid={`warehouse-history-edited-${a.id}`}
+          >
+            Edited
+          </div>
+        )}
+      </td>
+      <td className="py-2 px-4 text-xs text-slate-500">
+        <div>{a.actor_name || a.actor_email}</div>
+        {a.authorised_by_pin && (
+          <div className="text-emerald-700 flex items-center gap-1 mt-0.5">
+            <UserIcon className="w-3 h-3" />
+            PIN: {a.authorised_by_pin}
+          </div>
+        )}
+      </td>
+      <td className="py-2 px-4">
+        {a.reversed ? (
+          <div className="flex items-center justify-end gap-1">
+            {(a.edit_history?.length > 0 || a.reversed) && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7 text-slate-500 hover:text-indigo-700 hover:bg-indigo-50"
+                title="View timeline"
+                onClick={() => setTimelineAdjState(a)}
+                data-testid={`warehouse-history-timeline-${a.id}`}
+              >
+                <History className="h-3.5 w-3.5" />
+              </Button>
+            )}
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 text-slate-500 hover:text-red-700 hover:bg-red-50"
+              title="Delete this row (also cleans up the linked compensating row)"
+              onClick={() => ensureFreshPin(() => setReverseAdjState(a))}
+              data-testid={`warehouse-history-reverse-${a.id}`}
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+        ) : (
+          <div className="flex items-center justify-end gap-1">
+            {(a.edit_history?.length > 0 || a.reverses_adjustment_id) && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7 text-slate-500 hover:text-indigo-700 hover:bg-indigo-50 relative"
+                title={a.edit_history?.length > 1
+                  ? `View timeline — ${a.edit_history.length} edits`
+                  : (a.edit_history?.length === 1
+                      ? 'View timeline — 1 edit'
+                      : 'View timeline — reversal record')}
+                onClick={() => setTimelineAdjState(a)}
+                data-testid={`warehouse-history-timeline-${a.id}`}
+              >
+                <History className="h-3.5 w-3.5" />
+                {a.edit_history?.length > 1 && (
+                  <span className="absolute -top-1 -right-1 h-3.5 min-w-[14px] px-0.5 rounded-full bg-indigo-600 text-white text-[9px] font-bold leading-[14px] text-center">
+                    {a.edit_history.length}
+                  </span>
+                )}
+              </Button>
+            )}
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 text-slate-500 hover:text-amber-700 hover:bg-amber-50"
+              title="Edit reason / note"
+              onClick={() => ensureFreshPin(() => setEditAdjState(a))}
+              data-testid={`warehouse-history-edit-${a.id}`}
+            >
+              <Edit2 className="h-3.5 w-3.5" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 text-slate-500 hover:text-red-700 hover:bg-red-50"
+              title="Delete this adjustment"
+              onClick={() => ensureFreshPin(() => setReverseAdjState(a))}
+              data-testid={`warehouse-history-reverse-${a.id}`}
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </Button>
+            {a.product_id && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7 text-slate-500 hover:text-slate-900 hover:bg-slate-100"
+                title="Open Adjust dialog for this product"
+                onClick={() => ensureFreshPin(() => setAdjustState({
+                  product: {
+                    id: a.product_id,
+                    name: a.product_name,
+                    sku: a.product_sku,
+                    warehouse_stock: a.after_qty,
+                  },
+                }))}
+                data-testid={`warehouse-history-adjust-${a.id}`}
+              >
+                <ArrowUpDown className="h-3.5 w-3.5" />
+              </Button>
+            )}
+          </div>
+        )}
+      </td>
+    </tr>
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -143,31 +302,38 @@ function BatchCard({ batch, canManage, onEdit, onDelete }) {
     >
       {/* Top row: batch number + location + total */}
       <div className="flex items-start justify-between gap-3 flex-wrap">
-        <div className="flex items-center gap-3 flex-wrap">
-          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-slate-900 text-white font-mono text-sm font-semibold">
-            <Layers className="w-4 h-4" />
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Batch number — extra bold + larger so shop-floor staff can read */}
+          {/* it from arm's length. Requested 23 Jul 2026. */}
+          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-lg bg-slate-900 text-white font-mono text-lg font-black tracking-tight" data-testid={`warehouse-batch-number-${batch.id}`}>
+            <Layers className="w-5 h-5" />
             {batch.batch_number}
           </div>
           {batch.location ? (
             <div
-              className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-blue-100 text-blue-900 font-medium text-sm"
+              className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-lg bg-blue-600 text-white font-bold text-base"
               data-testid={`warehouse-batch-location-${batch.id}`}
             >
-              <MapPin className="w-4 h-4" />
+              <MapPin className="w-5 h-5" />
               {batch.location}
             </div>
           ) : (
-            <div className="inline-flex items-center gap-1 px-3 py-1 rounded-lg bg-slate-100 text-slate-400 text-sm italic">
-              <MapPin className="w-4 h-4" />
+            <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-lg bg-slate-200 text-slate-500 font-semibold text-base italic">
+              <MapPin className="w-5 h-5" />
               Unslotted
             </div>
           )}
         </div>
         <div className="text-right">
-          <div className="text-2xl font-bold text-emerald-700 tabular-nums" data-testid={`warehouse-batch-total-${batch.id}`}>
+          <div className="text-3xl font-black text-emerald-700 tabular-nums leading-none" data-testid={`warehouse-batch-total-${batch.id}`}>
             {batch.total_pieces}
           </div>
-          <div className="text-xs text-slate-500 uppercase tracking-wide">pieces</div>
+          <div className="text-xs text-slate-500 uppercase tracking-wide mt-0.5">pieces</div>
+          {batch.total_m2 != null && Number(batch.total_m2) > 0 && (
+            <div className="text-sm font-bold text-slate-700 tabular-nums mt-1 border-t border-slate-200 pt-1">
+              {Number(batch.total_m2).toFixed(2)} m²
+            </div>
+          )}
         </div>
       </div>
 
@@ -376,6 +542,11 @@ export default function Warehouse() {
 
   const [adjustments, setAdjustments] = useState([]);
   const [historyExpanded, setHistoryExpanded] = useState(false);
+  // Group rows in the Recent Adjustments panel by product — same product
+  // with different batches / edits shows as ONE row that can be expanded.
+  // Requested 23 Jul 2026. Default ON so the panel is compact by default.
+  const [groupByProduct, setGroupByProduct] = useState(true);
+  const [expandedGroups, setExpandedGroups] = useState({});
 
   // PIN gate
   const [pinPromptOpen, setPinPromptOpen] = useState(false);
@@ -482,6 +653,37 @@ export default function Warehouse() {
     () => historyExpanded ? adjustments : adjustments.slice(0, 8),
     [adjustments, historyExpanded],
   );
+
+  // Group rows by product_id — each group keeps its members sorted newest-first
+  // (list is already sorted this way). Group header row shows the SUMMARY of
+  // the group's activity (net delta, event count, latest timestamp) and can be
+  // expanded to reveal individual events. Ungrouped rendering is preserved for
+  // the audit-purists (toggle at the top of the panel).
+  const groupedHistory = useMemo(() => {
+    const groups = new Map();
+    visibleHistory.forEach((row) => {
+      const key = row.product_id || row.product_sku || row.id;
+      if (!groups.has(key)) {
+        groups.set(key, {
+          key,
+          product_id: row.product_id,
+          product_sku: row.product_sku,
+          product_name: row.product_name,
+          rows: [],
+          net_delta: 0,
+          latest_after: row.after_qty,
+          latest_at: row.created_at,
+          earliest_before: row.before_qty,
+        });
+      }
+      const g = groups.get(key);
+      g.rows.push(row);
+      g.net_delta += row.delta || 0;
+      // Since rows arrive newest-first, the FIRST row is latest, the LAST is earliest.
+      g.earliest_before = row.before_qty;  // keeps overwriting → ends at oldest
+    });
+    return Array.from(groups.values());
+  }, [visibleHistory]);
 
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-6" data-testid="warehouse-page">
@@ -623,10 +825,10 @@ export default function Warehouse() {
                         {p.category_name && <span className="text-slate-400">· {p.category_name}</span>}
                         {p.warehouse_location && (
                           <span
-                            className="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-100 rounded text-blue-900 font-medium"
+                            className="inline-flex items-center gap-1.5 px-2.5 py-0.5 bg-blue-600 rounded text-white font-bold text-xs"
                             data-testid={`warehouse-product-location-${p.sku || p.id}`}
                           >
-                            <MapPin className="w-3 h-3" /> {p.warehouse_location}
+                            <MapPin className="w-3.5 h-3.5" /> {p.warehouse_location}
                           </span>
                         )}
                       </div>
@@ -637,7 +839,7 @@ export default function Warehouse() {
                         <Badge variant="secondary" className="text-xs">
                           {p.batch_count} batch{p.batch_count === 1 ? '' : 'es'}
                         </Badge>
-                        <StockBadge stock={p.warehouse_stock} unit={p.unit} />
+                        <StockBadge stock={p.warehouse_stock} unit={p.unit} m2={p.coverage_m2} />
                       </div>
                       {p.last_adjusted_at && (
                         <div className="text-xs text-slate-400 mt-1">
@@ -684,25 +886,43 @@ export default function Warehouse() {
 
       {/* History */}
       <Card className="overflow-hidden" data-testid="warehouse-history-card">
-        <div className="p-4 flex items-center justify-between border-b border-slate-100">
+        <div className="p-4 flex items-center justify-between border-b border-slate-100 flex-wrap gap-3">
           <div className="flex items-center gap-2">
             <ArrowUpDown className="w-4 h-4 text-slate-500" />
             <h2 className="font-semibold text-slate-900">Recent adjustments</h2>
             <Badge variant="secondary" className="ml-1">{adjustments.length}</Badge>
           </div>
-          {adjustments.length > 8 && (
-            <Button
-              variant="ghost" size="sm"
-              onClick={() => setHistoryExpanded(!historyExpanded)}
-              data-testid="warehouse-history-toggle"
-            >
-              {historyExpanded ? (
-                <><ChevronUp className="w-4 h-4 mr-1" /> Show less</>
-              ) : (
-                <><ChevronDown className="w-4 h-4 mr-1" /> Show all {adjustments.length}</>
-              )}
-            </Button>
-          )}
+          <div className="flex items-center gap-2 flex-wrap">
+            {/* Group-by-product toggle — collapses same-SKU rows into one */}
+            {/* summary row that expands on click. Requested 23 Jul 2026 */}
+            {/* so the panel doesn't repeat products on batch-heavy days. */}
+            <div className="flex items-center gap-2 text-xs bg-slate-50 border border-slate-200 rounded-lg px-2 py-1">
+              <label htmlFor="warehouse-group-toggle" className="text-slate-600 cursor-pointer select-none">
+                Group by product
+              </label>
+              <input
+                id="warehouse-group-toggle"
+                type="checkbox"
+                checked={groupByProduct}
+                onChange={(e) => setGroupByProduct(e.target.checked)}
+                className="cursor-pointer"
+                data-testid="warehouse-history-group-toggle"
+              />
+            </div>
+            {adjustments.length > 8 && (
+              <Button
+                variant="ghost" size="sm"
+                onClick={() => setHistoryExpanded(!historyExpanded)}
+                data-testid="warehouse-history-toggle"
+              >
+                {historyExpanded ? (
+                  <><ChevronUp className="w-4 h-4 mr-1" /> Show less</>
+                ) : (
+                  <><ChevronDown className="w-4 h-4 mr-1" /> Show all {adjustments.length}</>
+                )}
+              </Button>
+            )}
+          </div>
         </div>
         {adjustments.length === 0 ? (
           <div className="p-8 text-center text-sm text-slate-400">
@@ -717,169 +937,79 @@ export default function Warehouse() {
                   <th className="text-left py-2 px-4">Product</th>
                   <th className="text-right py-2 px-4">Before → After</th>
                   <th className="text-right py-2 px-4">Δ</th>
-                  <th className="text-left py-2 px-4">Reason</th>
+                  <th className="text-left py-2 px-4">Details</th>
                   <th className="text-left py-2 px-4">Who</th>
                   <th className="text-right py-2 px-4 w-24">Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {visibleHistory.map((a) => (
-                  <tr
-                    key={a.id}
-                    className={`border-t border-slate-100 ${a.reversed ? 'bg-slate-50/60' : ''}`}
-                    data-testid={`warehouse-history-row-${a.id}`}
-                  >
-                    <td className="py-2 px-4 text-xs text-slate-500 whitespace-nowrap">
-                      {formatDateTime(a.created_at)}
-                    </td>
-                    <td className="py-2 px-4">
-                      <div className={`font-medium ${a.reversed ? 'text-slate-400 line-through' : 'text-slate-900'}`}>
-                        {a.product_name}
-                      </div>
-                      <div className="text-xs font-mono text-slate-400">{a.product_sku || ''}</div>
-                    </td>
-                    <td className={`py-2 px-4 text-right whitespace-nowrap ${a.reversed ? 'text-slate-400 line-through' : 'text-slate-600'}`}>
-                      {a.before_qty} → <strong>{a.after_qty}</strong>
-                    </td>
-                    <td className="py-2 px-4 text-right whitespace-nowrap">
-                      <span className={`${a.reversed ? 'line-through text-slate-400' : a.delta > 0 ? 'text-emerald-700' : a.delta < 0 ? 'text-red-700' : 'text-slate-500'}`}>
-                        {a.delta > 0 ? '+' : ''}{a.delta}
-                      </span>
-                    </td>
-                    <td className="py-2 px-4">
-                      <div className={`${a.reversed ? 'text-slate-400 line-through' : 'text-slate-700'}`}>
-                        {REASON_LABELS[a.reason] || a.reason}
-                      </div>
-                      {a.note && <div className="text-xs text-slate-400 italic">&ldquo;{a.note}&rdquo;</div>}
-                      {a.reversed && (
-                        <div
-                          className="inline-flex items-center gap-1 mt-1 px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide bg-red-100 text-red-800 border border-red-200"
-                          title={`Reversed at ${formatDateTime(a.reversed_at)} by ${a.reversed_by_pin || a.reversed_by_email || 'unknown'}`}
-                          data-testid={`warehouse-history-reversed-${a.id}`}
+                {groupByProduct ? (
+                  // Grouped view — one summary row per product, expandable to
+                  // reveal the individual adjustment events.
+                  groupedHistory.map((g) => {
+                    const isOpen = !!expandedGroups[g.key];
+                    return (
+                      <React.Fragment key={g.key}>
+                        <tr
+                          className="border-t border-slate-200 bg-slate-50 hover:bg-slate-100 cursor-pointer"
+                          onClick={() => setExpandedGroups({ ...expandedGroups, [g.key]: !isOpen })}
+                          data-testid={`warehouse-history-group-${g.key}`}
                         >
-                          Reversed
-                        </div>
-                      )}
-                      {a.last_edited_at && !a.reversed && (
-                        <div
-                          className="inline-flex items-center gap-1 mt-1 px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide bg-amber-100 text-amber-800 border border-amber-200"
-                          title={`Edited at ${formatDateTime(a.last_edited_at)} by ${a.last_edited_by_pin || 'unknown'}`}
-                          data-testid={`warehouse-history-edited-${a.id}`}
-                        >
-                          Edited
-                        </div>
-                      )}
-                    </td>
-                    <td className="py-2 px-4 text-xs text-slate-500">
-                      <div>{a.actor_name || a.actor_email}</div>
-                      {a.authorised_by_pin && (
-                        <div className="text-emerald-700 flex items-center gap-1 mt-0.5">
-                          <UserIcon className="w-3 h-3" />
-                          PIN: {a.authorised_by_pin}
-                        </div>
-                      )}
-                    </td>
-                    <td className="py-2 px-4">
-                      {/* Row-level actions — every click is PIN-gated. */}
-                      {/* Reversed rows are read-only history — a compensating */}
-                      {/* row already lives elsewhere in the audit trail. */}
-                      {a.reversed ? (
-                        <div className="flex items-center justify-end gap-1">
-                          {(a.edit_history?.length > 0 || a.reversed) && (
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-7 w-7 text-slate-500 hover:text-indigo-700 hover:bg-indigo-50"
-                              title="View timeline"
-                              onClick={() => setTimelineAdjState(a)}
-                              data-testid={`warehouse-history-timeline-${a.id}`}
-                            >
-                              <History className="h-3.5 w-3.5" />
-                            </Button>
-                          )}
-                          {/* Delete still works on reversed rows so the owner */}
-                          {/* can clean up an old compensating chain. */}
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-7 w-7 text-slate-500 hover:text-red-700 hover:bg-red-50"
-                            title="Delete this row (also cleans up the linked compensating row)"
-                            onClick={() => ensureFreshPin(() => setReverseAdjState(a))}
-                            data-testid={`warehouse-history-reverse-${a.id}`}
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </Button>
-                        </div>
-                      ) : (
-                        <div className="flex items-center justify-end gap-1">
-                          {/* Timeline — only shown when there's something to */}
-                          {/* see (edited or has a reversal back-link). Keeps */}
-                          {/* the actions column tidy for plain rows. */}
-                          {(a.edit_history?.length > 0 || a.reverses_adjustment_id) && (
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-7 w-7 text-slate-500 hover:text-indigo-700 hover:bg-indigo-50 relative"
-                              title={a.edit_history?.length > 1
-                                ? `View timeline — ${a.edit_history.length} edits`
-                                : (a.edit_history?.length === 1
-                                    ? 'View timeline — 1 edit'
-                                    : 'View timeline — reversal record')}
-                              onClick={() => setTimelineAdjState(a)}
-                              data-testid={`warehouse-history-timeline-${a.id}`}
-                            >
-                              <History className="h-3.5 w-3.5" />
-                              {a.edit_history?.length > 1 && (
-                                <span className="absolute -top-1 -right-1 h-3.5 min-w-[14px] px-0.5 rounded-full bg-indigo-600 text-white text-[9px] font-bold leading-[14px] text-center">
-                                  {a.edit_history.length}
-                                </span>
-                              )}
-                            </Button>
-                          )}
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-7 w-7 text-slate-500 hover:text-amber-700 hover:bg-amber-50"
-                            title="Edit reason / note"
-                            onClick={() => ensureFreshPin(() => setEditAdjState(a))}
-                            data-testid={`warehouse-history-edit-${a.id}`}
-                          >
-                            <Edit2 className="h-3.5 w-3.5" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-7 w-7 text-slate-500 hover:text-red-700 hover:bg-red-50"
-                            title="Delete this adjustment"
-                            onClick={() => ensureFreshPin(() => setReverseAdjState(a))}
-                            data-testid={`warehouse-history-reverse-${a.id}`}
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </Button>
-                          {a.product_id && (
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-7 w-7 text-slate-500 hover:text-slate-900 hover:bg-slate-100"
-                              title="Open Adjust dialog for this product"
-                              onClick={() => ensureFreshPin(() => setAdjustState({
-                                product: {
-                                  id: a.product_id,
-                                  name: a.product_name,
-                                  sku: a.product_sku,
-                                  warehouse_stock: a.after_qty,
-                                },
-                              }))}
-                              data-testid={`warehouse-history-adjust-${a.id}`}
-                            >
-                              <ArrowUpDown className="h-3.5 w-3.5" />
-                            </Button>
-                          )}
-                        </div>
-                      )}
-                    </td>
-                  </tr>
-                ))}
+                          <td className="py-2 px-4 text-xs text-slate-500 whitespace-nowrap">
+                            <div className="flex items-center gap-1">
+                              <ChevronDown className={`w-3 h-3 transition-transform ${isOpen ? '' : '-rotate-90'}`} />
+                              {formatDateTime(g.latest_at)}
+                            </div>
+                          </td>
+                          <td className="py-2 px-4">
+                            <div className="font-semibold text-slate-900">{g.product_name}</div>
+                            <div className="text-xs font-mono text-slate-400">{g.product_sku || ''}</div>
+                          </td>
+                          <td className="py-2 px-4 text-right whitespace-nowrap text-slate-600">
+                            {g.earliest_before} → <strong>{g.latest_after}</strong>
+                          </td>
+                          <td className="py-2 px-4 text-right whitespace-nowrap">
+                            <span className={g.net_delta > 0 ? 'text-emerald-700 font-semibold' : g.net_delta < 0 ? 'text-red-700 font-semibold' : 'text-slate-500'}>
+                              {g.net_delta > 0 ? '+' : ''}{g.net_delta}
+                            </span>
+                          </td>
+                          <td className="py-2 px-4 text-slate-600 text-xs">
+                            <span className="font-semibold">{g.rows.length}</span> event{g.rows.length === 1 ? '' : 's'}
+                            <span className="text-slate-400"> · click to {isOpen ? 'collapse' : 'expand'}</span>
+                          </td>
+                          <td className="py-2 px-4" />
+                          <td className="py-2 px-4" />
+                        </tr>
+                        {isOpen && g.rows.map((a) => (
+                          <HistoryRow
+                            key={a.id}
+                            a={a}
+                            inGroup
+                            reasonLabels={REASON_LABELS}
+                            setEditAdjState={setEditAdjState}
+                            setReverseAdjState={setReverseAdjState}
+                            setTimelineAdjState={setTimelineAdjState}
+                            setAdjustState={setAdjustState}
+                            ensureFreshPin={ensureFreshPin}
+                          />
+                        ))}
+                      </React.Fragment>
+                    );
+                  })
+                ) : (
+                  visibleHistory.map((a) => (
+                    <HistoryRow
+                      key={a.id}
+                      a={a}
+                      reasonLabels={REASON_LABELS}
+                      setEditAdjState={setEditAdjState}
+                      setReverseAdjState={setReverseAdjState}
+                      setTimelineAdjState={setTimelineAdjState}
+                      setAdjustState={setAdjustState}
+                      ensureFreshPin={ensureFreshPin}
+                    />
+                  ))
+                )}
               </tbody>
             </table>
           </div>

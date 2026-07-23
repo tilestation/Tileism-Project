@@ -1178,14 +1178,39 @@ async def list_product_batches(
     product_id: str,
     current_user: dict = Depends(get_current_user),
 ):
-    """List all active batches for one product."""
+    """List all active batches for one product. Enriches each batch with
+    `total_m2` when the product carries `sqm_per_piece` / tile dimensions
+    so the UI can show m² alongside piece counts without doing the math
+    on the client. Requested 23 Jul 2026 — shop-floor staff need m² totals
+    on batch cards to answer "how much can we ship" questions at a glance.
+    """
     db = get_db()
+    product = await db.products.find_one(
+        {"id": product_id},
+        {"_id": 0, "sqm_per_piece": 1, "tile_width": 1, "tile_height": 1},
+    )
+    m2_per_piece = None
+    if product:
+        if product.get("sqm_per_piece") is not None:
+            try:
+                m2_per_piece = float(product["sqm_per_piece"])
+            except (TypeError, ValueError):
+                m2_per_piece = None
+        # Fallback derivation from tile dimensions when sqm_per_piece isn't set.
+        if m2_per_piece is None and product.get("tile_width") and product.get("tile_height"):
+            try:
+                m2_per_piece = float(product["tile_width"]) * float(product["tile_height"]) / 1_000_000
+            except (TypeError, ValueError):
+                m2_per_piece = None
+
     cursor = db.warehouse_batches.find(
         {"product_id": product_id, "is_active": {"$ne": False}},
     ).sort("created_at", -1)
     rows = []
     async for b in cursor:
         b.pop("_id", None)
+        if m2_per_piece and b.get("total_pieces"):
+            b["total_m2"] = round(int(b["total_pieces"]) * m2_per_piece, 2)
         rows.append(b)
     return {"batches": rows}
 

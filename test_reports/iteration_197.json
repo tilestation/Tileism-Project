@@ -1,0 +1,53 @@
+{
+  "summary": "Iter197 verified the five Tonbridge Warehouse display changes: (1) StockBadge on product rows now stacks pieces + m² (StockBadge with 10 PIECE / 3.60 m² confirmed via screenshot on TEST-M2 product with sqm_per_piece=0.36). (2) 'Group by product' toggle present, default ON, expand/collapse works, OFF shows flat rows. (3) Recent Adjustments header column renamed from 'REASON' to 'DETAILS'. (4) Batch cards render bold black BATCH NUMBER pill (font-black text-lg), Unslotted pill for missing location (blue-600 pill would render for real locations per code), oversized emerald text-3xl font-black pieces total. (5) Backend GET /warehouse/products/{id}/batches now enriches each batch with total_m2 (3.60 for 10 pieces × 0.36 sqm_per_piece). Regression check for deleted_at filter also passes. Backend: 5/5 focused tests pass. Frontend: all UI display changes confirmed visually.  ONE BUG FOUND: batch cards in BatchesPanel do NOT show the m² subtotal because the SEARCH endpoint /warehouse/products (which BatchesPanel reads product.batches from) does NOT compute total_m2 on batches — only the /products/{id}/batches endpoint does. The frontend never calls the latter. Fix: either enrich batches in the search endpoint OR make BatchesPanel fetch fresh batches from /products/{id}/batches on expand.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "BatchCard (Warehouse.jsx L332-336) via BatchesPanel (L394-395)",
+        "issue": "Batch card m² subtotal line NEVER renders because BatchesPanel reads product.batches from the /warehouse/products search endpoint, which does NOT enrich batches with total_m2. Confirmed via UI screenshot (batch card shows '10 PIECES' but no '3.60 m²' subtotal even for a product with sqm_per_piece=0.36) and via curl: the search endpoint returns total_m2:null in embedded batches while /warehouse/products/{id}/batches correctly returns total_m2:3.6. Owner requirement (d) 'an m² subtotal below pieces when total_m2 is provided' is silently not-provided.",
+        "selector": "[data-testid^='warehouse-batch-total-'] followed by m² div",
+        "priority": "MEDIUM"
+      }
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_warehouse_batch_m2.py",
+    "/app/test_reports/pytest/iter197_batch_m2.xml"
+  ],
+  "action_items": [
+    "Enrich batches with total_m2 inside search_warehouse_products (routes/warehouse.py ~L390-396) using the same sqm_per_piece / tile_width*tile_height fallback logic that list_product_batches uses. This is the smallest change and keeps the frontend's single-request pattern. Alternative: have BatchesPanel fetch fresh from /warehouse/products/{id}/batches on expand (more network chatter, but cleaner separation).",
+    "Pre-existing minor: React 'Each child in a list should have a unique key prop' warning from AdminDashboard — noted in iter196 and still present. Not blocking."
+  ],
+  "critical_code_review_comments": [
+    "routes/warehouse.py list_product_batches (L1176-1215): total_m2 enrichment logic is correct and tolerant of missing / bad sqm_per_piece values (verified via test_endpoint_never_500s_with_bad_sqm_value).",
+    "routes/warehouse.py search_warehouse_products (L369-451): embedded batches inside each product are NOT enriched with total_m2 — root cause of the batch-card m² UI bug. Please add the same enrichment loop here.",
+    "Warehouse.jsx StockBadge (L108-128): clean redesign — pieces (text-lg font-bold tabular-nums), unit pill, and m² subtotal with a divider — reads well.",
+    "Warehouse.jsx HistoryRow (L137-291): extraction into a file-scope component is the right refactor — both grouped and flat views share the same row markup with the inGroup indent flag.",
+    "Warehouse.jsx groupedHistory memoisation (L662-686): groups by product_id and accumulates net_delta / latest/earliest — correct. Note: `earliest_before = row.before_qty` in a forEach that OVERWRITES on every row → ends at the OLDEST row's before_qty (comment says so, verified). Nice.",
+    "Warehouse.jsx group toggle default is `useState(true)` (L548) which matches the 'Default ON' requirement.",
+    "Warehouse.jsx BatchCard batch number pill (L308-311): text-lg font-black bg-slate-900 text-white — matches the 'big black BATCH NUMBER pill' requirement exactly.",
+    "Warehouse.jsx BatchCard location pill (L312-325): blue-600 bg + white text + font-bold text-base when location set, slate 'Unslotted' fallback otherwise — matches requirement (b).",
+    "Warehouse.jsx BatchCard total-pieces block (L327-337): text-3xl font-black text-emerald-700 tabular-nums matches requirement (c). The m² subtotal under it is conditionally rendered on `batch.total_m2 != null && Number(batch.total_m2) > 0` — safe, but currently never fires in practice because of the search-endpoint gap flagged above.",
+    "Warehouse.jsx product-location pill (L826-833): bg-blue-600 text-white font-bold — matches the 'bold white text on blue-600 background' requirement.",
+    "Table headers (L940): 'Details' correctly replaces 'Reason' — verified via DOM extraction in playwright ['When','Product','Before → After','Δ','Details','Who','Actions']."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_warehouse_batch_m2.py"
+  ],
+  "success_rate": {
+    "backend": "100% (5/5 focused tests pass — sqm_per_piece path, tile-dim fallback, no-info absent, bad-sqm tolerance, soft-delete regression)",
+    "frontend": "~90% (Group toggle default ON + expand/collapse OK, flat view OK when toggle OFF, DETAILS header rename OK, product row StockBadge shows 10 PIECE / 3.60 m² OK, batch card BATCH NUMBER + Unslotted + emerald 3xl total OK — but batch card m² subtotal not visible due to backend search endpoint not enriching embedded batches)"
+  },
+  "test_credentials": "admin@test.com / admin123. Fixture-scoped TEST WH M2 PIN xxxx created and deleted per pytest run.",
+  "seed_data_creation": "5 TEST-M2-* products quick-added via /warehouse/products/quick-add (SKUs are run-unique so re-runs don't collide). Product-level sqm_per_piece / tile_width / tile_height are patched directly via Motor because quick-add doesn't accept sqm_per_piece. No product delete endpoint — orphans remain but are visually filtered by TEST-M2- prefix.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "New backend test file /app/backend/tests/test_warehouse_batch_m2.py — 4 tests around total_m2 enrichment on /products/{id}/batches + 1 regression test for the deleted_at filter. Frontend tests done via inline playwright, no snapshot committed. If the search-endpoint enrichment fix lands, re-run: search for 'TEST-M2-29b6b9c0', expand the row, verify the batch card now shows a '3.60 m²' subtotal under '10 pieces'. Also spot-check that products WITHOUT sqm_per_piece don't crash the panel.",
+  "rca of the issue": "Root cause of the batch-card m² miss: two backend endpoints return batches (search + per-product), but only the per-product endpoint was updated in this iteration to compute total_m2. The frontend BatchesPanel reads batches from the search endpoint's embedded array (product.batches) — so the enrichment never reaches the UI. Fix in one place: apply the same m2_per_piece derivation used in list_product_batches inside search_warehouse_products' batch loop (~L390-396). The frontend already renders the m² subtotal correctly when total_m2 is populated — verified by DOM inspection of the guard `batch.total_m2 != null && Number(batch.total_m2) > 0`."
+}
