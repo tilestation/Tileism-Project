@@ -238,6 +238,119 @@ class TestBatchM2Enrichment:
 
 
 # ---------------------------------------------------------------------------
+# Iter198 — Search endpoint (/warehouse/products?q=) must also enrich
+# embedded batches with total_m2, otherwise the BatchesPanel silently drops
+# the m² subtotal because it reads product.batches from the search response.
+# ---------------------------------------------------------------------------
+
+
+class TestSearchEndpointBatchM2Enrichment:
+    def test_search_batches_total_m2_from_sqm_per_piece(self, admin_hdr, pin_token):
+        """Search endpoint: product with sqm_per_piece=0.36 + batch of 10 pieces
+        → product.batches[0].total_m2 == 3.60."""
+        product = _quick_add(admin_hdr, pin_token)
+        pid = product["id"]
+        sku = product["sku"]
+
+        mongo_url, db_name = _mongo_env()
+        client = AsyncIOMotorClient(mongo_url)
+        db = client[db_name]
+        async def _set_sqm():
+            await db.products.update_one(
+                {"id": pid},
+                {"$set": {"sqm_per_piece": 0.36},
+                 "$unset": {"tile_width": "", "tile_height": "", "tile_m2_per_piece": ""}},
+            )
+        asyncio.get_event_loop().run_until_complete(_set_sqm())
+
+        _add_batch(admin_hdr, pin_token, pid, pieces=10)
+
+        r = requests.get(f"{API}/warehouse/products", params={"q": sku}, headers=admin_hdr)
+        assert r.status_code == 200, r.text
+        products = r.json()["products"]
+        assert products, f"search returned no products for q={sku}"
+        target = next((p for p in products if p["id"] == pid), None)
+        assert target, f"product {pid} missing from search results"
+        assert target["batches"], "batches array empty on search response"
+        b = target["batches"][0]
+        assert b["total_pieces"] == 10
+        assert "total_m2" in b, f"total_m2 missing from search-endpoint batch: {b}"
+        assert round(float(b["total_m2"]), 2) == 3.60, (
+            f"expected 3.60 m² on search-endpoint batch, got {b['total_m2']}"
+        )
+        client.close()
+
+    def test_search_batches_total_m2_from_tile_dims_fallback(self, admin_hdr, pin_token):
+        """Search endpoint: product with tile_width=600, tile_height=600
+        (no sqm_per_piece) + batch of 5 pieces → total_m2 == 1.80."""
+        product = _quick_add(
+            admin_hdr, pin_token,
+            tile_width=600, tile_height=600,
+        )
+        pid = product["id"]
+        sku = product["sku"]
+
+        mongo_url, db_name = _mongo_env()
+        client = AsyncIOMotorClient(mongo_url)
+        db = client[db_name]
+        async def _unset():
+            await db.products.update_one(
+                {"id": pid},
+                {"$unset": {"sqm_per_piece": "", "tile_m2_per_piece": ""}},
+            )
+        asyncio.get_event_loop().run_until_complete(_unset())
+
+        _add_batch(admin_hdr, pin_token, pid, pieces=5)
+
+        r = requests.get(f"{API}/warehouse/products", params={"q": sku}, headers=admin_hdr)
+        assert r.status_code == 200, r.text
+        target = next((p for p in r.json()["products"] if p["id"] == pid), None)
+        assert target, f"product {pid} missing from search results"
+        assert target["batches"], "batches array empty on search response"
+        b = target["batches"][0]
+        assert b["total_pieces"] == 5
+        assert "total_m2" in b, f"total_m2 missing on tile-dim fallback: {b}"
+        assert round(float(b["total_m2"]), 2) == 1.80, (
+            f"expected 1.80 m², got {b['total_m2']}"
+        )
+        client.close()
+
+    def test_search_batches_no_sqm_no_dims_endpoint_200(self, admin_hdr, pin_token):
+        """Search endpoint: product with NEITHER sqm_per_piece NOR tile dims
+        → endpoint returns 200; batches present without total_m2."""
+        product = _quick_add(admin_hdr, pin_token)
+        pid = product["id"]
+        sku = product["sku"]
+
+        mongo_url, db_name = _mongo_env()
+        client = AsyncIOMotorClient(mongo_url)
+        db = client[db_name]
+        async def _strip():
+            await db.products.update_one(
+                {"id": pid},
+                {"$unset": {
+                    "sqm_per_piece": "", "tile_width": "", "tile_height": "",
+                    "tile_m2_per_piece": "",
+                }},
+            )
+        asyncio.get_event_loop().run_until_complete(_strip())
+
+        _add_batch(admin_hdr, pin_token, pid, pieces=7)
+
+        r = requests.get(f"{API}/warehouse/products", params={"q": sku}, headers=admin_hdr)
+        assert r.status_code == 200, r.text
+        target = next((p for p in r.json()["products"] if p["id"] == pid), None)
+        assert target, f"product {pid} missing from search results"
+        assert target["batches"], "batches empty"
+        b = target["batches"][0]
+        assert b["total_pieces"] == 7
+        assert "total_m2" not in b, (
+            f"total_m2 must be absent when product has no coverage info, got: {b}"
+        )
+        client.close()
+
+
+# ---------------------------------------------------------------------------
 # Regression: GET /adjustments filters deleted_at by default (iter196 fix)
 # ---------------------------------------------------------------------------
 

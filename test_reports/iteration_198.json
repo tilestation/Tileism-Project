@@ -1,0 +1,37 @@
+{
+  "summary": "Iter198 retest of the ONE bug flagged in iter197 (batch-card m² subtotal not rendering). Root cause: search endpoint /warehouse/products was not enriching embedded batches with total_m2. Fix has now landed in routes/warehouse.py::search_warehouse_products (L435-442) — same m2_per_piece derivation used by list_product_batches. Backend: 8/8 pytest tests pass — including 3 NEW iter198 tests that verify search-endpoint enrichment for (a) sqm_per_piece path → total_m2=3.60 for 10 pieces × 0.36, (b) tile_width*tile_height fallback path → total_m2=1.80 for 5 pieces × (600×600 mm), (c) product with neither sqm_per_piece nor tile dims returns 200 with total_m2 absent. Iter197's 4 per-product endpoint tests + iter196's soft-delete regression all continue to pass. Frontend: verified live at /admin/warehouse — searched for TEST-M2-FE-0c0564 (sqm_per_piece=0.36, batch of 10 pieces), expanded product row, batch card now renders '10 PIECES' with '3.60 m²' subtotal exactly as expected. Product-row StockBadge also shows both '10 PIECE' and '3.60 m²'. DETAILS header rename, Group-by-product default-ON toggle, bold black BATCH NUMBER pill and grey Unslotted fallback all rendered correctly.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_warehouse_batch_m2.py",
+    "/app/test_reports/pytest/iter198_batch_m2.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "routes/warehouse.py search_warehouse_products (L417-442): m2_per_piece derivation is unified across product-level coverage_m2 and per-batch total_m2 — good DRY. tile_m2_per_piece is preferred over sqm_per_piece which is correct since it's the product-model field.",
+    "routes/warehouse.py: enrichment guard `if m2_per_piece:` correctly skips when derivation failed. Also guarded by `if pieces:` inside the loop — total_m2 will not be stamped if total_pieces is 0/None, matches per-product endpoint semantics.",
+    "Warehouse.jsx BatchCard (L332-336): render guard `batch.total_m2 != null && Number(batch.total_m2) > 0` is defensive against both null AND string-'0' edge cases — good.",
+    "Warehouse.jsx BatchesPanel reads product.batches from the search endpoint's embedded array — no extra fetch on expand, single-request pattern preserved.",
+    "test_warehouse_batch_m2.py: 8 total tests now cover both search + per-product endpoints, tile-dim fallback, missing-info tolerance, bad-value tolerance and the iter196 soft-delete regression. Uses fixture-scoped PIN so re-runs don't collide."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_warehouse_batch_m2.py"
+  ],
+  "success_rate": {
+    "backend": "100% (8/8 tests pass — 4 iter197 per-product + 3 NEW iter198 search-endpoint + 1 soft-delete regression)",
+    "frontend": "100% (batch-card m² subtotal now rendered; product row m² badge, group toggle, DETAILS header, batch pill, Unslotted fallback all confirmed via live UI)"
+  },
+  "test_credentials": "admin@test.com / admin123. Fixture-scoped 'TEST WH M2 PIN xxxx' pin created/deleted per pytest run; seed helper PIN 16612 was also created for the FE screenshot walkthrough (visible in staff-pins as 'TEST WH FE PIN xxxx').",
+  "seed_data_creation": "1 TEST-M2-FE-0c0564 product seeded via /warehouse/products/quick-add, sqm_per_piece=0.36 patched via Motor, one batch of 10 pieces attached (batch_number BN-FE-22a5). Multiple TEST-M2-* rows from iter197 still present but visually filtered by prefix — no product-delete endpoint exists.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "test_warehouse_batch_m2.py now covers both /warehouse/products/{id}/batches AND the /warehouse/products search endpoint. Re-run with `REACT_APP_BACKEND_URL=<url> python -m pytest backend/tests/test_warehouse_batch_m2.py -v`. If future changes touch either enrichment path, this suite catches drift. Frontend visual walkthrough steps: login → /admin/warehouse → search 'TEST-M2-FE-0c0564' → click row → verify batch card shows '3.60 m²' under '10 PIECES'.",
+  "rca of the issue": "Iter197 fixed enrichment only in list_product_batches (per-product endpoint), but the frontend BatchesPanel reads batches from the search endpoint's embedded array so the m² subtotal never made it to the UI. Iter198 fix duplicates the exact same m2_per_piece derivation (tile_m2_per_piece → sqm_per_piece → tile_width*tile_height fallback) inside search_warehouse_products and stamps b['total_m2'] on each active batch in the map. Verified end-to-end: pytest asserts search response total_m2 == 3.60, and live UI now renders '3.60 m²' inside the batch card. No regressions on the 4 existing iter197 tests or the iter196 soft-delete filter."
+}

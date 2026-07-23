@@ -362,6 +362,7 @@ async def search_warehouse_products(
         "tile_width": 1,
         "tile_height": 1,
         "tile_m2_per_piece": 1,
+        "sqm_per_piece": 1,
         "tiles_per_box": 1,
         "warehouse_location": 1,
     }
@@ -414,13 +415,31 @@ async def search_warehouse_products(
         last_adj = last_adj_map.get(p.get("id"))
         product_batches = batches_map.get(p.get("id"), [])
         # Aggregate m² coverage across all batches (if we know tile size).
-        m2_per_piece = p.get("tile_m2_per_piece")
+        # Try tile_m2_per_piece first (product model), fall back to
+        # sqm_per_piece (import model), fall back to derived tile_width * tile_height.
+        m2_per_piece_raw = p.get("tile_m2_per_piece") or p.get("sqm_per_piece")
+        try:
+            m2_per_piece = float(m2_per_piece_raw) if m2_per_piece_raw is not None else None
+        except (ValueError, TypeError):
+            m2_per_piece = None
+        if m2_per_piece is None and p.get("tile_width") and p.get("tile_height"):
+            try:
+                m2_per_piece = float(p["tile_width"]) * float(p["tile_height"]) / 1_000_000
+            except (TypeError, ValueError):
+                m2_per_piece = None
+
         coverage_m2 = None
         if m2_per_piece and warehouse_qty:
-            try:
-                coverage_m2 = round(warehouse_qty * float(m2_per_piece), 2)
-            except (ValueError, TypeError):
-                coverage_m2 = None
+            coverage_m2 = round(warehouse_qty * m2_per_piece, 2)
+
+        # Enrich each embedded batch with `total_m2` so BatchesPanel can
+        # render the m² subtotal without a second round-trip. Missing /
+        # bad m2_per_piece → skip enrichment silently.
+        if m2_per_piece:
+            for b in product_batches:
+                pieces = b.get("total_pieces")
+                if pieces:
+                    b["total_m2"] = round(int(pieces) * m2_per_piece, 2)
         image = None
         images = p.get("images") or []
         if isinstance(images, list) and images:
