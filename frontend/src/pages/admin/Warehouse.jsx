@@ -184,7 +184,7 @@ const BATCH_REASONS = [
 // Before/after is preserved but hidden inside the details popup, which
 // opens on click anywhere on the row (buttons still stopPropagation).
 function HistoryRow({
-  a, reasonLabels, inGroup,
+  a, reasonLabels, inGroup, multiBatchCount,
   setEditAdjState, setReverseAdjState, setTimelineAdjState, setAdjustState,
   setDetailsAdjState, ensureFreshPin,
 }) {
@@ -193,7 +193,7 @@ function HistoryRow({
   const stop = (e) => e.stopPropagation();
   return (
     <tr
-      className={`border-t border-slate-100 cursor-pointer hover:bg-indigo-50/40 transition ${a.reversed ? 'bg-slate-50/60' : ''} ${inGroup ? 'bg-slate-50/40' : ''}`}
+      className={`border-t border-slate-100 cursor-pointer hover:bg-indigo-50/40 transition ${a.reversed ? 'bg-slate-50/60' : ''} ${inGroup ? 'bg-slate-50/40' : ''} ${!inGroup && multiBatchCount ? 'border-l-4 border-l-amber-400' : ''}`}
       onClick={openDetails}
       data-testid={`warehouse-history-row-${a.id}`}
     >
@@ -201,8 +201,20 @@ function HistoryRow({
         {formatDateTime(a.created_at)}
       </td>
       <td className="py-2.5 px-4 align-top">
-        <div className={`font-semibold ${a.reversed ? 'text-slate-400 line-through' : 'text-slate-900'}`}>
-          {a.product_name}
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className={`font-semibold ${a.reversed ? 'text-slate-400 line-through' : 'text-slate-900'}`}>
+            {a.product_name}
+          </span>
+          {!inGroup && multiBatchCount && (
+            <span
+              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-amber-500 text-white text-[10px] font-black uppercase tracking-wider"
+              title={`This product has ${multiBatchCount} batches — enable "Group by product" for a summary view`}
+              data-testid={`warehouse-history-flat-multibatch-${a.id}`}
+            >
+              <Layers className="w-3 h-3" />
+              {multiBatchCount} batches
+            </span>
+          )}
         </div>
         <div className="text-xs font-mono text-slate-400">{a.product_sku || ''}</div>
       </td>
@@ -756,6 +768,28 @@ export default function Warehouse() {
     return Array.from(groups.values());
   }, [visibleHistory]);
 
+  // Flat view — build a lookup { product_id/sku : batchCount } so we can
+  // display a "N BATCHES" chip on individual rows too, matching the
+  // multi-batch highlight in the grouped view. Requested 23 Jul 2026.
+  const flatMultiBatchMap = useMemo(() => {
+    const counts = {};
+    visibleHistory.forEach((row) => {
+      const key = row.product_id || row.product_sku;
+      if (!key) return;
+      const isBatchAdd = row.reason === 'batch_added' || row.reason === 'delivery_received';
+      counts[key] = counts[key] || { batchAdds: 0, events: 0 };
+      counts[key].events += 1;
+      if (isBatchAdd) counts[key].batchAdds += 1;
+    });
+    const result = {};
+    Object.entries(counts).forEach(([k, v]) => {
+      const n = v.batchAdds > 0 ? v.batchAdds : v.events;
+      if (n > 1) result[k] = n;
+    });
+    return result;
+  }, [visibleHistory]);
+
+
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-6" data-testid="warehouse-page">
       {/* Header */}
@@ -1030,16 +1064,32 @@ export default function Warehouse() {
               <tbody>
                 {groupByProduct ? (
                   // Grouped view — one summary row per product, expandable to
-                  // reveal the individual adjustment events.
+                  // reveal the individual adjustment events. Rows are visually
+                  // HIGHLIGHTED (amber background + amber left border) when the
+                  // product has more than one batch-add event, and a big pill
+                  // shouts "N BATCHES" so the shop floor can spot multi-batch
+                  // products at a glance. Requested 23 Jul 2026.
                   groupedHistory.map((g) => {
                     const isOpen = !!expandedGroups[g.key];
                     // Use the latest adjustment's product-level context for
                     // the boxes / m² breakdown on the group header cell.
                     const latestRow = g.rows[0] || {};
+                    // Count batch_added / delivery_received events as a proxy
+                    // for the batch count — this is close to the true batch
+                    // count as reported by the /warehouse/products endpoint.
+                    const batchLikeCount = g.rows.filter(r =>
+                      r.reason === 'batch_added' || r.reason === 'delivery_received'
+                    ).length;
+                    const batchCount = batchLikeCount > 0 ? batchLikeCount : g.rows.length;
+                    const isMultiBatch = batchCount > 1;
                     return (
                       <React.Fragment key={g.key}>
                         <tr
-                          className="border-t-2 border-slate-200 bg-slate-100 hover:bg-slate-200/60 cursor-pointer"
+                          className={`border-t-2 cursor-pointer ${
+                            isMultiBatch
+                              ? 'border-amber-400 border-l-4 bg-amber-50 hover:bg-amber-100'
+                              : 'border-slate-200 bg-slate-100 hover:bg-slate-200/60'
+                          }`}
                           onClick={() => setExpandedGroups({ ...expandedGroups, [g.key]: !isOpen })}
                           data-testid={`warehouse-history-group-${g.key}`}
                         >
@@ -1050,16 +1100,31 @@ export default function Warehouse() {
                             </div>
                           </td>
                           <td className="py-2.5 px-4">
-                            <div className="font-bold text-slate-900">{g.product_name}</div>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="font-bold text-slate-900">{g.product_name}</span>
+                              {isMultiBatch && (
+                                <span
+                                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500 text-white text-[11px] font-black uppercase tracking-wider shadow-sm"
+                                  data-testid={`warehouse-history-multibatch-badge-${g.key}`}
+                                  title={`This product has ${batchCount} separate batches in the warehouse`}
+                                >
+                                  <Layers className="w-3 h-3" />
+                                  {batchCount} batches
+                                </span>
+                              )}
+                            </div>
                             <div className="text-xs font-mono text-slate-500">{g.product_sku || ''}</div>
                           </td>
                           <td className="py-2.5 px-4">
+                            <div className="text-[10px] uppercase tracking-widest font-bold text-slate-500 text-right mb-0.5">
+                              Total stock now
+                            </div>
                             <AvailableStockCell
                               pieces={g.latest_after}
                               tilesPerBox={latestRow.product_tiles_per_box}
                               m2PerPiece={latestRow.product_tile_m2_per_piece}
                               unit={latestRow.product_unit}
-                              size="sm"
+                              size="md"
                               testId={`warehouse-history-group-stock-${g.key}`}
                             />
                           </td>
@@ -1104,6 +1169,7 @@ export default function Warehouse() {
                       key={a.id}
                       a={a}
                       reasonLabels={REASON_LABELS}
+                      multiBatchCount={flatMultiBatchMap[a.product_id || a.product_sku]}
                       setEditAdjState={setEditAdjState}
                       setReverseAdjState={setReverseAdjState}
                       setTimelineAdjState={setTimelineAdjState}
@@ -1181,6 +1247,7 @@ export default function Warehouse() {
       />
       <AdjustmentDetailsDialog
         state={detailsAdjState}
+        multiBatchCount={detailsAdjState ? flatMultiBatchMap[detailsAdjState.product_id || detailsAdjState.product_sku] : null}
         reasonLabels={REASON_LABELS}
         onOpenChange={(o) => { if (!o) setDetailsAdjState(null); }}
         onEdit={(a) => { setDetailsAdjState(null); ensureFreshPin(() => setEditAdjState(a)); }}
@@ -2567,7 +2634,7 @@ function TimelineDialog({ state, allAdjustments, onOpenChange }) {
 // so the user doesn't have to close it and hunt for the icon buttons.
 
 function AdjustmentDetailsDialog({
-  state, reasonLabels, onOpenChange,
+  state, reasonLabels, multiBatchCount, onOpenChange,
   onEdit, onReverse, onTimeline, onAdjust,
 }) {
   const open = !!state;
@@ -2624,6 +2691,26 @@ function AdjustmentDetailsDialog({
             )}
           </div>
         </div>
+
+        {/* Multi-batch warning — shows staff that this product has multiple
+            batches in the warehouse so they know to look at all of them
+            before making stocktake decisions. Requested 23 Jul 2026. */}
+        {multiBatchCount && multiBatchCount > 1 && (
+          <div
+            className="rounded-lg border-l-4 border-amber-500 bg-amber-50 p-3 flex items-start gap-3"
+            data-testid="warehouse-adjustment-details-multibatch-banner"
+          >
+            <Layers className="w-5 h-5 text-amber-600 mt-0.5 flex-shrink-0" />
+            <div className="text-sm text-amber-900">
+              <div className="font-bold">This product has {multiBatchCount} different batches.</div>
+              <div className="text-xs mt-0.5">
+                The stock figure shown here is the <strong>current total</strong> across all batches
+                (they don&apos;t stack up individually). Enable <strong>&ldquo;Group by product&rdquo;</strong> in
+                the Recent Adjustments panel to see each batch as a separate line.
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Available Stock — the anchor number staff care about */}
         <div className="rounded-lg border-2 border-emerald-200 bg-emerald-50/40 p-4">

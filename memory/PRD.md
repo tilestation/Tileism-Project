@@ -9,7 +9,33 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
-### [Jul 23, 2026 — Forked session] 🟢 Warehouse UI polish v2 — "Available Stock" column + clickable details popup
+### [Jul 23, 2026 — Forked session] 🟢 Multi-batch highlight — spot multi-batch products at a glance
+
+**Owner ask** (after v2 shipped): products with more than one batch should be **visually highlighted** so warehouse staff can spot them at a glance. Also make it obvious what the "total stock" means so the audit rows aren't mentally added together (owner's screenshot showed them trying to add `31.86 m² + 15.12 m² = 46.98 m²`, which is arithmetically wrong because `after_qty` is cumulative — the true total is the latest `after_qty`).
+
+**What shipped**:
+
+- **Grouped Recent Adjustments header** for multi-batch products (batch_added / delivery_received count > 1) now renders with:
+  - **Amber left border (4px)** + **amber-tinted background** (`bg-amber-50`), instantly separating from single-batch groups.
+  - A prominent **"N BATCHES"** pill next to the product name (`bg-amber-500 text-white font-black uppercase`).
+  - The stock cell prefixed with **"TOTAL STOCK NOW"** so staff know the number is a running total, not a value to add up.
+  - Falls back to the plain grey styling for single-batch groups so the highlight isn't diluted.
+- **Flat (non-grouped) view** — a `flatMultiBatchMap` is memoised across the visible history; individual rows show the same amber left border and a compact `Layers` pill (`N batches`) next to the product name when the product has multiple batch-add events in view.
+- **Details popup** (`<AdjustmentDetailsDialog>`) picks up the same `multiBatchCount` and renders an amber warning banner near the top:
+  > "This product has N different batches. The stock figure shown here is the **current total** across all batches (they don't stack up individually). Enable **"Group by product"** in the Recent Adjustments panel to see each batch as a separate line."
+- Passing `multiBatchCount` cleanly through the render tree keeps a single source of truth — memo shared between grouped view, flat view, and the popup.
+
+**Files**:
+- `/app/frontend/src/pages/admin/Warehouse.jsx` — group header amber highlight + pill, flat-view border + chip, `flatMultiBatchMap` memo, `AdjustmentDetailsDialog` warning banner.
+
+**Verification** — screenshot inspection (`Show all 50` on):
+- Floor Tile Grey 600x600 — 2 delivery_received events → amber highlight + **"2 BATCHES"** pill ✅
+- TEST Warehouse Location Product / TEST Warehouse Batch Product — **"2 BATCHES"** pills, amber left border ✅
+- Single-event rows (TEST-PINGATE-*) stay neutral ✅
+- Popup for a Floor Tile Grey row shows the amber "This product has 2 different batches" banner ✅
+
+
+
 
 **Owner feedback on iter198**:
 - m² still not visible on some rows (only pieces).
