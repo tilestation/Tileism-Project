@@ -79,6 +79,7 @@ export const InvoiceHistory = () => {
   const [searchTerm, setSearchTerm] = useState(_initialSearch);
   const [staffFilter, setStaffFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const [returnsFilter, setReturnsFilter] = useState(false); // 24 Jul 2026 — one-click chip to show only invoices carrying a return / exchange line
   const [showroomFilter, setStoreFilter] = useState('');
   const [showFilters, setShowFilters] = useState(false);
   const [selectedInvoice, setSelectedInvoice] = useState(null);
@@ -1361,6 +1362,7 @@ export const InvoiceHistory = () => {
     setSearchTerm('');
     setStaffFilter('');
     setStatusFilter('');
+    setReturnsFilter(false);
     setStoreFilter('');
     setDateFilter(today);
     fetchData();
@@ -2192,6 +2194,13 @@ export const InvoiceHistory = () => {
     });
   }
 
+  // Filter by returns — 24 Jul 2026 — one-click chip so the owner can
+  // see just the invoices carrying a return / exchange line without
+  // scrolling through the whole month.
+  if (returnsFilter) {
+    filteredInvoices = filteredInvoices.filter(hasReturnLine);
+  }
+
   if (loading) {
     return <div className="flex items-center justify-center h-64">Loading invoices...</div>;
   }
@@ -2354,15 +2363,46 @@ export const InvoiceHistory = () => {
               data-testid="search-input"
             />
           </div>
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap">
             <Button variant="outline" onClick={() => setShowFilters(!showFilters)}>
               <Filter className="h-4 w-4 mr-2" />
               Filters
             </Button>
+            {/* 24 Jul 2026 — one-click "Has returns" chip. Rose-tinted
+                when active. Count is computed against the currently
+                loaded invoices (respects the date filter that ships
+                with the fetch), so the number matches what's in view. */}
+            {(() => {
+              const returnsCount = invoices.filter(hasReturnLine).length;
+              if (returnsCount === 0 && !returnsFilter) return null;
+              return (
+                <Button
+                  variant="outline"
+                  onClick={() => setReturnsFilter(!returnsFilter)}
+                  data-testid="returns-filter-chip"
+                  className={
+                    returnsFilter
+                      ? 'bg-rose-500 text-white border-rose-500 hover:bg-rose-600 hover:text-white'
+                      : 'border-rose-200 text-rose-700 hover:bg-rose-50'
+                  }
+                  title={returnsFilter
+                    ? 'Showing only invoices with returns — click to show all'
+                    : `Show only invoices with a return / exchange line (${returnsCount} in view)`}
+                >
+                  <RotateCcw className="h-4 w-4 mr-2" />
+                  {returnsFilter ? 'Showing returns only' : 'Has returns'}
+                  <span className={`ml-2 px-1.5 py-0.5 rounded-full text-[10px] font-black tabular-nums ${
+                    returnsFilter ? 'bg-white/25 text-white' : 'bg-rose-100 text-rose-800'
+                  }`}>
+                    {returnsCount}
+                  </span>
+                </Button>
+              );
+            })()}
             <Button onClick={handleSearch} data-testid="search-btn">
               Search
             </Button>
-            {(searchTerm || staffFilter || statusFilter || showroomFilter) && (
+            {(searchTerm || staffFilter || statusFilter || showroomFilter || returnsFilter) && (
               <Button variant="ghost" onClick={handleClearFilters}>
                 <X className="h-4 w-4" />
               </Button>

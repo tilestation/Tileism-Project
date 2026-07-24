@@ -9,7 +9,29 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
-### [Jul 24, 2026 — Forked session] 🟢 Invoice History — return / exchange lines now highlighted at a glance
+### [Jul 24, 2026 — Forked session] 🟢 Invoice History — "Has returns" one-click filter chip
+
+**Owner ask**: after the return highlighting shipped earlier today, filter the list down to just the return-carrying invoices with a single click — perfect for the monthly credit-liability check.
+
+**What shipped** in `/app/frontend/src/pages/admin/InvoiceHistory.js`:
+- New `returnsFilter` bool state (initially `false`).
+- New pill button in the search toolbar rendered ONLY when there's at least one invoice with a return line in view (or when the filter is currently active):
+  - **Off state**: rose-outlined outline button labelled `↻ Has returns [N]` — where `N` is the count of return-carrying invoices in the current date-filtered dataset.
+  - **On state**: solid rose-filled button labelled `↻ Showing returns only [N]`.
+- Filter runs after all existing filters (`statusFilter`, `staffFilter`, `showroomFilter`) — stacks cleanly.
+- `handleClearFilters` and the visibility of the "X" clear button both include `returnsFilter` so the chip resets with the rest of the toolbar.
+
+**Files**:
+- `/app/frontend/src/pages/admin/InvoiceHistory.js` — `returnsFilter` state + chip + filter application.
+
+**Verification** — set `is_return: true` on 3 invoices via Mongo, then:
+- Chip appeared with count `[3]` next to the "Filters" button (rose outline, off state) ✅
+- Clicked → chip switches to solid rose "Showing returns only [3]"; visible invoice rows drop to exactly 3 ✅
+- Clear-filters "X" now visible ✅
+- Test flags cleaned up post-verification ✅
+
+
+
 
 **Owner-reported pain point**: any invoice with a line marked as "Return" (via the Return checkbox in the EPOS line table) showed no visual indication in `/admin/epos?tab=history`. Owner had to open every invoice individually to check — impossible to review at scale.
 
