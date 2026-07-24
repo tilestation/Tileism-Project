@@ -5,6 +5,7 @@ import {
   RotateCcw, 
   Search, 
   Eye, 
+  Edit2,
   Trash2, 
   ArrowLeft,
   Calendar,
@@ -82,6 +83,15 @@ export const CreditNoteHistory = () => {
   const handleViewCreditNote = (creditNote) => {
     setSelectedCreditNote(creditNote);
     setShowDetailDialog(true);
+  };
+
+  // 24 Jul 2026 — parity with RefundHistory. `DocumentForm` already
+  // reads `location.state.editCreditNote` and routes the save through
+  // `api.updateCreditNote(id, payload)`, so this just wires the pencil
+  // icon on the row to that flow. The route uses kebab-case in App.js
+  // (`credit-note`, not `creditNote`).
+  const handleEditCreditNote = (creditNote) => {
+    navigate('/admin/credit-note', { state: { editCreditNote: creditNote } });
   };
 
   const handleDeleteClick = (creditNote) => {
@@ -163,7 +173,7 @@ export const CreditNoteHistory = () => {
             CreditNote History
           </h1>
         </div>
-        <Button onClick={() => navigate('/admin/creditNote')} className="bg-red-600 hover:bg-red-700">
+        <Button onClick={() => navigate('/admin/credit-note')} className="bg-red-600 hover:bg-red-700">
           <RotateCcw className="h-4 w-4 mr-1" /> New CreditNote
         </Button>
       </div>
@@ -305,6 +315,15 @@ export const CreditNoteHistory = () => {
                             title="View details"
                           >
                             <Eye className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleEditCreditNote(creditNote)}
+                            title="Edit credit note"
+                            data-testid={`credit-note-edit-${creditNote.id}`}
+                          >
+                            <Edit2 className="h-4 w-4 text-amber-600" />
                           </Button>
                           <Button
                             variant="ghost"

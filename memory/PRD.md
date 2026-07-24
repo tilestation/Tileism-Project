@@ -9,7 +9,28 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
-### [Jul 24, 2026 — Forked session] 🟢 Invoice History — "Has returns" one-click filter chip
+### [Jul 24, 2026 — Forked session] 🟢 Credit Note History — pencil Edit button (parity with Refund History)
+
+**What shipped** in `/app/frontend/src/pages/admin/CreditNoteHistory.js`:
+- Imported `Edit2` icon.
+- Added `handleEditCreditNote(cn)` that calls `navigate('/admin/credit-note', { state: { editCreditNote: cn } })`.
+- Injected a pencil button in the row's action group (between the eye and download buttons) with `data-testid="credit-note-edit-{id}"`.
+- **Bonus bug fix on the same page**: the pre-existing "New Credit Note" primary button was navigating to `/admin/creditNote` (camelCase), which doesn't match the App.js route (`/admin/credit-note`). Fixed to the correct kebab-case route so the button now works.
+
+**No changes needed to `DocumentForm.js`** — the earlier refund-edit refactor already routes `location.state.editCreditNote` through the same `buildInitialDocumentData()` mapper and saves via `api.updateCreditNote(id, payload)`.
+
+**Files**:
+- `/app/frontend/src/pages/admin/CreditNoteHistory.js` — icon import + handler + button + fixed the "New CreditNote" route typo.
+
+**Verification** — created a test credit note (`CN-TEST-EDIT`) via POST `/api/credit_notes`, then screenshot on `/admin/credit-note-history`:
+- Row now shows the amber pencil edit button in the Actions column ✅
+- Clicking it opens `/admin/credit-note` with **all fields pre-populated**: No/Date/Time, Customer name/phone/email/address, Method (Store Credit), line item (Qty 2 / Test CN Product / SKU CN-SKU-001 / £50 / £45 / Damaged / £90), Restocking 0%, Summary (Subtotal £90 / VAT £18 / Gross £108 / Net £108), Notes ✅
+- Header reads "Edit Credit Note · EDITING CN-TEST-EDIT" (amber pill) ✅
+- Save button label = "Update Credit Note" ✅
+- Test credit note cleaned up post-verification ✅
+
+
+
 
 **Owner ask**: after the return highlighting shipped earlier today, filter the list down to just the return-carrying invoices with a single click — perfect for the monthly credit-liability check.
 
