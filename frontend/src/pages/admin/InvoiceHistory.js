@@ -2100,6 +2100,21 @@ export const InvoiceHistory = () => {
     return 'open_order';
   };
 
+  // 24 Jul 2026 — surface return/exchange invoices at a glance so the
+  // owner doesn't have to open each row to spot them. Backend stores the
+  // flag as `is_return` (snake_case) via LineItemBase; older docs may
+  // have the camelCase variant `isReturn`. Handle both.
+  const hasReturnLine = (invoice) => {
+    const items = invoice?.line_items;
+    if (!Array.isArray(items) || items.length === 0) return false;
+    return items.some((it) => it && (it.is_return === true || it.isReturn === true));
+  };
+  const countReturnLines = (invoice) => {
+    const items = invoice?.line_items;
+    if (!Array.isArray(items)) return 0;
+    return items.filter((it) => it && (it.is_return === true || it.isReturn === true)).length;
+  };
+
   // Status badge styling
   const getStatusBadge = (status) => {
     const styles = {
@@ -2946,6 +2961,8 @@ export const InvoiceHistory = () => {
                   const status = getInvoiceStatus(invoice);
                   const statusBadge = getStatusBadge(status);
                   const isSelected = selectedInvoices.includes(invoice.id);
+                  const hasReturn = hasReturnLine(invoice);
+                  const returnLineCount = countReturnLines(invoice);
                   return (
                   <React.Fragment key={invoice.id}>
                     <tr 
@@ -2959,7 +2976,7 @@ export const InvoiceHistory = () => {
                           : status === 'processing'
                           ? 'bg-purple-50 border-l-4 border-l-purple-500'
                           : ''
-                      }`}
+                      } ${hasReturn ? 'border-r-4 border-r-rose-500 bg-rose-50/40' : ''}`}
                       onClick={() => toggleRowExpand(invoice.id)}
                       data-testid={`invoice-row-${invoice.id}`}
                     >
@@ -2986,9 +3003,21 @@ export const InvoiceHistory = () => {
                         )}
                       </td>
                       <td className="px-4 py-3">
-                        <span className={`font-mono font-medium ${status === 'deposit_order' ? 'text-amber-800' : ''}`}>
-                          {invoice.invoice_no}
-                        </span>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className={`font-mono font-medium ${status === 'deposit_order' ? 'text-amber-800' : ''}`}>
+                            {invoice.invoice_no}
+                          </span>
+                          {hasReturn && (
+                            <span
+                              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-rose-500 text-white text-[10px] font-black uppercase tracking-wider shadow-sm"
+                              title={`This invoice has ${returnLineCount} return/exchange line${returnLineCount === 1 ? '' : 's'} — expand to see`}
+                              data-testid={`invoice-return-badge-${invoice.id}`}
+                            >
+                              <RotateCcw className="w-3 h-3" />
+                              {returnLineCount > 1 ? `${returnLineCount} returns` : 'return'}
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-2 text-sm">
@@ -3237,10 +3266,32 @@ export const InvoiceHistory = () => {
                                   const lineTotal = item.total || (item.quantity * duePrice);
                                   const lineCost = item.cost_price ? item.quantity * item.cost_price : null;
                                   const lineProfit = lineCost !== null ? lineTotal - lineCost : null;
+                                  const lineIsReturn = item.is_return === true || item.isReturn === true;
                                   return (
-                                  <tr key={idx} className="border-t border-border/50">
+                                  <tr key={idx} className={`border-t border-border/50 ${lineIsReturn ? 'bg-rose-50' : ''}`}>
                                     <td className="py-1 font-mono text-xs" style={{ userSelect: 'text' }}>{item.sku || '-'}</td>
-                                    <td className="py-1" style={{ userSelect: 'text' }}>{cleanNonePatterns(toTitleCase(item.product_name))}</td>
+                                    <td className="py-1" style={{ userSelect: 'text' }}>
+                                      <div className="flex items-center gap-2 flex-wrap">
+                                        <span className={lineIsReturn ? 'font-semibold text-rose-900' : ''}>
+                                          {cleanNonePatterns(toTitleCase(item.product_name))}
+                                        </span>
+                                        {lineIsReturn && (
+                                          <span
+                                            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-rose-500 text-white text-[10px] font-black uppercase tracking-wider"
+                                            title={item.original_invoice_no ? `Return against ${item.original_invoice_no}` : 'Return / exchange line'}
+                                            data-testid={`invoice-line-return-badge-${invoice.id}-${idx}`}
+                                          >
+                                            <RotateCcw className="w-3 h-3" />
+                                            Return
+                                          </span>
+                                        )}
+                                        {lineIsReturn && item.original_invoice_no && (
+                                          <span className="text-[10px] font-mono text-rose-700">
+                                            ← {item.original_invoice_no}
+                                          </span>
+                                        )}
+                                      </div>
+                                    </td>
                                     <td className="py-1 text-right" style={{ userSelect: 'text' }}>{item.quantity}</td>
                                     <td className="py-1 text-right" style={{ userSelect: 'text' }}>
                                       {formatCurrency(originalPrice)}

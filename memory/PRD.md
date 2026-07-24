@@ -9,7 +9,26 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
-### [Jul 24, 2026 — Forked session] 🟢 Bug fix: refund Edit now pre-populates the form (was going to a blank page)
+### [Jul 24, 2026 — Forked session] 🟢 Invoice History — return / exchange lines now highlighted at a glance
+
+**Owner-reported pain point**: any invoice with a line marked as "Return" (via the Return checkbox in the EPOS line table) showed no visual indication in `/admin/epos?tab=history`. Owner had to open every invoice individually to check — impossible to review at scale.
+
+**Fix** in `/app/frontend/src/pages/admin/InvoiceHistory.js`:
+- Added two helpers: `hasReturnLine(invoice)` (looks for `line_items[*].is_return === true` — also tolerates the legacy `isReturn` camelCase variant) and `countReturnLines(invoice)`.
+- Invoice row (the closed/collapsed row in the history table) now gets an extra **rose right-border + faint rose background** when `hasReturnLine` is true. This is deliberately on the RIGHT so it doesn't collide with the existing left-side status stripe (green completed / amber deposit / purple processing / indigo selected).
+- Invoice number cell now shows a bold **rose `↻ RETURN` pill** (or `↻ N RETURNS` if the invoice has >1 return line). The pill tooltip on hover confirms how many return lines the invoice carries.
+- When expanded, each return line inside the invoice's line-items table now renders with a rose row background, the product name in `text-rose-900`, a rose `↻ Return` chip, and — when the return is linked back to a source invoice via `original_invoice_no` — a small `← INV-XXXXXX` reference so the auditor can trace it in one glance.
+
+**Files**:
+- `/app/frontend/src/pages/admin/InvoiceHistory.js` (helper functions + row + line-item rendering).
+
+**Verification** (screenshot):
+- Injected `is_return: true` + `original_invoice_no: INV-DEMO-9999` on INV-RFN-FE7F59's first line via a temporary Mongo update.
+- On `/admin/epos?tab=history`, INV-RFN-FE7F59 now shows the rose `↻ RETURN` pill under the invoice number and the rose right-border on the row ✅. All other invoices (TEST-AUDIT-*, TEST-PROBE-001) remained unmarked ✅.
+- The fake flag was cleaned up post-verification so live data is untouched.
+
+
+
 
 **Owner-reported bug**: clicking the pencil (Edit) icon on `/admin/epos?tab=refund-history` navigated to `/admin/refund` but the form was completely blank — none of the existing refund's details carried across. RefundHistory was passing the refund via `location.state.editRefund` but `DocumentForm` didn't read `location.state` at all.
 
