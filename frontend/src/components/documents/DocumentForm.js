@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { api } from '../../lib/api';
 import { toast } from 'sonner';
@@ -55,6 +55,7 @@ const emptyLineItem = {
  */
 export const DocumentForm = ({ documentType = 'refund' }) => {
   const navigate = useNavigate();
+  const location = useLocation();
   const printRef = useRef();
   const { user } = useAuth();
   const [products, setProducts] = useState([]);
@@ -64,6 +65,14 @@ export const DocumentForm = ({ documentType = 'refund' }) => {
   const [isSaved, setIsSaved] = useState(false); // Track if document has been saved
   const [searchTerm, setSearchTerm] = useState('');
   const [activeLineIndex, setActiveLineIndex] = useState(null);
+
+  // 24 Jul 2026 — edit-mode. RefundHistory navigates here with
+  // `location.state.editRefund` (and the credit-note flow will use
+  // `editCreditNote`). If present, we hydrate `documentData` from the
+  // API-shape refund object rather than starting blank, and route the
+  // Save handler through `api.updateRefund` instead of `createRefund`.
+  const editingDocument = location.state?.editRefund || location.state?.editCreditNote || null;
+  const [editingId, setEditingId] = useState(editingDocument?.id || null);
   
   // Staff PIN states
   const [staffPin, setStaffPin] = useState('');
@@ -119,25 +128,68 @@ export const DocumentForm = ({ documentType = 'refund' }) => {
     return `${config.numberPrefix}-${timestamp}`;
   };
 
+  // Document data state — starts either blank (new refund) or hydrated
+  // from `editingDocument` when the user clicked Edit on the history list.
+  // Mapping the API shape (snake_case) → form shape (camelCase) once here
+  // avoids sprinkling defensive fallbacks across the render tree.
+  const buildInitialDocumentData = () => {
+    if (!editingDocument) {
+      return {
+        [config.numberField]: generateDocumentNo(),
+        date: new Date().toLocaleDateString('en-GB'),
+        time: new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }),
+        originalInvoiceNo: '',
+        originalInvoiceId: '',
+        customerName: '',
+        customerPhone: '',
+        customerEmail: '',
+        customerAddress: '',
+        salesPerson: user?.name || '',
+        [config.methodField]: '',
+        [config.typeField]: '',
+        notes: '',
+        lineItems: [{ ...emptyLineItem }],
+        companyInfo: { ...defaultCompanyInfo },
+        restockingFeePercent: 0,
+      };
+    }
+    const d = editingDocument;
+    const priceKey = isRefund ? 'refund_price' : 'credit_note_price';
+    const mappedLineItems = (d.line_items || []).map((it) => ({
+      qty: it.quantity != null ? String(it.quantity) : '',
+      product: it.product_name || '',
+      originalPrice: it.original_price != null ? String(it.original_price) : '',
+      [config.priceField]: it[priceKey] != null ? String(it[priceKey]) : '',
+      amount: it[priceKey] != null ? String(it[priceKey]) : '',
+      productId: it.product_id || '',
+      sku: it.sku || '',
+      reason: it.reason || '',
+    }));
+    const gross = Number(d.gross_total) || 0;
+    const feeAmount = Number(d.restocking_fee) || 0;
+    const restockPct = gross > 0 ? (feeAmount / gross) * 100 : 0;
+    return {
+      [config.numberField]: d[isRefund ? 'refund_no' : 'credit_note_no'] || generateDocumentNo(),
+      date: d.date || new Date().toLocaleDateString('en-GB'),
+      time: d.time || new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }),
+      originalInvoiceNo: d.original_invoice_no || '',
+      originalInvoiceId: d.original_invoice_id || '',
+      customerName: d.customer_name || '',
+      customerPhone: d.customer_phone || '',
+      customerEmail: d.customer_email || '',
+      customerAddress: d.customer_address || '',
+      salesPerson: d.sales_person || user?.name || '',
+      [config.methodField]: d[isRefund ? 'refund_method' : 'credit_note_method'] || '',
+      [config.typeField]: d[isRefund ? 'refund_type' : 'credit_note_type'] || '',
+      notes: d.notes || '',
+      lineItems: mappedLineItems.length > 0 ? mappedLineItems : [{ ...emptyLineItem }],
+      companyInfo: { ...defaultCompanyInfo },
+      restockingFeePercent: Math.round(restockPct * 100) / 100,
+    };
+  };
+
   // Document data state
-  const [documentData, setDocumentData] = useState({
-    [config.numberField]: generateDocumentNo(),
-    date: new Date().toLocaleDateString('en-GB'),
-    time: new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }),
-    originalInvoiceNo: '',
-    originalInvoiceId: '',
-    customerName: '',
-    customerPhone: '',
-    customerEmail: '',
-    customerAddress: '',
-    salesPerson: user?.name || '',
-    [config.methodField]: '',
-    [config.typeField]: '',
-    notes: '',
-    lineItems: [{ ...emptyLineItem }],
-    companyInfo: { ...defaultCompanyInfo },
-    restockingFeePercent: 0
-  });
+  const [documentData, setDocumentData] = useState(buildInitialDocumentData);
 
   // Check if user can switch showrooms
   const canFreelySwitchStores = user?.role === 'super_admin' || user?.role === 'admin' || user?.role === 'manager';
@@ -163,22 +215,34 @@ export const DocumentForm = ({ documentType = 'refund' }) => {
         ]);
         setProducts(productsRes.data);
         setStores(showroomsRes.data);
-        
-        if (user?.showroom_id) {
-          const userStore = showroomsRes.data.find(s => s.id === user.showroom_id);
-          if (userStore) {
-            setSelectedStore(userStore);
-            setDocumentData(prev => ({
-              ...prev,
-              companyInfo: {
-                ...prev.companyInfo,
-                address: userStore.address?.split(',')[0] || prev.companyInfo.address,
-                city: userStore.address?.split(',').slice(1).join(',').trim() || prev.companyInfo.city,
-                telephone: userStore.phone || prev.companyInfo.telephone,
-                email: userStore.email || prev.companyInfo.email
-              }
-            }));
-          }
+
+        // When editing an existing refund we want to lock the showroom to
+        // whichever branch originally booked it, so restocking calcs / VAT /
+        // company info stay consistent with the original document. If the
+        // stored showroom_id no longer resolves (e.g. showroom renamed or
+        // deleted), fall back to the user's own showroom or the first one
+        // — this stops the "Please select a store" toast from blocking an
+        // otherwise valid edit save.
+        const editingShowroomId = editingDocument?.showroom_id;
+        const targetShowroomId = editingShowroomId || user?.showroom_id;
+        let targetStore = targetShowroomId
+          ? showroomsRes.data.find(s => s.id === targetShowroomId)
+          : null;
+        if (!targetStore && editingDocument && showroomsRes.data?.length > 0) {
+          targetStore = showroomsRes.data[0];
+        }
+        if (targetStore) {
+          setSelectedStore(targetStore);
+          setDocumentData(prev => ({
+            ...prev,
+            companyInfo: {
+              ...prev.companyInfo,
+              address: targetStore.address?.split(',')[0] || prev.companyInfo.address,
+              city: targetStore.address?.split(',').slice(1).join(',').trim() || prev.companyInfo.city,
+              telephone: targetStore.phone || prev.companyInfo.telephone,
+              email: targetStore.email || prev.companyInfo.email
+            }
+          }));
         } else if (showroomsRes.data?.length > 0) {
           setSelectedStore(showroomsRes.data[0]);
         }
@@ -187,7 +251,7 @@ export const DocumentForm = ({ documentType = 'refund' }) => {
       }
     };
     fetchData();
-  }, [user?.showroom_id]);
+  }, [user?.showroom_id, editingDocument?.showroom_id]);
 
   // Search invoices for linking
   const searchInvoices = async (term) => {
@@ -375,9 +439,19 @@ export const DocumentForm = ({ documentType = 'refund' }) => {
     // approval-request dialog where they write a reason — the backend
     // then emails Super Admins with magic-link Approve/Deny buttons.
     // Nothing is processed until a Super Admin clicks Approve in the email.
+    //
+    // Skip this gate when editing: the refund has already been created
+    // (and, if applicable, approved), so an edit shouldn't trigger a
+    // fresh approval loop unless the linked invoice is removed. If the
+    // user has explicitly wiped the linked invoice on edit we still
+    // block the save.
     const hasInvoiceLink = !!((documentData.originalInvoiceId || documentData.originalInvoiceNo || '').toString().trim());
-    if (isRefund && !hasInvoiceLink && !overrideReason) {
+    if (isRefund && !editingId && !hasInvoiceLink && !overrideReason) {
       setShowNoInvoiceDialog(true);
+      return;
+    }
+    if (isRefund && editingId && !hasInvoiceLink) {
+      toast.error('Cannot save an edited refund with the linked invoice removed. Please re-link an invoice or start a new refund with an override.');
       return;
     }
 
@@ -440,15 +514,22 @@ export const DocumentForm = ({ documentType = 'refund' }) => {
       };
       
       console.log('Saving document:', payload);
-      
-      // Call the appropriate API endpoint
+
+      // Call the appropriate API endpoint — POST for create, PUT for edit.
+      // The backend PUT /refunds/{id} already handles stock reversal for
+      // the old line items and re-applies the new ones, so we don't need
+      // to touch stock here.
       let response;
       if (isRefund) {
-        response = await api.createRefund(payload);
+        response = editingId
+          ? await api.updateRefund(editingId, payload)
+          : await api.createRefund(payload);
       } else {
-        response = await api.createCreditNote(payload);
+        response = editingId
+          ? await api.updateCreditNote(editingId, payload)
+          : await api.createCreditNote(payload);
       }
-      
+
       console.log('Save response:', response.data);
       setIsSaved(true);
 
@@ -466,7 +547,15 @@ export const DocumentForm = ({ documentType = 'refund' }) => {
         return;
       }
 
-      toast.success(`${config.title} saved successfully`);
+      toast.success(editingId
+        ? `${config.title} updated successfully`
+        : `${config.title} saved successfully`);
+
+      // On successful edit, straight back to history — no email flow.
+      if (editingId) {
+        navigate(config.historyRoute);
+        return;
+      }
 
       // Show email dialog if customer has email
       // Backend returns 'refund_id' for refunds and 'credit_note_id' for credit notes
@@ -593,6 +682,12 @@ export const DocumentForm = ({ documentType = 'refund' }) => {
 
   // Reset form
   const handleReset = () => {
+    // Reset ALWAYS clears the form to a blank new refund — even in edit
+    // mode, so the user has a fast way to abandon an in-progress edit
+    // and start from scratch. We also clear `editingId` so a subsequent
+    // Save creates a new refund rather than overwriting the one we came
+    // in to edit.
+    setEditingId(null);
     setDocumentData({
       [config.numberField]: generateDocumentNo(),
       date: new Date().toLocaleDateString('en-GB'),
@@ -627,7 +722,15 @@ export const DocumentForm = ({ documentType = 'refund' }) => {
           </Button>
           <h1 className="text-2xl font-bold flex items-center gap-2">
             <IconComponent className="h-6 w-6" />
-            {config.title}
+            {editingId ? `Edit ${config.title}` : config.title}
+            {editingId && (
+              <span
+                className="ml-2 px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-200 text-xs font-semibold uppercase tracking-wide"
+                data-testid={`${documentType}-edit-mode-badge`}
+              >
+                Editing {documentData[config.numberField]}
+              </span>
+            )}
           </h1>
         </div>
         <div className="flex gap-2">
@@ -646,9 +749,11 @@ export const DocumentForm = ({ documentType = 'refund' }) => {
           >
             <Printer className="h-4 w-4 mr-1" /> Print
           </Button>
-          <Button onClick={handleSave} disabled={saving}>
+          <Button onClick={handleSave} disabled={saving} data-testid={`save-${documentType}-btn`}>
             <Save className="h-4 w-4 mr-1" />
-            {saving ? 'Saving...' : `Save ${config.titleShort}`}
+            {saving
+              ? (editingId ? 'Updating...' : 'Saving...')
+              : (editingId ? `Update ${config.titleShort}` : `Save ${config.titleShort}`)}
           </Button>
         </div>
       </div>

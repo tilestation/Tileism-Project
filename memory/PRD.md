@@ -9,7 +9,31 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
-### [Jul 24, 2026 — Forked session] 🟢 Bug fix: batch_added rows now show BATCH SIZE, not cumulative running total
+### [Jul 24, 2026 — Forked session] 🟢 Bug fix: refund Edit now pre-populates the form (was going to a blank page)
+
+**Owner-reported bug**: clicking the pencil (Edit) icon on `/admin/epos?tab=refund-history` navigated to `/admin/refund` but the form was completely blank — none of the existing refund's details carried across. RefundHistory was passing the refund via `location.state.editRefund` but `DocumentForm` didn't read `location.state` at all.
+
+**Root cause**: `DocumentForm` (shared component powering both Refund and Credit Note pages) initialised `documentData` from empty defaults on mount and never checked for an edit payload.
+
+**Fix** in `/app/frontend/src/components/documents/DocumentForm.js`:
+- Added `useLocation()` and read `state.editRefund` / `state.editCreditNote` on mount.
+- New `buildInitialDocumentData()` helper that maps API-shape (snake_case) → form-shape (camelCase): `refund_no → refundNo`, `original_invoice_no → originalInvoiceNo`, `refund_method → refundMethod`, `restocking_fee (£) → restockingFeePercent (0–100)`, `line_items[*].refund_price → line_items[*].refundPrice` and so on.
+- Restored the original refund's showroom in the fetch-effect (with a first-showroom fallback if the stored `showroom_id` no longer resolves — prevents "Please select a store" from blocking valid edits on legacy rows).
+- `saveDocument` now routes to `api.updateRefund(id, payload)` (PUT `/api/refunds/{id}`) when `editingId` is set, otherwise `api.createRefund` as before. Same treatment for credit notes.
+- Skipped the "no-invoice link required" pre-flight in edit mode (an existing refund has already been through the approval gate — an edit shouldn't kick off a fresh approval loop unless the linked invoice was actively cleared).
+- Header now reads **"Edit Refund Note"** with an amber **"EDITING REF-XXXXXX"** pill; the Save button relabels to **"Update Refund"** / **"Updating…"**.
+- On successful update we jump straight back to the history page (no email dialog).
+- `handleReset` now also clears `editingId` — resetting mid-edit abandons the edit and starts a new blank refund cleanly.
+
+**Files**:
+- `/app/frontend/src/components/documents/DocumentForm.js` (edit-mode plumbing + save routing + header/button labels).
+
+**Verification**:
+- Screenshot: clicking Edit on REF-758B47 now opens the form with **Refund No**, **Date**, **Time**, **Original Invoice (INV-RFN-FE7F59)**, **Customer name / email**, **Refund Type**, **Refund Method**, **line item (Qty 0.5, Product Test, £100)** and **Refund Summary (Net £60)** all pre-filled ✅. Header shows "**Edit Refund Note · EDITING REF-758B47**" pill ✅. Button label reads "**Update Refund**" ✅.
+- Curl round-trip: `PUT /api/refunds/{id}` with `{"notes": "BACKEND_PUT_TEST_20260724"}` returned `{"message":"Refund updated successfully"}`; subsequent GET showed `notes` persisted plus `updated_by: admin@test.com` and `updated_at: 2026-07-24T14:23:51+00:00` ✅.
+
+
+
 
 **Owner spotted a subtle but critical audit bug**:
 - Group header `Slate Rock White 30x60` showed `TOTAL STOCK NOW: 31.86 m²`.
