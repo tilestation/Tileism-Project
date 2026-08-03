@@ -3606,7 +3606,7 @@ export default function SupplierProducts() {
   const COMBINED_FILTER_MAPPING = { ...ARRAY_FILTER_MAPPING, ...SCALAR_FILTER_MAPPING };
 
   // Handle bulk category update - now uses unified product-options API
-  const handleBulkCategoryUpdate = async (updateMode = 'replace') => {
+  const handleBulkCategoryUpdate = async (updateMode = 'replace', restrictToIds = null) => {
     if (selectedProducts.size === 0) {
       toast.error('No products selected');
       return;
@@ -3669,6 +3669,25 @@ export default function SupplierProducts() {
         // Otherwise, update all selected products
         const selectedSkusList = Array.from(selectedProducts);
         productsToUpdate = products.filter(p => selectedSkusList.includes(getProductKey(p)));
+      }
+
+      // 3 Aug 2026 — "Re-save just the failed ones" flow. Save Results
+      // dialog passes a Set of the specific product IDs that failed on
+      // the previous attempt; we narrow productsToUpdate accordingly so
+      // the same payload is reapplied only to those. Everything else
+      // (payload build, retry loop, verify, refresh, dry-run gating)
+      // works exactly as it does for a normal Save.
+      if (restrictToIds instanceof Set && restrictToIds.size > 0) {
+        productsToUpdate = productsToUpdate.filter(p => {
+          const sku = p.sku;
+          const sc = p.supplier_code;
+          return (sku && restrictToIds.has(sku)) || (sc && restrictToIds.has(sc));
+        });
+        if (productsToUpdate.length === 0) {
+          toast.error('None of the failed products are in the current selection any more');
+          setBulkCategoryLoading(false);
+          return;
+        }
       }
       
       // Standard bulk update path
@@ -15174,23 +15193,57 @@ export default function SupplierProducts() {
               Close
             </Button>
             {lastSaveResult?.failed_items?.length > 0 && (
-              <Button
-                variant="outline"
-                className="border-red-300 text-red-700 hover:bg-red-50"
-                onClick={() => {
-                  // Copy failure summary to clipboard so the owner can paste
-                  // it into a ticket / message.
-                  const lines = lastSaveResult.failed_items.map(
-                    it => `${it.product_name} (${it.id_field}: ${it.id}) — ${it.reason || 'unknown'}`
-                  );
-                  const summary = `Save Results: ${lastSaveResult.success} saved, ${lastSaveResult.failed} failed of ${lastSaveResult.total}\n\n${lines.join('\n')}`;
-                  navigator.clipboard.writeText(summary);
-                  toast.success('Failure summary copied to clipboard');
-                }}
-                data-testid="save-results-copy-btn"
-              >
-                Copy summary
-              </Button>
+              <>
+                <Button
+                  variant="outline"
+                  className="border-red-300 text-red-700 hover:bg-red-50"
+                  onClick={() => {
+                    // Copy failure summary to clipboard so the owner can paste
+                    // it into a ticket / message.
+                    const lines = lastSaveResult.failed_items.map(
+                      it => `${it.product_name} (${it.id_field}: ${it.id}) — ${it.reason || 'unknown'}`
+                    );
+                    const summary = `Save Results: ${lastSaveResult.success} saved, ${lastSaveResult.failed} failed of ${lastSaveResult.total}\n\n${lines.join('\n')}`;
+                    navigator.clipboard.writeText(summary);
+                    toast.success('Failure summary copied to clipboard');
+                  }}
+                  data-testid="save-results-copy-btn"
+                >
+                  Copy summary
+                </Button>
+                <Button
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                  disabled={bulkCategoryLoading}
+                  onClick={async () => {
+                    // 3 Aug 2026 — one-click "Re-save just the failed
+                    // ones". Reuses the current UI state's payload and
+                    // hits the same code path via restrictToIds. The
+                    // handler rebuilds lastSaveResult with the new
+                    // outcome, so this dialog updates automatically.
+                    const failedIds = new Set(
+                      (lastSaveResult.failed_items || [])
+                        .map(it => it.id)
+                        .filter(Boolean)
+                    );
+                    if (failedIds.size === 0) {
+                      toast.error('No failed items to re-save');
+                      return;
+                    }
+                    setShowSaveResults(false);
+                    await handleBulkCategoryUpdate(bulkCategoryMode, failedIds);
+                  }}
+                  data-testid="save-results-resave-failed-btn"
+                >
+                  {bulkCategoryLoading ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                      Re-saving...
+                    </>
+                  ) : (
+                    <>Re-save {lastSaveResult.failed_items.length} failed</>
+                  )}
+                </Button>
+              </>
             )}
           </DialogFooter>
         </DialogContent>

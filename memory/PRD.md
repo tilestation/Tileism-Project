@@ -9,7 +9,25 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
-### [Aug 3, 2026 — Forked session] 🟢 Bulk Category Editor — P0 unify + signposting + draft freshness
+### [Aug 3, 2026 — Forked session] 🟢 Bulk Editor P0-follow-up — "Re-save just the failed ones" one-click retry
+
+**Owner ask** (potential improvement, approved): after any bulk save that partially fails, add a one-click **Re-save N failed** button inside the Save Results dialog so the owner doesn't have to close, re-filter, and Save again.
+
+**What shipped** in `/app/frontend/src/pages/admin/SupplierProducts.js`:
+- `handleBulkCategoryUpdate(updateMode, restrictToIds)` now accepts an optional `Set<string>` of product IDs. When present, `productsToUpdate` is filtered to just those. Everything else — payload build, per-product retry loop, verify, refresh, dry-run gating — runs unchanged.
+- New emerald `Re-save N failed` button in the Save Results dialog footer. Calls `handleBulkCategoryUpdate(bulkCategoryMode, new Set(failedIds))` and closes the results dialog. When the retry completes, the dialog auto-reopens with the new outcome (fewer failures, hopefully zero).
+- Loading state on the button (`Re-saving…` with spinning icon) while the retry runs.
+- Bails out cleanly with a toast if none of the previously-failed products are still in the current selection.
+
+**Files touched**: only `/app/frontend/src/pages/admin/SupplierProducts.js`. No backend changes.
+
+**Verification**:
+- Lint clean (same 33 pre-existing warnings, zero new).
+- Webpack compiles clean.
+- Screenshot on `/admin/supplier-products` → Bulk Categories modal → all P0 items visible together: (1) red draft-restore banner with 73-days-ago pill, product-set mismatch, supplier mismatch, and 3 buttons; (2) footer with only Cancel + Save (no Force Save); (3) `save-results-resave-failed-btn` correctly absent from DOM until a failure actually occurs.
+
+
+
 
 **Owner ask** (backed by a full read-only audit in `/app/memory/BULK_EDITOR_AUDIT.md` + a delivered PDF/Word plan): the Bulk Category Editor "same work takes 3 tries", "sometimes doesn't sync", descriptions are confusing, and stale drafts silently offer to overwrite fresh work.
 
