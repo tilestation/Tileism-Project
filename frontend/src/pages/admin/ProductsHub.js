@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import MarginIntelligenceCard from './MarginIntelligenceCard';
 import { 
-  Package, Truck, FolderOpen, Building2, Upload, Tag, Grid3X3, 
+  Package, Truck, FolderOpen, Building2, Upload, Tag, Grid3X3, Square,
   Image, RefreshCw, ArrowRight, TrendingUp, AlertCircle, Database, Activity
 } from 'lucide-react';
 import { Card, CardContent } from '../../components/ui/card';
@@ -88,6 +88,18 @@ export default function ProductsHub() {
       color: 'bg-orange-500',
       stat: null,
       statLabel: 'materials',
+      permission: 'supplier_products',
+      legacyPermission: 'products',
+      badge: 'NEW',
+    },
+    {
+      title: 'Tiles Manager',
+      description: 'Focused editor for wall &amp; floor tiles, mosaics, borders — only tile-relevant fields',
+      icon: Square,
+      link: '/admin/tiles',
+      color: 'bg-blue-500',
+      stat: null,
+      statLabel: 'tiles',
       permission: 'supplier_products',
       legacyPermission: 'products',
       badge: 'NEW',

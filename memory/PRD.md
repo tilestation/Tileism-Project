@@ -9,6 +9,59 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Aug 3, 2026 — Forked, later] 🟢 Add Product Wizard + Tiles Manager shipped
+
+**Owner ask**: Rework the product-adding flow because jumping between categories was confusing. Approved the full plan (5 YES answers) — Wizard first, then Managers, then Templates, then CSV import.
+
+**This session shipped**:
+
+1. **`POST /api/supplier-sync/products/create`** — new server endpoint for the Add Product Wizard. Whitelists writable fields (`WIZARD_ALLOWED_FIELDS` set — universal + tiles + materials + flooring + bathroom + UFH + tools). Rejects duplicates with 409. Auto-sets `pricing_unit` from `product_group` ('materials' → 'unit', everything else → 'm2'). Creates products in `visibility: 'draft'`, `published: false` — nothing hits the storefront until admin explicitly publishes.
+
+2. **`AddProductWizard.jsx`** (395 lines) — a 3-step category-aware modal:
+   - **Step 1**: 6 category cards (Tiles / Materials / Flooring / Bathroom / Underfloor Heating / Tools & Accessories) with icons + descriptions.
+   - **Step 2**: 6 universal fields (product_name, supplier, sku, list_price, cost_price, description) — same for every category. Required fields marked, missing ones flagged.
+   - **Step 3**: Category-specific fields only. `FIELD_SETS.tiles` shows Size/Thickness/Material/Finish/Slip/Edge/Type/Colour/Suitability/Made In. `FIELD_SETS.materials` shows Bag Weight/Coverage/Setting Time/Pot Life/Thickness/VOC/Colour/Bag Colour/Suitability. Similar tailored sets for flooring/bathroom/UFH/tools.
+   - `presetCategory` prop lets Managers open the wizard skipping Step 1.
+   - Universal + specific fields tested end-to-end; POSTs to `/products/create`, closes on success, calls `onSuccess` so the parent Manager refreshes.
+
+3. **Tiles Manager** (`/admin/tiles`, `TilesManager.jsx`, 401 lines) — mirror of Materials Manager:
+   - Auto-filters `/products/all` for tile products (product_group === 'tiles' OR main_category === 'Tiles' OR sub_categories match "tile|mosaic|border").
+   - Sub-tabs: All / Floor / Wall / Mosaic / Feature with live counts.
+   - Table columns: Product, Size, Thickness, Material, Finish, Slip, Colour, Actions.
+   - Focused edit modal — only tile fields (Size/Thickness/Material/Finish/Slip Rating/Edge/Tile Type/Colour/Suitability/Made In/Description). Zero material fields cluttering the form.
+   - Blue **"+ Add New Tile"** button wired to `AddProductWizard` with `presetCategory="tiles"`.
+   - "Legacy full editor" link back to `/admin/supplier-products`.
+   - Same verification-aware save path — warns if any field didn't stick.
+
+4. **Materials Manager updated** — orange **"+ Add New Material"** button in the header, opens `AddProductWizard` with `presetCategory="materials"`. Refreshes list after successful create.
+
+5. **Products Hub** now shows two "NEW" cards: orange Materials Manager and blue Tiles Manager, both above the fold next to Supplier Products.
+
+**End-to-end verified**:
+- `POST /products/create` with material payload → returns `{success: true, id: ..., pricing_unit: 'unit', visibility: 'draft'}` ✅
+- Duplicate SKU → `409` with clear error message ✅
+- Screenshot of Materials Manager → "+ Add New Material" → Wizard Step 3 shows ONLY material fields ✅
+- Backend + Frontend compile clean, no lint errors ✅
+
+**Files touched**:
+- `/app/backend/routes/supplier_sync.py` — new `/products/create` endpoint + WIZARD_ALLOWED_FIELDS whitelist
+- `/app/frontend/src/pages/admin/components/AddProductWizard.jsx` — **NEW** (395 lines)
+- `/app/frontend/src/pages/admin/TilesManager.jsx` — **NEW** (401 lines)
+- `/app/frontend/src/pages/admin/MaterialsManager.jsx` — Wizard wired in + "+ Add New Material" button
+- `/app/frontend/src/App.js` — route + lazy import for TilesManager
+- `/app/frontend/src/pages/admin/ProductsHub.js` — new Tiles Manager card, Square icon import
+- `/app/memory/test_credentials.md` — updated
+
+**Next up** (from the approved plan):
+- Flooring Manager (`/admin/flooring`) — LVT/laminate/wood with plank fields
+- Bathroom Manager (`/admin/bathroom`)
+- Underfloor Heating Manager (`/admin/underfloor-heating`)
+- Tools Manager (`/admin/tools`)
+- Phase 3: Product Templates (global + personal library)
+- Phase 4: CSV import per category
+
+
+
 ### [Aug 3, 2026 — Forked, later] 🟢 P0 Scoped save hardening + Materials Manager MVP shipped
 
 **Owner reported (angry, blocking launch)**: scoped bulk save of Grey → 7 SKUs + White → 7 other SKUs still didn't stick, and I hadn't delivered on the promised category-specific manager pages. Two follow-ups shipped:

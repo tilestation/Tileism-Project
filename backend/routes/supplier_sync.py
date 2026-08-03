@@ -4457,6 +4457,119 @@ def upsert_supplier_product(data: dict):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ============ ADD PRODUCT WIZARD ENDPOINT ============
+
+# Allowed writable fields for the Wizard. Everything else in the incoming
+# dict is silently dropped so a malicious/misconfigured client can't overwrite
+# server-managed fields (created_at, _id, sync_source etc.).
+WIZARD_ALLOWED_FIELDS = {
+    # Universal
+    "supplier", "sku", "supplier_code", "product_name", "our_product_name",
+    "name", "display_name", "description", "price", "list_price", "retail_price",
+    "cost_price", "cost_each", "cost_m2", "trade_price",
+    "stock_quantity", "in_stock", "always_in_stock",
+    "images", "image",
+    # Category
+    "product_group", "main_category", "sub_categories",
+    # Pricing unit
+    "pricing_unit", "size_unit",
+    # Tile-specific
+    "size", "thickness", "length_mm", "width_mm", "coverage_m2",
+    "material", "finish", "type", "edge", "slip_rating", "underfloor_heating",
+    "made_in", "tiles_per_box", "sqm_per_box",
+    # Materials-specific
+    "bag_weight_kg", "coverage_m2_per_bag", "setting_time_hours",
+    "pot_life_minutes", "application_thickness_mm", "voc_rating", "bag_colour",
+    # Flooring-specific
+    "plank_length_mm", "plank_width_mm", "plank_thickness_mm", "wear_layer_mm",
+    "click_system", "waterproof", "underlay_compatible",
+    # Bathroom-specific
+    "brand", "model", "dimensions", "flush_type", "tank_capacity", "warranty",
+    # UFH-specific
+    "kit_size_m2", "voltage", "thermostat_included",
+    # Colours / attributes
+    "color", "colors", "styles", "features", "rooms", "materials",
+    "suitability", "series", "series_name",
+    # Visibility
+    "visibility", "show_on_website", "published",
+}
+
+
+@router.post("/products/create")
+def create_product_via_wizard(data: dict):
+    """
+    Create a new product from the Add Product Wizard.
+    
+    Accepts any subset of WIZARD_ALLOWED_FIELDS. Enforces:
+      - `supplier` and `sku` are required
+      - No existing record with the same (supplier, sku) — otherwise 409
+      - Server-managed timestamps set on insert
+      - Returns the created record's identity so the Manager can jump straight
+        to edit mode or refresh the list to include the new row.
+    """
+    try:
+        db = get_db()
+        
+        supplier = (data.get("supplier") or "").strip()
+        sku = (data.get("sku") or data.get("supplier_code") or "").strip()
+        if not supplier or not sku:
+            raise HTTPException(status_code=400, detail="supplier and sku are required")
+        
+        # Prevent duplicates — bulk-update-unified is the update path,
+        # this endpoint is strictly for new records.
+        existing = db.supplier_products.find_one({"supplier": supplier, "sku": sku}, {"_id": 1})
+        if existing:
+            raise HTTPException(status_code=409, detail=f"A product with SKU '{sku}' already exists for supplier '{supplier}'. Use the edit flow instead.")
+        
+        # Filter to allowed fields only
+        product_data = {}
+        for k, v in data.items():
+            if k in WIZARD_ALLOWED_FIELDS and v is not None and v != "":
+                product_data[k] = v
+        
+        # Normalise supplier + ensure sku is set on the doc even if data used supplier_code
+        product_data["supplier"] = normalise_filter_value(supplier) or supplier
+        product_data["sku"] = sku
+        
+        # Server-managed timestamps
+        now = datetime.now(timezone.utc)
+        product_data["created_at"] = now
+        product_data["updated_at"] = now
+        product_data["sync_source"] = "wizard"
+        
+        # Sane defaults based on product_group so the storefront renders correctly
+        # even if the admin skipped a field in the wizard.
+        grp = str(product_data.get("product_group") or product_data.get("main_category") or "").lower()
+        if "material" in grp and not product_data.get("pricing_unit"):
+            product_data["pricing_unit"] = "unit"
+        elif not product_data.get("pricing_unit"):
+            product_data["pricing_unit"] = "m2"
+        
+        # Default visibility: draft (not on storefront until admin publishes)
+        product_data.setdefault("visibility", "draft")
+        product_data.setdefault("published", False)
+        product_data.setdefault("show_on_website", False)
+        product_data.setdefault("in_stock", True)
+        
+        # Insert
+        result = db.supplier_products.insert_one(product_data)
+        
+        return {
+            "success": True,
+            "id": str(result.inserted_id),
+            "supplier": product_data["supplier"],
+            "sku": product_data["sku"],
+            "product_name": product_data.get("product_name") or product_data.get("name"),
+            "created_at": now.isoformat(),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error creating product via wizard: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+
 @router.post("/products/fix-categories")
 def fix_supplier_product_categories(supplier: Optional[str] = None):
     """

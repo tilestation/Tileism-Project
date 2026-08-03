@@ -27,7 +27,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
 import {
-  Package, ArrowLeft, RefreshCw, Search, Save, X, Edit2, Filter, ExternalLink, AlertCircle, CheckCircle,
+  Package, ArrowLeft, RefreshCw, Search, Save, X, Edit2, Filter, ExternalLink, AlertCircle, CheckCircle, Plus,
 } from 'lucide-react';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
@@ -35,6 +35,7 @@ import { Badge } from '../../components/ui/badge';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from '../../components/ui/dialog';
+import AddProductWizard from './components/AddProductWizard';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
 
@@ -66,6 +67,7 @@ const MaterialsManager = () => {
   const [editForm, setEditForm] = useState({});
   const [saving, setSaving] = useState(false);
   const [lastRefresh, setLastRefresh] = useState(null);
+  const [wizardOpen, setWizardOpen] = useState(false);
 
   const fetchProducts = useCallback(async () => {
     setLoading(true);
@@ -230,6 +232,15 @@ const MaterialsManager = () => {
                 Refreshed {lastRefresh.toLocaleTimeString()}
               </span>
             )}
+            <Button
+              size="sm"
+              className="bg-orange-600 hover:bg-orange-700 text-white"
+              onClick={() => setWizardOpen(true)}
+              data-testid="materials-add-new-btn"
+            >
+              <Plus className="w-4 h-4 mr-1.5" />
+              Add New Material
+            </Button>
             <Button
               size="sm"
               variant="outline"
@@ -501,6 +512,14 @@ const MaterialsManager = () => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Add Product Wizard — preset to materials */}
+      <AddProductWizard
+        open={wizardOpen}
+        onOpenChange={setWizardOpen}
+        presetCategory="materials"
+        onSuccess={() => { setWizardOpen(false); fetchProducts(); }}
+      />
     </div>
   );
 };
