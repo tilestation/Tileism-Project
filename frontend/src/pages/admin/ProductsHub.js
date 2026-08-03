@@ -81,6 +81,18 @@ export default function ProductsHub() {
       legacyPermission: 'products',
     },
     {
+      title: 'Materials Manager',
+      description: 'Focused editor for adhesives, grouts, sealants & cleaning — only material-relevant fields',
+      icon: Package,
+      link: '/admin/materials',
+      color: 'bg-orange-500',
+      stat: null,
+      statLabel: 'materials',
+      permission: 'supplier_products',
+      legacyPermission: 'products',
+      badge: 'NEW',
+    },
+    {
       title: 'Sync Hub',
       description: 'Review and apply sync data before updating products',
       icon: RefreshCw,

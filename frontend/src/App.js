@@ -104,6 +104,7 @@ const Suppliers = React.lazy(() => import('./pages/admin/Suppliers'));
 const StocktakeReport = React.lazy(() => import('./pages/admin/StocktakeReport'));
 const SupplierSyncDashboard = React.lazy(() => import('./pages/admin/SupplierSyncDashboard'));
 const SupplierProducts = React.lazy(() => import('./pages/admin/SupplierProducts'));
+const MaterialsManager = React.lazy(() => import('./pages/admin/MaterialsManager'));
 const SupplierHealthDashboard = React.lazy(() => import('./pages/admin/SupplierHealthDashboard'));
 const WallcanoPriceImport = React.lazy(() => import('./pages/admin/WallcanoPriceImport'));
 const PublishSupplierProducts = React.lazy(() => import('./pages/admin/PublishSupplierProducts'));
@@ -581,6 +582,7 @@ function App() {
             <Route path="suppliers" element={<Suppliers />} />
             <Route path="supplier-sync" element={<SupplierSyncDashboard />} />
             <Route path="supplier-products" element={<SupplierProducts />} />
+            <Route path="materials" element={<MaterialsManager />} />
             <Route path="supplier-health" element={<SupplierHealthDashboard />} />
             <Route path="manage-categories" element={<ManageCategories />} />
             <Route path="wallcano-prices" element={<WallcanoPriceImport />} />

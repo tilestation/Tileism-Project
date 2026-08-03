@@ -11578,17 +11578,17 @@ def bulk_update_unified(data: dict):
             except Exception as e:
                 logger.warning(f"WAS price recalculation warning: {e}")
         
-        # SAFETY VERIFICATION — After all writes, sample a handful of the affected
-        # products in supplier_products AND tiles to confirm the requested values
-        # actually persisted. Any mismatch is surfaced to the client so the admin UI
-        # can highlight silent failures instead of showing a green success toast.
+        # SAFETY VERIFICATION — After all writes, RE-READ every affected product from
+        # supplier_products and compare intended vs actual values for the fields the
+        # admin set. Previous version sampled 10 products only; the owner ran into a
+        # scoped-save bug where colours didn't stick for the products outside the
+        # 10-product sample. Verifying all of them costs one bulk find_many() call
+        # per batch — the trade-off is worth it (silent save = launch-blocker).
         verification_failures = []
         verification_checked = 0
         try:
             if product_ids and (set_fields or array_updates):
                 qf = id_field or "sku"
-                # Cap verification cost — sample at most 10 products
-                sample_ids = list(product_ids)[:10]
                 # Merge intended values from set_fields + array_updates (skip meta fields)
                 intended = {}
                 for k, v in set_fields.items():
@@ -11598,23 +11598,27 @@ def bulk_update_unified(data: dict):
                 for k, v in array_updates.items():
                     intended[k] = v
                 
-                for pid in sample_ids:
-                    sp_doc = db.supplier_products.find_one({qf: pid}, {"_id": 0, **{k: 1 for k in intended.keys()}})
-                    if not sp_doc:
-                        continue
-                    for k, expected in intended.items():
-                        actual = sp_doc.get(k)
-                        # Normalise for comparison
-                        if isinstance(expected, list) and isinstance(actual, list):
-                            if set(map(str, expected)) != set(map(str, actual)):
-                                verification_failures.append({"sku": pid, "field": k, "expected": expected, "actual": actual})
-                        elif expected != actual:
-                            # Allow None ≈ "" ≈ 0 flex — anything else is a real mismatch
-                            if not (expected in (None, "", 0) and actual in (None, "", 0)):
-                                verification_failures.append({"sku": pid, "field": k, "expected": expected, "actual": actual})
-                    verification_checked += 1
+                if intended:
+                    projection = {"_id": 0, qf: 1, **{k: 1 for k in intended.keys()}}
+                    saved_docs = {d.get(qf): d for d in db.supplier_products.find({qf: {"$in": list(product_ids)}}, projection)}
+                    for pid in product_ids:
+                        sp_doc = saved_docs.get(pid)
+                        if not sp_doc:
+                            verification_failures.append({"sku": pid, "field": "__missing__", "expected": "product record", "actual": None})
+                            continue
+                        for k, expected in intended.items():
+                            actual = sp_doc.get(k)
+                            # Normalise for comparison
+                            if isinstance(expected, list) and isinstance(actual, list):
+                                if set(map(str, expected)) != set(map(str, actual)):
+                                    verification_failures.append({"sku": pid, "field": k, "expected": expected, "actual": actual})
+                            elif expected != actual:
+                                # Allow None ≈ "" ≈ 0 flex — anything else is a real mismatch
+                                if not (expected in (None, "", 0) and actual in (None, "", 0)):
+                                    verification_failures.append({"sku": pid, "field": k, "expected": expected, "actual": actual})
+                        verification_checked += 1
                 if verification_failures:
-                    logger.warning(f"Bulk save verification: {len(verification_failures)} field mismatch(es) across {verification_checked} sampled products")
+                    logger.warning(f"Bulk save verification: {len(verification_failures)} field mismatch(es) across {verification_checked} products (100% checked)")
         except Exception as ver_err:
             logger.warning(f"Bulk save verification skipped: {ver_err}")
         
@@ -11630,7 +11634,7 @@ def bulk_update_unified(data: dict):
             "auto_publish_errors": auto_publish_errors[:5] if auto_publish_errors else [],
             "updated_count": max(staging_updated, supplier_updated, products_updated),
             "verification_checked": verification_checked,
-            "verification_failures": verification_failures[:10],  # cap payload
+            "verification_failures": verification_failures,  # full list
             "verification_ok": len(verification_failures) == 0,
             "message": f"Updated {staging_updated} staging, {supplier_updated} supplier, {products_updated} website products. Synced {categories_synced} new categories. Cleared {fields_cleared} fields. Auto-published {auto_published} products to storefront."
         }

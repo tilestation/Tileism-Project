@@ -9,6 +9,40 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Aug 3, 2026 — Forked, later] 🟢 P0 Scoped save hardening + Materials Manager MVP shipped
+
+**Owner reported (angry, blocking launch)**: scoped bulk save of Grey → 7 SKUs + White → 7 other SKUs still didn't stick, and I hadn't delivered on the promised category-specific manager pages. Two follow-ups shipped:
+
+**Scoped save hardening**:
+1. **Verification is now 100%, not sampled**. `supplier_sync.py::bulk-update-unified` re-reads EVERY affected SKU in one bulk `find()` after all writes, compares set_fields + array_updates against what's actually in Mongo, and returns the full `verification_failures[]` list. Previous sample-of-10 could mask mismatches on the 11th+ SKU in a batch.
+2. **Save Results dialog auto-opens on any verification mismatch** — both on the scoped-save path (`hasPerAttributeScopes || hasSectionScopes`) and the primary SKU / supplier_code batch path. Failed SKUs are pushed into `failedItems` with a clear `reason` string like "Save didn't stick: colors: expected ['Grey'], got null". Toast reads "⚠️ N products didn't save correctly — opening Save Results for details".
+3. **Scoped batches are now logged to console** — `[Bulk Update — Scoped] Sending N batches:` followed by each batch's `ids`, `idField`, and `payload`. If saves ever silently fail again, the owner can share the console log and we can trace exactly what was sent.
+4. **End-to-end verified on preview**: 3 SKUs, batch 1 `[355POL6060, 4405]→Grey`, batch 2 `[5225]→White` → `verification_ok: true`, `checked: 3`, `failures: 0`, Mongo confirms each SKU has the right `color` scalar AND `colors[]` array.
+
+**Materials Manager MVP** (`/admin/materials`, `MaterialsManager.jsx`):
+1. **Dedicated admin page** for adhesives, grouts, sealants, cleaning products &amp; primers. Wired into `ProductsHub.js` as an orange **NEW** card next to Supplier Products.
+2. **Auto-detects materials** by `product_group === 'materials'`, `main_category === 'Materials'`, or `sub_categories` matching any of: adhesive, grout, sealant, silicone, cleaning, primer, levelling compound.
+3. **Sub-tabs** to slice quickly: All Materials / Adhesives / Grouts / Sealants / Cleaning / Other — each shows a live count.
+4. **Focused edit modal** — only fields that make sense for materials:
+   - Colour + Bag Colour (Pink/Red/Green for identification)
+   - Bag Weight (kg), Coverage (m²/bag), Setting Time (h), Pot Life (min), Application Thickness (mm), VOC Rating
+   - Suitability + Short Description
+   - No slip-rating / rectified / edge fields cluttering the form.
+5. **Reuses the shared backend** — saves through `bulk-update-unified`, so tier pricing, publish flow, stock, refunds all still work. Legacy `/admin/supplier-products` stays available via a "Legacy full editor" link in the header.
+6. **Verification baked in** — every save runs the 100% verification and warns immediately on any mismatch.
+
+**Files touched**:
+- `/app/backend/routes/supplier_sync.py` — verification loop covers all product_ids (bulk find), returns full failures list
+- `/app/frontend/src/pages/admin/SupplierProducts.js` — scoped-save path logs batches to console, both paths auto-open Save Results on verification failure, verification failures mapped into failedItems with per-field reasons
+- `/app/frontend/src/pages/admin/MaterialsManager.jsx` — **NEW** (479 lines)
+- `/app/frontend/src/App.js` — route + lazy import for MaterialsManager
+- `/app/frontend/src/pages/admin/ProductsHub.js` — Materials Manager card (orange, NEW badge)
+- `/app/memory/test_credentials.md` — notes
+
+**Recommended next**: reproduce the scoped Grey/White save from earlier. If it still doesn't reflect on the storefront, the console will now show the exact batch payload sent AND the verification result — that's enough to trace it in seconds instead of hours.
+
+
+
 ### [Aug 3, 2026 — Forked session, later] 🟢 P0 Bulk Editor bug fixes shipped
 
 **Symptom the owner reported**: Bulk Category Editor saves colours but the storefront collection card shows "1 COLOUR" instead of 2. PDP for materials also labels the variant selector "Pattern:" which makes no sense for adhesives.

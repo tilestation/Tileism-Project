@@ -4288,6 +4288,17 @@ export default function SupplierProducts() {
           }
         }
         
+        // Log the exact batches being sent so the owner can inspect what's
+        // being pushed vs what actually saved (helps trace scoped-save issues).
+        console.log('[Bulk Update — Scoped] Sending', splitBatches.length, 'batches:');
+        splitBatches.forEach((b, i) => {
+          console.log(`  Batch ${i + 1}/${splitBatches.length}:`, {
+            ids: b.ids,
+            idField: b.idField,
+            payload: b.payload
+          });
+        });
+        
         let scopedAutoPublished = 0;
         const verificationFailureSamples = [];
         let verificationChecked = 0;
@@ -4335,12 +4346,43 @@ export default function SupplierProducts() {
             toast.info(`${scopedAutoPublished} product${scopedAutoPublished > 1 ? 's were' : ' was'} auto-published to the storefront`);
           }
           if (verificationFailureSamples.length > 0) {
-            // Some writes didn't stick — highlight loudly
-            const preview = verificationFailureSamples.slice(0, 3).map(f => `${f.sku}: ${f.field}`).join(', ');
-            toast.warning(`Save verification: ${verificationFailureSamples.length} field(s) didn't stick — check ${preview}${verificationFailureSamples.length > 3 ? '…' : ''}`, { duration: 10000 });
-            console.warn('[Bulk Update] Verification failures:', verificationFailureSamples);
+            // Group failures by SKU for a readable summary in the toast + console
+            const bySku = {};
+            verificationFailureSamples.forEach(f => {
+              if (!bySku[f.sku]) bySku[f.sku] = [];
+              bySku[f.sku].push(`${f.field}: expected ${JSON.stringify(f.expected)}, got ${JSON.stringify(f.actual)}`);
+            });
+            console.warn('[Bulk Update — Scoped] Verification failures by SKU:', bySku);
+            const failedSkuCount = Object.keys(bySku).length;
+            toast.warning(
+              `⚠️ ${failedSkuCount} product${failedSkuCount !== 1 ? 's' : ''} didn't save correctly — opening Save Results for full details`,
+              { duration: 12000 }
+            );
+            // Map verification failures onto the failedItems structure so
+            // the Save Results dialog can show a per-SKU diagnostic table.
+            const verificationFailedItems = Object.entries(bySku).map(([sku, mismatches]) => {
+              const product = productsToUpdate.find(p => p.sku === sku || p.supplier_code === sku) || {};
+              return {
+                id: sku,
+                id_field: product.sku === sku ? 'sku' : 'supplier_code',
+                product_name: product.our_product_name || product.product_name || product.name || sku,
+                reason: `Save didn't stick: ${mismatches.join('; ')}`,
+                verification: true,
+              };
+            });
+            setLastSaveResult({
+              success: successCount,
+              failed: verificationFailedItems.length,
+              total: productsToUpdate.length,
+              failed_items: verificationFailedItems,
+              verificationFailures: verificationFailureSamples,
+              verificationChecked,
+              timestamp: Date.now(),
+            });
+            setShowSaveResults(true);
+          } else {
+            setLastSaveResult({ success: successCount, failed: failCount, total: productsToUpdate.length, timestamp: Date.now(), verificationFailures: [], verificationChecked });
           }
-          setLastSaveResult({ success: successCount, failed: failCount, total: productsToUpdate.length, timestamp: Date.now(), verificationFailures: verificationFailureSamples, verificationChecked });
         }
         if (failCount > 0) {
           toast.error(`Failed to update ${failCount} products`);
@@ -4687,24 +4729,53 @@ export default function SupplierProducts() {
         }
         // Safety check: surface any silent save failures the backend detected
         if (verificationFailures.length > 0) {
-          const preview = verificationFailures.slice(0, 3).map(f => `${f.sku}: ${f.field}`).join(', ');
+          const bySku = {};
+          verificationFailures.forEach(f => {
+            if (!bySku[f.sku]) bySku[f.sku] = [];
+            bySku[f.sku].push(`${f.field}: expected ${JSON.stringify(f.expected)}, got ${JSON.stringify(f.actual)}`);
+          });
+          console.warn('[Bulk Update] Verification failures by SKU:', bySku);
+          const failedSkuCount = Object.keys(bySku).length;
           toast.warning(
-            `Save verification: ${verificationFailures.length} field(s) didn't stick on the sampled products — check ${preview}${verificationFailures.length > 3 ? '…' : ''}`,
+            `⚠️ ${failedSkuCount} product${failedSkuCount !== 1 ? 's' : ''} didn't save correctly — opening Save Results for details`,
             { duration: 12000 }
           );
-          console.warn('[Bulk Update] Verification failures:', verificationFailures);
-        } else if (verificationChecked > 0) {
-          console.log(`[Bulk Update] Verification passed — ${verificationChecked} sampled products confirmed`);
+          // Merge verification failures into failedItems for the Save Results dialog
+          const verificationFailedItems = Object.entries(bySku).map(([sku, mismatches]) => {
+            const product = productsToUpdate.find(p => p.sku === sku || p.supplier_code === sku) || {};
+            return {
+              id: sku,
+              id_field: product.sku === sku ? 'sku' : 'supplier_code',
+              product_name: product.our_product_name || product.product_name || product.name || sku,
+              reason: `Save didn't stick: ${mismatches.join('; ')}`,
+              verification: true,
+            };
+          });
+          const combinedFailedItems = [...failedItems, ...verificationFailedItems];
+          setLastSaveResult({
+            success: totalSuccessCount,
+            failed: totalFailCount + verificationFailedItems.length,
+            total: productsToUpdate.length,
+            failed_items: combinedFailedItems,
+            verificationFailures,
+            verificationChecked,
+            timestamp: Date.now(),
+          });
+          setShowSaveResults(true);
+        } else {
+          if (verificationChecked > 0) {
+            console.log(`[Bulk Update] Verification passed — ${verificationChecked} products confirmed`);
+          }
+          setLastSaveResult({
+            success: totalSuccessCount,
+            failed: totalFailCount,
+            total: productsToUpdate.length,
+            failed_items: failedItems,
+            verificationFailures: [],
+            verificationChecked,
+            timestamp: Date.now(),
+          });
         }
-        setLastSaveResult({
-          success: totalSuccessCount,
-          failed: totalFailCount,
-          total: productsToUpdate.length,
-          failed_items: failedItems,
-          verificationFailures,
-          verificationChecked,
-          timestamp: Date.now(),
-        });
         // 3 Aug 2026 — auto-open Save Results dialog when ANY product
         // failed. This replaces the old "Force Save" per-product view; the
         // dialog now shows exactly which SKUs failed and why, so the owner

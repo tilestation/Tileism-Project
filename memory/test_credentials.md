@@ -23,8 +23,16 @@
 - Pricing calculate endpoint: `GET /api/tiles/pricing/calculate?base_price=50&quantity=100&is_trade=true&trade_discount=5&trade_discount_type=fixed` → `trade_current_price_per_m2=37.5` (deducts £5 flat off the tier-discounted RRP of £42.50).
 
 ## Bulk save verification + array-field publish (Aug 3, 2026)
-- `POST /api/supplier-sync/products/bulk-update-unified` now returns `verification_checked`, `verification_failures[]`, `verification_ok` — samples up to 10 saved products and re-reads them from `supplier_products` to confirm the intended fields persisted. Silent save failures now surface as a toast in the Bulk Category Editor.
-- Auto-publish `tile_doc` in `supplier_sync.py` now includes the array fields (`colors`, `materials`, `styles`, `features`, `rooms`) that were previously omitted — so freshly-published multi-colour products show the correct number of COLOUR swatches on the collection card.
-- `serialize_tile_for_shop` in `tiles.py` now returns `colors`, `materials`, `styles`, `features`, `rooms`, `main_category`, `sub_categories` so the storefront PDP + collection card can group correctly.
-- Collections list unique-colour aggregation (`tiles.py::_group_products_by_series`) prefers the `colors` array over the scalar `color` so multi-colour groupings are counted correctly.
-- PDP style/pattern selector label is now context-aware: Tiles→"Pattern", Materials→"Type", Flooring→"Finish", Bathroom→"Model", Underfloor Heating→"Kit Size", Tools→"Model" (`CollectionDetailPage.js::styleSelectorLabel`).
+- `POST /api/supplier-sync/products/bulk-update-unified` now returns `verification_checked`, `verification_failures[]`, `verification_ok` — re-reads **every** affected product from `supplier_products` (not a sample) and compares intended vs actual for the fields the admin set. Silent save failures now surface as a warning toast AND auto-open the Save Results dialog in the Bulk Category Editor.
+- Auto-publish `tile_doc` in `supplier_sync.py` now includes the array fields (`colors`, `materials`, `styles`, `features`, `rooms`).
+- `serialize_tile_for_shop` in `tiles.py` now returns `colors`, `materials`, `styles`, `features`, `rooms`, `main_category`, `sub_categories`.
+- Collections list unique-colour aggregation prefers the `colors` array over the scalar `color`.
+- PDP style/pattern selector label is context-aware (Materials→"Type" etc.).
+
+## Materials Manager MVP (Aug 3, 2026)
+- New admin route `/admin/materials` (`MaterialsManager.jsx`) — dedicated focused editor for adhesives, grouts, sealants, cleaning &amp; primers.
+- Wired into `ProductsHub.js` as an orange NEW card next to Supplier Products.
+- Filters `/api/supplier-sync/products/all` by `product_group === 'materials'` OR `main_category === 'Materials'` OR any `sub_categories` matches (adhesive/grout/sealant/cleaning/primer/etc.).
+- Sub-tabs: All Materials / Adhesives / Grouts / Sealants / Cleaning / Other.
+- Edit modal shows only material-relevant fields: Bag Weight, Coverage (m²/bag), Setting Time, Pot Life, Application Thickness, VOC Rating, Bag Colour, Colour, Suitability, Description. Saves via the shared `bulk-update-unified` endpoint so tier pricing / publish / stock all keep working.
+- Verified: scoped save `SKU1+SKU2→Grey`, `SKU3→White` returned `verification_ok=true`, `checked=3`, `failures=0`, Mongo shows the correct `color` + `colors[]` on each SKU.
