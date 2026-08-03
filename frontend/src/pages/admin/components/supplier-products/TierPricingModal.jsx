@@ -1,6 +1,8 @@
 /**
  * TierPricingModal - Modal for managing tier pricing configuration
  * Supports dynamic tier count (add/remove tiers)
+ * Supports Trade discount as percent (%) OR flat £/m² amount
+ * Supports Half + Full pallet pricing block (bulk apply)
  */
 
 import React from 'react';
@@ -19,6 +21,8 @@ import {
   XCircle,
   Plus,
   Trash2,
+  Truck,
+  PoundSterling,
 } from 'lucide-react';
 
 const TierPricingModal = ({
@@ -38,7 +42,7 @@ const TierPricingModal = ({
   tierProductScope,
 }) => {
   const filterLabel = getFilterDisplayLabel ? getFilterDisplayLabel(pricingSizeFilter) : pricingSizeFilter;
-  
+
   const getScopedProductCount = () => {
     const filtered = getProductsFilteredBySize(pricingSizeFilter);
     if (tierProductScope && tierProductScope.size > 0) {
@@ -46,7 +50,7 @@ const TierPricingModal = ({
     }
     return pricingSizeFilter !== 'all' ? filtered.length : selectedProducts.size;
   };
-  
+
   const scopedCount = getScopedProductCount();
   const isScoped = tierProductScope && tierProductScope.size > 0;
 
@@ -54,6 +58,10 @@ const TierPricingModal = ({
   const thresholds = tierPricingConfig.thresholds || [10, 50, 100];
   const discounts = tierPricingConfig.discounts || [0, 5, 10, 15];
   const tierCount = discounts.length; // Number of tiers (thresholds.length + 1)
+
+  // Trade discount type — 'percent' (default) or 'fixed' (flat £/m²)
+  const tradeType = tierPricingConfig.trade_discount_type === 'fixed' ? 'fixed' : 'percent';
+  const isTradeFixed = tradeType === 'fixed';
 
   const addTier = () => {
     const lastThreshold = thresholds[thresholds.length - 1] || 100;
@@ -95,6 +103,22 @@ const TierPricingModal = ({
     });
   };
 
+  const setTradeType = (nextType) => {
+    setTierPricingConfig(prev => ({
+      ...prev,
+      trade_discount_type: nextType,
+      // Reset the numeric value to a sensible default for the new mode so
+      // the user isn't left with e.g. "5" applied as £5/m² when they meant 5%
+      trade_discount_default: nextType === 'fixed' ? 2 : 5,
+    }));
+  };
+
+  // Half + Full pallet helpers
+  const palletEnabled = !!tierPricingConfig.pallet_enabled;
+  const setPalletField = (field, value) => {
+    setTierPricingConfig(prev => ({ ...prev, [field]: value }));
+  };
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
@@ -104,17 +128,17 @@ const TierPricingModal = ({
             Set Tier Discounts
           </DialogTitle>
         </DialogHeader>
-        
+
         {/* Status Banner */}
         {selectedProducts.size > 0 && (
           <div className={`p-3 rounded-lg ${isScoped ? 'bg-amber-100 border border-amber-300' : pricingSizeFilter !== 'all' ? 'bg-purple-100 border border-purple-300' : 'bg-amber-100 border border-amber-300'}`}>
             <div className="flex items-center justify-between">
               <div>
                 <p className={`font-semibold ${isScoped ? 'text-amber-800' : pricingSizeFilter !== 'all' ? 'text-purple-800' : 'text-amber-800'}`}>
-                  {isScoped 
+                  {isScoped
                     ? `${scopedCount} selected product${scopedCount !== 1 ? 's' : ''}`
-                    : pricingSizeFilter !== 'all' 
-                      ? `${filterLabel} products only` 
+                    : pricingSizeFilter !== 'all'
+                      ? `${filterLabel} products only`
                       : 'All selected products'}
                 </p>
                 <p className="text-sm text-gray-600">
@@ -130,7 +154,7 @@ const TierPricingModal = ({
             </div>
           </div>
         )}
-        
+
         <div className="space-y-6 py-4">
           {/* Disable Tier Pricing */}
           {selectedProducts.size > 0 && (
@@ -141,10 +165,11 @@ const TierPricingModal = ({
                   checked={tierPricingConfig.disabled || false}
                   onChange={(e) => setTierPricingConfig(prev => ({ ...prev, disabled: e.target.checked }))}
                   className="w-4 h-4 rounded border-red-300 text-red-600 focus:ring-red-500"
+                  data-testid="tier-pricing-disable-checkbox"
                 />
                 <div>
                   <span className="font-medium text-red-800">Disable Tier Discounts</span>
-                  <p className="text-xs text-red-600">Selected products will use list price only (no quantity discounts). Trade discount and credit back still apply.</p>
+                  <p className="text-xs text-red-600">Selected products will use list price only (no quantity discounts). Trade discount, credit back and Half + Full Pallet pricing still apply.</p>
                 </div>
               </label>
             </div>
@@ -240,22 +265,65 @@ const TierPricingModal = ({
                   onChange={(e) => setTierPricingConfig(prev => ({ ...prev, custom_quote_threshold: parseInt(e.target.value) || 150 }))}
                   className="w-full mt-1 px-3 py-2 border border-gray-300 rounded-lg text-sm"
                 />
-                <p className="text-xs text-gray-400 mt-1">Show "Request Quote" above this</p>
+                <p className="text-xs text-gray-400 mt-1">Show &quot;Request Quote&quot; above this</p>
               </div>
             )}
             <div>
-              <label className="text-xs text-gray-500">Trade Discount (%)</label>
-              <div className="relative mt-1">
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-xs text-gray-500">
+                  Trade Discount {isTradeFixed ? '(£/m²)' : '(%)'}
+                </label>
+                {/* % / £ segmented toggle */}
+                <div className="inline-flex rounded-md border border-gray-300 overflow-hidden text-[11px]">
+                  <button
+                    type="button"
+                    onClick={() => setTradeType('percent')}
+                    className={`px-2 py-1 flex items-center gap-1 transition ${
+                      !isTradeFixed ? 'bg-amber-500 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'
+                    }`}
+                    data-testid="trade-discount-type-percent"
+                    title="Trade discount as a percentage (%) of the tier price"
+                  >
+                    <Percent className="w-3 h-3" /> %
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setTradeType('fixed')}
+                    className={`px-2 py-1 flex items-center gap-1 border-l border-gray-300 transition ${
+                      isTradeFixed ? 'bg-amber-500 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'
+                    }`}
+                    data-testid="trade-discount-type-fixed"
+                    title="Trade discount as a flat £ amount off per m²"
+                  >
+                    <PoundSterling className="w-3 h-3" /> £
+                  </button>
+                </div>
+              </div>
+              <div className="relative">
                 <input
                   type="number"
-                  value={tierPricingConfig.trade_discount_default || 5}
-                  onChange={(e) => setTierPricingConfig(prev => ({ ...prev, trade_discount_default: parseInt(e.target.value) || 5 }))}
+                  step={isTradeFixed ? '0.01' : '1'}
+                  value={
+                    tierPricingConfig.trade_discount_default !== undefined && tierPricingConfig.trade_discount_default !== null
+                      ? tierPricingConfig.trade_discount_default
+                      : (isTradeFixed ? 2 : 5)
+                  }
+                  onChange={(e) => setTierPricingConfig(prev => ({
+                    ...prev,
+                    trade_discount_default: isTradeFixed ? (parseFloat(e.target.value) || 0) : (parseInt(e.target.value) || 0),
+                  }))}
                   className="w-full px-3 py-2 pr-8 border border-gray-300 rounded-lg text-sm"
+                  data-testid="trade-discount-input"
                 />
-                <span className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400">%</span>
+                <span className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400">
+                  {isTradeFixed ? '£/m²' : '%'}
+                </span>
               </div>
               <p className="text-xs text-gray-400 mt-1">
-                {selectedProducts.size > 0 ? 'Extra off for trade accounts on these products' : 'Extra off for trade accounts'}
+                {isTradeFixed
+                  ? 'Flat £ per m² deducted from the tier-discounted price for trade accounts. Stacks on top of the volume discount.'
+                  : (selectedProducts.size > 0 ? 'Extra % off for trade accounts on these products (stacks on volume tier)' : 'Extra % off for trade accounts (stacks on volume tier)')
+                }
               </p>
             </div>
             <div>
@@ -274,6 +342,89 @@ const TierPricingModal = ({
             </div>
           </div>
 
+          {/* Half + Full Pallet Pricing (independent of tier-disabled) */}
+          {selectedProducts.size > 0 && (
+            <div className="bg-green-50 border border-green-200 rounded-lg p-4" data-testid="pallet-pricing-block">
+              <label className="flex items-start gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={palletEnabled}
+                  onChange={(e) => setPalletField('pallet_enabled', e.target.checked)}
+                  className="w-5 h-5 mt-0.5 rounded border-green-300 text-green-600 focus:ring-green-500"
+                  data-testid="pallet-enabled-checkbox"
+                />
+                <div className="flex-1">
+                  <span className="font-semibold text-green-800 flex items-center gap-2">
+                    <Truck className="w-4 h-4" />
+                    Half + Full Pallet Pricing
+                  </span>
+                  <p className="text-xs text-green-600 mt-0.5">
+                    Bulk pricing for pallet quantities. Applied independently of tier discounts — works whether tier pricing is enabled or disabled above.
+                  </p>
+                </div>
+              </label>
+
+              {palletEnabled && (
+                <div className="mt-4 space-y-3">
+                  <p className="text-xs text-green-700 font-medium">Pallet quantities (m²) and £/m² rates — leave Half blank to default to ½ of Full.</p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-xs text-green-800 font-medium">Full Pallet (m²)</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={tierPricingConfig.m2_per_pallet ?? ''}
+                        onChange={(e) => setPalletField('m2_per_pallet', e.target.value === '' ? null : parseFloat(e.target.value))}
+                        placeholder="e.g., 32.00"
+                        className="w-full mt-1 px-3 py-2 border border-green-200 bg-white rounded-lg text-sm"
+                        data-testid="pallet-m2-per-pallet-input"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs text-green-800 font-medium">Full Pallet — £/m²</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={tierPricingConfig.pallet_price ?? ''}
+                        onChange={(e) => setPalletField('pallet_price', e.target.value === '' ? null : parseFloat(e.target.value))}
+                        placeholder="e.g., 28.00"
+                        className="w-full mt-1 px-3 py-2 border border-green-200 bg-white rounded-lg text-sm"
+                        data-testid="pallet-full-price-input"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs text-green-800 font-medium">Half Pallet (m²)</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={tierPricingConfig.m2_per_half_pallet ?? ''}
+                        onChange={(e) => setPalletField('m2_per_half_pallet', e.target.value === '' ? null : parseFloat(e.target.value))}
+                        placeholder="auto: ½ of full"
+                        className="w-full mt-1 px-3 py-2 border border-green-200 bg-white rounded-lg text-sm"
+                        data-testid="pallet-m2-per-half-input"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs text-green-800 font-medium">Half Pallet — £/m²</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={tierPricingConfig.half_pallet_price ?? ''}
+                        onChange={(e) => setPalletField('half_pallet_price', e.target.value === '' ? null : parseFloat(e.target.value))}
+                        placeholder="e.g., 30.00"
+                        className="w-full mt-1 px-3 py-2 border border-green-200 bg-white rounded-lg text-sm"
+                        data-testid="pallet-half-price-input"
+                      />
+                    </div>
+                  </div>
+                  <p className="text-[11px] text-green-600">
+                    On the storefront, customers see a Half Pallet / Full Pallet chip. Selecting one auto-sets the basket m² to the matching threshold and applies the £/m² rate.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+
           {!tierPricingConfig.disabled && (
             <>
               {/* Quick Save for Filtered */}
@@ -288,7 +439,7 @@ const TierPricingModal = ({
                         {scopedCount} product{scopedCount !== 1 ? 's' : ''} will be updated with: {discounts.join('%, ')}% discounts
                       </p>
                     </div>
-                    <Button 
+                    <Button
                       onClick={onSave}
                       disabled={tierPricingSaving}
                       className={`${isScoped ? 'bg-amber-600 hover:bg-amber-700' : 'bg-purple-600 hover:bg-purple-700'} text-white px-6 py-2`}
@@ -314,12 +465,12 @@ const TierPricingModal = ({
                   const creditBackAmount = exVatPrice * (creditBackRate / 100);
                   const netProfit = exVatPrice - costPrice - creditBackAmount;
                   const filteredCount = isScoped ? scopedCount : (pricing.count || selectedProducts.size);
-                  
+
                   return (
                     <>
                       <div className="flex items-center justify-between mb-3">
                         <h4 className="font-medium text-sm text-gray-700">
-                          Live Preview 
+                          Live Preview
                           {usingOverride ? (
                             <span className="text-blue-600 ml-1">(Using entered prices: £{basePrice.toFixed(2)})</span>
                           ) : filteredCount > 0 ? (
@@ -329,7 +480,7 @@ const TierPricingModal = ({
                           ) : null}
                         </h4>
                       </div>
-                      
+
                       {/* Pricing Breakdown */}
                       <div className="bg-white border border-gray-200 rounded-lg p-3 mb-3">
                         <div className="space-y-2 text-sm">
@@ -371,7 +522,7 @@ const TierPricingModal = ({
                           </div>
                         )}
                       </div>
-                      
+
                       {/* Dynamic Tier Pricing Table */}
                       <div className="overflow-x-auto">
                         <table className="w-full text-sm">
@@ -389,9 +540,14 @@ const TierPricingModal = ({
                           </thead>
                           <tbody>
                             {discounts.map((discount, i) => {
-                              const tradeDiscount = tierPricingConfig.trade_discount_default || 5;
+                              const tradeValue = tierPricingConfig.trade_discount_default ?? (isTradeFixed ? 2 : 5);
                               const creditBackRateVal = tierPricingConfig.credit_back_default || 2;
-                              const soldPrice = basePrice * (1 - discount / 100) * (1 - tradeDiscount / 100);
+                              // Volume tier price (inc VAT)
+                              const volumePriceIncVat = basePrice * (1 - discount / 100);
+                              // Apply trade discount — stacked on volume tier
+                              const soldPrice = isTradeFixed
+                                ? Math.max(0, volumePriceIncVat - tradeValue)
+                                : volumePriceIncVat * (1 - tradeValue / 100);
                               const tierExVat = soldPrice / 1.2;
                               const tierCreditBack = tierExVat * (creditBackRateVal / 100);
                               const tierNetProfit = tierExVat - costPrice - tierCreditBack;
@@ -400,11 +556,14 @@ const TierPricingModal = ({
                               const qtyLabel = rangeEnd !== null
                                 ? `${rangeStart} - ${rangeEnd}m²`
                                 : `${rangeStart}m²+`;
+                              const discountLabel = isTradeFixed
+                                ? `${discount}% + £${Number(tradeValue).toFixed(2)}`
+                                : `${discount + tradeValue}%`;
                               return (
                                 <tr key={i} className="border-b">
                                   <td className="py-2">Tier {i + 1}</td>
                                   <td>{qtyLabel}</td>
-                                  <td className="text-right">{discount + tradeDiscount}%</td>
+                                  <td className="text-right">{discountLabel}</td>
                                   <td className="text-right font-medium text-blue-600">£{soldPrice.toFixed(2)}</td>
                                   <td className="text-right text-purple-600 font-medium">£{tierExVat.toFixed(2)}</td>
                                   <td className="text-right text-red-500">-£{costPrice.toFixed(2)}</td>
@@ -418,7 +577,7 @@ const TierPricingModal = ({
                           </tbody>
                         </table>
                       </div>
-                      
+
                       <div className="mt-2 text-xs text-gray-500 text-right">
                         * Profit = Ex-VAT - Cost - Credit Back ({creditBackRate}%)
                       </div>
@@ -435,7 +594,7 @@ const TierPricingModal = ({
               <XCircle className="w-12 h-12 text-gray-400 mx-auto mb-3" />
               <p className="text-gray-600 font-medium">Tier Quantity Discounts Disabled</p>
               <p className="text-sm text-gray-500 mt-1">Selected products will show list price only — no quantity-based tier discounts.</p>
-              <p className="text-sm text-green-600 mt-1">Trade discount and credit back settings above still apply.</p>
+              <p className="text-sm text-green-600 mt-1">Trade discount, credit back and Half + Full Pallet settings above still apply.</p>
             </div>
           )}
         </div>
@@ -444,10 +603,11 @@ const TierPricingModal = ({
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button 
+          <Button
             onClick={onSave}
             disabled={tierPricingSaving}
             className={tierPricingConfig.disabled ? "bg-red-600 hover:bg-red-700" : "bg-amber-600 hover:bg-amber-700"}
+            data-testid="tier-pricing-save-btn"
           >
             {tierPricingSaving ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
             {(() => {

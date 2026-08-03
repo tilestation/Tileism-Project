@@ -399,7 +399,14 @@ export default function SupplierProducts() {
     discounts: [0, 5, 10, 15],
     custom_quote_threshold: 150,
     trade_discount_default: 5,
-    credit_back_default: 2
+    trade_discount_type: 'percent', // 'percent' or 'fixed'
+    credit_back_default: 2,
+    // Half + Full pallet pricing (bulk)
+    pallet_enabled: false,
+    pallet_price: null,
+    half_pallet_price: null,
+    m2_per_pallet: null,
+    m2_per_half_pallet: null,
   });
   const [tierPricingSaving, setTierPricingSaving] = useState(false);
   const [tierProductScope, setTierProductScope] = useState(new Set()); // empty = all products
@@ -948,15 +955,23 @@ export default function SupplierProducts() {
     
     // Check if all filtered products have the same custom tier pricing
     const firstWithCustom = filteredProducts.find(p => p.has_custom_tier_pricing);
+    // Try to find a product with pallet_enabled set (independent of tier customisation)
+    const firstWithPallet = filteredProducts.find(p => p.pallet_enabled === true);
     
-    if (firstWithCustom) {
-      // Return the first product's custom tier settings
+    if (firstWithCustom || firstWithPallet) {
+      const source = firstWithCustom || firstWithPallet;
       return {
-        thresholds: firstWithCustom.tier_thresholds || [10, 50, 100],
-        discounts: firstWithCustom.tier_discounts || [0, 5, 10, 15],
-        trade_discount_default: firstWithCustom.trade_discount || 5,
-        disabled: firstWithCustom.tier_pricing_disabled || false,
-        hasCustom: true,
+        thresholds: (firstWithCustom && firstWithCustom.tier_thresholds) || [10, 50, 100],
+        discounts: (firstWithCustom && firstWithCustom.tier_discounts) || [0, 5, 10, 15],
+        trade_discount_default: source.trade_discount ?? 5,
+        trade_discount_type: source.trade_discount_type || 'percent',
+        disabled: (firstWithCustom && firstWithCustom.tier_pricing_disabled) || false,
+        pallet_enabled: !!source.pallet_enabled,
+        pallet_price: source.pallet_price ?? null,
+        half_pallet_price: source.half_pallet_price ?? null,
+        m2_per_pallet: source.m2_per_pallet ?? null,
+        m2_per_half_pallet: source.m2_per_half_pallet ?? null,
+        hasCustom: !!firstWithCustom,
         source: 'product'
       };
     }
@@ -976,7 +991,13 @@ export default function SupplierProducts() {
         thresholds: productTierPricing.thresholds,
         discounts: productTierPricing.discounts,
         trade_discount_default: productTierPricing.trade_discount_default,
-        disabled: productTierPricing.disabled
+        trade_discount_type: productTierPricing.trade_discount_type,
+        disabled: productTierPricing.disabled,
+        pallet_enabled: productTierPricing.pallet_enabled,
+        pallet_price: productTierPricing.pallet_price,
+        half_pallet_price: productTierPricing.half_pallet_price,
+        m2_per_pallet: productTierPricing.m2_per_pallet,
+        m2_per_half_pallet: productTierPricing.m2_per_half_pallet,
       }));
     }
     // If no custom pricing found, keep current/global values
@@ -2391,8 +2412,15 @@ export default function SupplierProducts() {
             tier_thresholds: tierPricingConfig.thresholds,
             tier_discounts: tierPricingConfig.discounts,
             trade_discount: tierPricingConfig.trade_discount_default,
+            trade_discount_type: tierPricingConfig.trade_discount_type || 'percent',
             credit_back_rate: tierPricingConfig.credit_back_default,
-            disabled: tierPricingConfig.disabled || false
+            disabled: tierPricingConfig.disabled || false,
+            // Half + Full pallet pricing (independent of tier disable)
+            pallet_enabled: !!tierPricingConfig.pallet_enabled,
+            pallet_price: tierPricingConfig.pallet_price,
+            half_pallet_price: tierPricingConfig.half_pallet_price,
+            m2_per_pallet: tierPricingConfig.m2_per_pallet,
+            m2_per_half_pallet: tierPricingConfig.m2_per_half_pallet,
           })
         });
         

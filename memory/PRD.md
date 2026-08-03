@@ -9,6 +9,56 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Aug 3, 2026 — Forked session] 🟢 P0 shipped — Trade Discount % / £ toggle + Half+Full Pallet bulk-set
+
+**Owner ask** (two parts, approved this session):
+1. Allow the Trade Discount on the bulk Tier Pricing modal to be set as either a **percentage (%)** OR a **flat £/m² amount** — mirroring how the % variant already stacks on top of the volume tier.
+2. Add **Half + Full Pallet pricing** controls right next to the tier pricing structure so pallet quantities and £/m² rates can be bulk-applied — independently of whether tier discounts are enabled or disabled.
+
+**What shipped**:
+
+1. **`business_rules.py::get_quantity_tier_pricing` + `get_unit_tier_pricing`** now accept `trade_discount_type` (`'percent'` default | `'fixed'`).
+   - `percent` — existing behaviour, `trade_discount` is a % off the tier-discounted price (stacks multiplicatively).
+   - `fixed` — `trade_discount` is a flat £/m² (or £/unit) deducted from the tier price (clamped at £0).
+   - Trade-tier `savings_label` reads `"Save 15% + £5.00"` in fixed mode, `"Save 25%"` in percent mode.
+
+2. **Backend passthrough** — `routes/tiles.py::/pricing/calculate` + `/products/{slug}/tier-pricing` accept a new `trade_discount_type` query param and prefer `supplier_products.trade_discount_type` → `tiles.trade_discount_type` → default `percent`. The endpoints surface the resolved value on the response body. `routes/tiles.py::/collections` and `/collection/{series_name}` also aggregate `trade_discount_type` alongside `trade_discount`. `serialize_tile_for_shop` includes `trade_discount_type` so the shop / PDP sees it.
+
+3. **Bulk update endpoint** (`routes/supplier_sync.py::PUT /products/bulk-tier-update`) — `BulkTierUpdateRequest` extended with `trade_discount_type`, `pallet_enabled`, `pallet_price`, `half_pallet_price`, `m2_per_pallet`, `m2_per_half_pallet`. Pallet fields save to both `supplier_products` and `tiles`, independent of `tier_pricing_disabled`. When `pallet_enabled=false`, the rate + threshold fields are explicitly cleared. Admin `GET /products/all` returns all pallet + trade-type fields for bulk-editor pre-population.
+
+4. **Frontend** `TierPricingModal.jsx` (rewritten, 629 lines):
+   - Compact **`% / £` segmented toggle** next to the Trade Discount label (`data-testid="trade-discount-type-percent"` / `"...fixed"`). Amber highlight on the active mode.
+   - Input label + suffix flip live between `(%)` and `(£/m²)`. Value auto-resets to a sensible default (5% or £2) when switching modes to prevent confusion.
+   - Explanatory helper text updates per mode.
+   - **Live Preview table** now computes trade-discounted prices with the correct maths for each mode (`volume * (1-t%)` for percent, `max(0, volume - £t)` for fixed). Discount column shows `10% + £2.00` in fixed mode vs `12%` in percent mode.
+   - New **Half + Full Pallet Pricing** section — checkbox to enable, then 4 inputs (Full Pallet m², Full Pallet £/m², Half Pallet m², Half Pallet £/m²) matching the naming and hints from `ProductForm.js`. Independent of the "Disable Tier Discounts" flag. Data-testids on every field.
+
+5. **Frontend** `SupplierProducts.js`:
+   - `tierPricingConfig` state extended with `trade_discount_type`, `pallet_enabled`, `pallet_price`, `half_pallet_price`, `m2_per_pallet`, `m2_per_half_pallet`.
+   - `getTierPricingFromProducts` reads all new fields from the first matching product (checks tier-customised OR pallet-enabled).
+   - `openTierPricingModal` hydrates every new field.
+   - `handleBulkTierUpdate` POST payload now includes all 6 new keys.
+
+**End-to-end verification** (curl on preview backend + screenshot):
+- `POST /api/supplier-sync/products/bulk-tier-update` on `Canopy / HE6000` with `trade_discount_type: fixed`, `trade_discount: 3.5`, all pallet fields → `updated_count: 1`. Mongo doc shows every field persisted ✅
+- Follow-up call with `trade_discount_type: percent`, `pallet_enabled: false` → all pallet fields set to `null`, `trade_discount_type` flips to `percent`, `trade_discount` = 5 ✅
+- `GET /api/tiles/pricing/calculate?base_price=50&quantity=100&is_trade=true&trade_discount=5&trade_discount_type=fixed` → `trade_current_price_per_m2: 37.5` (tier-4 price 42.5 minus £5 flat) ✅. `savings_label` reads `"Save 15% + £5.00"` on the top tier ✅
+- Same request with `trade_discount_type=percent`, `trade_discount=10` → `trade_current_price_per_m2: 38.25` (tier-4 price 42.5 × 0.9) ✅
+- `GET /api/tiles/collections?limit=2` → both rows now carry `trade_discount_type: 'percent'` ✅
+- Modal screenshot on `/admin/supplier-products → Edit Categories → Set Tier Discounts` shows `£` toggle active + Half+Full Pallet block enabled with 32 m², £28.99, 16 m², £30.50 populated ✅
+
+**Files touched**:
+- `/app/backend/business_config/business_rules.py` (get_quantity_tier_pricing + get_unit_tier_pricing extended)
+- `/app/backend/routes/supplier_sync.py` (BulkTierUpdateRequest + endpoint + admin GET)
+- `/app/backend/routes/tiles.py` (pricing/calculate + tier-pricing + collections list + collection detail + serialize_tile_for_shop)
+- `/app/frontend/src/pages/admin/components/supplier-products/TierPricingModal.jsx` (rewritten)
+- `/app/frontend/src/pages/admin/SupplierProducts.js` (state + loader + save handler)
+- `/app/memory/test_credentials.md` (added fixture note)
+
+**Backwards compatible**: legacy docs without `trade_discount_type` fall back to `'percent'` at the backend, so nothing breaks for existing products / storefront / cart. Frontend defaults to `'percent'` mode on first render.
+
+
+
 ### [Aug 3, 2026 — Forked session] 🟢 Bulk Editor P0-follow-up — "Re-save just the failed ones" one-click retry
 
 **Owner ask** (potential improvement, approved): after any bulk save that partially fails, add a one-click **Re-save N failed** button inside the Save Results dialog so the owner doesn't have to close, re-filter, and Save again.

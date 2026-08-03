@@ -2641,6 +2641,7 @@ def publish_supplier_products_to_website(
                     "tier_discounts": sp.get('tier_discounts'),
                     "tier_thresholds": sp.get('tier_thresholds'),
                     "trade_discount": sp.get('trade_discount'),
+                    "trade_discount_type": sp.get('trade_discount_type') or "percent",
                     "credit_back_rate": sp.get('credit_back_rate'),
                     # Sale fields
                     "sale_active": sp.get('sale_active', False),
@@ -4155,6 +4156,14 @@ def get_all_supplier_products(
                 "tier_thresholds": p.get("tier_thresholds"),
                 "tier_pricing_disabled": p.get("tier_pricing_disabled", False),
                 "trade_discount": p.get("trade_discount"),
+                "trade_discount_type": p.get("trade_discount_type") or "percent",
+                "credit_back_rate": p.get("credit_back_rate"),
+                # Half + Full pallet pricing (surfaced for bulk editor pre-population)
+                "pallet_enabled": p.get("pallet_enabled", False),
+                "pallet_price": p.get("pallet_price"),
+                "half_pallet_price": p.get("half_pallet_price"),
+                "m2_per_pallet": p.get("m2_per_pallet"),
+                "m2_per_half_pallet": p.get("m2_per_half_pallet"),
                 # List price override
                 "list_price": p.get("list_price"),
                 # Tiles per box fields
@@ -5394,8 +5403,15 @@ class BulkTierUpdateRequest(BaseModel):
     tier_thresholds: Optional[List[float]] = None
     tier_discounts: Optional[List[float]] = None
     trade_discount: Optional[float] = None  # Optional custom trade discount for these products
+    trade_discount_type: Optional[str] = None  # "percent" (default) | "fixed" (flat £/m²)
     credit_back_rate: Optional[float] = None  # Optional credit back % for trade orders
     disabled: Optional[bool] = None  # If True, disables tier pricing entirely for these products
+    # Half + Full pallet pricing (bulk apply)
+    pallet_enabled: Optional[bool] = None       # True/False toggles the pallet block
+    pallet_price: Optional[float] = None        # Full pallet £/m²
+    half_pallet_price: Optional[float] = None   # Half pallet £/m²
+    m2_per_pallet: Optional[float] = None       # Full pallet m² threshold
+    m2_per_half_pallet: Optional[float] = None  # Half pallet m² threshold
 
 
 @router.put("/products/bulk-tier-update")
@@ -5406,10 +5422,16 @@ def bulk_update_product_tier_pricing(data: BulkTierUpdateRequest):
     Products with custom settings will use these instead of global defaults.
     
     If disabled=True, tier pricing is completely disabled for these products.
+    Half + Full pallet fields are applied independently of the tier-disabled flag.
     """
     try:
         db = get_db()
         updated_count = 0
+        
+        # Normalise trade_discount_type
+        td_type = None
+        if data.trade_discount_type is not None:
+            td_type = "fixed" if str(data.trade_discount_type).lower() == "fixed" else "percent"
         
         for product in data.products:
             supplier = product.get('supplier')
@@ -5439,10 +5461,31 @@ def bulk_update_product_tier_pricing(data: BulkTierUpdateRequest):
             # Add trade discount if provided
             if data.trade_discount is not None:
                 update_data["trade_discount"] = data.trade_discount
+            if td_type is not None:
+                update_data["trade_discount_type"] = td_type
             
             # Add credit back rate if provided
             if data.credit_back_rate is not None:
                 update_data["credit_back_rate"] = data.credit_back_rate
+            
+            # Half + Full pallet pricing (independent of tier_pricing_disabled)
+            if data.pallet_enabled is not None:
+                update_data["pallet_enabled"] = bool(data.pallet_enabled)
+                if not data.pallet_enabled:
+                    # Explicit disable — clear the rates & thresholds so the storefront
+                    # stops offering the pallet selector.
+                    update_data["pallet_price"] = None
+                    update_data["half_pallet_price"] = None
+                    update_data["m2_per_pallet"] = None
+                    update_data["m2_per_half_pallet"] = None
+            if data.pallet_price is not None:
+                update_data["pallet_price"] = data.pallet_price
+            if data.half_pallet_price is not None:
+                update_data["half_pallet_price"] = data.half_pallet_price
+            if data.m2_per_pallet is not None:
+                update_data["m2_per_pallet"] = data.m2_per_pallet
+            if data.m2_per_half_pallet is not None:
+                update_data["m2_per_half_pallet"] = data.m2_per_half_pallet
             
             # Update supplier_products
             result = db.supplier_products.update_one(

@@ -233,6 +233,7 @@ def serialize_tile_for_shop(tile: dict) -> dict:
         "made_in": tile.get("made_in", ""),
         # Trade pricing fields (for collection-level aggregation)
         "trade_discount": tile.get("trade_discount"),
+        "trade_discount_type": tile.get("trade_discount_type") or "percent",
         "credit_back_rate": tile.get("credit_back_rate"),
     }
 
@@ -1404,6 +1405,7 @@ async def _get_tile_collections_impl(
             "credit_back_rate": None,
             # Trade discount: will be resolved from supplier_products below
             "trade_discount": None,
+            "trade_discount_type": None,
             # Whether ALL products in this collection have tier pricing disabled
             "tier_pricing_disabled": group["all_tier_disabled"],
             "max_sale_discount_pct": group["max_sale_discount_pct"] if group["max_sale_discount_pct"] > 0 else None,
@@ -1423,24 +1425,28 @@ async def _get_tile_collections_impl(
             # Batch lookup from supplier_products
             sp_docs = list(db.supplier_products.find(
                 {"sku": {"$in": skus}},
-                {"_id": 0, "trade_discount": 1, "credit_back_rate": 1}
+                {"_id": 0, "trade_discount": 1, "trade_discount_type": 1, "credit_back_rate": 1}
             ))
             for sp in sp_docs:
                 if col_data["trade_discount"] is None and sp.get("trade_discount") is not None:
                     col_data["trade_discount"] = sp["trade_discount"]
+                if col_data["trade_discount_type"] is None and sp.get("trade_discount_type"):
+                    col_data["trade_discount_type"] = sp["trade_discount_type"]
                 if col_data["credit_back_rate"] is None and sp.get("credit_back_rate") is not None:
                     col_data["credit_back_rate"] = sp["credit_back_rate"]
-                if col_data["trade_discount"] is not None and col_data["credit_back_rate"] is not None:
+                if col_data["trade_discount"] is not None and col_data["credit_back_rate"] is not None and col_data["trade_discount_type"] is not None:
                     break
             
             # Fallback to tiles data if supplier_products didn't have it
-            if col_data["trade_discount"] is None or col_data["credit_back_rate"] is None:
+            if col_data["trade_discount"] is None or col_data["credit_back_rate"] is None or col_data["trade_discount_type"] is None:
                 for p in grp["products"]:
                     if col_data["trade_discount"] is None and p.get("trade_discount") is not None:
                         col_data["trade_discount"] = p["trade_discount"]
+                    if col_data["trade_discount_type"] is None and p.get("trade_discount_type"):
+                        col_data["trade_discount_type"] = p["trade_discount_type"]
                     if col_data["credit_back_rate"] is None and p.get("credit_back_rate") is not None:
                         col_data["credit_back_rate"] = p["credit_back_rate"]
-                    if col_data["trade_discount"] is not None and col_data["credit_back_rate"] is not None:
+                    if col_data["trade_discount"] is not None and col_data["credit_back_rate"] is not None and col_data["trade_discount_type"] is not None:
                         break
     except Exception as e:
         logger.warning(f"Error looking up supplier_products trade data: {e}")
@@ -1453,6 +1459,8 @@ async def _get_tile_collections_impl(
             col_data["trade_discount"] = default_td
         if col_data["credit_back_rate"] is None:
             col_data["credit_back_rate"] = default_cb
+        if col_data["trade_discount_type"] is None:
+            col_data["trade_discount_type"] = "percent"
 
     # Fetch custom collection settings from DB
     try:
@@ -1837,6 +1845,7 @@ async def _get_collection_products_impl(
     # Get credit_back_rate and trade_discount - prioritize supplier_products as source of truth
     collection_credit_back = None
     collection_trade_discount = None
+    collection_trade_discount_type = None
     
     # First check supplier_products (admin saves go here)
     if products:
@@ -1848,26 +1857,31 @@ async def _get_collection_products_impl(
         if first_sku:
             sp = db.supplier_products.find_one(
                 {"sku": first_sku},
-                {"_id": 0, "trade_discount": 1, "credit_back_rate": 1}
+                {"_id": 0, "trade_discount": 1, "trade_discount_type": 1, "credit_back_rate": 1}
             )
             if sp:
                 collection_trade_discount = sp.get("trade_discount")
+                collection_trade_discount_type = sp.get("trade_discount_type")
                 collection_credit_back = sp.get("credit_back_rate")
     
     # Fallback to tiles data if not found in supplier_products
-    if collection_trade_discount is None or collection_credit_back is None:
+    if collection_trade_discount is None or collection_credit_back is None or collection_trade_discount_type is None:
         for p in products:
             if collection_credit_back is None and p.get("credit_back_rate") is not None:
                 collection_credit_back = p["credit_back_rate"]
             if collection_trade_discount is None and p.get("trade_discount") is not None:
                 collection_trade_discount = p["trade_discount"]
-            if collection_credit_back is not None and collection_trade_discount is not None:
+            if collection_trade_discount_type is None and p.get("trade_discount_type"):
+                collection_trade_discount_type = p["trade_discount_type"]
+            if collection_credit_back is not None and collection_trade_discount is not None and collection_trade_discount_type is not None:
                 break
     
     if collection_credit_back is None:
         collection_credit_back = br.TRADE_CREDIT_BACK_DEFAULT
     if collection_trade_discount is None:
         collection_trade_discount = br.TRADE_DISCOUNT_DEFAULT
+    if collection_trade_discount_type is None:
+        collection_trade_discount_type = "percent"
 
     return _jsonify_safe({
         "series_name": series_name,
@@ -1876,6 +1890,7 @@ async def _get_collection_products_impl(
         "products": [serialize_tile_for_shop(p) for p in products],
         "credit_back_rate": collection_credit_back,
         "trade_discount": collection_trade_discount,
+        "trade_discount_type": collection_trade_discount_type,
         "total": total,
         "page": page,
         "limit": limit,
@@ -2395,6 +2410,7 @@ async def calculate_tier_price(
     quantity: float = Query(1, description="Quantity in m²"),
     is_trade: bool = Query(False, description="Is trade account"),
     trade_discount: Optional[float] = Query(None, description="Custom trade discount %"),
+    trade_discount_type: Optional[str] = Query(None, description="'percent' (default) or 'fixed' for flat £/m²"),
     product_sku: Optional[str] = Query(None, description="Product SKU for custom tier settings")
 ):
     """
@@ -2409,24 +2425,28 @@ async def calculate_tier_price(
         custom_thresholds = None
         custom_discounts = None
         tier_disabled = False
+        # Trade discount type resolution: query param > product field > default 'percent'
+        effective_td_type = trade_discount_type
         
         if product_sku:
             try:
                 db = get_tile_db()
                 sp = db.supplier_products.find_one(
                     {"sku": product_sku},
-                    {"_id": 0, "tier_thresholds": 1, "tier_discounts": 1, "tier_pricing_disabled": 1}
+                    {"_id": 0, "tier_thresholds": 1, "tier_discounts": 1, "tier_pricing_disabled": 1, "trade_discount_type": 1}
                 )
                 
                 if sp:
                     tier_disabled = sp.get("tier_pricing_disabled", False)
                     custom_thresholds = sp.get("tier_thresholds")
                     custom_discounts = sp.get("tier_discounts")
+                    if effective_td_type is None and sp.get("trade_discount_type"):
+                        effective_td_type = sp.get("trade_discount_type")
                 
-                if custom_thresholds is None or custom_discounts is None:
+                if custom_thresholds is None or custom_discounts is None or effective_td_type is None:
                     product = db.tiles.find_one(
                         {"sku": product_sku},
-                        {"_id": 0, "tier_thresholds": 1, "tier_discounts": 1, "tier_pricing_disabled": 1}
+                        {"_id": 0, "tier_thresholds": 1, "tier_discounts": 1, "tier_pricing_disabled": 1, "trade_discount_type": 1}
                     )
                     if product:
                         if not tier_disabled:
@@ -2435,6 +2455,8 @@ async def calculate_tier_price(
                             custom_thresholds = product.get("tier_thresholds")
                         if custom_discounts is None:
                             custom_discounts = product.get("tier_discounts")
+                        if effective_td_type is None and product.get("trade_discount_type"):
+                            effective_td_type = product.get("trade_discount_type")
             except Exception as db_err:
                 logger.warning(f"DB lookup failed for sku={product_sku}: {db_err}")
         
@@ -2456,18 +2478,21 @@ async def calculate_tier_price(
             custom_thresholds=custom_thresholds,
             custom_discounts=custom_discounts,
             is_trade=is_trade,
-            trade_discount=trade_discount
+            trade_discount=trade_discount,
+            trade_discount_type=effective_td_type or "percent"
         )
         
         if product_sku:
             try:
                 db = get_tile_db()
-                sp = db.supplier_products.find_one({"sku": product_sku}, {"_id": 0, "credit_back_rate": 1, "trade_discount": 1})
+                sp = db.supplier_products.find_one({"sku": product_sku}, {"_id": 0, "credit_back_rate": 1, "trade_discount": 1, "trade_discount_type": 1})
                 if sp:
                     if sp.get("credit_back_rate") is not None:
                         result["credit_back_rate"] = sp["credit_back_rate"]
                     if sp.get("trade_discount") is not None:
                         result["trade_discount"] = sp["trade_discount"]
+                    if sp.get("trade_discount_type"):
+                        result["trade_discount_type"] = sp["trade_discount_type"]
             except Exception:
                 pass
         
@@ -2479,7 +2504,7 @@ async def calculate_tier_price(
         # Safe fallback
         try:
             from business_config.business_rules import get_quantity_tier_pricing
-            return get_quantity_tier_pricing(base_price=base_price, quantity=quantity, is_trade=is_trade, trade_discount=trade_discount)
+            return get_quantity_tier_pricing(base_price=base_price, quantity=quantity, is_trade=is_trade, trade_discount=trade_discount, trade_discount_type=trade_discount_type or "percent")
         except:
             return {"tiers": [], "trade_tiers": [], "base_price": base_price, "current_price_per_m2": base_price}
 
@@ -2560,7 +2585,8 @@ async def get_product_tier_pricing(
     slug: str,
     quantity: float = Query(1, description="Quantity in m²"),
     is_trade: bool = Query(False, description="Is trade account"),
-    trade_discount: Optional[float] = Query(None, description="Custom trade discount %")
+    trade_discount: Optional[float] = Query(None, description="Custom trade discount %"),
+    trade_discount_type: Optional[str] = Query(None, description="'percent' (default) or 'fixed'")
 ):
     """
     Get tier pricing for a specific product.
@@ -2626,15 +2652,21 @@ async def get_product_tier_pricing(
         
         # Resolve per-product trade_discount: query param > supplier_product field > product field > global default
         effective_trade_discount = trade_discount
-        if effective_trade_discount is None:
+        effective_td_type = trade_discount_type
+        if effective_trade_discount is None or effective_td_type is None:
             # Check supplier_products first (admin saves go here, source of truth)
             sku_td = tile.get("sku") or tile.get("supplier_code")
             if sku_td:
-                sp_td = db.supplier_products.find_one({"sku": sku_td}, {"_id": 0, "trade_discount": 1})
-                if sp_td and sp_td.get("trade_discount") is not None:
-                    effective_trade_discount = sp_td["trade_discount"]
+                sp_td = db.supplier_products.find_one({"sku": sku_td}, {"_id": 0, "trade_discount": 1, "trade_discount_type": 1})
+                if sp_td:
+                    if effective_trade_discount is None and sp_td.get("trade_discount") is not None:
+                        effective_trade_discount = sp_td["trade_discount"]
+                    if effective_td_type is None and sp_td.get("trade_discount_type"):
+                        effective_td_type = sp_td["trade_discount_type"]
         if effective_trade_discount is None:
             effective_trade_discount = tile.get("trade_discount")
+        if effective_td_type is None:
+            effective_td_type = tile.get("trade_discount_type") or "percent"
         
         result = get_quantity_tier_pricing(
             base_price=base_price,
@@ -2643,6 +2675,7 @@ async def get_product_tier_pricing(
             custom_discounts=custom_discounts,
             is_trade=is_trade,
             trade_discount=effective_trade_discount,
+            trade_discount_type=effective_td_type,
             was_price=tile.get("was_price"),
             sale_active=tile.get("sale_active", False)
         )
@@ -2665,6 +2698,7 @@ async def get_product_tier_pricing(
         # Include the actual trade_discount used so the frontend knows the per-product rate
         from business_config.business_rules import TRADE_DISCOUNT_DEFAULT
         result["trade_discount"] = effective_trade_discount if effective_trade_discount is not None else TRADE_DISCOUNT_DEFAULT
+        result["trade_discount_type"] = effective_td_type or "percent"
         result["product"] = {
             "slug": slug,
             "display_name": tile.get("display_name") or tile.get("name"),
@@ -2685,7 +2719,7 @@ async def get_product_tier_pricing(
             base = db.tiles.find_one({"slug": slug}, {"_id": 0, "room_lot_price": 1, "price": 1})
             bp = (base.get("room_lot_price") or base.get("price") or 0) if base else 0
             if bp > 0:
-                return get_quantity_tier_pricing(base_price=bp, quantity=quantity, is_trade=is_trade, trade_discount=trade_discount)
+                return get_quantity_tier_pricing(base_price=bp, quantity=quantity, is_trade=is_trade, trade_discount=trade_discount, trade_discount_type=trade_discount_type or "percent")
         except:
             pass
         return {"tiers": [], "trade_tiers": [], "base_price": 0}

@@ -3447,7 +3447,8 @@ def get_unit_tier_pricing(unit_price: float, quantity: int,
                           custom_thresholds: list = None,
                           custom_discounts: list = None,
                           is_trade: bool = False,
-                          trade_discount: float = None) -> dict:
+                          trade_discount: float = None,
+                          trade_discount_type: str = "percent") -> dict:
     """
     Calculate tier pricing for unit-based products (adhesives, grout, tools).
     Similar to m² pricing but with different thresholds and "per unit" labels.
@@ -3458,10 +3459,15 @@ def get_unit_tier_pricing(unit_price: float, quantity: int,
         custom_thresholds: Optional custom tier thresholds
         custom_discounts: Optional custom tier discounts
         is_trade: Whether customer is a trade account
-        trade_discount: Custom trade discount percentage
+        trade_discount: Custom trade discount value (percentage OR flat £/unit,
+                        interpretation depends on trade_discount_type)
+        trade_discount_type: "percent" (default) applies trade_discount as a %,
+                             "fixed" applies it as a flat £/unit deducted from
+                             the tier-discounted price.
     """
     thresholds = custom_thresholds or UNIT_TIER_THRESHOLDS
     discounts = custom_discounts or UNIT_TIER_DISCOUNTS
+    td_type = "fixed" if str(trade_discount_type).lower() == "fixed" else "percent"
     
     # Ensure we have one more discount than thresholds
     if len(discounts) < len(thresholds) + 1:
@@ -3481,12 +3487,17 @@ def get_unit_tier_pricing(unit_price: float, quantity: int,
     price_per_unit = unit_price * (1 - current_discount / 100)
     
     # Apply trade discount if applicable
-    trade_discount_percent = trade_discount if trade_discount is not None else TRADE_DISCOUNT_DEFAULT
+    trade_disc_value = trade_discount if trade_discount is not None else TRADE_DISCOUNT_DEFAULT
     trade_price_per_unit = None
     trade_total_price = None
     
+    def _apply_trade(tier_price: float) -> float:
+        if td_type == "fixed":
+            return max(0.0, tier_price - trade_disc_value)
+        return tier_price * (1 - trade_disc_value / 100)
+    
     if is_trade:
-        trade_price_per_unit = price_per_unit * (1 - trade_discount_percent / 100)
+        trade_price_per_unit = _apply_trade(price_per_unit)
         trade_total_price = round(trade_price_per_unit * quantity, 2)
     
     # Build tier breakdown
@@ -3516,14 +3527,21 @@ def get_unit_tier_pricing(unit_price: float, quantity: int,
         
         # Build trade tier
         if is_trade:
-            trade_tier_price = tier_price * (1 - trade_discount_percent / 100)
-            total_discount = discount + trade_discount_percent - (discount * trade_discount_percent / 100)
+            trade_tier_price = _apply_trade(tier_price)
+            if td_type == "fixed":
+                savings_label = f"Save {discount}% + £{trade_disc_value:.2f}" if discount > 0 else f"Save £{trade_disc_value:.2f}"
+                total_discount = None
+            else:
+                total_discount = discount + trade_disc_value - (discount * trade_disc_value / 100)
+                savings_label = f"Save {round(total_discount, 1)}%"
             trade_tiers.append({
                 **tier_info,
                 "price_per_unit": round(trade_tier_price, 2),
-                "trade_discount_percent": trade_discount_percent,
-                "total_discount_percent": round(total_discount, 1),
-                "savings_label": f"Save {round(total_discount, 1)}%"
+                "trade_discount": trade_disc_value,
+                "trade_discount_type": td_type,
+                "trade_discount_percent": trade_disc_value if td_type == "percent" else None,
+                "total_discount_percent": round(total_discount, 1) if total_discount is not None else None,
+                "savings_label": savings_label
             })
         
         if i < len(thresholds):
@@ -3549,7 +3567,9 @@ def get_unit_tier_pricing(unit_price: float, quantity: int,
     }
     
     if is_trade:
-        result["trade_discount_percent"] = trade_discount_percent
+        result["trade_discount"] = trade_disc_value
+        result["trade_discount_type"] = td_type
+        result["trade_discount_percent"] = trade_disc_value if td_type == "percent" else None
         result["trade_tiers"] = trade_tiers
         result["trade_current_price_per_unit"] = round(trade_price_per_unit, 2)
         result["trade_total_price"] = trade_total_price
@@ -3562,6 +3582,7 @@ def get_quantity_tier_pricing(base_price: float, quantity: float,
                                custom_discounts: list = None,
                                is_trade: bool = False,
                                trade_discount: float = None,
+                               trade_discount_type: str = "percent",
                                was_price: float = None,
                                sale_active: bool = False) -> dict:
     """
@@ -3573,7 +3594,10 @@ def get_quantity_tier_pricing(base_price: float, quantity: float,
         custom_thresholds: Optional custom tier thresholds for this product/series
         custom_discounts: Optional custom tier discounts for this product/series
         is_trade: Whether the customer is a trade account
-        trade_discount: Custom trade discount % (uses default if None)
+        trade_discount: Custom trade discount value (uses default if None).
+                        Interpreted as % when trade_discount_type == "percent" (default),
+                        or as a flat £/m² when trade_discount_type == "fixed".
+        trade_discount_type: "percent" | "fixed" — controls how trade_discount is applied.
         was_price: Original price before sale (for accurate total savings calculation)
         sale_active: Whether the product is currently on sale
     
@@ -3583,6 +3607,13 @@ def get_quantity_tier_pricing(base_price: float, quantity: float,
     thresholds = custom_thresholds or QUANTITY_TIER_THRESHOLDS
     discounts = custom_discounts or QUANTITY_TIER_DISCOUNTS
     trade_disc = trade_discount if trade_discount is not None else TRADE_DISCOUNT_DEFAULT
+    td_type = "fixed" if str(trade_discount_type).lower() == "fixed" else "percent"
+    
+    def _apply_trade(tier_price: float) -> float:
+        """Apply trade discount stacked on top of the tier-discounted price."""
+        if td_type == "fixed":
+            return max(0.0, tier_price - trade_disc)
+        return tier_price * (1 - trade_disc / 100)
     
     # Build tier pricing table dynamically (supports any number of tiers)
     tiers = []
@@ -3661,15 +3692,24 @@ def get_quantity_tier_pricing(base_price: float, quantity: float,
     if is_trade:
         trade_tiers = []
         for tier in tiers:
-            trade_tier_price = round(tier["price_per_m2"] * (1 - trade_disc / 100), 2)
-            total_discount = tier["discount_percent"] + trade_disc
+            trade_tier_price = round(_apply_trade(tier["price_per_m2"]), 2)
+            if td_type == "fixed":
+                savings_label = (
+                    f"Save {tier['discount_percent']}% + £{trade_disc:.2f}"
+                    if tier["discount_percent"] > 0
+                    else f"Save £{trade_disc:.2f}"
+                )
+                total_discount = None
+            else:
+                total_discount = tier["discount_percent"] + trade_disc
+                savings_label = f"Save {total_discount}%"
             trade_tiers.append({
                 **tier,
                 "price_per_m2": trade_tier_price,
                 "total_discount_percent": total_discount,
-                "savings_label": f"Save {total_discount}%"
+                "savings_label": savings_label
             })
-        trade_current_price = round(current_price * (1 - trade_disc / 100), 2)
+        trade_current_price = round(_apply_trade(current_price), 2)
     
     # Check if should show custom quote prompt
     show_custom_quote = quantity >= CUSTOM_QUOTE_THRESHOLD
@@ -3686,10 +3726,12 @@ def get_quantity_tier_pricing(base_price: float, quantity: float,
         "total_price": round(current_price * quantity, 2),
         # Trade pricing
         "is_trade": is_trade,
-        "trade_discount_percent": trade_disc if is_trade else None,
+        "trade_discount": trade_disc if is_trade else None,
+        "trade_discount_type": td_type if is_trade else None,
+        "trade_discount_percent": (trade_disc if td_type == "percent" else None) if is_trade else None,
         "trade_tiers": trade_tiers,
         "trade_current_price_per_m2": trade_current_price,
-        "trade_total_price": round(trade_current_price * quantity, 2) if trade_current_price else None,
+        "trade_total_price": round(trade_current_price * quantity, 2) if trade_current_price is not None else None,
         # Custom quote
         "show_custom_quote": show_custom_quote,
         "custom_quote_threshold": CUSTOM_QUOTE_THRESHOLD
