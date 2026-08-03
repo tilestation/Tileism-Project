@@ -19,7 +19,7 @@ import { Button } from '../../../../components/ui/button';
 import { Input } from '../../../../components/ui/input';
 import { Badge } from '../../../../components/ui/badge';
 import {
-  Palette, Plus, X, Save, RefreshCw, ArrowRight, CheckCircle, AlertCircle,
+  Palette, Plus, X, Save, RefreshCw, ArrowRight, CheckCircle, AlertCircle, GripVertical,
 } from 'lucide-react';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
@@ -35,6 +35,35 @@ const AssignColoursModal = ({ open, onOpenChange, selectedList = [], onSuccess }
     selectedList.forEach(p => m.set(p.sku || p.supplier_code || '', p));
     return m;
   }, [selectedList]);
+
+  // Drag & drop state — the currently-being-dragged SKU (via HTML5 dataTransfer)
+  // and the bucket index that's currently a drop target (for visual feedback).
+  const [dragOverBucket, setDragOverBucket] = useState(null);   // null | number | 'pool'
+  const handleDragStart = (e, sku) => {
+    e.dataTransfer.setData('text/sku', sku);
+    e.dataTransfer.effectAllowed = 'move';
+  };
+  const handleDragOver = (e, bucketIdx) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    setDragOverBucket(bucketIdx);
+  };
+  const handleDrop = (e, bucketIdx) => {
+    e.preventDefault();
+    const sku = e.dataTransfer.getData('text/sku');
+    if (!sku) return;
+    if (bucketIdx === 'pool') {
+      // Drop into unassigned pool — remove from any bucket
+      setBuckets(prev => prev.map(b => {
+        const next = new Set(b.skus);
+        next.delete(sku);
+        return { ...b, skus: next };
+      }));
+    } else {
+      moveSkuToBucket(sku, bucketIdx);
+    }
+    setDragOverBucket(null);
+  };
 
   const assignedSkus = useMemo(() => {
     const s = new Set();
@@ -172,7 +201,14 @@ const AssignColoursModal = ({ open, onOpenChange, selectedList = [], onSuccess }
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {/* Left: unassigned pool */}
-          <div className="border border-gray-200 rounded-lg p-3 max-h-[60vh] overflow-y-auto">
+          <div
+            className={`border rounded-lg p-3 max-h-[60vh] overflow-y-auto transition ${
+              dragOverBucket === 'pool' ? 'border-orange-400 bg-orange-50/60' : 'border-gray-200'
+            }`}
+            onDragOver={(e) => handleDragOver(e, 'pool')}
+            onDrop={(e) => handleDrop(e, 'pool')}
+            onDragLeave={() => setDragOverBucket(null)}
+          >
             <div className="flex items-center justify-between mb-2">
               <h4 className="font-semibold text-sm text-gray-700">Unassigned</h4>
               <Badge variant="outline" className="text-xs">{unassignedProducts.length}</Badge>
@@ -184,32 +220,44 @@ const AssignColoursModal = ({ open, onOpenChange, selectedList = [], onSuccess }
               </p>
             ) : (
               <ul className="space-y-1">
-                {unassignedProducts.map(p => (
-                  <li key={p.sku || p.supplier_code || p._id} className="text-xs bg-gray-50 rounded px-2 py-1.5 flex items-center justify-between gap-2">
-                    <div className="min-w-0">
-                      <div className="font-medium text-gray-800 truncate" title={productName(p)}>{productName(p)}</div>
-                      <div className="text-[10px] text-gray-500 truncate">
-                        {p.supplier} · {p.sku || p.supplier_code}
-                        {p.color && <span className="ml-1 text-orange-600">(current: {p.color})</span>}
+                {unassignedProducts.map(p => {
+                  const sku = p.sku || p.supplier_code;
+                  return (
+                    <li
+                      key={sku || p._id}
+                      draggable
+                      onDragStart={(e) => handleDragStart(e, sku)}
+                      className="text-xs bg-gray-50 rounded px-2 py-1.5 flex items-center gap-2 cursor-grab active:cursor-grabbing hover:bg-gray-100 active:opacity-50"
+                    >
+                      <GripVertical className="w-3 h-3 text-gray-400 flex-shrink-0" />
+                      <div className="min-w-0 flex-1">
+                        <div className="font-medium text-gray-800 truncate" title={productName(p)}>{productName(p)}</div>
+                        <div className="text-[10px] text-gray-500 truncate">
+                          {p.supplier} · {sku}
+                          {p.color && <span className="ml-1 text-orange-600">(current: {p.color})</span>}
+                        </div>
                       </div>
-                    </div>
-                    {buckets.length > 0 && (
-                      <select
-                        className="text-[10px] border border-gray-300 rounded px-1 py-0.5"
-                        value=""
-                        onChange={(e) => { if (e.target.value !== '') moveSkuToBucket(p.sku || p.supplier_code, Number(e.target.value)); }}
-                        data-testid={`move-to-bucket-${p.sku || p.supplier_code}`}
-                      >
-                        <option value="">Move to…</option>
-                        {buckets.map((b, i) => (
-                          <option key={i} value={i}>{b.name}</option>
-                        ))}
-                      </select>
-                    )}
-                  </li>
-                ))}
+                      {buckets.length > 0 && (
+                        <select
+                          className="text-[10px] border border-gray-300 rounded px-1 py-0.5"
+                          value=""
+                          onChange={(e) => { if (e.target.value !== '') moveSkuToBucket(sku, Number(e.target.value)); }}
+                          data-testid={`move-to-bucket-${sku}`}
+                        >
+                          <option value="">Move to…</option>
+                          {buckets.map((b, i) => (
+                            <option key={i} value={i}>{b.name}</option>
+                          ))}
+                        </select>
+                      )}
+                    </li>
+                  );
+                })}
               </ul>
             )}
+            <p className="text-[10px] text-gray-400 text-center mt-2 italic">
+              💡 Drag products right → into a colour bucket
+            </p>
           </div>
 
           {/* Right: colour buckets */}
@@ -218,11 +266,20 @@ const AssignColoursModal = ({ open, onOpenChange, selectedList = [], onSuccess }
               <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
                 <Palette className="w-8 h-8 mx-auto text-gray-400 mb-2" />
                 <p className="text-sm text-gray-500">No colour buckets yet</p>
-                <p className="text-xs text-gray-400 mt-1">Type a colour above and click "Add Bucket"</p>
+                <p className="text-xs text-gray-400 mt-1">Type a colour above and click &quot;Add Bucket&quot;</p>
               </div>
             ) : (
               buckets.map((bucket, bi) => (
-                <div key={bi} className="border border-orange-200 rounded-lg bg-orange-50/40" data-testid={`bucket-${bucket.name}`}>
+                <div
+                  key={bi}
+                  className={`border rounded-lg transition ${
+                    dragOverBucket === bi ? 'border-orange-500 ring-2 ring-orange-200 bg-orange-100/70' : 'border-orange-200 bg-orange-50/40'
+                  }`}
+                  data-testid={`bucket-${bucket.name}`}
+                  onDragOver={(e) => handleDragOver(e, bi)}
+                  onDrop={(e) => handleDrop(e, bi)}
+                  onDragLeave={() => setDragOverBucket(null)}
+                >
                   <div className="flex items-center justify-between px-3 py-2 border-b border-orange-200">
                     <div className="flex items-center gap-2">
                       <ArrowRight className="w-3.5 h-3.5 text-orange-600" />
@@ -239,15 +296,23 @@ const AssignColoursModal = ({ open, onOpenChange, selectedList = [], onSuccess }
                     </button>
                   </div>
                   {bucket.skus.size === 0 ? (
-                    <p className="text-[11px] text-gray-400 text-center py-3">Move products here from the left</p>
+                    <p className="text-[11px] text-gray-400 text-center py-3">
+                      {dragOverBucket === bi ? '✨ Release to drop into this bucket' : 'Drag products here from the left'}
+                    </p>
                   ) : (
                     <ul className="p-2 space-y-1">
                       {[...bucket.skus].map(sku => {
                         const p = productLookup.get(sku);
                         if (!p) return null;
                         return (
-                          <li key={sku} className="text-xs bg-white rounded px-2 py-1 flex items-center justify-between gap-2 border border-orange-100">
-                            <span className="truncate text-gray-800" title={productName(p)}>{productName(p)}</span>
+                          <li
+                            key={sku}
+                            draggable
+                            onDragStart={(e) => handleDragStart(e, sku)}
+                            className="text-xs bg-white rounded px-2 py-1 flex items-center gap-2 border border-orange-100 cursor-grab active:cursor-grabbing active:opacity-50"
+                          >
+                            <GripVertical className="w-3 h-3 text-gray-300 flex-shrink-0" />
+                            <span className="truncate text-gray-800 flex-1" title={productName(p)}>{productName(p)}</span>
                             <button
                               onClick={() => removeSkuFromBucket(sku, bi)}
                               className="text-gray-400 hover:text-red-500 flex-shrink-0"
