@@ -32,7 +32,7 @@ const defaultCompanyInfo = {
   vatNo: '324 251 828'
 };
 
-const paymentMethodOptions = ['Card', 'Cash', 'Bank Transfer', 'Link Payment', 'Cheque'];
+const paymentMethodOptions = ['Card', 'Cash', 'Bank Transfer', 'Link Payment', 'Online', 'Cheque'];
 const orderTypes = ['Store Order', 'Special Order'];
 
 const defaultTerms = `TERMS & CONDITIONS - PLEASE READ

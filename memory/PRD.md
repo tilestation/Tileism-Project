@@ -9,7 +9,23 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
-### [Aug 3, 2026 — Forked session] 🟢 Online Orders — Click & Collect now shows WHICH store the customer chose
+### [Aug 3, 2026 — Forked session] 🟢 EPOS — "Online" payment method added under Link Payment
+
+**Owner ask**: add a new payment method **"Online"** to the Payments Received dropdown on the EPOS Invoice screen, placed directly below **Link Payment** (before Cheque).
+
+**Fix** — the dropdown list is a plain frontend array (`paymentMethodOptions`) shared between the main invoice section and the deposits section. Added `'Online'` to both:
+- `/app/frontend/src/pages/admin/Invoice.js:35`
+- `/app/frontend/src/components/invoice/InvoiceDepositsSection.js:6`
+
+New list: `['Card', 'Cash', 'Bank Transfer', 'Link Payment', 'Online', 'Cheque']`.
+
+**Backend**: no changes needed. `payment_method` is stored as a free-text string on `invoices.payments`; no whitelist / enum / validator to update. Historical records with the new value will store fine.
+
+**Verification** (screenshot on `/admin/epos?tab=invoice`, Payments Received dropdown expanded):
+- Options render in the exact requested order: Card → Cash → Bank Transfer → Link Payment → **Online** → Cheque ✅
+
+
+
 
 **Owner-reported bug**: for Click & Collect orders, the admin order-details modal just said "Click & Collect from store" without naming the actual branch the customer selected. Staff had no way to tell where to prep the order.
 

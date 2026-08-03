@@ -3,7 +3,7 @@ import { Plus, Trash2, Calendar, CreditCard, StickyNote, Lock } from 'lucide-rea
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 
-const paymentMethodOptions = ['Card', 'Cash', 'Bank Transfer', 'Link Payment', 'Cheque'];
+const paymentMethodOptions = ['Card', 'Cash', 'Bank Transfer', 'Link Payment', 'Online', 'Cheque'];
 
 export const InvoiceDepositsSection = ({
   deposits,
