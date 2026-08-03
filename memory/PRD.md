@@ -9,6 +9,63 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Aug 3, 2026 — Forked, later still] 🟢 Session A of Manager parity: Bulk toolbar + Colours + Tier Pricing shipped
+
+**Owner asked**: (1) Can't find Managers on prod, (2) Bring all Bulk Category Editor features into Managers ASAP, (3) Don't affect anything already on the storefront.
+
+**Fixed on the spot**:
+1. **Sidebar** now shows Tiles Manager + Materials Manager (with orange NEW badges) under Products & Suppliers, plus "Products (Legacy)" as the safety-net fallback. `Layout.js` + `PageGate.jsx` updated to grant the same `supplier_products` permission. Nav badge renderer added to Layout.
+
+**Session A of the parity plan shipped**:
+2. **Shared hook `useManagerBulk`** (`/components/managers/useManagerBulk.js`) — encapsulates:
+   - Multi-select state (Set of productKeys, `getProductKey` matches legacy exactly)
+   - `toggleProduct` / `selectAll` / `clearAll` / `isSelected` / `getSelectedList`
+   - Bulk ops: `bulkPublish` (set published/visibility online), `bulkUnpublish`, `bulkArchive`, `bulkAssignCategory` (calls `/products/bulk-assign-category`), and generic `bulkUpdate` (goes through `/products/bulk-update-unified`).
+   - All ops split by id_field (sku vs supplier_code) and aggregate `updated_count`, `auto_published`, `verification_failures`. Verification failures auto-open Save Results and console-log per-SKU mismatches.
+
+3. **Shared floating bar `ManagerBulkBar`** (`/components/managers/ManagerBulkBar.jsx`) — themed per Manager (`themeColor="orange"` for materials, `"blue"` for tiles), shows: selected count + select-all, Colours, Categories & Filters, Tier Pricing, Publish, Unpublish, Reassign (dropdown of all 6 Managers), Archive, Clear. Hides buttons per `hideActions` prop.
+
+4. **`AssignColoursModal`** (`/components/managers/AssignColoursModal.jsx`) — dedicated split-into-buckets modal that solves the original Grey→7 / White→7 use case. Add colour buckets, drop SKUs into each, save. One `bulk-update-unified` call per bucket, each writes `color` scalar + `colors` array, each verified 100%. Unassigned products are highlighted with a warning so nothing gets missed.
+
+5. **TierPricingModal reused directly** — imported from `/components/supplier-products/TierPricingModal` into both Managers with `selectedPricingUnit="unit"` for Materials (default `trade_discount_type='fixed'`, £/unit) and `"m2"` for Tiles. Save calls the same `PUT /products/bulk-tier-update` endpoint.
+
+6. **Materials + Tiles Managers** wired end-to-end:
+   - Header row checkbox toggles all visible
+   - Per-row checkbox toggles individual selection (highlights row in orange/blue when selected)
+   - ManagerBulkBar renders at the bottom
+   - AssignColoursModal + TierPricingModal mount alongside the AddProductWizard
+   - Refresh + `?edit=SKU` deep-link still works
+
+7. **Data fetch fix** — Managers were calling `/products/all` (which doesn't exist, 405-ing silently); switched to `/products?limit=5000` which returns `{products, total}` including `product_group`, `main_category`, `pricing_unit` fields I added earlier.
+
+**Nothing on the storefront was affected** — every save still goes through `bulk-update-unified` with full 100% verification, publish/unpublish just flip flags without touching cart/refund/order data.
+
+**Files added**:
+- `/app/frontend/src/pages/admin/components/managers/useManagerBulk.js` (196 lines)
+- `/app/frontend/src/pages/admin/components/managers/ManagerBulkBar.jsx` (190 lines)
+- `/app/frontend/src/pages/admin/components/managers/AssignColoursModal.jsx` (232 lines)
+
+**Files updated**:
+- `/app/frontend/src/pages/admin/MaterialsManager.jsx` — checkboxes + bulk bar + colours modal + tier pricing modal + fetch fix
+- `/app/frontend/src/pages/admin/TilesManager.jsx` — same
+- `/app/frontend/src/components/Layout.js` — sidebar entries for Tiles Manager + Materials Manager + Products (Legacy), NEW badge renderer
+- `/app/frontend/src/components/PageGate.jsx` — permissions for /admin/tiles and /admin/materials
+
+**Session B (next)** — Content + Media bulk:
+- Bulk Category / Sub-Category / Filter values editor (mount BulkCategoryEditorSections into Managers)
+- Bulk price + cost + stock setter
+- AI description generator (bulk)
+- Bulk image upload / gallery management
+- Sale%, Labels, Custom Mappings
+- Draft Recovery / Auto-save
+- Bulk delete
+
+**Session C** — Ship the remaining 4 Managers (Flooring / Bathroom / UFH / Tools), then Templates + CSV import.
+
+**Session D** — Retirement of `/admin/supplier-products` (once owner is satisfied Managers cover everything).
+
+
+
 ### [Aug 3, 2026 — Forked, later] 🟢 Category classifier + routing + legacy cleanup
 
 **Owner asked**:

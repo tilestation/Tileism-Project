@@ -36,6 +36,10 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from '../../components/ui/dialog';
 import AddProductWizard from './components/AddProductWizard';
+import ManagerBulkBar from './components/managers/ManagerBulkBar';
+import AssignColoursModal from './components/managers/AssignColoursModal';
+import TierPricingModal from './components/supplier-products/TierPricingModal';
+import { useManagerBulk, getProductKey } from './components/managers/useManagerBulk';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
 
@@ -69,17 +73,38 @@ const MaterialsManager = () => {
   const [lastRefresh, setLastRefresh] = useState(null);
   const [wizardOpen, setWizardOpen] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
+  
+  // Bulk operation state (multi-select, publish, unpublish, archive, assign colours,
+  // tier pricing) — provided by the shared useManagerBulk hook so every Manager
+  // shares the same implementation and hits the same backend endpoints.
+  const bulk = useManagerBulk({ products, onRefresh: () => fetchProducts() });
+  const [showAssignColours, setShowAssignColours] = useState(false);
+  const [showTierPricing, setShowTierPricing] = useState(false);
+  const [tierPricingConfig, setTierPricingConfig] = useState({
+    thresholds: [10, 50, 100],
+    discounts: [0, 5, 10, 15],
+    custom_quote_threshold: 150,
+    trade_discount_default: 2,
+    trade_discount_type: 'fixed',    // Materials default to £/unit
+    credit_back_default: 2,
+    pallet_enabled: false,
+    pallet_price: null,
+    half_pallet_price: null,
+    m2_per_pallet: null,
+    m2_per_half_pallet: null,
+  });
 
   const fetchProducts = useCallback(async () => {
     setLoading(true);
     try {
-      // Fetch all supplier products, then filter to materials on the client.
-      // The full-list endpoint is already paginated to include everything the
-      // admin can see, and we need cross-supplier visibility here.
-      const res = await fetch(`${API_URL}/api/supplier-sync/products/all?limit=5000`);
+      // Fetch all supplier products via the paginated /products endpoint
+      // (asking for a big limit so we get everything up to 5000). The endpoint
+      // returns {products: [...], total: N} and includes product_group /
+      // main_category / pricing_unit so our filter below is reliable.
+      const res = await fetch(`${API_URL}/api/supplier-sync/products?limit=5000`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
-      const all = Array.isArray(data) ? data : (data.products || []);
+      const all = data.products || [];
       const materials = all.filter(p => {
         const group = String(p.product_group || '').toLowerCase();
         const mainCat = String(p.main_category || '').toLowerCase();
@@ -352,6 +377,19 @@ const MaterialsManager = () => {
             <table className="w-full text-sm">
               <thead className="bg-gray-50 border-b border-gray-200">
                 <tr>
+                  <th className="px-3 py-2 text-center w-8">
+                    <input
+                      type="checkbox"
+                      checked={filteredProducts.length > 0 && filteredProducts.every(p => bulk.isSelected(p))}
+                      onChange={(e) => {
+                        if (e.target.checked) bulk.selectAll(filteredProducts);
+                        else bulk.clearAll();
+                      }}
+                      className="w-4 h-4 accent-orange-600"
+                      data-testid="materials-select-all"
+                      title="Select all visible"
+                    />
+                  </th>
                   <th className="px-3 py-2 text-left font-medium text-gray-700">Product</th>
                   <th className="px-3 py-2 text-left font-medium text-gray-700">Colour</th>
                   <th className="px-3 py-2 text-left font-medium text-gray-700">Coverage</th>
@@ -375,7 +413,16 @@ const MaterialsManager = () => {
                     MATERIAL_SUBCATS.some(m => String(sc).toLowerCase().includes(m))
                   );
                   return (
-                    <tr key={key} className="border-b border-gray-100 hover:bg-gray-50" data-testid={`materials-row-${p.sku || p.supplier_code}`}>
+                    <tr key={key} className={`border-b border-gray-100 hover:bg-gray-50 ${bulk.isSelected(p) ? 'bg-orange-50' : ''}`} data-testid={`materials-row-${p.sku || p.supplier_code}`}>
+                      <td className="px-3 py-2 text-center">
+                        <input
+                          type="checkbox"
+                          checked={bulk.isSelected(p)}
+                          onChange={() => bulk.toggleProduct(p)}
+                          className="w-4 h-4 accent-orange-600"
+                          data-testid={`materials-select-${p.sku || p.supplier_code}`}
+                        />
+                      </td>
                       <td className="px-3 py-2">
                         <div className="font-medium text-gray-900 line-clamp-1">{name}</div>
                         <div className="text-xs text-gray-500">
@@ -537,6 +584,94 @@ const MaterialsManager = () => {
         onOpenChange={setWizardOpen}
         presetCategory="materials"
         onSuccess={() => { setWizardOpen(false); fetchProducts(); }}
+      />
+
+      {/* Floating Quick Actions Bar — appears when any product is selected */}
+      <ManagerBulkBar
+        selectedCount={bulk.selectedProducts.size}
+        onClearAll={bulk.clearAll}
+        onSelectAll={() => bulk.selectAll(filteredProducts)}
+        onBulkPublish={bulk.bulkPublish}
+        onBulkUnpublish={bulk.bulkUnpublish}
+        onBulkArchive={bulk.bulkArchive}
+        onOpenAssignColours={() => setShowAssignColours(true)}
+        onOpenTierPricing={() => setShowTierPricing(true)}
+        onOpenReassignCategory={bulk.bulkAssignCategory}
+        saving={bulk.bulkSaving}
+        themeColor="orange"
+        hideActions={['category']} /* categories & filters modal — coming Session B */
+      />
+
+      {/* Bulk: Assign Colours (per-value scoping) */}
+      <AssignColoursModal
+        open={showAssignColours}
+        onOpenChange={setShowAssignColours}
+        selectedList={bulk.getSelectedList()}
+        onSuccess={() => { bulk.clearAll(); fetchProducts(); }}
+      />
+
+      {/* Bulk: Tier Pricing (% / £ trade + Half+Full Pallet, unit-aware for materials) */}
+      <TierPricingModal
+        open={showTierPricing}
+        onOpenChange={setShowTierPricing}
+        selectedProducts={new Set([...bulk.selectedProducts])}
+        pricingSizeFilter="all"
+        tierPricingConfig={tierPricingConfig}
+        setTierPricingConfig={setTierPricingConfig}
+        tierPricingSaving={bulk.bulkSaving}
+        onSave={async () => {
+          // Reuse the same bulk-tier-update endpoint the legacy editor uses
+          const selectedList = bulk.getSelectedList();
+          if (selectedList.length === 0) return;
+          try {
+            const payload = selectedList.map(p => ({ supplier: p.supplier, sku: p.sku || p.supplier_code }));
+            const res = await fetch(`${API_URL}/api/supplier-sync/products/bulk-tier-update`, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                products: payload,
+                tier_thresholds: tierPricingConfig.thresholds,
+                tier_discounts: tierPricingConfig.discounts,
+                trade_discount: tierPricingConfig.trade_discount_default,
+                trade_discount_type: tierPricingConfig.trade_discount_type || 'percent',
+                credit_back_rate: tierPricingConfig.credit_back_default,
+                disabled: tierPricingConfig.disabled || false,
+                pallet_enabled: !!tierPricingConfig.pallet_enabled,
+                pallet_price: tierPricingConfig.pallet_price,
+                half_pallet_price: tierPricingConfig.half_pallet_price,
+                m2_per_pallet: tierPricingConfig.m2_per_pallet,
+                m2_per_half_pallet: tierPricingConfig.m2_per_half_pallet,
+              }),
+            });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const data = await res.json();
+            toast.success(`Tier pricing saved: ${data.updated_count || selectedList.length} product(s)`);
+            setShowTierPricing(false);
+            fetchProducts();
+          } catch (err) {
+            toast.error(`Save failed: ${err.message}`);
+          }
+        }}
+        getProductsFilteredBySize={() => products}
+        getSelectedProductsPricing={() => {
+          const list = bulk.getSelectedList();
+          const withPrice = list.filter(p => p.list_price || p.retail_price);
+          if (withPrice.length === 0) return { avgListPrice: 25, avgCostPrice: 12, minListPrice: 25, maxListPrice: 25, count: 0 };
+          const prices = withPrice.map(p => Number(p.list_price || p.retail_price || 0));
+          const costs = withPrice.map(p => Number(p.cost_price || p.cost_each || 0));
+          return {
+            avgListPrice: prices.reduce((a, b) => a + b, 0) / prices.length,
+            avgCostPrice: costs.reduce((a, b) => a + b, 0) / costs.length,
+            minListPrice: Math.min(...prices),
+            maxListPrice: Math.max(...prices),
+            count: withPrice.length,
+          };
+        }}
+        getFilterDisplayLabel={() => 'materials'}
+        overrideListPrice={null}
+        overrideCostPrice={null}
+        tierProductScope={new Set()}
+        selectedPricingUnit="unit"
       />
     </div>
   );
