@@ -10,7 +10,7 @@ import {
   Sparkles, Bell, AlertTriangle, Database, CheckSquare, EyeOff, Store, Globe,
   Settings2, Archive, Layers, PenLine, ExternalLink, Save, Edit2, Loader2, Flag, Copy, Pencil,
   Tag, Percent, DollarSign, BadgePercent, Zap, Star, Clock, AlertCircle, ArrowRight, ShoppingCart, XCircle, Minus, CheckCircle,
-  Home, FolderTree, Palette, Replace, PlusCircle, Shield, History, Undo2
+  Home, FolderTree, Palette, Replace, PlusCircle, Shield, History, Undo2, HelpCircle
 } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -487,9 +487,11 @@ export default function SupplierProducts() {
   // Track value breakdowns for mixed states (shows what values exist across selected products)
   const [bulkFieldBreakdowns, setBulkFieldBreakdowns] = useState({});
   
-  // Force Save state
-  const [forceSaveProgress, setForceSaveProgress] = useState(null); // { current, total, status }
-  const [lastSaveResult, setLastSaveResult] = useState(null); // { success, failed, total, timestamp }
+  // Save progress state — used when the unified Save retries failed products
+  // individually. Was previously called `forceSaveProgress`; unified 3 Aug 2026.
+  const [saveProgress, setSaveProgress] = useState(null); // { current, total, status }
+  const [lastSaveResult, setLastSaveResult] = useState(null); // { success, failed, total, failed_items: [], timestamp }
+  const [showSaveResults, setShowSaveResults] = useState(false); // controls the "Save Results" dialog
   
   // Dry Run / Preview, History, and Save & Verify states
   const [showDryRun, setShowDryRun] = useState(false);
@@ -3581,7 +3583,7 @@ export default function SupplierProducts() {
     }
   };
 
-  // ===== Shared filter mapping constants (used by handleBulkCategoryUpdate, handleForceSave, perProductAssignment) =====
+  // ===== Shared filter mapping constants (used by handleBulkCategoryUpdate and perProductAssignment) =====
   const ARRAY_FILTER_MAPPING = {
     'filter_color': 'colors', 'filter_colours': 'colors',
     'filter_room': 'rooms', 'filter_rooms': 'rooms',
@@ -4297,103 +4299,6 @@ export default function SupplierProducts() {
         return;
       }
       
-      // ===== PRODUCT SUB-SELECTION LOGIC =====
-      // When user has sub-selected specific products for specs/filters,
-      // sub-selected products get the chosen value, others get the default (Porcelain for Material)
-      const hasSubSelection = productSubSelection.size > 0;
-      const hasMaterialSelected = bulkCategorySelections.material && bulkCategorySelections.material !== 'Porcelain';
-      
-      if (hasSubSelection && hasMaterialSelected) {
-        // Process products in two groups: sub-selected and non-sub-selected
-        let successCount = 0;
-        let failCount = 0;
-        
-        // Group 1: Sub-selected products get the chosen material
-        const subSelectedProducts = productsToUpdate.filter(p => 
-          productSubSelection.has(getProductKey(p))
-        );
-        
-        // Group 2: Non-sub-selected products get default (Porcelain)
-        const defaultProducts = productsToUpdate.filter(p => 
-          !productSubSelection.has(getProductKey(p))
-        );
-        
-        // Update sub-selected products with chosen material
-        if (subSelectedProducts.length > 0) {
-          const subSelectedPayload = { ...updatePayload };
-          // Material is already in updatePayload
-          
-          try {
-            const response = await fetch(`${API_URL}/api/supplier-sync/products/bulk-update-unified`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                product_ids: subSelectedProducts.map(p => p.sku),
-                updates: subSelectedPayload,
-                mode: bulkCategoryMode,
-                ...(hasFieldsToClear && { fields_to_clear: fieldsToClear })
-              })
-            });
-            
-            if (response.ok) {
-              const result = await response.json();
-              successCount += result.updated_count || subSelectedProducts.length;
-            } else {
-              failCount += subSelectedProducts.length;
-            }
-          } catch (err) {
-            failCount += subSelectedProducts.length;
-          }
-        }
-        
-        // Update non-sub-selected products with default material (Porcelain)
-        if (defaultProducts.length > 0) {
-          const defaultPayload = { ...updatePayload };
-          defaultPayload.material = 'Porcelain'; // Default material
-          
-          try {
-            const response = await fetch(`${API_URL}/api/supplier-sync/products/bulk-update-unified`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                product_ids: defaultProducts.map(p => p.sku),
-                updates: defaultPayload,
-                mode: bulkCategoryMode,
-                ...(hasFieldsToClear && { fields_to_clear: fieldsToClear })
-              })
-            });
-            
-            if (response.ok) {
-              const result = await response.json();
-              successCount += result.updated_count || defaultProducts.length;
-            } else {
-              failCount += defaultProducts.length;
-            }
-          } catch (err) {
-            failCount += defaultProducts.length;
-          }
-        }
-        
-        // Show results
-        if (successCount > 0) {
-          toast.success(`Updated ${successCount} products (${subSelectedProducts.length} with ${bulkCategorySelections.material}, ${defaultProducts.length} with Porcelain)`);
-        }
-        if (failCount > 0) {
-          toast.error(`Failed to update ${failCount} products`);
-        }
-        
-        // DON'T close modal or clear selections - let user see what was applied
-        // Just refresh product data AND breakdowns
-        const freshProducts = await fetchProducts();
-        if (freshProducts) {
-          refreshBreakdownsAfterSave(freshProducts);
-        }
-        setProductSubSelection(new Set()); // Only clear sub-selection, keep main selection
-        setFieldsToClear({});
-        setBulkCategoryLoading(false);
-        return;
-      }
-      
       // If per-product assignments exist, we need to update products individually
       const hasPerProductAssignments = Object.keys(perProductAssignments).some(key => 
         Object.keys(perProductAssignments[key] || {}).length > 0
@@ -4500,7 +4405,44 @@ export default function SupplierProducts() {
       let totalSuccessCount = 0;
       let totalFailCount = 0;
       let totalAutoPublished = 0;
-      
+      // Per-product failure tracking — populated when a batch call fails or
+      // reports a partial update. We then retry each product individually so
+      // we can pinpoint exactly which SKU(s) failed and why. Was previously
+      // Force Save's job; unified into the main Save 3 Aug 2026.
+      const failedItems = []; // [{ id, id_field, product_name, reason }]
+
+      // Helper — send ONE product's update through the same endpoint. Used
+      // both for the retry pass and for surfacing per-product errors in the
+      // Save Results dialog. Returns { ok, reason }.
+      const retryOne = async (id, idField, product) => {
+        try {
+          const r = await fetch(`${API_URL}/api/supplier-sync/products/bulk-update-unified`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              product_ids: [id],
+              id_field: idField,
+              updates: updatePayload,
+              mode: bulkCategoryMode,
+              update_mode: updateMode,
+              ...(hasFieldsToClear && { fields_to_clear: fieldsToClear })
+            })
+          });
+          if (r.ok) {
+            const j = await r.json();
+            return { ok: (j.updated_count || j.total_updated || 0) >= 1, reason: '' };
+          }
+          let reason = `HTTP ${r.status}`;
+          try {
+            const errBody = await r.json();
+            reason = errBody.detail || errBody.message || reason;
+          } catch (_) { /* ignore */ }
+          return { ok: false, reason };
+        } catch (err) {
+          return { ok: false, reason: err.message || 'Network error' };
+        }
+      };
+
       // Send request for SKU-based products
       if (bySkuProducts.length > 0) {
         const skuIds = bySkuProducts.map(p => p.sku).filter(id => id != null && id !== '');
@@ -4517,17 +4459,45 @@ export default function SupplierProducts() {
               ...(hasFieldsToClear && { fields_to_clear: fieldsToClear })
             })
           });
+          let updatedCount = 0;
           if (response.ok) {
             const result = await response.json();
-            totalSuccessCount += result.updated_count || result.total_updated || skuIds.length;
+            updatedCount = result.updated_count || result.total_updated || skuIds.length;
+            totalSuccessCount += updatedCount;
             totalAutoPublished += result.auto_published || 0;
           } else {
-            totalFailCount += skuIds.length;
-            try { const err = await response.json(); console.error('SKU batch failed:', response.status, err); } catch(e) {}
+            try { const err = await response.json(); console.error('SKU batch failed:', response.status, err); } catch (e) { /* ignore */ }
+          }
+          // If the backend didn't confirm every product was updated, retry each
+          // individually so we can surface exactly which one(s) failed.
+          if (updatedCount < skuIds.length) {
+            setSaveProgress({ current: 0, total: skuIds.length, status: 'saving' });
+            let retryOk = 0;
+            for (let i = 0; i < skuIds.length; i++) {
+              const id = skuIds[i];
+              const product = bySkuProducts.find(p => p.sku === id) || {};
+              const r = await retryOne(id, 'sku', product);
+              if (r.ok) {
+                retryOk += 1;
+              } else {
+                failedItems.push({
+                  id,
+                  id_field: 'sku',
+                  product_name: product.our_product_name || product.product_name || product.name || id,
+                  reason: r.reason,
+                });
+              }
+              setSaveProgress({ current: i + 1, total: skuIds.length, status: 'saving' });
+            }
+            // Reconcile counters: batch may have already counted some as OK;
+            // trust the per-product pass as the source of truth.
+            totalSuccessCount = totalSuccessCount - updatedCount + retryOk;
+            totalFailCount += skuIds.length - retryOk;
+            setSaveProgress({ current: skuIds.length, total: skuIds.length, status: 'done' });
           }
         }
       }
-      
+
       // Send request for supplier_code-based products
       if (bySupplierCodeProducts.length > 0) {
         const scIds = bySupplierCodeProducts.map(p => p.supplier_code).filter(id => id != null && id !== '');
@@ -4544,13 +4514,37 @@ export default function SupplierProducts() {
               ...(hasFieldsToClear && { fields_to_clear: fieldsToClear })
             })
           });
+          let updatedCount = 0;
           if (response.ok) {
             const result = await response.json();
-            totalSuccessCount += result.updated_count || result.total_updated || scIds.length;
+            updatedCount = result.updated_count || result.total_updated || scIds.length;
+            totalSuccessCount += updatedCount;
             totalAutoPublished += result.auto_published || 0;
           } else {
-            totalFailCount += scIds.length;
-            try { const err = await response.json(); console.error('Supplier code batch failed:', response.status, err); } catch(e) {}
+            try { const err = await response.json(); console.error('Supplier code batch failed:', response.status, err); } catch (e) { /* ignore */ }
+          }
+          if (updatedCount < scIds.length) {
+            setSaveProgress({ current: 0, total: scIds.length, status: 'saving' });
+            let retryOk = 0;
+            for (let i = 0; i < scIds.length; i++) {
+              const id = scIds[i];
+              const product = bySupplierCodeProducts.find(p => p.supplier_code === id) || {};
+              const r = await retryOne(id, 'supplier_code', product);
+              if (r.ok) {
+                retryOk += 1;
+              } else {
+                failedItems.push({
+                  id,
+                  id_field: 'supplier_code',
+                  product_name: product.our_product_name || product.product_name || product.name || id,
+                  reason: r.reason,
+                });
+              }
+              setSaveProgress({ current: i + 1, total: scIds.length, status: 'saving' });
+            }
+            totalSuccessCount = totalSuccessCount - updatedCount + retryOk;
+            totalFailCount += scIds.length - retryOk;
+            setSaveProgress({ current: scIds.length, total: scIds.length, status: 'done' });
           }
         }
       }
@@ -4622,7 +4616,20 @@ export default function SupplierProducts() {
         if (totalAutoPublished > 0) {
           toast.info(`${totalAutoPublished} product${totalAutoPublished > 1 ? 's were' : ' was'} auto-published to the storefront`);
         }
-        setLastSaveResult({ success: totalSuccessCount, failed: totalFailCount, total: productsToUpdate.length, timestamp: Date.now() });
+        setLastSaveResult({
+          success: totalSuccessCount,
+          failed: totalFailCount,
+          total: productsToUpdate.length,
+          failed_items: failedItems,
+          timestamp: Date.now(),
+        });
+        // 3 Aug 2026 — auto-open Save Results dialog when ANY product
+        // failed. This replaces the old "Force Save" per-product view; the
+        // dialog now shows exactly which SKUs failed and why, so the owner
+        // can fix them without having to "save again and hope".
+        if (totalFailCount > 0) {
+          setShowSaveResults(true);
+        }
         
         // Log edit history with before-snapshot (async, non-blocking)
         fetch(`${API_URL}/api/bulk-edit-tools/history`, {
@@ -4651,7 +4658,14 @@ export default function SupplierProducts() {
         return;
       } else {
         toast.error(`Failed to update ${totalFailCount} products`);
-        setLastSaveResult({ success: 0, failed: totalFailCount, total: productsToUpdate.length, timestamp: Date.now() });
+        setLastSaveResult({
+          success: 0,
+          failed: totalFailCount,
+          total: productsToUpdate.length,
+          failed_items: failedItems,
+          timestamp: Date.now(),
+        });
+        setShowSaveResults(true);
       }
     } catch (error) {
       console.error('Bulk update error:', error);
@@ -4763,371 +4777,6 @@ export default function SupplierProducts() {
     }
   };
 
-  // FORCE SAVE: Bulletproof per-product save that sends each product individually
-  // This guarantees every product gets saved regardless of batch failures
-  const handleForceSave = async () => {
-    if (selectedProducts.size === 0) {
-      toast.error('No products selected');
-      return;
-    }
-
-    // Build the same updatePayload as handleBulkCategoryUpdate
-    // Respect size/thickness filters when determining which products to update
-    let productsToUpdate;
-    const hasPricing = bulkCategorySelections.cost_price || bulkCategorySelections.list_price;
-    
-    if (bulkThicknessFilter !== 'all') {
-      productsToUpdate = getProductsFilteredByThickness(bulkThicknessFilter);
-    } else if (hasPricing && pricingSizeFilter !== 'all') {
-      productsToUpdate = getProductsFilteredBySize(pricingSizeFilter);
-    } else {
-      const selectedSkusList = Array.from(selectedProducts);
-      productsToUpdate = products.filter(p => selectedSkusList.includes(getProductKey(p)));
-    }
-    
-    if (productsToUpdate.length === 0) {
-      toast.error('No products found to update');
-      return;
-    }
-
-    // Build update payload from current selections
-    const updatePayload = {};
-    
-    // Specifications — only add if no corresponding filter_* scoping exists
-    // (filter_* scoped values take precedence over these old scalar fields)
-    const hasFilterFinishScope = (bulkCategorySelections.filter_finish?.length > 0);
-    const hasFilterEdgeScope = (bulkCategorySelections.filter_edge?.length > 0);
-    const hasFilterSlipScope = (bulkCategorySelections['filter_slip-rating']?.length > 0 || bulkCategorySelections.filter_slip_rating?.length > 0);
-    const hasFilterSuitScope = (bulkCategorySelections.filter_suitability?.length > 0);
-    const hasFilterThickScope = (bulkCategorySelections.filter_thickness?.length > 0);
-    const hasFilterSizeScope = (bulkCategorySelections.filter_size?.length > 0);
-    
-    if (bulkCategorySelections.material) updatePayload.material = bulkCategorySelections.material;
-    if (bulkCategorySelections.finish && !hasFilterFinishScope) updatePayload.finish = bulkCategorySelections.finish;
-    if (bulkCategorySelections.type) updatePayload.type = bulkCategorySelections.type;
-    if (bulkCategorySelections.edge && !hasFilterEdgeScope) updatePayload.edge = bulkCategorySelections.edge;
-    if (bulkCategorySelections.slip_rating && !hasFilterSlipScope) updatePayload.slip_rating = bulkCategorySelections.slip_rating;
-    if (bulkCategorySelections.suitability && !hasFilterSuitScope) updatePayload.suitability = bulkCategorySelections.suitability;
-    if (bulkCategorySelections.thickness && !hasFilterThickScope) updatePayload.thickness = bulkCategorySelections.thickness;
-    if (bulkCategorySelections.underfloor_heating) updatePayload.underfloor_heating = bulkCategorySelections.underfloor_heating;
-    
-    // Categories
-    const selectedCatKeys = Object.keys(bulkCategorySelections).filter(k => k.startsWith('cat_') && bulkCategorySelections[k]);
-    if (selectedCatKeys.length > 0) {
-      const categoriesByGroup = {};
-      for (const key of selectedCatKeys) {
-        const slug = key.replace('cat_', '');
-        for (const group of categoryGroupsWithCats) {
-          const cat = (group.categories || []).find(c => c.slug === slug);
-          if (cat) {
-            const groupName = group.name || group.slug;
-            if (!categoriesByGroup[groupName]) categoriesByGroup[groupName] = [];
-            categoriesByGroup[groupName].push(cat.name);
-            break;
-          }
-        }
-      }
-      const groupNames = Object.keys(categoriesByGroup);
-      if (groupNames.length > 0) {
-        updatePayload.main_category = groupNames[0];
-        updatePayload.sub_categories = groupNames.flatMap(g => categoriesByGroup[g]);
-      }
-    }
-    
-    // Pricing
-    if (bulkCategorySelections.cost_price) updatePayload.cost_price = parseFloat(bulkCategorySelections.cost_price);
-    if (bulkCategorySelections.list_price) updatePayload.price = parseFloat(bulkCategorySelections.list_price);
-    
-    // Country of Origin
-    if (bulkCategorySelections.made_in === '__CLEAR__') updatePayload.made_in = '';
-    else if (bulkCategorySelections.made_in) updatePayload.made_in = bulkCategorySelections.made_in;
-    
-    // Arrays
-    if (bulkCategorySelections.rooms?.length > 0) updatePayload.rooms = bulkCategorySelections.rooms;
-    if (bulkCategorySelections.materials?.length > 0) updatePayload.materials = bulkCategorySelections.materials;
-    if (bulkCategorySelections.styles?.length > 0) updatePayload.styles = bulkCategorySelections.styles;
-    if (bulkCategorySelections.colors?.length > 0) updatePayload.colors = bulkCategorySelections.colors;
-    if (bulkCategorySelections.features?.length > 0) updatePayload.features = bulkCategorySelections.features;
-    
-    // Filters & Specs — these need per-product scoping, handled inside the loop below
-    const arrayFilterMapping = ARRAY_FILTER_MAPPING;
-    const scalarFilterMapping = SCALAR_FILTER_MAPPING;
-    // Get selected spec keys
-    const forceSpecKeys = Object.keys(bulkCategorySelections).filter(k => k.startsWith('spec_') && bulkCategorySelections[k]);
-    
-    // Check if ANY scoping is active (if not, use simple path for speed)
-    const hasAnyScopes = Object.keys(perAttributeScopes).some(k => perAttributeScopes[k] && perAttributeScopes[k].size > 0);
-    
-    // Build the common (non-scoped) payload for fields that don't need per-product scoping
-    if (!hasAnyScopes) {
-      // No scopes → apply all values to all products (simple path)
-      for (const [filterKey, backendKey] of Object.entries(arrayFilterMapping)) {
-        const values = bulkCategorySelections[filterKey];
-        if (values?.length > 0) updatePayload[backendKey] = values;
-      }
-      for (const [filterKey, backendKey] of Object.entries(scalarFilterMapping)) {
-        if (!backendKey) continue;
-        const values = bulkCategorySelections[filterKey];
-        if (values?.length > 0 && !updatePayload[backendKey]) updatePayload[backendKey] = values[0];
-      }
-      for (const [key, value] of Object.entries(bulkCategorySelections)) {
-        if (key.startsWith('spec_') && value) {
-          const backendKey = key.replace('spec_', '').replace(/-/g, '_');
-          if (Array.isArray(value)) {
-            if (value.length > 0) updatePayload[backendKey] = value[0];
-          } else {
-            updatePayload[backendKey] = value;
-          }
-        }
-      }
-    }
-    // When hasAnyScopes=true, filter/spec fields are built per-product in the loop below
-    
-    if (bulkShowOnWebsite) updatePayload.show_on_website = true;
-
-    if (Object.keys(updatePayload).length === 0 && Object.keys(fieldsToClear).length === 0) {
-      toast.error('No attributes selected to save');
-      return;
-    }
-
-    // Start Force Save — send each product individually
-    setForceSaveProgress({ current: 0, total: productsToUpdate.length, status: 'saving' });
-    setBulkCategoryLoading(true);
-    
-    // Take before-snapshot for undo (Force Save)
-    const allIds = productsToUpdate.map(p => p.sku || p.supplier_code);
-    const primaryIdField = productsToUpdate[0]?.sku ? 'sku' : 'supplier_code';
-    let beforeSnapshot = [];
-    try {
-      const snapRes = await fetch(`${API_URL}/api/bulk-edit-tools/snapshot`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ product_ids: allIds, id_field: primaryIdField, fields: Object.keys(updatePayload) }),
-      });
-      if (snapRes.ok) {
-        const snapData = await snapRes.json();
-        beforeSnapshot = snapData.snapshot || [];
-      }
-    } catch (e) { /* best-effort */ }
-    
-    let successCount = 0;
-    let failCount = 0;
-    const failedProducts = [];
-
-    for (let i = 0; i < productsToUpdate.length; i++) {
-      const product = productsToUpdate[i];
-      const { id: productApiId, field: idField } = getProductIdForApi(product);
-      
-      setForceSaveProgress({ current: i + 1, total: productsToUpdate.length, status: 'saving' });
-      
-      // Build per-product payload: start with the common fields, then overlay scoped fields
-      let productPayload = { ...updatePayload };
-      
-      if (hasAnyScopes) {
-        const productKey = getProductKey(product);
-        
-        // ===== Scoped array filters =====
-        for (const [filterKey, backendKey] of Object.entries(arrayFilterMapping)) {
-          const values = bulkCategorySelections[filterKey];
-          if (!values || values.length === 0) continue;
-          const hasPerValueScopes = values.some(v => {
-            const pvKey = `${filterKey}__${v}`;
-            return perAttributeScopes[pvKey] && perAttributeScopes[pvKey].size > 0;
-          });
-          if (hasPerValueScopes) {
-            const scopedValues = values.filter(v => {
-              const pvKey = `${filterKey}__${v}`;
-              const pvScope = perAttributeScopes[pvKey];
-              if (pvScope && pvScope.size > 0) return pvScope.has(productKey);
-              return true;
-            });
-            if (scopedValues.length > 0) productPayload[backendKey] = scopedValues;
-          } else {
-            productPayload[backendKey] = values;
-          }
-        }
-        
-        // ===== Scoped scalar filters =====
-        for (const [filterKey, backendKey] of Object.entries(scalarFilterMapping)) {
-          if (!backendKey) continue;
-          const values = bulkCategorySelections[filterKey];
-          if (!values || values.length === 0) continue;
-          const hasPerValueScopes = values.some(v => {
-            const pvKey = `${filterKey}__${v}`;
-            return perAttributeScopes[pvKey] && perAttributeScopes[pvKey].size > 0;
-          });
-          if (hasPerValueScopes) {
-            let matchedValue = values.find(v => {
-              const pvKey = `${filterKey}__${v}`;
-              const pvScope = perAttributeScopes[pvKey];
-              return pvScope && pvScope.size > 0 && pvScope.has(productKey);
-            });
-            if (!matchedValue) {
-              matchedValue = values.find(v => {
-                const pvKey = `${filterKey}__${v}`;
-                const pvScope = perAttributeScopes[pvKey];
-                return !pvScope || pvScope.size === 0;
-              });
-            }
-            if (matchedValue) productPayload[backendKey] = matchedValue;
-          } else {
-            productPayload[backendKey] = values[0];
-          }
-        }
-        
-        // ===== Scoped specs =====
-        for (const specKey of forceSpecKeys) {
-          const rawValue = bulkCategorySelections[specKey];
-          const backendKey = specKey.replace('spec_', '').replace(/-/g, '_');
-          const values = Array.isArray(rawValue) ? rawValue : [rawValue];
-          const specSlug = specKey.replace('spec_', '');
-          const hasPerValueScopes = values.some(v => {
-            const pvKey = `spec_${specSlug}__${v}`;
-            return perAttributeScopes[pvKey] && perAttributeScopes[pvKey].size > 0;
-          });
-          if (hasPerValueScopes) {
-            let matchedValue = values.find(v => {
-              const pvKey = `spec_${specSlug}__${v}`;
-              const pvScope = perAttributeScopes[pvKey];
-              return pvScope && pvScope.size > 0 && pvScope.has(productKey);
-            });
-            if (!matchedValue) {
-              matchedValue = values.find(v => {
-                const pvKey = `spec_${specSlug}__${v}`;
-                const pvScope = perAttributeScopes[pvKey];
-                return !pvScope || pvScope.size === 0;
-              });
-            }
-            if (matchedValue) productPayload[backendKey] = matchedValue;
-          } else {
-            productPayload[backendKey] = values[0];
-          }
-        }
-      }
-      
-      try {
-        const response = await fetch(`${API_URL}/api/supplier-sync/products/bulk-update-unified`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            product_ids: [productApiId],
-            id_field: idField,
-            updates: productPayload,
-            mode: bulkCategoryMode,
-            ...(Object.keys(fieldsToClear).length > 0 && { fields_to_clear: fieldsToClear })
-          })
-        });
-        
-        if (response.ok) {
-          successCount++;
-        } else {
-          failCount++;
-          failedProducts.push(product.product_name || product.name || productApiId);
-        }
-      } catch (err) {
-        failCount++;
-        failedProducts.push(product.product_name || product.name || productApiId);
-      }
-    }
-    
-    // Done — show results
-    setForceSaveProgress({ current: productsToUpdate.length, total: productsToUpdate.length, status: 'done' });
-    setLastSaveResult({ success: successCount, failed: failCount, total: productsToUpdate.length, timestamp: Date.now() });
-    
-    if (successCount > 0) {
-      toast.success(`Force Save complete: ${successCount}/${productsToUpdate.length} products saved successfully`);
-      
-      // Also save description if there's a template pending
-      if (bulkDescriptionSettings.description_template) {
-        try {
-          const productsWithAttributes = productsToUpdate.map(p => ({
-            supplier: p.supplier,
-            sku: p.sku || p.supplier_code,
-            color: p.color || p.attributes?.color || '',
-            size: p.size || p.attributes?.size || '',
-            material: p.material || p.attributes?.material || '',
-            finish: p.finish || p.attributes?.finish || '',
-            name: p.our_product_name || p.display_name || p.product_name || p.name || '',
-            display_name: p.our_product_name || p.display_name || p.product_name || p.name || '',
-            product_name: p.our_product_name || p.display_name || p.product_name || p.name || '',
-            series: p.series || '',
-            supplier_product_name: p.supplier_product_name || p.name || ''
-          }));
-          
-          const descResponse = await api.put('/supplier-sync/products/bulk-description', {
-            products: productsWithAttributes,
-            description_template: bulkDescriptionSettings.description_template,
-            seo_keywords: bulkDescriptionSettings.seo_keywords || '',
-            hidden_seo_keywords: bulkDescriptionSettings.hidden_seo_keywords || '',
-            generate_hidden_seo: bulkDescriptionSettings.generate_hidden_seo || false,
-            use_placeholders: bulkDescriptionSettings.use_placeholders !== false,
-            add_variations: bulkDescriptionSettings.add_variations || false,
-            update_mode: 'replace'
-          });
-          const descResult = descResponse.data;
-          toast.success(`Description also saved for ${descResult.updated_count} products`);
-          
-          // Also save to collection_settings so storefront picks it up
-          try {
-            const firstProduct = productsToUpdate[0];
-            const productName = firstProduct.our_product_name || firstProduct.display_name || firstProduct.product_name || firstProduct.name || '';
-            const collectionName = getSeriesName(productName);
-            if (collectionName) {
-              // Resolve placeholders using first product's data
-              let resolvedDesc = bulkDescriptionSettings.description_template.trim();
-              if (bulkDescriptionSettings.use_placeholders) {
-                resolvedDesc = resolvedDesc.replace(/\{color\}/g, (firstProduct.color || firstProduct.attributes?.color || '').trim());
-                resolvedDesc = resolvedDesc.replace(/\{size\}/g, (firstProduct.size || firstProduct.attributes?.size || '').trim());
-                resolvedDesc = resolvedDesc.replace(/\{material\}/g, (firstProduct.material || firstProduct.attributes?.material || '').trim());
-                resolvedDesc = resolvedDesc.replace(/\{finish\}/g, (firstProduct.finish || firstProduct.attributes?.finish || '').trim());
-                resolvedDesc = resolvedDesc.replace(/\{name\}/g, productName.trim());
-                resolvedDesc = resolvedDesc.replace(/\{series\}/g, (firstProduct.series || collectionName || '').trim());
-                resolvedDesc = resolvedDesc.replace(/\s+/g, ' ').trim();
-              }
-              await api.put(`/website-admin/collections/${encodeURIComponent(collectionName)}`, {
-                custom_description: resolvedDesc
-              });
-            }
-          } catch (collErr) {
-            console.warn('Collection settings description save skipped:', collErr);
-          }
-        } catch (descError) {
-          console.error('Description save failed during Force Save:', descError);
-          toast.error('Force Save succeeded but description save failed');
-        }
-      }
-      
-      // Log edit history (async, non-blocking)
-      fetch(`${API_URL}/api/bulk-edit-tools/history`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          user: 'admin', action: 'force_save', product_count: productsToUpdate.length,
-          product_ids: allIds, id_field: primaryIdField,
-          changes_summary: updatePayload, before_snapshot: beforeSnapshot,
-          updates_applied: updatePayload, mode: bulkCategoryMode, supplier: selectedSupplier || '',
-        }),
-      }).catch(e => console.error('History log failed:', e));
-    }
-    if (failCount > 0) {
-      toast.error(`Failed to save ${failCount} products: ${failedProducts.slice(0, 3).join(', ')}${failedProducts.length > 3 ? '...' : ''}`);
-    }
-    
-    // Refresh products AND recompute breakdowns
-    const freshProducts = await fetchProducts();
-    if (freshProducts) {
-      refreshBreakdownsAfterSave(freshProducts);
-    }
-    
-    // Save & Verify
-    if (successCount > 0) {
-      runSaveVerification(updatePayload, allIds, primaryIdField);
-    }
-    
-    setFieldsToClear({});
-    clearServerDraft(); // Clear draft after successful force save
-    setBulkCategoryLoading(false);
-  };
 
   // Toggle category selection for bulk edit (for array fields like rooms, styles, etc.)
   const toggleBulkCategory = (categoryType, categoryId) => {
@@ -5585,7 +5234,7 @@ export default function SupplierProducts() {
       
       // Clear last save result when reopening
       setLastSaveResult(null);
-      setForceSaveProgress(null);
+      setSaveProgress(null);
       setVerificationResult(null);
       
       // Check for unsaved draft from a previous session
@@ -9770,47 +9419,150 @@ export default function SupplierProducts() {
               </div>
             </div>
 
-            {/* Draft Recovery Banner */}
-            {showDraftRecovery && recoveredDraft && (
-              <div className="p-3 bg-blue-50 border border-blue-300 rounded-lg flex items-center gap-3" data-testid="draft-recovery-banner">
-                <Clock className="w-5 h-5 text-blue-600 shrink-0" />
-                <div className="flex-1">
-                  <p className="text-sm font-medium text-blue-800">
-                    Unsaved draft found from {recoveredDraft.updated_at ? new Date(recoveredDraft.updated_at).toLocaleString() : 'a previous session'}
-                  </p>
-                  <p className="text-xs text-blue-600 mt-0.5">
-                    {Object.values(recoveredDraft.selections || {}).filter(v => v && (Array.isArray(v) ? v.length > 0 : v !== '')).length} attributes saved
-                    {recoveredDraft.supplier ? ` for ${recoveredDraft.supplier}` : ''}
-                  </p>
+            {/* Draft Recovery Banner — 3 Aug 2026
+                Colour-coded by staleness. Was previously a blue banner with
+                no age / supplier / product-set check; owner was seeing
+                2-month-old drafts silently offered as "restore" candidates,
+                which would wipe fresh work. Now:
+                  • Blue = fresh (≤7 days, same supplier, same product set)
+                  • Amber = stale (>7 days OR different products/supplier)
+                  • Red = ancient (>30 days)
+                And a new "Ignore for this session" button keeps the draft on
+                the server so the owner can decide later. */}
+            {showDraftRecovery && recoveredDraft && (() => {
+              // ── freshness heuristics ────────────────────────────────────
+              const ageMs = recoveredDraft.updated_at
+                ? Date.now() - new Date(recoveredDraft.updated_at).getTime()
+                : 0;
+              const ageDays = Math.floor(ageMs / (1000 * 60 * 60 * 24));
+              const ageHours = Math.floor(ageMs / (1000 * 60 * 60));
+              const ageMinutes = Math.floor(ageMs / (1000 * 60));
+              const ageLabel = ageDays >= 1
+                ? `${ageDays} day${ageDays === 1 ? '' : 's'} ago`
+                : ageHours >= 1
+                ? `${ageHours} hour${ageHours === 1 ? '' : 's'} ago`
+                : ageMinutes >= 1
+                ? `${ageMinutes} minute${ageMinutes === 1 ? '' : 's'} ago`
+                : 'just now';
+              const draftProductCount = Array.isArray(recoveredDraft.selected_products)
+                ? recoveredDraft.selected_products.length
+                : 0;
+              const currentSize = selectedProducts.size;
+              const sameProducts = draftProductCount > 0 && draftProductCount === currentSize
+                && Array.isArray(recoveredDraft.selected_products)
+                && recoveredDraft.selected_products.every(sku => selectedProducts.has(sku));
+              const sameSupplier = !recoveredDraft.supplier
+                || recoveredDraft.supplier === (selectedSupplier || '');
+              const attributeCount = Object.values(recoveredDraft.selections || {})
+                .filter(v => v && (Array.isArray(v) ? v.length > 0 : v !== '')).length;
+
+              let level = 'fresh';
+              if (ageDays > 30) level = 'ancient';
+              else if (ageDays > 7 || !sameProducts || !sameSupplier) level = 'stale';
+
+              const palettes = {
+                fresh:   { bg: 'bg-blue-50',   border: 'border-blue-300',   iconWrap: 'text-blue-600',   title: 'text-blue-800',   sub: 'text-blue-600',   btn: 'bg-blue-600 hover:bg-blue-700',   pillBg: 'bg-blue-100 text-blue-800' },
+                stale:   { bg: 'bg-amber-50',  border: 'border-amber-300',  iconWrap: 'text-amber-600',  title: 'text-amber-900',  sub: 'text-amber-700',  btn: 'bg-amber-600 hover:bg-amber-700',  pillBg: 'bg-amber-100 text-amber-800' },
+                ancient: { bg: 'bg-red-50',    border: 'border-red-300',    iconWrap: 'text-red-600',    title: 'text-red-900',    sub: 'text-red-700',    btn: 'bg-red-600 hover:bg-red-700',    pillBg: 'bg-red-100 text-red-800' },
+              };
+              const p = palettes[level];
+              const Icon = level === 'fresh' ? Clock : AlertCircle;
+              return (
+                <div className={`p-3 ${p.bg} border ${p.border} rounded-lg`} data-testid="draft-recovery-banner">
+                  <div className="flex items-start gap-3">
+                    <Icon className={`w-5 h-5 ${p.iconWrap} shrink-0 mt-0.5`} />
+                    <div className="flex-1 min-w-0">
+                      <p className={`text-sm font-semibold ${p.title} flex items-center gap-2 flex-wrap`}>
+                        Unsaved draft from {recoveredDraft.updated_at ? new Date(recoveredDraft.updated_at).toLocaleString() : 'a previous session'}
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${p.pillBg} font-bold uppercase tracking-wider`}>
+                          {ageLabel}
+                        </span>
+                      </p>
+                      <p className={`text-xs ${p.sub} mt-1`}>
+                        Draft covers <strong>{attributeCount}</strong> attribute{attributeCount === 1 ? '' : 's'}
+                        {draftProductCount > 0 && (
+                          <> for <strong>{draftProductCount}</strong> product{draftProductCount === 1 ? '' : 's'}</>
+                        )}
+                        {recoveredDraft.supplier && (
+                          <> from <strong>&ldquo;{recoveredDraft.supplier}&rdquo;</strong></>
+                        )}
+                        .
+                      </p>
+                      {level !== 'fresh' && (
+                        <div className={`mt-2 text-xs ${p.sub} bg-white/60 rounded p-2 border ${p.border}`}>
+                          <p className="font-semibold flex items-center gap-1">
+                            <AlertCircle className="w-3.5 h-3.5" /> Heads up before you restore:
+                          </p>
+                          <ul className="mt-1 space-y-0.5 list-disc list-inside">
+                            {ageDays > 30 && (
+                              <li>This draft is over a month old — values may reference options that no longer exist.</li>
+                            )}
+                            {ageDays > 7 && ageDays <= 30 && (
+                              <li>This draft is {ageDays} days old — double-check before applying.</li>
+                            )}
+                            {!sameProducts && (
+                              <li>
+                                Draft was for {draftProductCount} product{draftProductCount === 1 ? '' : 's'};
+                                you currently have {currentSize} selected. Some draft values may not apply.
+                              </li>
+                            )}
+                            {!sameSupplier && recoveredDraft.supplier && (
+                              <li>
+                                Draft was for supplier <strong>&ldquo;{recoveredDraft.supplier}&rdquo;</strong>;
+                                you&apos;re now working on <strong>&ldquo;{selectedSupplier || 'a different supplier'}&rdquo;</strong>.
+                              </li>
+                            )}
+                          </ul>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap gap-2 justify-end mt-3">
+                    <Button
+                      size="sm"
+                      onClick={() => {
+                        setBulkCategorySelections(prev => ({ ...prev, ...(recoveredDraft.selections || {}) }));
+                        setShowDraftRecovery(false);
+                        setRecoveredDraft(null);
+                        toast.success(level === 'fresh' ? 'Draft restored' : 'Draft restored — please review the values');
+                      }}
+                      className={`${p.btn} text-white h-7 text-xs`}
+                      data-testid="restore-draft-btn"
+                    >
+                      {level === 'fresh' ? 'Restore' : 'Restore Anyway'}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        // Session-only dismiss: keep the draft on the server
+                        // so the owner can come back to it later.
+                        setShowDraftRecovery(false);
+                        toast.info('Draft kept — will be offered again next time you open this modal');
+                      }}
+                      className="h-7 text-xs"
+                      data-testid="ignore-draft-btn"
+                    >
+                      Ignore for now
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setShowDraftRecovery(false);
+                        setRecoveredDraft(null);
+                        clearServerDraft();
+                        toast.success('Draft discarded');
+                      }}
+                      className="h-7 text-xs border-red-200 text-red-700 hover:bg-red-50"
+                      data-testid="discard-draft-btn"
+                    >
+                      Discard Draft
+                    </Button>
+                  </div>
                 </div>
-                <Button
-                  size="sm"
-                  onClick={() => {
-                    setBulkCategorySelections(prev => ({ ...prev, ...(recoveredDraft.selections || {}) }));
-                    setShowDraftRecovery(false);
-                    setRecoveredDraft(null);
-                    toast.success('Draft restored');
-                  }}
-                  className="bg-blue-600 hover:bg-blue-700 h-7 text-xs"
-                  data-testid="restore-draft-btn"
-                >
-                  Restore
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    setShowDraftRecovery(false);
-                    setRecoveredDraft(null);
-                    clearServerDraft();
-                  }}
-                  className="h-7 text-xs"
-                  data-testid="discard-draft-btn"
-                >
-                  Discard
-                </Button>
-              </div>
-            )}
+              );
+            })()}
 
             {/* Thickness Filter - filter selected products by thickness */}
             {bulkThicknessOptions.length > 1 && (
@@ -12413,6 +12165,67 @@ export default function SupplierProducts() {
                     )}
                   </div>
                   
+                  {/* WHICH GENERATOR SHOULD I USE?
+                      Owner-requested signposting (3 Aug 2026). The bulk-edit
+                      modal has 4 description generators (per-product template,
+                      shorter/longer refinements, unified series, auto-regen),
+                      each with a distinct purpose. This help block explains
+                      when to reach for each — collapsible so it doesn't get
+                      in the way once staff know the flow. */}
+                  <details className="bg-slate-50 border border-slate-200 rounded-lg mb-3" data-testid="description-generator-help">
+                    <summary className="cursor-pointer px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100 rounded-lg flex items-center gap-2">
+                      <HelpCircle className="w-3.5 h-3.5 text-indigo-600" />
+                      Which description generator should I use?
+                    </summary>
+                    <div className="px-3 pb-3 pt-1 space-y-2 text-xs text-slate-700">
+                      <div className="flex gap-2 items-start">
+                        <span className="inline-flex items-center justify-center bg-emerald-500 text-white w-5 h-5 rounded-full text-[10px] font-bold flex-shrink-0 mt-0.5">1</span>
+                        <div>
+                          <div className="font-bold text-emerald-900">Unified Series Description (green card below)</div>
+                          <div className="text-slate-600">
+                            One paragraph for a whole collection (e.g. &ldquo;Slate Rock&rdquo;) covering all colours &amp; sizes.
+                            Writes to the <strong>collection page</strong> AND propagates to each product.
+                            <span className="text-emerald-700 font-semibold"> Best for series/collection pages.</span>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex gap-2 items-start">
+                        <span className="inline-flex items-center justify-center bg-indigo-500 text-white w-5 h-5 rounded-full text-[10px] font-bold flex-shrink-0 mt-0.5">2</span>
+                        <div>
+                          <div className="font-bold text-indigo-900">Description Template (indigo card below)</div>
+                          <div className="text-slate-600">
+                            Per-product description using placeholders like <code className="bg-indigo-100 px-1 rounded">{`{color}`}</code> <code className="bg-indigo-100 px-1 rounded">{`{size}`}</code>.
+                            Each product gets its own copy with its own values swapped in.
+                            <span className="text-indigo-700 font-semibold"> Best for individual product tuning.</span>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex gap-2 items-start">
+                        <span className="inline-flex items-center justify-center bg-purple-500 text-white w-5 h-5 rounded-full text-[10px] font-bold flex-shrink-0 mt-0.5">3</span>
+                        <div>
+                          <div className="font-bold text-purple-900">Shorter / Longer / New Variation</div>
+                          <div className="text-slate-600">
+                            Refine whatever&apos;s already in the Description Template. Only visible once you&apos;ve generated something.
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex gap-2 items-start">
+                        <span className="inline-flex items-center justify-center bg-slate-500 text-white w-5 h-5 rounded-full text-[10px] font-bold flex-shrink-0 mt-0.5">4</span>
+                        <div>
+                          <div className="font-bold text-slate-900">Manage Auto-Regeneration</div>
+                          <div className="text-slate-600">
+                            Background scheduler — keeps series descriptions fresh over time. Not something you run right now.
+                          </div>
+                        </div>
+                      </div>
+                      <div className="mt-2 pt-2 border-t border-slate-200 text-[11px] text-slate-500">
+                        <strong className="text-slate-700">Rule of thumb</strong>: writing about a whole collection?
+                        Use <span className="text-emerald-700 font-semibold">#1 Unified Series</span>. Fine-tuning individual products?
+                        Use <span className="text-indigo-700 font-semibold">#2 Description Template</span>.
+                      </div>
+                    </div>
+                  </details>
+
                   {/* UNIFIED SERIES DESCRIPTION GENERATOR - NEW */}
                   <div className="bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-200 rounded-lg p-3 mb-3">
                     <div className="flex items-center justify-between mb-2">
@@ -13156,6 +12969,16 @@ export default function SupplierProducts() {
                   {lastSaveResult.timestamp && ` — ${new Date(lastSaveResult.timestamp).toLocaleTimeString()}`}
                 </p>
               </div>
+              {lastSaveResult.failed > 0 && lastSaveResult.failed_items?.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setShowSaveResults(true)}
+                  className="text-sm font-semibold text-amber-700 underline hover:text-amber-900"
+                  data-testid="view-save-details-btn"
+                >
+                  View {lastSaveResult.failed_items.length} failed
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => setLastSaveResult(null)}
@@ -13201,33 +13024,34 @@ export default function SupplierProducts() {
             </div>
           )}
 
-          {/* Force Save Progress */}
-          {forceSaveProgress && (
-            <div className="mx-0 p-3 bg-blue-50 border border-blue-300 rounded-lg" data-testid="force-save-progress">
+          {/* Save progress — shown when the unified Save is retrying failed
+              products individually. Was previously a separate "Force Save
+              progress" indicator; unified 3 Aug 2026. */}
+          {saveProgress && (
+            <div className="mx-0 p-3 bg-blue-50 border border-blue-300 rounded-lg" data-testid="save-progress">
               <div className="flex items-center gap-3">
-                {forceSaveProgress.status === 'saving' ? (
+                {saveProgress.status === 'saving' ? (
                   <Loader2 className="w-5 h-5 text-blue-600 animate-spin shrink-0" />
                 ) : (
                   <CheckCircle className="w-5 h-5 text-green-600 shrink-0" />
                 )}
                 <div className="flex-1">
                   <p className="text-sm font-medium text-blue-800">
-                    {forceSaveProgress.status === 'saving'
-                      ? `Force saving... ${forceSaveProgress.current}/${forceSaveProgress.total}`
-                      : `Force save complete`
-                    }
+                    {saveProgress.status === 'saving'
+                      ? `Retrying failed products... ${saveProgress.current}/${saveProgress.total}`
+                      : 'Save complete'}
                   </p>
                   <div className="w-full bg-blue-200 rounded-full h-1.5 mt-1.5">
                     <div
                       className="bg-blue-600 h-1.5 rounded-full transition-all duration-300"
-                      style={{ width: `${(forceSaveProgress.current / forceSaveProgress.total) * 100}%` }}
+                      style={{ width: `${(saveProgress.current / saveProgress.total) * 100}%` }}
                     />
                   </div>
                 </div>
               </div>
             </div>
           )}
-          
+
           <DialogFooter className="flex-shrink-0 border-t pt-4">
             <Button 
               variant="outline" 
@@ -13244,7 +13068,7 @@ export default function SupplierProducts() {
                 clearPersistedState();
                 clearServerDraft();
                 setLastSaveResult(null);
-                setForceSaveProgress(null);
+                setSaveProgress(null);
                 setVerificationResult(null);
                 setShowDraftRecovery(false);
                 setRecoveredDraft(null);
@@ -13253,31 +13077,12 @@ export default function SupplierProducts() {
               Cancel
             </Button>
             <Button 
-              variant="outline"
-              onClick={handleForceSave}
-              disabled={bulkCategoryLoading}
-              className="border-amber-400 text-amber-700 hover:bg-amber-50 hover:text-amber-800"
-              data-testid="force-save-btn"
-            >
-              {bulkCategoryLoading && forceSaveProgress ? (
-                <>
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  Saving {forceSaveProgress.current}/{forceSaveProgress.total}...
-                </>
-              ) : (
-                <>
-                  <Shield className="w-4 h-4 mr-2" />
-                  Force Save
-                </>
-              )}
-            </Button>
-            <Button 
               onClick={() => setShowDryRun(true)}
               disabled={bulkCategoryLoading}
               className="bg-green-600 hover:bg-green-700"
               data-testid="apply-btn"
             >
-              {bulkCategoryLoading && !forceSaveProgress ? (
+              {bulkCategoryLoading && !saveProgress ? (
                 <>
                   <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
                   Updating...
@@ -15305,6 +15110,91 @@ export default function SupplierProducts() {
         calculateSavings={calculateSavings}
         calculateProfit={calculateProfit}
       />
+
+      {/* Save Results Dialog — 3 Aug 2026
+          Replaces the old Force Save per-product tracker. Auto-opens when
+          any product fails during the unified Save; also reachable via the
+          "View N failed" link inside the amber save-status banner. Lists
+          each failed SKU with the exact reason so the owner can pinpoint
+          what to fix instead of blindly re-saving. */}
+      <Dialog open={showSaveResults} onOpenChange={setShowSaveResults}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto" data-testid="save-results-dialog">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertCircle className="w-5 h-5 text-amber-600" />
+              Save Results
+            </DialogTitle>
+            <DialogDescription>
+              {lastSaveResult && (
+                <>
+                  <span className="text-emerald-700 font-semibold">{lastSaveResult.success}</span> saved,{' '}
+                  <span className="text-red-700 font-semibold">{lastSaveResult.failed}</span> failed
+                  {' '}out of {lastSaveResult.total}.
+                </>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+
+          {lastSaveResult?.failed_items?.length > 0 ? (
+            <div className="border border-red-200 rounded-lg overflow-hidden bg-red-50/40">
+              <div className="max-h-[50vh] overflow-y-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-red-100 text-red-900 text-xs uppercase tracking-wide sticky top-0">
+                    <tr>
+                      <th className="text-left px-3 py-2 font-semibold">Product</th>
+                      <th className="text-left px-3 py-2 font-semibold w-32">ID</th>
+                      <th className="text-left px-3 py-2 font-semibold">Reason</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {lastSaveResult.failed_items.map((item, idx) => (
+                      <tr key={idx} className="border-t border-red-100 hover:bg-red-50" data-testid={`save-results-row-${idx}`}>
+                        <td className="px-3 py-2 font-medium text-slate-900">{item.product_name || '—'}</td>
+                        <td className="px-3 py-2 font-mono text-xs text-slate-600">{item.id}</td>
+                        <td className="px-3 py-2 text-red-800">{item.reason || 'Unknown error'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ) : (
+            <div className="p-6 text-center text-emerald-700">
+              <CheckCircle className="w-10 h-10 mx-auto mb-2" />
+              <p className="text-sm font-semibold">Everything saved successfully.</p>
+            </div>
+          )}
+
+          <DialogFooter className="flex flex-wrap gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setShowSaveResults(false)}
+              data-testid="save-results-close-btn"
+            >
+              Close
+            </Button>
+            {lastSaveResult?.failed_items?.length > 0 && (
+              <Button
+                variant="outline"
+                className="border-red-300 text-red-700 hover:bg-red-50"
+                onClick={() => {
+                  // Copy failure summary to clipboard so the owner can paste
+                  // it into a ticket / message.
+                  const lines = lastSaveResult.failed_items.map(
+                    it => `${it.product_name} (${it.id_field}: ${it.id}) — ${it.reason || 'unknown'}`
+                  );
+                  const summary = `Save Results: ${lastSaveResult.success} saved, ${lastSaveResult.failed} failed of ${lastSaveResult.total}\n\n${lines.join('\n')}`;
+                  navigator.clipboard.writeText(summary);
+                  toast.success('Failure summary copied to clipboard');
+                }}
+                data-testid="save-results-copy-btn"
+              >
+                Copy summary
+              </Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Bulk Sale/Labels Modal - Extracted Component */}
       <BulkSaleModal

@@ -9,7 +9,49 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
-### [Aug 3, 2026 — Forked session] 🟢 Tonbridge Warehouse — search now filters to in-stock products only
+### [Aug 3, 2026 — Forked session] 🟢 Bulk Category Editor — P0 unify + signposting + draft freshness
+
+**Owner ask** (backed by a full read-only audit in `/app/memory/BULK_EDITOR_AUDIT.md` + a delivered PDF/Word plan): the Bulk Category Editor "same work takes 3 tries", "sometimes doesn't sync", descriptions are confusing, and stale drafts silently offer to overwrite fresh work.
+
+**Root causes identified**: (1) three parallel save paths — Save Now / Force Save / Quick Save — each reading a slightly different state slice, (2) the 5-collection sync fan-out with 6 silent skip rules, (3) four description generators in one modal with no signposting, (4) draft-restore banner with no age / product-set / supplier check.
+
+**What shipped (all P0 items, owner-approved)** in `/app/frontend/src/pages/admin/SupplierProducts.js`:
+
+1. **Deleted `handleForceSave` (365 lines) + Force Save button + `forceSaveProgress` state**.
+   - The unified `handleBulkCategoryUpdate` now:
+     - Retries individual products after any batch shortfall (fetches per-product HTTP calls just for the failures — gives you Force Save's per-product resilience automatically).
+     - Reports per-product results in a new `Save Results` dialog (auto-opens when ≥1 product fails; also reachable via "View N failed" in the amber status banner).
+     - Copies failure summary to clipboard on demand for pasting into notes/tickets.
+     - Runs `runSaveVerification` as before (verifies DB reflects intended changes).
+2. **Deleted the sub-selection Material auto-Porcelain branch** (~97 lines) at line 4302, per owner's explicit approval. Owner will manually set Porcelain/other when required.
+3. **Added a "Which description generator should I use?" collapsible help block** in the Bulk Category Editor description panel. Four numbered options (Unified Series / Description Template / Shorter-Longer-New / Auto-Regeneration) with the golden rule at the bottom: "writing about a whole collection? Use #1. Fine-tuning individual products? Use #2." The 4 description generators themselves are untouched — the `services/ai_descriptions.py` note explicitly said the three OpenAI-based generators are intentional and NOT to be rewritten.
+4. **Draft Recovery banner** — now colour-coded by staleness:
+   - 🔵 Blue = ≤7 days AND same supplier AND same product set → "Restore".
+   - 🟡 Amber = >7 days OR different products/supplier → shows exact mismatch reasons in a nested white card; button reads "Restore Anyway".
+   - 🔴 Red = >30 days → warns values may reference options that no longer exist.
+   - New third button: **"Ignore for now"** — dismisses the banner for this session but keeps the draft on the server so owner can decide later.
+   - Age chip shows "68 days ago" / "3 hours ago" / "just now" in human terms.
+   - No auto-discard (per owner's choice of option b).
+
+**Files touched**:
+- `/app/frontend/src/pages/admin/SupplierProducts.js` — deletions + new dialog + new banner logic + help block. Also: `HelpCircle` added to lucide imports. Renamed `forceSaveProgress` → `saveProgress`.
+- Backend: **untouched**. All 5 sync-collection endpoints, all 4 description-generation endpoints, and all sibling modals are unaffected.
+
+**Verification** — screenshot on `/admin/supplier-products` → Bulk Categories modal → 49 products:
+- Footer shows only "Cancel" + "Save Now to 49 Products" (no Force Save button) ✅
+- "Which description generator should I use?" block expands to show 4 numbered generators + rule of thumb ✅
+- Modal opens with no runtime errors; webpack compile clean (only pre-existing hook-dep warnings from unrelated code) ✅
+
+**Explicitly UNCHANGED (owner's core concern)**:
+- Quick Save (per-attribute cloud icons) — untouched.
+- All 4 description endpoints — untouched.
+- All 15 sibling components (TierPricingModal, BulkSaleModal, BulkEditPresets, BulkEditHistory, DryRunPreview, ManageOptionsModal, ScopeSummaryPanel, etc.) — untouched.
+- 5-collection sync fan-out — untouched.
+- Auto-publish rules — untouched.
+- Undo snapshot system — untouched.
+
+
+
 
 **Owner ask**: the main Tonbridge Warehouse search was returning the whole supplier catalogue — rows with `0 batches / 0.00 m²` that Tonbridge doesn't actually hold. Only products manually added to Tonbridge (with an active batch or non-zero `warehouse_stock`) should appear in the results.
 
