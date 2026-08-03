@@ -12,7 +12,7 @@
  */
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import {
   Square, ArrowLeft, RefreshCw, Search, Save, X, Edit2, Filter, ExternalLink, AlertCircle, CheckCircle, Plus,
@@ -54,6 +54,7 @@ const TilesManager = () => {
   const [saving, setSaving] = useState(false);
   const [lastRefresh, setLastRefresh] = useState(null);
   const [wizardOpen, setWizardOpen] = useState(false);
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const fetchProducts = useCallback(async () => {
     setLoading(true);
@@ -74,6 +75,18 @@ const TilesManager = () => {
   }, []);
 
   useEffect(() => { fetchProducts(); }, [fetchProducts]);
+
+  // Auto-open the edit modal for a specific SKU when routed from legacy editor
+  useEffect(() => {
+    const editSku = searchParams.get('edit');
+    if (editSku && products.length > 0) {
+      const target = products.find(p => p.sku === editSku || p.supplier_code === editSku);
+      if (target) {
+        openEdit(target);
+        setSearchParams({});
+      }
+    }
+  }, [products, searchParams, setSearchParams]);
 
   const filteredProducts = useMemo(() => {
     let list = products;
@@ -258,10 +271,14 @@ const TilesManager = () => {
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm text-blue-800 flex items-start gap-2">
           <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
           <div>
-            <p className="font-medium">Focused editor for tiles.</p>
-            <p className="text-xs text-blue-700 mt-0.5">
-              Only tile-relevant fields shown (Size, Thickness, Slip Rating, Rectified, Edge etc.). Tier pricing, publish, stock and refunds continue to work through the shared backend.
-            </p>
+            <p className="font-medium">How this page works</p>
+            <ul className="text-xs text-blue-700 mt-0.5 space-y-0.5 list-disc list-inside">
+              <li><strong>Search or filter</strong> to find a tile (Floor, Wall, Mosaic, Feature).</li>
+              <li>Click <strong>Edit</strong> on a row to change fields — only tile-relevant ones show.</li>
+              <li>Use <strong>+ Add New Tile</strong> for a brand-new product (opens the 3-step Wizard).</li>
+              <li>Tier pricing, publish, stock &amp; refund flows still work through the shared backend.</li>
+              <li>Products save with <strong>100% verification</strong> — any field that didn&apos;t stick is flagged immediately.</li>
+            </ul>
           </div>
         </div>
 

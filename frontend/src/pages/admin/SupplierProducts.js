@@ -10,7 +10,7 @@ import {
   Sparkles, Bell, AlertTriangle, Database, CheckSquare, EyeOff, Store, Globe,
   Settings2, Archive, Layers, PenLine, ExternalLink, Save, Edit2, Loader2, Flag, Copy, Pencil,
   Tag, Percent, DollarSign, BadgePercent, Zap, Star, Clock, AlertCircle, ArrowRight, ShoppingCart, XCircle, Minus, CheckCircle,
-  Home, FolderTree, Palette, Replace, PlusCircle, Shield, History, Undo2, HelpCircle
+  Home, FolderTree, Palette, Replace, PlusCircle, Shield, History, Undo2, HelpCircle, Grid3X3
 } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -394,6 +394,9 @@ export default function SupplierProducts() {
   
   // Tier Pricing Modal State
   const [showTierPricingModal, setShowTierPricingModal] = useState(false);
+  const [showAssignCategoryDropdown, setShowAssignCategoryDropdown] = useState(false);
+  const [backfillPreview, setBackfillPreview] = useState(null);
+  const [backfillRunning, setBackfillRunning] = useState(false);
   const [tierPricingConfig, setTierPricingConfig] = useState({
     thresholds: [10, 50, 100],
     discounts: [0, 5, 10, 15],
@@ -5927,6 +5930,75 @@ export default function SupplierProducts() {
     }
   };
 
+  // Bulk Assign Category — sets `product_group` on all selected products so they
+  // route into the correct Manager on next edit. Also backfills `main_category`
+  // when blank, and sets `pricing_unit=unit` for materials so tier pricing labels
+  // render correctly.
+  const handleBulkAssignCategory = async (productGroup) => {
+    if (selectedProducts.size === 0) {
+      toast.error('No products selected');
+      return;
+    }
+    const label = {
+      tiles: 'Tiles', materials: 'Materials', flooring: 'Flooring',
+      bathroom: 'Bathroom', underfloor_heating: 'Underfloor Heating', tools: 'Tools & Accessories',
+    }[productGroup] || productGroup;
+    if (!window.confirm(`Assign ${selectedProducts.size} product(s) to "${label}"? They'll open in the ${label} Manager on next edit.`)) return;
+    
+    try {
+      const productsList = products.filter(p => selectedProducts.has(getProductKey(p)));
+      const bySku = productsList.filter(p => p.sku).map(p => p.sku);
+      const bySupplierCode = productsList.filter(p => !p.sku && p.supplier_code).map(p => p.supplier_code);
+      
+      let totalUpdated = 0;
+      for (const [ids, idField] of [[bySku, 'sku'], [bySupplierCode, 'supplier_code']]) {
+        if (ids.length === 0) continue;
+        const res = await fetch(`${API_URL}/api/supplier-sync/products/bulk-assign-category`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ product_ids: ids, id_field: idField, product_group: productGroup }),
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.detail || `HTTP ${res.status}`);
+        }
+        const data = await res.json();
+        totalUpdated += data.modified_count || 0;
+      }
+      toast.success(`Assigned ${totalUpdated} product(s) to ${label}`);
+      fetchProducts();
+    } catch (err) {
+      console.error('Bulk assign category failed', err);
+      toast.error(`Assign failed: ${err.message}`);
+    }
+  };
+  
+  const runBackfillProductGroup = async ({ dryRun = true } = {}) => {
+    setBackfillRunning(true);
+    try {
+      const res = await fetch(`${API_URL}/api/supplier-sync/products/backfill-product-group`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dry_run: dryRun }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      setBackfillPreview(data);
+      if (!dryRun) {
+        toast.success(`Classified ${data.applied} products. ${data.counts.unclassified} left for manual review.`);
+        fetchProducts();
+      } else {
+        toast.info(data.message || 'Preview ready — click Apply to write.');
+      }
+    } catch (err) {
+      console.error('Backfill failed', err);
+      toast.error(`Backfill failed: ${err.message}`);
+    } finally {
+      setBackfillRunning(false);
+    }
+  };
+
+
   // Handle bulk archive (set inactive)
   const handleBulkArchive = async () => {
     if (selectedProducts.size === 0) {
@@ -5937,7 +6009,6 @@ export default function SupplierProducts() {
     if (!window.confirm(`Are you sure you want to archive ${selectedProducts.size} product(s)? They will be set to inactive.`)) {
       return;
     }
-
     try {
       const response = await api.bulkUpdateProducts({
         product_ids: Array.from(selectedProducts),
@@ -6646,6 +6717,7 @@ export default function SupplierProducts() {
     // First, apply status filter
     let filtered = products.filter(p => {
       if (!statusFilter) return true;
+      if (statusFilter === 'needs_category') return !p.product_group;
       if (statusFilter === 'in_stock') return p.in_stock === true && !p.always_in_stock && p.stock_status !== 'low_stock';
       if (statusFilter === 'low_stock') return p.stock_status === 'low_stock';
       if (statusFilter === 'out_of_stock') return p.in_stock === false && !p.always_in_stock;
@@ -7029,6 +7101,23 @@ export default function SupplierProducts() {
 
   // Open Quick Edit Modal
   const handleQuickEdit = (product) => {
+    // Route to category-specific Manager if product has a product_group.
+    // Managers are the recommended editing surface — legacy Quick Edit
+    // stays available for products that are still unclassified.
+    const groupToPath = {
+      tiles: '/admin/tiles',
+      materials: '/admin/materials',
+      // Future: flooring / bathroom / underfloor_heating / tools managers
+    };
+    const target = groupToPath[product.product_group];
+    if (target) {
+      const productId = product.sku || product.supplier_code || product._id;
+      toast.info(`Opening ${product.product_group} Manager…`, { duration: 3000 });
+      // Navigate to the manager with an anchor so it can auto-open the edit modal for this SKU
+      navigate(`${target}?edit=${encodeURIComponent(productId)}`);
+      return;
+    }
+    // Fallback: legacy Quick Edit modal
     setQuickEditProduct(product);
     // Get all images for this product
     const productImages = product.images && product.images.length > 0 
@@ -7919,6 +8008,41 @@ export default function SupplierProducts() {
                 <Globe className="w-4 h-4 mr-2" />
                 Edit Categories ({selectedProducts.size})
               </Button>
+              {/* Big Assign Category picker — sets product_group on all selected so
+                  they route into the matching Manager on next edit. */}
+              <div className="relative inline-block">
+                <Button
+                  variant="default"
+                  className="bg-teal-600 hover:bg-teal-700"
+                  onClick={() => setShowAssignCategoryDropdown(v => !v)}
+                  data-testid="bulk-assign-category-big-btn"
+                >
+                  <Grid3X3 className="w-4 h-4 mr-2" />
+                  Assign Category ({selectedProducts.size})
+                </Button>
+                {showAssignCategoryDropdown && (
+                  <div className="absolute top-full mt-2 left-0 bg-white text-gray-900 rounded-lg shadow-xl border border-gray-200 py-1 w-64 z-50">
+                    <div className="px-3 py-2 text-[11px] font-semibold text-gray-500 uppercase tracking-wide border-b">Route selected products to…</div>
+                    {[
+                      { g: 'tiles', label: 'Tiles', color: 'text-blue-600' },
+                      { g: 'materials', label: 'Materials', color: 'text-orange-600' },
+                      { g: 'flooring', label: 'Flooring', color: 'text-emerald-600' },
+                      { g: 'bathroom', label: 'Bathroom', color: 'text-cyan-600' },
+                      { g: 'underfloor_heating', label: 'Underfloor Heating', color: 'text-red-600' },
+                      { g: 'tools', label: 'Tools & Accessories', color: 'text-slate-600' },
+                    ].map(opt => (
+                      <button
+                        key={opt.g}
+                        onClick={() => { handleBulkAssignCategory(opt.g); setShowAssignCategoryDropdown(false); }}
+                        className={`w-full text-left px-3 py-2 text-sm hover:bg-gray-100 ${opt.color}`}
+                        data-testid={`bulk-assign-big-${opt.g}`}
+                      >
+                        {opt.label} Manager
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
               <Button 
                 variant="default"
                 className="bg-green-600 hover:bg-green-700"
@@ -8256,6 +8380,61 @@ export default function SupplierProducts() {
         })}
       </div>
 
+      {/* Category Coverage Banner — shown when the "Needs Category" filter is active
+          or the backfill preview has been run. Explains the router routing and offers
+          a one-click auto-classifier. */}
+      {(statusFilter === 'needs_category' || backfillPreview) && (
+        <div className="bg-teal-50 border border-teal-200 rounded-lg p-3 flex items-start gap-3">
+          <Grid3X3 className="w-5 h-5 text-teal-600 mt-0.5" />
+          <div className="flex-1">
+            <p className="text-sm font-semibold text-teal-900">Category Coverage</p>
+            <p className="text-xs text-teal-700 mt-0.5">
+              Products with a category assigned automatically open in the matching Manager (Materials / Tiles / Flooring…). Products without a category stay in this legacy editor. Run the auto-classifier to fill in the blanks.
+            </p>
+            {backfillPreview && backfillPreview.counts && (
+              <div className="mt-2 grid grid-cols-3 sm:grid-cols-6 gap-2 text-[11px]">
+                {Object.entries(backfillPreview.counts).map(([grp, count]) => (
+                  <div key={grp} className={`px-2 py-1 rounded ${grp === 'unclassified' ? 'bg-amber-100 text-amber-800' : grp === 'already_set' ? 'bg-gray-100 text-gray-700' : 'bg-white border border-teal-200 text-teal-800'}`}>
+                    <div className="font-semibold">{count}</div>
+                    <div className="capitalize truncate">{grp.replace(/_/g, ' ')}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          <div className="flex flex-col gap-1">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => runBackfillProductGroup({ dryRun: true })}
+              disabled={backfillRunning}
+              className="text-teal-700 border-teal-300 hover:bg-teal-100"
+              data-testid="backfill-preview-btn"
+            >
+              {backfillRunning ? <RefreshCw className="w-3.5 h-3.5 mr-1 animate-spin" /> : <Eye className="w-3.5 h-3.5 mr-1" />}
+              Preview
+            </Button>
+            {backfillPreview && (
+              <Button
+                size="sm"
+                onClick={() => {
+                  const c = backfillPreview.counts;
+                  const total = (c.tiles||0)+(c.materials||0)+(c.flooring||0)+(c.bathroom||0)+(c.underfloor_heating||0)+(c.tools||0);
+                  if (window.confirm(`Apply auto-classification to ${total} products?`)) {
+                    runBackfillProductGroup({ dryRun: false });
+                  }
+                }}
+                disabled={backfillRunning}
+                className="bg-teal-600 hover:bg-teal-700 text-white"
+                data-testid="backfill-apply-btn"
+              >
+                Apply
+              </Button>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Stats Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <Card>
@@ -8341,6 +8520,9 @@ export default function SupplierProducts() {
                 data-testid="status-filter"
               >
                 <option value="">All Status</option>
+                <optgroup label="Category Coverage">
+                  <option value="needs_category">⚠️ Needs Category (unclassified)</option>
+                </optgroup>
                 <optgroup label="Website Status">
                   <option value="published">🌐 Published (Live)</option>
                   <option value="not_published">📝 Not Published</option>
@@ -9029,40 +9211,10 @@ export default function SupplierProducts() {
                       )}
                       <td className="py-3 px-4">
                         <div className="flex items-center justify-center gap-1">
-                          {/* Visibility Dropdown */}
-                          {hasAction('supplier_products.action.visibility') && (
-                          <select
-                            value={product.visibility || 'online'}
-                            onChange={(e) => handleSetVisibility(product, e.target.value)}
-                            className={`text-xs px-1 py-1 rounded border cursor-pointer ${
-                              product.visibility === 'hidden' ? 'bg-gray-100 text-gray-500 border-gray-300' :
-                              product.visibility === 'in_store_only' ? 'bg-yellow-50 text-yellow-700 border-yellow-300' :
-                              'bg-green-50 text-green-700 border-green-300'
-                            }`}
-                            title="Product visibility"
-                          >
-                            <option value="online">Online</option>
-                            <option value="in_store_only">In-Store</option>
-                            <option value="hidden">Hidden</option>
-                          </select>
-                          )}
-                          {/* Always In Stock Checkbox - only show for suppliers other than LEPORCE and Plus39 */}
-                          {hasAction('supplier_products.action.always_in_stock') && product.supplier !== 'LEPORCE' && product.supplier !== 'Plus39' && (
-                            <label 
-                              className="flex items-center gap-1 cursor-pointer group"
-                              title={product.always_in_stock ? "Click to use actual stock status" : "Click to always show as In Stock"}
-                            >
-                              <input
-                                type="checkbox"
-                                checked={product.always_in_stock || false}
-                                onChange={() => handleToggleAlwaysInStock(product)}
-                                className="w-4 h-4 rounded border-gray-300 text-green-600 focus:ring-green-500"
-                              />
-                              <span className={`text-xs ${product.always_in_stock ? 'text-green-600 font-medium' : 'text-gray-400 group-hover:text-gray-600'}`}>
-                                Always
-                              </span>
-                            </label>
-                          )}
+                          {/* NOTE (Aug 3 2026): The per-row Visibility dropdown (Online / In-Store / Hidden)
+                              and "Always In Stock" checkbox were removed at owner's request — they took
+                              space without being used. Set visibility from the row's "Mark Not For Sale"
+                              action or the Bulk Actions bar instead. */}
                           {/* Add to Database - only show if NOT already in products database */}
                           {hasAction('supplier_products.action.add_to_db') && !product.in_products_db ? (
                             <Button
@@ -16475,6 +16627,42 @@ export default function SupplierProducts() {
               <Building2 className="w-3.5 h-3.5" />
               Change Supplier
             </button>
+
+            {/* Assign Category dropdown — sets product_group on all selected so they
+                route to the right Manager. Sits next to Change Supplier for parity. */}
+            <div className="relative group">
+              <button
+                type="button"
+                data-testid="qa-assign-category"
+                onClick={() => setShowAssignCategoryDropdown(v => !v)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-teal-500/90 hover:bg-teal-500 transition-all text-[13px] font-medium shadow-md shadow-teal-500/20"
+                title="Assign a product category (routes selected products into the matching Manager)"
+              >
+                <Grid3X3 className="w-3.5 h-3.5" />
+                Assign Category
+              </button>
+              {showAssignCategoryDropdown && (
+                <div className="absolute bottom-full mb-2 left-0 bg-white text-gray-900 rounded-lg shadow-xl border border-gray-200 py-1 w-56 z-50" data-testid="assign-category-dropdown">
+                  {[
+                    { g: 'tiles', label: '⬛ Tiles', color: 'text-blue-600' },
+                    { g: 'materials', label: '📦 Materials', color: 'text-orange-600' },
+                    { g: 'flooring', label: '🪵 Flooring', color: 'text-emerald-600' },
+                    { g: 'bathroom', label: '🛁 Bathroom', color: 'text-cyan-600' },
+                    { g: 'underfloor_heating', label: '🔥 Underfloor Heating', color: 'text-red-600' },
+                    { g: 'tools', label: '🔧 Tools & Accessories', color: 'text-slate-600' },
+                  ].map(opt => (
+                    <button
+                      key={opt.g}
+                      onClick={() => { handleBulkAssignCategory(opt.g); setShowAssignCategoryDropdown(false); }}
+                      className={`w-full text-left px-3 py-2 text-sm hover:bg-gray-100 ${opt.color}`}
+                      data-testid={`assign-cat-${opt.g}`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
 
             <button
               type="button"

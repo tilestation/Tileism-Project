@@ -24,7 +24,7 @@
  */
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import {
   Package, ArrowLeft, RefreshCw, Search, Save, X, Edit2, Filter, ExternalLink, AlertCircle, CheckCircle, Plus,
@@ -68,6 +68,7 @@ const MaterialsManager = () => {
   const [saving, setSaving] = useState(false);
   const [lastRefresh, setLastRefresh] = useState(null);
   const [wizardOpen, setWizardOpen] = useState(false);
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const fetchProducts = useCallback(async () => {
     setLoading(true);
@@ -99,6 +100,19 @@ const MaterialsManager = () => {
   useEffect(() => {
     fetchProducts();
   }, [fetchProducts]);
+
+  // Auto-open the edit modal for a specific SKU when routed here from the
+  // legacy Bulk Editor via /admin/materials?edit=SKU.
+  useEffect(() => {
+    const editSku = searchParams.get('edit');
+    if (editSku && products.length > 0) {
+      const target = products.find(p => p.sku === editSku || p.supplier_code === editSku);
+      if (target) {
+        openEdit(target);
+        setSearchParams({});
+      }
+    }
+  }, [products, searchParams, setSearchParams]);
 
   const filteredProducts = useMemo(() => {
     let list = products;
@@ -311,10 +325,14 @@ const MaterialsManager = () => {
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm text-blue-800 flex items-start gap-2">
           <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
           <div>
-            <p className="font-medium">Focused editor for materials products.</p>
-            <p className="text-xs text-blue-700 mt-0.5">
-              Only material-relevant fields are shown here (Coverage, Pot Life, Bag Weight, VOC etc.). Tier pricing, publish, stock and refunds keep working through the shared backend. Legacy editor is one click away.
-            </p>
+            <p className="font-medium">How this page works</p>
+            <ul className="text-xs text-blue-700 mt-0.5 space-y-0.5 list-disc list-inside">
+              <li><strong>Search or filter</strong> to find a material (Adhesives, Grouts, Sealants, Cleaning).</li>
+              <li>Click <strong>Edit</strong> on a row to change fields — only material-relevant ones show.</li>
+              <li>Use <strong>+ Add New Material</strong> for a brand-new product (opens the 3-step Wizard).</li>
+              <li>Tier pricing, publish, stock &amp; refund flows still work through the shared backend.</li>
+              <li>Products save with <strong>100% verification</strong> — any field that didn&apos;t stick is flagged immediately.</li>
+            </ul>
           </div>
         </div>
 

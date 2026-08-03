@@ -4457,7 +4457,7 @@ def upsert_supplier_product(data: dict):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# ============ ADD PRODUCT WIZARD ENDPOINT ============
+# ============ ADD PRODUCT WIZARD ENDPOINTS ============
 
 # Allowed writable fields for the Wizard. Everything else in the incoming
 # dict is silently dropped so a malicious/misconfigured client can't overwrite
@@ -4493,6 +4493,227 @@ WIZARD_ALLOWED_FIELDS = {
     # Visibility
     "visibility", "show_on_website", "published",
 }
+
+
+# ============ PRODUCT-GROUP CLASSIFICATION ============
+# Ordered list of (regex, group) — first match wins. Kept simple and inspectable
+# so the classifier is easy to reason about and to extend.
+_CLASSIFY_RULES = [
+    # Main category exact matches — highest confidence
+    ("__MAIN__", {
+        "materials": "materials", "material": "materials",
+        "tiles": "tiles", "tile": "tiles",
+        "flooring": "flooring", "floor": "flooring", "floors": "flooring",
+        "bathroom": "bathroom", "bathrooms": "bathroom",
+        "underfloor heating": "underfloor_heating", "underfloor": "underfloor_heating", "ufh": "underfloor_heating",
+        "tools": "tools", "tools & accessories": "tools", "accessories": "tools",
+    }),
+    # Sub-category keywords → group
+    ("__SUB__", [
+        (r"adhesive|primer|grout|sealant|silicone|cleaning|cleaner|levelling compound|self-levelling", "materials"),
+        (r"lvt|laminate|engineered wood|solid wood|vinyl|floor plank|spc|floor board", "flooring"),
+        (r"toilet|basin|bath|shower|tap|mixer|cistern|urinal|bidet|wc|vanity unit|towel rail", "bathroom"),
+        (r"underfloor heat|thermostat|heating mat|heating cable|ufh", "underfloor_heating"),
+        (r"trowel|spacer|cutter|drill bit|leveller kit|leveller|tile saw|notched|tile clip", "tools"),
+        (r"tile|mosaic|border|feature strip", "tiles"),
+    ]),
+]
+
+def _classify_product_group(sp: dict) -> str | None:
+    """Return best-guess product_group, or None when the data doesn't say.
+    Order of trust: existing product_group > main_category > sub_categories > product name."""
+    # Already classified — never override without explicit intent
+    if sp.get("product_group"):
+        return sp["product_group"]
+    
+    # Main category
+    mc = str(sp.get("main_category") or "").strip().lower()
+    if mc:
+        mapping = _CLASSIFY_RULES[0][1]
+        if mc in mapping:
+            return mapping[mc]
+    
+    # Sub-categories
+    subs = sp.get("sub_categories") or []
+    if isinstance(subs, list) and subs:
+        blob = " | ".join(str(s).lower() for s in subs)
+        for pattern, group in _CLASSIFY_RULES[1][1]:
+            if re.search(pattern, blob, re.IGNORECASE):
+                return group
+    
+    # Product name (weaker signal)
+    name = " ".join(str(sp.get(k) or "") for k in ("product_name", "our_product_name", "name", "display_name")).lower()
+    if name:
+        for pattern, group in _CLASSIFY_RULES[1][1]:
+            if re.search(pattern, name, re.IGNORECASE):
+                return group
+    
+    return None
+
+
+@router.post("/products/backfill-product-group")
+def backfill_product_group(data: dict):
+    """
+    Classify products into `product_group` (tiles / materials / flooring / bathroom /
+    underfloor_heating / tools) based on main_category, sub_categories and name.
+    
+    Body:
+      {
+        "dry_run": true      # if true, return preview without writing
+      }
+    
+    Returns per-group counts, an "unclassified" count, and a small preview list.
+    """
+    try:
+        db = get_db()
+        dry_run = bool(data.get("dry_run", True))
+        
+        cur = db.supplier_products.find(
+            {},
+            {"_id": 0, "sku": 1, "supplier": 1, "product_name": 1, "our_product_name": 1,
+             "name": 1, "display_name": 1, "main_category": 1, "sub_categories": 1,
+             "product_group": 1}
+        )
+        
+        counts = {"tiles": 0, "materials": 0, "flooring": 0, "bathroom": 0,
+                  "underfloor_heating": 0, "tools": 0, "unclassified": 0, "already_set": 0}
+        classified_bulk = []   # (sku, supplier, group)
+        preview_samples = {"tiles": [], "materials": [], "flooring": [], "bathroom": [], "underfloor_heating": [], "tools": [], "unclassified": []}
+        
+        for sp in cur:
+            existing = sp.get("product_group")
+            if existing:
+                counts["already_set"] += 1
+                continue
+            group = _classify_product_group(sp)
+            if group:
+                counts[group] += 1
+                classified_bulk.append((sp.get("sku"), sp.get("supplier"), group))
+                if len(preview_samples.get(group, [])) < 5:
+                    preview_samples[group].append({
+                        "sku": sp.get("sku"),
+                        "supplier": sp.get("supplier"),
+                        "name": sp.get("product_name") or sp.get("our_product_name") or sp.get("name") or ""
+                    })
+            else:
+                counts["unclassified"] += 1
+                if len(preview_samples["unclassified"]) < 5:
+                    preview_samples["unclassified"].append({
+                        "sku": sp.get("sku"),
+                        "supplier": sp.get("supplier"),
+                        "name": sp.get("product_name") or sp.get("our_product_name") or sp.get("name") or ""
+                    })
+        
+        applied = 0
+        if not dry_run and classified_bulk:
+            # Apply in bulk — one update_many per group with $in on SKUs to minimise round-trips
+            grouped = {}
+            for sku, supplier, grp in classified_bulk:
+                grouped.setdefault(grp, []).append(sku)
+            for grp, skus in grouped.items():
+                if not skus:
+                    continue
+                res = db.supplier_products.update_many(
+                    {"sku": {"$in": skus}, "product_group": {"$in": [None, ""]}},
+                    {"$set": {"product_group": grp, "updated_at": datetime.now(timezone.utc)}}
+                )
+                # Also propagate to tiles collection
+                db.tiles.update_many(
+                    {"sku": {"$in": skus}},
+                    {"$set": {"product_group": grp}}
+                )
+                applied += res.modified_count
+        
+        return {
+            "success": True,
+            "dry_run": dry_run,
+            "counts": counts,
+            "applied": applied,
+            "preview": preview_samples,
+            "message": (
+                f"[Dry-run] Would classify {sum(counts[k] for k in counts if k not in ('unclassified','already_set'))} products, "
+                f"leaving {counts['unclassified']} unclassified."
+                if dry_run else
+                f"Classified and updated {applied} products. {counts['unclassified']} left unclassified for manual review."
+            )
+        }
+    except Exception as e:
+        logger.error(f"Backfill product_group error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class BulkAssignCategoryRequest(BaseModel):
+    product_ids: List[str]
+    id_field: Optional[str] = "sku"
+    product_group: str  # 'tiles' | 'materials' | 'flooring' | 'bathroom' | 'underfloor_heating' | 'tools'
+
+
+@router.post("/products/bulk-assign-category")
+def bulk_assign_category(data: BulkAssignCategoryRequest):
+    """Explicitly set `product_group` on a list of products (overrides prior value).
+    
+    Used by the "Assign Category" bulk action in the legacy Bulk Editor when the
+    admin knows better than the classifier. Also writes to `main_category` when
+    it's currently blank so the Manager filters can rely on either field.
+    """
+    valid_groups = {"tiles", "materials", "flooring", "bathroom", "underfloor_heating", "tools"}
+    if data.product_group not in valid_groups:
+        raise HTTPException(status_code=400, detail=f"product_group must be one of {sorted(valid_groups)}")
+    
+    try:
+        db = get_db()
+        id_field = data.id_field or "sku"
+        # Default main_category text matches what the Managers filter on
+        main_cat_map = {
+            "tiles": "Tiles", "materials": "Materials", "flooring": "Flooring",
+            "bathroom": "Bathroom", "underfloor_heating": "Underfloor Heating", "tools": "Tools"
+        }
+        main_category = main_cat_map[data.product_group]
+        
+        # Auto-set pricing_unit for materials (bag pricing) — others default to m2 elsewhere
+        set_fields = {
+            "product_group": data.product_group,
+            "updated_at": datetime.now(timezone.utc),
+        }
+        
+        # First pass: set product_group + backfill main_category only when blank
+        sp_result = db.supplier_products.update_many(
+            {id_field: {"$in": data.product_ids}},
+            {"$set": set_fields}
+        )
+        # Backfill blank main_category only
+        db.supplier_products.update_many(
+            {id_field: {"$in": data.product_ids}, "$or": [{"main_category": {"$in": [None, ""]}}, {"main_category": {"$exists": False}}]},
+            {"$set": {"main_category": main_category}}
+        )
+        # Propagate to tiles collection
+        db.tiles.update_many(
+            {id_field: {"$in": data.product_ids}},
+            {"$set": {"product_group": data.product_group}}
+        )
+        db.tiles.update_many(
+            {id_field: {"$in": data.product_ids}, "$or": [{"main_category": {"$in": [None, ""]}}, {"main_category": {"$exists": False}}]},
+            {"$set": {"main_category": main_category}}
+        )
+        
+        # For materials, also set pricing_unit=unit where it's not already set
+        if data.product_group == "materials":
+            db.supplier_products.update_many(
+                {id_field: {"$in": data.product_ids}, "$or": [{"pricing_unit": {"$in": [None, ""]}}, {"pricing_unit": {"$exists": False}}]},
+                {"$set": {"pricing_unit": "unit"}}
+            )
+        
+        return {
+            "success": True,
+            "modified_count": sp_result.modified_count,
+            "product_group": data.product_group,
+            "message": f"Assigned {sp_result.modified_count} products to {main_category}"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Bulk assign category error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/products/create")

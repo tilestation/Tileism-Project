@@ -36,3 +36,11 @@
 - Sub-tabs: All Materials / Adhesives / Grouts / Sealants / Cleaning / Other.
 - Edit modal shows only material-relevant fields: Bag Weight, Coverage (m²/bag), Setting Time, Pot Life, Application Thickness, VOC Rating, Bag Colour, Colour, Suitability, Description. Saves via the shared `bulk-update-unified` endpoint so tier pricing / publish / stock all keep working.
 - Verified: scoped save `SKU1+SKU2→Grey`, `SKU3→White` returned `verification_ok=true`, `checked=3`, `failures=0`, Mongo shows the correct `color` + `colors[]` on each SKU.
+
+## Category classifier + routing (Aug 3, 2026)
+- `POST /api/supplier-sync/products/backfill-product-group` — one-shot classifier that reads every supplier_product and assigns `product_group` (tiles / materials / flooring / bathroom / underfloor_heating / tools) based on `main_category`, `sub_categories`, and product name. Supports dry_run for preview.
+- `POST /api/supplier-sync/products/bulk-assign-category` — sets `product_group` on a list of SKUs (overrides). Also backfills blank `main_category`, and auto-sets `pricing_unit='unit'` for materials.
+- Legacy Bulk Editor: click "Edit" on a product → if `product_group` is set, browser routes to the matching Manager (`/admin/materials?edit=SKU` etc.) which auto-opens the edit modal for that SKU. Fallback QuickEditModal opens when unclassified.
+- `?edit=SKU` query param handled by MaterialsManager + TilesManager to auto-open the row after navigation.
+- New status filter: "⚠️ Needs Category (unclassified)" — surfaces products without a product_group so admin can bulk-assign them.
+- Removed per-row Visibility dropdown (Online/In-Store/Hidden) and "Always In Stock" checkbox from the legacy product table (owner reported unused, took space).

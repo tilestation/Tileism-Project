@@ -9,6 +9,48 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Aug 3, 2026 — Forked, later] 🟢 Category classifier + routing + legacy cleanup
+
+**Owner asked**:
+1. How do I edit inside Managers? → workflow explained + banner added
+2. Are Managers wired properly? → honest answer: single-product edit/create yes; bulk workflows next session
+3. Can we mark products with a category so edits route to the correct Manager? → shipped now
+
+**Shipped this session**:
+
+1. **Auto-classifier** — `POST /api/supplier-sync/products/backfill-product-group` classifies every unclassified product into tiles/materials/flooring/bathroom/underfloor_heating/tools using a rule engine over `main_category`, `sub_categories`, and product name. Supports `dry_run=true` for preview. Preview run on prod-like preview DB returned counts: `{tiles: 2, materials: 0, flooring: 232, bathroom: 1, unclassified: 145, already_set: 1326}`.
+2. **Bulk-Assign Category** — `POST /api/supplier-sync/products/bulk-assign-category` sets `product_group` on a list of SKUs, backfills blank `main_category`, and auto-sets `pricing_unit='unit'` when the target is materials. Verified: `HE6000` → materials shows `product_group: 'materials', main_category: 'Materials', pricing_unit: 'unit'` in Mongo.
+3. **UI — Two entry points** for Bulk-Assign per the owner's request:
+   - **Big teal button** "Assign Category (49)" next to Edit Categories in the top toolbar → dropdown of the 6 Manager options.
+   - **Compact chip** in the floating Quick Actions bar (bottom) with the same picker.
+4. **"Needs Category" filter** — new option at the top of the Status filter dropdown; when selected, shows only products with no `product_group`.
+5. **Category Coverage banner** — appears when Needs Category filter is on OR after Preview. Shows per-group counts + Preview / Apply buttons for the classifier.
+6. **Edit routing** — clicking Edit on ANY product in the legacy Bulk Editor now checks `product_group`; if set to tiles/materials, browser navigates to `/admin/tiles?edit=SKU` or `/admin/materials?edit=SKU`. The Manager listens for `?edit=SKU` in its query string and auto-opens the edit modal for that SKU. If unclassified, falls back to legacy QuickEditModal.
+7. **Managers auto-open edits** — both MaterialsManager and TilesManager now watch for `?edit=SKU` and open their focused edit modal for that product on load.
+8. **Onboarding banner** — Materials + Tiles Managers now show a clear "How this page works" bullet list explaining Search/Edit/Add/verification flow.
+9. **Removed unused per-row chips** — the "Online / In-Store / Hidden" dropdown and "Always In Stock" checkbox in the legacy product table are gone (owner reported unused, freed up space).
+
+**Files touched**:
+- `/app/backend/routes/supplier_sync.py` — new `_classify_product_group` helper, `/products/backfill-product-group` endpoint, `/products/bulk-assign-category` endpoint
+- `/app/frontend/src/pages/admin/SupplierProducts.js` — removed row chips, added Assign Category (big + compact) with dropdown, added Needs Category filter + Coverage banner + backfill runner, Edit routing to Managers
+- `/app/frontend/src/pages/admin/MaterialsManager.jsx` — `?edit=SKU` handler + updated onboarding banner
+- `/app/frontend/src/pages/admin/TilesManager.jsx` — `?edit=SKU` handler + updated onboarding banner
+
+**Answers I gave the owner honestly**:
+- **Q1** (workflow): Search → Edit → focused modal, or "+ Add New" → Wizard. Simple by design.
+- **Q2** (wiring status): Single-product edit + create ✅, bulk workflows ❌ — next session.
+- **Q3** (categorisation): shipped exactly this — backfill + bulk-assign + routing + Needs Category filter.
+
+**Next session (approved backlog)**:
+- Bulk edit inside each Manager (multi-select toolbar + assign colours + tier pricing + publish + description generator)
+- Tier Pricing modal mounted directly inside each Manager
+- Publish/Unpublish shortcut per Manager
+- Flooring / Bathroom / UFH / Tools Manager pages
+- Product Templates
+- CSV Import per category
+
+
+
 ### [Aug 3, 2026 — Forked, later] 🟢 Add Product Wizard + Tiles Manager shipped
 
 **Owner ask**: Rework the product-adding flow because jumping between categories was confusing. Approved the full plan (5 YES answers) — Wizard first, then Managers, then Templates, then CSV import.
