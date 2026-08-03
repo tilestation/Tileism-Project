@@ -733,8 +733,12 @@ export default function Warehouse() {
     }
     setSearching(true);
     try {
+      // only_stocked=true — the main search should only show products
+      // that have actually been added to Tonbridge (at least one active
+      // batch or non-zero warehouse_stock). Without this, the whole
+      // supplier catalogue leaks in with "0 batches / 0.00 m²" rows.
       const res = await axios.get(
-        `${API}/warehouse/products?q=${encodeURIComponent(trimmed)}&limit=50`,
+        `${API}/warehouse/products?q=${encodeURIComponent(trimmed)}&limit=50&only_stocked=true`,
         { headers: getAuthHeader() },
       );
       setProducts(res.data?.products || []);
@@ -890,7 +894,7 @@ export default function Warehouse() {
           />
         </div>
         <p className="text-xs text-slate-500 mt-2">
-          Type at least one character to see live warehouse stock. Click a product to see its batches.
+          Type at least one character to search Tonbridge stock. Only products we actually hold here are listed — the wider supplier catalogue is excluded. Click a product to see its batches.
         </p>
       </Card>
 
@@ -904,7 +908,13 @@ export default function Warehouse() {
         {!searching && debouncedQuery && products.length === 0 && (
           <div className="p-10 text-center text-slate-500" data-testid="warehouse-empty-results">
             <PackageOpen className="w-10 h-10 mx-auto text-slate-300 mb-3" />
-            <p className="text-sm">No products match &quot;<strong>{debouncedQuery}</strong>&quot;.</p>
+            <p className="text-sm">
+              No <strong>Tonbridge</strong> stock matches &quot;<strong>{debouncedQuery}</strong>&quot;.
+            </p>
+            <p className="text-xs text-slate-400 mt-1">
+              This search only shows products we actually hold in the Tonbridge warehouse. If you&apos;re looking
+              at a supplier catalogue item, add it to Tonbridge first using the button below.
+            </p>
             {canManage && (
               <Button
                 variant="outline"

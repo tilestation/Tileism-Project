@@ -9,7 +9,29 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
-### [Aug 3, 2026 — Forked session] 🟢 EPOS — "Online" payment method added under Link Payment
+### [Aug 3, 2026 — Forked session] 🟢 Tonbridge Warehouse — search now filters to in-stock products only
+
+**Owner ask**: the main Tonbridge Warehouse search was returning the whole supplier catalogue — rows with `0 batches / 0.00 m²` that Tonbridge doesn't actually hold. Only products manually added to Tonbridge (with an active batch or non-zero `warehouse_stock`) should appear in the results.
+
+**Fix** — added an opt-in `only_stocked` query param on `GET /api/warehouse/products`:
+- **Backend** (`/app/backend/routes/warehouse.py`): new `only_stocked: bool = False` query param. When true, results are filtered post-enrichment to `batch_count > 0 OR warehouse_stock > 0`, dropping catalogue-only matches.
+- **Frontend** (`/app/frontend/src/pages/admin/Warehouse.jsx`):
+  - Main warehouse search bar now calls `/api/warehouse/products?...&only_stocked=true`.
+  - Search hint text updated: "Type at least one character to search Tonbridge stock. Only products we actually hold here are listed — the wider supplier catalogue is excluded."
+  - Empty-state upgraded: "No **Tonbridge** stock matches '{query}'." with a secondary explanatory line and the existing "Add a new product" button.
+- **NOT changed** — the "Add stock → Select existing product" picker (`ExistingProductPicker`) still hits `/api/warehouse/products` **without** `only_stocked`, so staff can pull ANY catalogue product when they need to add a new item to Tonbridge.
+
+**Files**:
+- `/app/backend/routes/warehouse.py` — new query param + filter.
+- `/app/frontend/src/pages/admin/Warehouse.jsx` — main-search URL, hint text, empty-state copy.
+
+**Verification** — curl `/api/warehouse/products?q=tile&limit=10`:
+- Without `only_stocked`: 4 rows (`FT-001` with stock=86 + 3 catalogue items with stock=0/batches=0).
+- With `only_stocked=true`: **1 row** (`FT-001` only). ✅
+- Screenshot on `/admin/warehouse` searching "tile" now shows the single Floor Tile Grey row; searching "flat white" shows the new empty state with the Tonbridge-only wording ✅
+
+
+
 
 **Owner ask**: add a new payment method **"Online"** to the Payments Received dropdown on the EPOS Invoice screen, placed directly below **Link Payment** (before Cheque).
 

@@ -324,6 +324,16 @@ async def get_warehouse_info(current_user: dict = Depends(get_current_user)):
 async def search_warehouse_products(
     q: str = Query("", max_length=200),
     limit: int = Query(50, ge=1, le=200),
+    only_stocked: bool = Query(
+        False,
+        description=(
+            "When true, only return products that have been manually added to "
+            "Tonbridge (at least one active batch, or a non-zero warehouse_stock). "
+            "The main Tonbridge Warehouse search bar sets this so staff aren't "
+            "looking at the whole supplier catalogue. The Add-stock product picker "
+            "leaves it false so it can pull ANY catalogue product to add stock for."
+        ),
+    ),
     current_user: dict = Depends(get_current_user),
 ):
     """Search products by name or SKU, return warehouse stock for each.
@@ -464,6 +474,18 @@ async def search_warehouse_products(
             "last_adjusted_at": last_adj["at"] if last_adj else None,
             "last_adjusted_by": last_adj["by"] if last_adj else None,
         })
+
+    # 3 Aug 2026 — when the caller has asked to see ONLY products that
+    # have been manually added to Tonbridge (the main warehouse search
+    # bar), filter out any result that has no active batch AND no
+    # warehouse_stock. This stops the whole supplier catalogue leaking
+    # into the search — staff kept seeing "0 batches / 0.00 m²" rows and
+    # thought Tonbridge was pretending to hold stock it doesn't.
+    if only_stocked:
+        results = [
+            r for r in results
+            if (r.get("batch_count") or 0) > 0 or (r.get("warehouse_stock") or 0) > 0
+        ]
 
     # Sort: highest stock first, then name
     results.sort(key=lambda r: (-(r["warehouse_stock"] or 0), (r["name"] or "").lower()))
