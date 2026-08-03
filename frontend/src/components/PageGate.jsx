@@ -62,6 +62,8 @@ const ROUTE_PERMISSIONS = {
   // Products & Suppliers
   '/admin/products': 'supplier_products',
   '/admin/supplier-products': 'supplier_products',
+  '/admin/tiles': 'supplier_products',
+  '/admin/materials': 'supplier_products',
   '/admin/supplier-health': 'supplier_health',
   '/admin/sync-hub': 'sync_hub',
   '/admin/suppliers': 'suppliers',

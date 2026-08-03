@@ -283,7 +283,9 @@ export const Layout = () => {
       icon: Package,
       hubLink: '/admin/products-hub',
       items: [
-        { to: '/admin/supplier-products', icon: Package, label: 'Products', permission: 'supplier_products', legacyPermission: 'products' },
+        { to: '/admin/tiles', icon: Grid3X3, label: 'Tiles Manager', badge: 'NEW', permission: 'supplier_products', legacyPermission: 'products' },
+        { to: '/admin/materials', icon: Package, label: 'Materials Manager', badge: 'NEW', permission: 'supplier_products', legacyPermission: 'products' },
+        { to: '/admin/supplier-products', icon: Package, label: 'Products (Legacy)', permission: 'supplier_products', legacyPermission: 'products' },
         { to: '/admin/price-tickets', icon: Tag, label: 'Price Tickets', permission: 'supplier_products', legacyPermission: 'products' },
         { to: '/admin/supplier-health', icon: Activity, label: 'Supplier Health', permission: 'supplier_health', legacyPermission: 'products' },
         { to: '/admin/sync-hub', icon: RefreshCw, label: 'Sync Hub', permission: 'sync_hub', legacyPermission: 'products' },
@@ -540,7 +542,14 @@ export const Layout = () => {
         <item.icon className={cn('h-4 w-4 flex-shrink-0', snippet && 'mt-0.5')} strokeWidth={1.5} />
         {!collapsed && (
           <span className="flex flex-col min-w-0 leading-tight">
-            <span className="truncate">{item.label}</span>
+            <span className="truncate flex items-center gap-1">
+              {item.label}
+              {item.badge && (
+                <span className="text-[9px] font-bold uppercase tracking-wider bg-orange-500 text-white px-1 py-0.5 rounded">
+                  {item.badge}
+                </span>
+              )}
+            </span>
             {snippet && (
               <span
                 className="text-[10px] font-normal opacity-65 truncate"
