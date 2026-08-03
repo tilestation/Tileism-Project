@@ -2900,21 +2900,18 @@ Requirements:
 
 Write the description now:"""
 
-        # Call OpenAI API directly
+        # Route via emergentintegrations LlmChat so the EMERGENT_LLM_KEY works through the Emergent LLM proxy
+        # (calling OpenAI directly with sk-emergent-* returns 401 because it's not a real OpenAI key).
+        from emergentintegrations.llm.chat import LlmChat, UserMessage
         system_message = "You are an expert copywriter specializing in tile and home improvement product descriptions. Write compelling, SEO-friendly descriptions that highlight product features and benefits."
-        
-        response = await client.chat.completions.create(
-            model="gpt-4o",
-            messages=[
-                {"role": "system", "content": system_message},
-                {"role": "user", "content": prompt}
-            ],
-            max_tokens=1000,
-            temperature=0.7
-        )
-        
-        description = response.choices[0].message.content
-        
+        chat = LlmChat(
+            api_key=api_key,
+            session_id=f"product-desc-{uuid.uuid4()}",
+            system_message=system_message,
+        ).with_model("openai", "gpt-4o")
+
+        description = await chat.send_message(UserMessage(text=prompt))
+
         return {
             "success": True,
             "description": description.strip(),

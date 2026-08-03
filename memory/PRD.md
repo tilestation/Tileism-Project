@@ -53,6 +53,8 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 
 6. **manager_definitions LIST filter hardening** — the initial soft-delete filter `{"deleted_at": {"$exists": False}}` didn't cover legacy rows where `deleted_at` was explicitly set to `None`. Updated to `{"$or": [{"deleted_at": {"$exists": False}}, {"deleted_at": None}]}` on both `GET` (list + single). Prevents ghost tabs on the frontend workspace tabs bar after a delete cycle.
 
+7. **AI Description endpoint routing fix** — `POST /api/products/generate-description` (defined in server.py, wins over the routes/products.py duplicate) was calling `AsyncOpenAI(api_key=EMERGENT_LLM_KEY).chat.completions.create(...)` directly, which fails 401 because the emergent key isn't a real OpenAI key. Swapped to `emergentintegrations.LlmChat(...).with_model("openai","gpt-4o").send_message(UserMessage(...))` so it proxies through the Emergent LLM gateway. Upgraded `emergentintegrations 0.1.0 → 0.2.0` in requirements.txt. Verified via curl: `{success:true, description:"..."}`. This unlocks the new `BulkAIDescriptionsModal` end-to-end for every Manager.
+
 **Live-verified visual smoke**:
 - `/admin/flooring` — tabs bar shows Flooring active (amber), sub-tabs show All Flooring (3) / LVT (0) / Laminate (0) / Wood (0) / Vinyl (0), 3 rows render with Size/Thickness/Wear Layer/Finish columns ✅
 - Selecting all 3 rows → **bulk bar appears** at the bottom with all 10 actions visible: Colours, Tier Pricing, **Price / Cost / Stock**, **AI Descriptions**, Publish, Unpublish, Reassign, Archive, **Delete** ✅
