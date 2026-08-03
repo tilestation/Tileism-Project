@@ -9,6 +9,113 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Aug 3, 2026 — Forked, later still still] 🟢 Owner Q&A shipped: unified Workspace Tabs (3b) + Filters Panel (1c) + Custom Manager Builder (2c)
+
+**Owner asked (3 architectural questions after "drag-to-bucket" landed)**:
+1. Sub-categories / filters inside Managers → **1c**: both tabs + filters.
+2. Dynamic Manager creation via UI → **2c**: hybrid, hardcode the 6 planned + admin builder for custom (Paint, Lighting, Grout Extras…).
+3. Manager placement (sidebar vs. inside Bulk Editor) → **3b**: embed all Managers as tabs at the top of the Bulk Editor page.
+
+**What shipped this session**:
+
+1. **Unified `ManagerTabsBar` component** (`/components/managers/ManagerTabsBar.jsx`, 130 lines) — shown at the very top of every Manager page and the legacy Bulk Editor. Tabs:
+   - `All Products` → `/admin/supplier-products` (legacy)
+   - `Tiles` → `/admin/tiles`
+   - `Materials` → `/admin/materials`
+   - `Flooring / Bathroom / Underfloor Heat / Tools` → shown as `SOON` chips (disabled) until those Managers ship
+   - Dynamic **custom-manager tabs** loaded live from `GET /api/manager-definitions` — appear inline
+   - `+ New Custom Manager` dashed pill on the right → opens `CustomManagerBuilder`
+   - Themed active state per tab (blue/orange/purple/…) so the eye locks on the current workspace
+   - Loaded on every Manager page + `SupplierProducts.js` (legacy)
+
+2. **`ManagerFiltersPanel` component** (`/components/managers/ManagerFiltersPanel.jsx`, 150 lines) — collapsible facet panel with per-category presets:
+   - Tiles → Colour, Finish, Material, Size, Slip, Supplier, Status
+   - Materials → Colour, Bag Colour, Suitability, Supplier, Status
+   - Custom → Colour, Supplier, Status (fallback set)
+   - Facet options derived live from the loaded products (counts included)
+   - Multi-select checkboxes; active chips shown above with one-click remove
+   - `applyManagerFilters(products, filters, category)` helper exported for parents
+   - Wired into `MaterialsManager.jsx` (orange theme) and `TilesManager.jsx` (blue theme)
+   - Combined with existing sub-tabs (`All / Adhesives / Grouts` etc. + `All / Floor / Wall / Mosaic`) so tabs give coarse split, filters give fine slicing
+
+3. **Backend — `manager_definitions` CRUD**: new route module `/app/backend/routes/manager_definitions.py` mounted under `/api/manager-definitions`:
+   - `GET /api/manager-definitions` (public — used by tabs bar navigation) → `{definitions[], count}`
+   - `GET /api/manager-definitions/{slug}` → single definition
+   - `POST` (auth + `supplier_products` perm) → create, auto-slugifies name, returns 409 on duplicate
+   - `PATCH` / `DELETE` → soft-delete via `deleted_at`; audit-logged via `services.log_audit`
+   - Model fields: `slug`, `name`, `description`, `theme` (colour), `icon`, `sub_categories[]`, `field_definitions[]` (for custom edit forms), `product_group` (defaults to slug — used to classify products)
+
+4. **`CustomManagerBuilder` modal** (`/components/managers/CustomManagerBuilder.jsx`, 200 lines) — accessible from the "+ New Custom Manager" pill in every workspace tab bar. Simple form:
+   - Name (auto-slugifies to URL)
+   - Description (one-liner)
+   - Theme colour picker (purple / pink / emerald / amber / cyan / red / slate)
+   - Sub-category keywords chips (typed with Enter or `+ Add`) — used to auto-classify products into the new Manager
+   - On save: `POST /api/manager-definitions`, then `navigate('/admin/custom-manager/:slug')` immediately
+
+5. **`CustomManager` page** (`/pages/admin/CustomManager.jsx`, 620 lines) — data-driven Manager rendered from a manager_definitions doc. URL: `/admin/custom-manager/:slug`. Uses all the shared pieces (`ManagerTabsBar`, `ManagerFiltersPanel`, `ManagerBulkBar`, `AssignColoursModal`, `TierPricingModal`, `useManagerBulk`). Products are matched by `product_group === definition.product_group` OR their `sub_categories`/name containing any of the definition's keywords. Includes:
+   - Header themed by definition colour + icon
+   - Auto-classification chips (shows the matched keywords)
+   - Search + filters + product table (Product / Colour / Supplier / Sub-cat / Actions)
+   - Edit modal driven by `field_definitions` (defaults to a universal 6-field set — Colour, Size, Material, Finish, Suitability, Description — if not customised)
+   - `+ Add New Product` opens the Wizard with `presetCategory=slug`
+   - `Trash` button on the header opens a confirm-delete dialog → hits `DELETE /api/manager-definitions/:slug` → navigates back to `/admin/supplier-products`
+
+6. **Wired into MaterialsManager + TilesManager + SupplierProducts (legacy)** — every Products page now:
+   - Renders `<ManagerTabsBar />` at the very top (right below the top-nav bar)
+   - Mounts `<CustomManagerBuilder />` invisible until the "+ New Custom Manager" pill opens it
+   - Materials + Tiles also render `<ManagerFiltersPanel />` above the info banner
+
+7. **Sidebar cleanup** — Products & Suppliers section now reads:
+   - **All Products** (top item, replaces "Products (Legacy)")
+   - **Tiles Manager · NEW**
+   - **Materials Manager · NEW**
+   - Price Tickets, Supplier Health, Sync Hub, Supplier Contacts (unchanged)
+
+8. **Route + permissions**:
+   - `App.js` — new lazy import + route `custom-manager/:slug`
+   - `PageGate.jsx` — `/admin/custom-manager` requires `supplier_products` permission (longest-prefix match handles the `:slug` suffix)
+
+**End-to-end verified via curl on preview**:
+- `POST /api/manager-definitions` with `{name:'Paint', slug:'paint', theme:'emerald', sub_categories:['paint','primer','undercoat']}` → 200 + full doc with `product_group='paint'`, `created_by='admin@test.com'` ✅
+- `GET /api/manager-definitions` → `{definitions:[…], count:1}` ✅
+- `POST` duplicate slug → **409** ✅
+- `DELETE /api/manager-definitions/paint` → `{ok:true}` and follow-up list returns `count:0` ✅
+
+**Visual smoke verified**:
+- `/admin/materials` — tabs bar visible, Materials tab active (orange), Filters panel collapsed but present, Sub-tabs (All / Adhesives / Grouts / Sealants / Cleaning / Other) intact, 138 products loaded ✅
+- `/admin/supplier-products` — tabs bar visible, All Products tab active (slate), + New Custom Manager pill on the right ✅
+
+**Answers I gave the owner earlier this session**:
+- **Q1** (filters): shipped `ManagerFiltersPanel` with facet dropdowns + counts + active chips. Tabs + filters work together (tabs for coarse split, filters for fine slicing).
+- **Q2** (dynamic Managers): hybrid — 6 hardcoded ones (Tiles, Materials, Flooring, Bathroom, UFH, Tools) planned + `CustomManagerBuilder` modal lets admin add any category (Paint, Lighting, Grout Extras) live without code.
+- **Q3** (placement): unified `ManagerTabsBar` at the top of every Products page — the same workspace tabs are visible whether you're on the legacy Bulk Editor OR any Manager. Clicking a tab is a real route change (deep-linking + Back button both work).
+
+**Files added**:
+- `/app/backend/routes/manager_definitions.py` (~145 lines) — CRUD endpoints
+- `/app/frontend/src/pages/admin/CustomManager.jsx` (~620 lines) — data-driven Manager page
+- `/app/frontend/src/pages/admin/components/managers/ManagerTabsBar.jsx` (~130 lines)
+- `/app/frontend/src/pages/admin/components/managers/ManagerFiltersPanel.jsx` (~150 lines)
+- `/app/frontend/src/pages/admin/components/managers/CustomManagerBuilder.jsx` (~200 lines)
+
+**Files updated**:
+- `/app/backend/routes/__init__.py` — mount manager_definitions router
+- `/app/frontend/src/App.js` — lazy import + route for CustomManager
+- `/app/frontend/src/components/Layout.js` — sidebar reordered (All Products / Tiles Manager / Materials Manager)
+- `/app/frontend/src/components/PageGate.jsx` — permission for `/admin/custom-manager`
+- `/app/frontend/src/pages/admin/MaterialsManager.jsx` — tabs bar + filters panel + custom builder mount
+- `/app/frontend/src/pages/admin/TilesManager.jsx` — tabs bar + filters panel + custom builder mount
+- `/app/frontend/src/pages/admin/SupplierProducts.js` — tabs bar at top + custom builder mount
+
+**Next up (approved by owner: "then do P1 all in your suggested order")**:
+- Bulk parity inside Managers: bulk image upload, AI descriptions, bulk price/cost/stock, archive/delete, draft recovery
+- Ship Flooring / Bathroom / Underfloor Heating / Tools Managers
+- Product Templates (save existing as template → pre-populate Wizard)
+- Category-tailored CSV Import per Manager
+- Google Ads dashboard (blocked on Developer Token approval)
+- Prod→preview showroom sync script
+
+
+
 ### [Aug 3, 2026 — Forked, later still] 🟢 Session A of Manager parity: Bulk toolbar + Colours + Tier Pricing shipped
 
 **Owner asked**: (1) Can't find Managers on prod, (2) Bring all Bulk Category Editor features into Managers ASAP, (3) Don't affect anything already on the storefront.

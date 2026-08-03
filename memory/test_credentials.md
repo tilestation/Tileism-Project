@@ -44,3 +44,10 @@
 - `?edit=SKU` query param handled by MaterialsManager + TilesManager to auto-open the row after navigation.
 - New status filter: "⚠️ Needs Category (unclassified)" — surfaces products without a product_group so admin can bulk-assign them.
 - Removed per-row Visibility dropdown (Online/In-Store/Hidden) and "Always In Stock" checkbox from the legacy product table (owner reported unused, took space).
+
+## Workspace tabs + Custom Managers (Aug 3, 2026 — later still)
+- New shared component `ManagerTabsBar` renders at the top of every Products page. Tabs: All Products / Tiles / Materials / Flooring / Bathroom / Underfloor Heat / Tools / <custom managers> / + New Custom Manager. Uses real Link routing (browser back + deep-link work).
+- New shared component `ManagerFiltersPanel` renders facet dropdowns (Colour, Finish, Material, Size, Slip, Supplier, Status for tiles; Colour, Bag Colour, Suitability, Supplier, Status for materials). Options + counts computed live from the loaded product list. Active filters shown as chips above the panel.
+- New backend CRUD `/api/manager-definitions` (GET public, POST/PATCH/DELETE require supplier_products permission). Fields: slug, name, description, theme, icon, sub_categories[], field_definitions[], product_group.
+- New page `/admin/custom-manager/:slug` renders a data-driven Manager from a manager_definitions doc. Reuses AssignColoursModal, TierPricingModal, ManagerBulkBar, useManagerBulk. Products auto-classified by matching `product_group` OR `sub_categories` OR product name against the definition's keywords.
+- Custom Manager builder modal `CustomManagerBuilder.jsx` — accessible from the "+ New Custom Manager" pill in every workspace tab bar. Curl-verified round-trip: create (200), list (returns doc), delete (soft-delete via deleted_at + audit log entry), duplicate slug → 409.

@@ -283,9 +283,9 @@ export const Layout = () => {
       icon: Package,
       hubLink: '/admin/products-hub',
       items: [
+        { to: '/admin/supplier-products', icon: Layers, label: 'All Products', permission: 'supplier_products', legacyPermission: 'products' },
         { to: '/admin/tiles', icon: Grid3X3, label: 'Tiles Manager', badge: 'NEW', permission: 'supplier_products', legacyPermission: 'products' },
         { to: '/admin/materials', icon: Package, label: 'Materials Manager', badge: 'NEW', permission: 'supplier_products', legacyPermission: 'products' },
-        { to: '/admin/supplier-products', icon: Package, label: 'Products (Legacy)', permission: 'supplier_products', legacyPermission: 'products' },
         { to: '/admin/price-tickets', icon: Tag, label: 'Price Tickets', permission: 'supplier_products', legacyPermission: 'products' },
         { to: '/admin/supplier-health', icon: Activity, label: 'Supplier Health', permission: 'supplier_health', legacyPermission: 'products' },
         { to: '/admin/sync-hub', icon: RefreshCw, label: 'Sync Hub', permission: 'sync_hub', legacyPermission: 'products' },

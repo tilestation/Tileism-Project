@@ -37,6 +37,9 @@ import {
 } from '../../components/ui/dialog';
 import AddProductWizard from './components/AddProductWizard';
 import ManagerBulkBar from './components/managers/ManagerBulkBar';
+import ManagerTabsBar from './components/managers/ManagerTabsBar';
+import ManagerFiltersPanel, { applyManagerFilters } from './components/managers/ManagerFiltersPanel';
+import CustomManagerBuilder from './components/managers/CustomManagerBuilder';
 import AssignColoursModal from './components/managers/AssignColoursModal';
 import TierPricingModal from './components/supplier-products/TierPricingModal';
 import { useManagerBulk, getProductKey } from './components/managers/useManagerBulk';
@@ -72,6 +75,8 @@ const MaterialsManager = () => {
   const [saving, setSaving] = useState(false);
   const [lastRefresh, setLastRefresh] = useState(null);
   const [wizardOpen, setWizardOpen] = useState(false);
+  const [builderOpen, setBuilderOpen] = useState(false);
+  const [filters, setFilters] = useState({});
   const [searchParams, setSearchParams] = useSearchParams();
   
   // Bulk operation state (multi-select, publish, unpublish, archive, assign colours,
@@ -149,6 +154,8 @@ const MaterialsManager = () => {
         return scs.some(sc => tab.match(String(sc)));
       });
     }
+    // Facet filters (Colour, Bag Colour, Suitability, Supplier, Status)
+    list = applyManagerFilters(list, filters, 'materials');
     // Search
     if (search.trim()) {
       const q = search.trim().toLowerCase();
@@ -160,7 +167,7 @@ const MaterialsManager = () => {
       });
     }
     return list;
-  }, [products, subTab, search]);
+  }, [products, subTab, filters, search]);
 
   const groupCounts = useMemo(() => {
     const counts = { all: products.length };
@@ -250,6 +257,9 @@ const MaterialsManager = () => {
 
   return (
     <div className="min-h-screen bg-gray-50 pb-16">
+      {/* Workspace tabs (unified across Managers) */}
+      <ManagerTabsBar active="materials" onNewCustom={() => setBuilderOpen(true)} />
+
       {/* Header */}
       <div className="bg-white border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
@@ -345,6 +355,15 @@ const MaterialsManager = () => {
             {filteredProducts.length} visible
           </Badge>
         </div>
+
+        {/* Filters (facet-driven) */}
+        <ManagerFiltersPanel
+          products={products}
+          filters={filters}
+          onChange={setFilters}
+          category="materials"
+          themeColor="orange"
+        />
 
         {/* Info banner */}
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm text-blue-800 flex items-start gap-2">
@@ -609,6 +628,9 @@ const MaterialsManager = () => {
         selectedList={bulk.getSelectedList()}
         onSuccess={() => { bulk.clearAll(); fetchProducts(); }}
       />
+
+      {/* Custom Manager builder — opens from workspace tabs "+ New" */}
+      <CustomManagerBuilder open={builderOpen} onOpenChange={setBuilderOpen} />
 
       {/* Bulk: Tier Pricing (% / £ trade + Half+Full Pallet, unit-aware for materials) */}
       <TierPricingModal

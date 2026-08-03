@@ -34,6 +34,8 @@ import DiscountCalculatorPreview from './components/supplier-products/DiscountCa
 import DryRunPreview from './components/supplier-products/DryRunPreview';
 import BulkEditPresets from './components/supplier-products/BulkEditPresets';
 import BulkEditHistory from './components/supplier-products/BulkEditHistory';
+import ManagerTabsBar from './components/managers/ManagerTabsBar';
+import CustomManagerBuilder from './components/managers/CustomManagerBuilder';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
 
@@ -189,6 +191,7 @@ export default function SupplierProducts() {
   const [newProductCount, setNewProductCount] = useState(0);
   const [showBulkDeleteDialog, setShowBulkDeleteDialog] = useState(false);
   const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState('');
+  const [managerBuilderOpen, setManagerBuilderOpen] = useState(false);
   
   // Initialize selectedProducts from localStorage to persist across refresh
   const [selectedProducts, setSelectedProducts] = useState(() => {
@@ -7753,6 +7756,13 @@ export default function SupplierProducts() {
 
   return (
     <div className="p-6 space-y-6" data-testid="supplier-products-page">
+      {/* Workspace tabs — unified across Managers + legacy Bulk Editor */}
+      <div className="-mx-6 -mt-6 mb-2">
+        <ManagerTabsBar active="all" onNewCustom={() => setManagerBuilderOpen(true)} />
+      </div>
+
+      <CustomManagerBuilder open={managerBuilderOpen} onOpenChange={setManagerBuilderOpen} />
+
       {/* Header */}
       <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
         <div>

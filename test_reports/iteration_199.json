@@ -1,0 +1,30 @@
+{
+  "summary": "Verified 3 architectural changes: (1c) ManagerFiltersPanel, (2c) Custom Manager Builder + data-driven CustomManager page, (3b) Unified ManagerTabsBar. Backend 8/8 pytest pass on /api/manager-definitions CRUD (public GET, auth-guarded POST/PATCH/DELETE, duplicate 409, soft-delete verified). Frontend end-to-end validated live at feature-verification-7 preview: workspace tabs bar renders on /admin/materials, /admin/tiles, /admin/supplier-products, /admin/custom-manager/:slug with all 7 stock tabs + '+ New Custom Manager' pill; routing works via Link; Materials facet dropdowns (Colour/Suitability/Supplier/Status) render; ticking Colour=Grey narrowed visible count 138→2, chip 'Colour: Grey' appeared, chip-click removed filter and count restored to 138; CustomManagerBuilder modal created 'Paint' → toast → routed to /admin/custom-manager/paint → title reads 'Paint' → Paint tab appears active (purple) in the tabs bar; delete → confirm dialog → routed to /admin/supplier-products with Paint tab gone. Legacy Bulk Editor page still renders correctly with the new tabs bar mounted above it (SMART SELECT, supplier chips, stat cards intact).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "ManagerFiltersPanel.jsx", "issue": "React hydration/HTML-validity error: <button data-testid=\"manager-filters-clear\"> (line 127) AND active-filter chip <button data-testid=\"manager-filter-chip-...\"> (line 148) are nested INSIDE the outer <button data-testid=\"manager-filters-toggle\"> (line 111). Browser console shows 'In HTML, <button> cannot be a descendant of <button>. This will cause a hydration error.' Click behaviour still works because of event stopPropagation, but the DOM is invalid and React will emit warnings on every mount. Fix: turn the outer toggle into a <div role=\"button\"> + click handler, OR move the clear/chip buttons OUT of the toggle wrapper (render them as a sibling row above the toggle).", "selector": "[data-testid=\"manager-filters-toggle\"]", "priority": "MEDIUM"}
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_manager_definitions.py", "/app/test_reports/pytest/iter199_manager_defs.xml"],
+  "action_items": [
+    "Fix nested-button hydration error in ManagerFiltersPanel.jsx (lines 111/127/148): the outer collapsible toggle <button> contains nested <button> children (Clear-active + chip removal). Restructure DOM so no button is nested inside another button."
+  ],
+  "critical_code_review_comments": [
+    "routes/manager_definitions.py: clean CRUD with proper soft-delete (deleted_at + deleted_by), audit-log on create+delete, 409 on duplicate slug, permission check on POST/PATCH/DELETE. _serialize excludes _id and ISO-formats timestamps — good.",
+    "CustomManager.jsx (620 lines) is at the size threshold — consider splitting the edit-modal + delete-dialog into subcomponents before adding more field types.",
+    "ManagerFiltersPanel.jsx: nested <button> inside collapsible toggle is invalid HTML — see UI bug above. Otherwise the facet-count computation from the loaded product list is a clean approach.",
+    "PageGate longest-prefix match for /admin/custom-manager/* — verified: delete-then-back-to-supplier-products flow retained permission correctly.",
+    "ManagerTabsBar dynamic custom-manager tabs load via GET /api/manager-definitions (public, no auth). After delete, the tab immediately disappears on the next mount — good state-sync (verified end-to-end)."
+  ],
+  "updated_files": ["/app/backend/tests/test_manager_definitions.py"],
+  "success_rate": {"backend": "100% (8/8 pytest)", "frontend": "100% functional (1 medium DOM-validity warning, no functional regression)"},
+  "test_credentials": "admin@test.com / admin123 (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "Test creates + deletes 'Paint Test' (slug=paint-test) manager-definition; FE flow creates + deletes 'Paint' (slug=paint). No residual data.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Backend pytest at /app/backend/tests/test_manager_definitions.py covers full CRUD + auth + duplicate + soft-delete. Frontend testids on record: manager-tabs-bar, manager-tab-{all|tiles|materials|flooring|bathroom|ufh|tools|add-custom|<slug>}, manager-filters-toggle, manager-filter-facet-{key}, manager-filter-check-{key}-{value}, manager-filter-chip-{key}-{value}, manager-filters-clear-btn, custom-manager-name, custom-manager-description, custom-manager-theme-{key}, custom-manager-subcat-input, custom-manager-subcat-add, custom-manager-create-btn, custom-manager-title, custom-manager-delete-btn, custom-manager-confirm-delete, custom-manager-select-all (only when products>0). Note: builder modal input testid is 'custom-manager-name' NOT 'custom-manager-name-input' — the request statement is wrong on that name.",
+  "rca of the issue": "Nested <button> hydration warning is a straightforward DOM-structure bug in ManagerFiltersPanel.jsx: the collapsible toggle wraps the header row as a single <button>, but the header row also contains a 'Clear' button + active-filter chip buttons. React emits a warning because HTML does not allow <button> to be a descendant of <button>. Fix by either (a) using role=\"button\" tabIndex=0 on the outer wrapper div, or (b) rendering the Clear button + chips as a sibling above the toggle rather than inside it."
+}

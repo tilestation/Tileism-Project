@@ -25,6 +25,9 @@ import {
 } from '../../components/ui/dialog';
 import AddProductWizard from './components/AddProductWizard';
 import ManagerBulkBar from './components/managers/ManagerBulkBar';
+import ManagerTabsBar from './components/managers/ManagerTabsBar';
+import ManagerFiltersPanel, { applyManagerFilters } from './components/managers/ManagerFiltersPanel';
+import CustomManagerBuilder from './components/managers/CustomManagerBuilder';
 import AssignColoursModal from './components/managers/AssignColoursModal';
 import TierPricingModal from './components/supplier-products/TierPricingModal';
 import { useManagerBulk } from './components/managers/useManagerBulk';
@@ -58,6 +61,8 @@ const TilesManager = () => {
   const [saving, setSaving] = useState(false);
   const [lastRefresh, setLastRefresh] = useState(null);
   const [wizardOpen, setWizardOpen] = useState(false);
+  const [builderOpen, setBuilderOpen] = useState(false);
+  const [filters, setFilters] = useState({});
   const [searchParams, setSearchParams] = useSearchParams();
   
   // Bulk operations state (shared hook — same endpoints as legacy)
@@ -116,6 +121,8 @@ const TilesManager = () => {
     if (subTab !== 'all') {
       list = list.filter(p => tab.match(p.type, Array.isArray(p.sub_categories) ? p.sub_categories : []));
     }
+    // Facet filters (Colour, Finish, Material, Size, Slip, Supplier, Status)
+    list = applyManagerFilters(list, filters, 'tiles');
     if (search.trim()) {
       const q = search.trim().toLowerCase();
       list = list.filter(p => {
@@ -126,7 +133,7 @@ const TilesManager = () => {
       });
     }
     return list;
-  }, [products, subTab, search]);
+  }, [products, subTab, filters, search]);
 
   const groupCounts = useMemo(() => {
     const counts = { all: products.length };
@@ -203,6 +210,9 @@ const TilesManager = () => {
 
   return (
     <div className="min-h-screen bg-gray-50 pb-16">
+      {/* Workspace tabs (unified across Managers) */}
+      <ManagerTabsBar active="tiles" onNewCustom={() => setBuilderOpen(true)} />
+
       {/* Header */}
       <div className="bg-white border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
@@ -289,6 +299,15 @@ const TilesManager = () => {
             {filteredProducts.length} visible
           </Badge>
         </div>
+
+        {/* Filters (facet-driven) */}
+        <ManagerFiltersPanel
+          products={products}
+          filters={filters}
+          onChange={setFilters}
+          category="tiles"
+          themeColor="blue"
+        />
 
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm text-blue-800 flex items-start gap-2">
           <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
@@ -521,6 +540,9 @@ const TilesManager = () => {
         selectedList={bulk.getSelectedList()}
         onSuccess={() => { bulk.clearAll(); fetchProducts(); }}
       />
+
+      {/* Custom Manager builder — opens from workspace tabs "+ New" */}
+      <CustomManagerBuilder open={builderOpen} onOpenChange={setBuilderOpen} />
 
       {/* Bulk: Tier Pricing (% / £ + Half+Full Pallet — m² for tiles) */}
       <TierPricingModal
