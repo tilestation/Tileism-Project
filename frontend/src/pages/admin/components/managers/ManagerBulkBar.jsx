@@ -9,7 +9,7 @@
 import React, { useState } from 'react';
 import { Button } from '../../../../components/ui/button';
 import {
-  X, CheckSquare, Trash2, Archive, Globe, EyeOff, Percent, Palette, Layers, Grid3X3, Package,
+  X, CheckSquare, Trash2, Archive, Globe, EyeOff, Percent, Palette, Layers, Grid3X3, Package, PoundSterling, Sparkles,
 } from 'lucide-react';
 
 const ManagerBulkBar = ({
@@ -19,9 +19,12 @@ const ManagerBulkBar = ({
   onBulkPublish,
   onBulkUnpublish,
   onBulkArchive,
+  onBulkDelete,
   onOpenTierPricing,
   onOpenAssignColours,
   onOpenBulkCategory,
+  onOpenBulkFields,
+  onOpenAIDescriptions,
   onOpenReassignCategory,     // returns which product_group to move to
   saving = false,
   themeColor = 'orange',      // 'orange' | 'blue' | 'emerald' | 'cyan' | 'red' | 'slate'
@@ -99,6 +102,32 @@ const ManagerBulkBar = ({
         >
           <Percent className="w-3.5 h-3.5" />
           Tier Pricing
+        </button>
+      )}
+      {!hidden.has('bulkFields') && onOpenBulkFields && (
+        <button
+          type="button"
+          onClick={onOpenBulkFields}
+          disabled={saving}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/15 hover:bg-white/25 transition text-[13px] font-medium"
+          data-testid="bar-bulk-fields"
+          title="Set list price / cost / stock / sale % on all selected"
+        >
+          <PoundSterling className="w-3.5 h-3.5" />
+          Price / Cost / Stock
+        </button>
+      )}
+      {!hidden.has('aiDescriptions') && onOpenAIDescriptions && (
+        <button
+          type="button"
+          onClick={onOpenAIDescriptions}
+          disabled={saving}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/15 hover:bg-white/25 transition text-[13px] font-medium"
+          data-testid="bar-ai-descriptions"
+          title="Generate SEO-friendly product descriptions with AI"
+        >
+          <Sparkles className="w-3.5 h-3.5" />
+          AI Descriptions
         </button>
       )}
 
@@ -180,6 +209,19 @@ const ManagerBulkBar = ({
         >
           <Archive className="w-3.5 h-3.5" />
           Archive
+        </button>
+      )}
+      {!hidden.has('delete') && onBulkDelete && (
+        <button
+          type="button"
+          onClick={onBulkDelete}
+          disabled={saving}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-500/90 hover:bg-red-500 transition text-[13px] font-medium"
+          data-testid="bar-delete"
+          title="Delete selected (permanent — asks for confirmation)"
+        >
+          <Trash2 className="w-3.5 h-3.5" />
+          Delete
         </button>
       )}
 

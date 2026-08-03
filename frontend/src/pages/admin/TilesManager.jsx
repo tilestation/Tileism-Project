@@ -28,6 +28,8 @@ import ManagerBulkBar from './components/managers/ManagerBulkBar';
 import ManagerTabsBar from './components/managers/ManagerTabsBar';
 import ManagerFiltersPanel, { applyManagerFilters } from './components/managers/ManagerFiltersPanel';
 import CustomManagerBuilder from './components/managers/CustomManagerBuilder';
+import BulkFieldsModal from './components/managers/BulkFieldsModal';
+import BulkAIDescriptionsModal from './components/managers/BulkAIDescriptionsModal';
 import AssignColoursModal from './components/managers/AssignColoursModal';
 import TierPricingModal from './components/supplier-products/TierPricingModal';
 import { useManagerBulk } from './components/managers/useManagerBulk';
@@ -69,6 +71,8 @@ const TilesManager = () => {
   const bulk = useManagerBulk({ products, onRefresh: () => fetchProducts() });
   const [showAssignColours, setShowAssignColours] = useState(false);
   const [showTierPricing, setShowTierPricing] = useState(false);
+  const [showBulkFields, setShowBulkFields] = useState(false);
+  const [showAIDescriptions, setShowAIDescriptions] = useState(false);
   const [tierPricingConfig, setTierPricingConfig] = useState({
     thresholds: [10, 50, 100],
     discounts: [0, 5, 10, 15],
@@ -525,8 +529,11 @@ const TilesManager = () => {
         onBulkPublish={bulk.bulkPublish}
         onBulkUnpublish={bulk.bulkUnpublish}
         onBulkArchive={bulk.bulkArchive}
+        onBulkDelete={bulk.bulkDelete}
         onOpenAssignColours={() => setShowAssignColours(true)}
         onOpenTierPricing={() => setShowTierPricing(true)}
+        onOpenBulkFields={() => setShowBulkFields(true)}
+        onOpenAIDescriptions={() => setShowAIDescriptions(true)}
         onOpenReassignCategory={bulk.bulkAssignCategory}
         saving={bulk.bulkSaving}
         themeColor="blue"
@@ -543,6 +550,24 @@ const TilesManager = () => {
 
       {/* Custom Manager builder — opens from workspace tabs "+ New" */}
       <CustomManagerBuilder open={builderOpen} onOpenChange={setBuilderOpen} />
+
+      {/* Bulk: Price / Cost / Stock */}
+      <BulkFieldsModal
+        open={showBulkFields}
+        onOpenChange={setShowBulkFields}
+        selectedList={bulk.getSelectedList()}
+        themeColor="blue"
+        onSuccess={() => { bulk.clearAll(); fetchProducts(); }}
+      />
+
+      {/* Bulk: AI Descriptions */}
+      <BulkAIDescriptionsModal
+        open={showAIDescriptions}
+        onOpenChange={setShowAIDescriptions}
+        selectedList={bulk.getSelectedList()}
+        themeColor="blue"
+        onSuccess={() => { fetchProducts(); }}
+      />
 
       {/* Bulk: Tier Pricing (% / £ + Half+Full Pallet — m² for tiles) */}
       <TierPricingModal

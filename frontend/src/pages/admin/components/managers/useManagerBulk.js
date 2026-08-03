@@ -146,6 +146,21 @@ export function useManagerBulk({ products = [], onRefresh }) {
     await bulkUpdate({ status: 'archived', published: false, visibility: 'hidden' }, { label: 'Archived' });
   }, [selectedProducts.size, bulkUpdate]);
 
+  // Bulk Delete — permanent removal (marks deleted_at + hidden from all queries)
+  const bulkDelete = useCallback(async () => {
+    if (selectedProducts.size === 0) return toast.error('No products selected');
+    const first = window.confirm(`Delete ${selectedProducts.size} product(s) permanently? This can't be undone from the UI.`);
+    if (!first) return;
+    const second = window.prompt(`Type "DELETE" (all caps) to confirm removing ${selectedProducts.size} product(s):`);
+    if (second !== 'DELETE') { toast.error('Confirmation phrase not entered — cancelled'); return; }
+    await bulkUpdate({
+      status: 'deleted',
+      published: false,
+      visibility: 'hidden',
+      deleted_at: new Date().toISOString(),
+    }, { label: 'Deleted' });
+  }, [selectedProducts.size, bulkUpdate]);
+
   // Bulk Assign Category — routes selected products to a specific Manager
   const bulkAssignCategory = useCallback(async (productGroup) => {
     if (selectedProducts.size === 0) return toast.error('No products selected');
@@ -193,6 +208,7 @@ export function useManagerBulk({ products = [], onRefresh }) {
     bulkPublish,
     bulkUnpublish,
     bulkArchive,
+    bulkDelete,
     bulkAssignCategory,
     // UI state
     bulkSaving,

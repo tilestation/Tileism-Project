@@ -9,6 +9,83 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Aug 3, 2026 — Forked, later still still, session B] 🟢 P1 parity + Flooring Manager shipped
+
+**Owner steer**: "then do P1 all in your suggested order". Order was: (a) bulk parity inside Managers, (b) Flooring / Bathroom / UFH / Tools, (c) Product Templates, (d) CSV per Manager, (e) Google Ads, (f) prod→preview sync.
+
+**Session B shipped**:
+
+1. **Bulk Price / Cost / Stock modal** (`/components/managers/BulkFieldsModal.jsx`, ~230 lines):
+   - Set the same value on List Price, Cost Price, Warehouse Stock, and/or Sale % across the selected products in one save.
+   - Each field has its own "apply" checkbox — you can pick any subset (or all).
+   - Live per-selection "current avg" hint above each input so you can spot outliers before overwriting.
+   - Uses `POST /api/supplier-sync/products/bulk-update-unified` with 100% verification — any silent mismatch surfaces immediately.
+   - Themed per Manager (orange/blue/amber/purple).
+   - Data-testids: `bulk-fields-modal`, `bulk-fields-price/cost/stock/sale`, `bulk-fields-save`.
+
+2. **Bulk AI Descriptions modal** (`/components/managers/BulkAIDescriptionsModal.jsx`, ~230 lines):
+   - Runs the existing `POST /api/products/generate-description` endpoint (Emergent LLM key) per selected product.
+   - Four modes: **Fresh (generate)** / **Regenerate variant** / **Shorter** / **Longer**.
+   - Live progress bar with success + failure counters and per-SKU error list.
+   - Cancel-remaining button aborts mid-sweep.
+   - Writes the AI-generated description back via `bulk-update-unified` with the same verification.
+   - Themed per Manager.
+   - Data-testids: `bulk-ai-descriptions-modal`, `bulk-ai-mode-*`, `bulk-ai-start`, `bulk-ai-progress-bar`.
+
+3. **Bulk Delete** (new option on `ManagerBulkBar` + `useManagerBulk.bulkDelete`):
+   - Red destructive button next to Archive.
+   - Two-step confirm: `window.confirm` + typed `"DELETE"` phrase.
+   - Marks selected products with `status: deleted`, `published: false`, `visibility: hidden`, `deleted_at: <now>`.
+   - Uses the same verified path.
+   - Data-testid: `bar-delete`.
+
+4. **ManagerBulkBar updated** — now surfaces (in order): Colours / Categories & Filters (hidden per Manager) / **Tier Pricing** / **Price / Cost / Stock** / **AI Descriptions** / Publish / Unpublish / Reassign / Archive / **Delete** / Clear. Every Manager (Tiles, Materials, Flooring, Custom) auto-gets the same set.
+
+5. **Flooring Manager** shipped (`/app/frontend/src/pages/admin/FlooringManager.jsx`, ~460 lines):
+   - URL: `/admin/flooring`, theme: amber
+   - Sub-tabs: All Flooring / LVT / Laminate / Wood / Vinyl
+   - Auto-classifies via `product_group === 'flooring'` OR `main_category === 'Flooring'` OR sub_categories matching (flooring|lvt|laminate|engineered|vinyl|luxury vinyl)
+   - Table columns: Product / Size / Thickness / Wear Layer / Finish / Colour / Actions
+   - Edit modal shows only flooring-relevant fields: Size, Thickness, **Wear Layer**, Finish, **Click System**, **Underlay Included**, Material, Colour, **Pack Coverage (m²)**, Suitability, Made In, Description
+   - Wired into `App.js`, `PageGate.jsx`, sidebar
+   - Flooring pill removed the `SOON` badge in the `ManagerTabsBar` — the tab is now a real Link
+   - Live-tested at /admin/flooring — 3 real products (Marwood/Samphire/Sandringham Oak from Canopy) loaded and rendered with all columns
+
+6. **manager_definitions LIST filter hardening** — the initial soft-delete filter `{"deleted_at": {"$exists": False}}` didn't cover legacy rows where `deleted_at` was explicitly set to `None`. Updated to `{"$or": [{"deleted_at": {"$exists": False}}, {"deleted_at": None}]}` on both `GET` (list + single). Prevents ghost tabs on the frontend workspace tabs bar after a delete cycle.
+
+**Live-verified visual smoke**:
+- `/admin/flooring` — tabs bar shows Flooring active (amber), sub-tabs show All Flooring (3) / LVT (0) / Laminate (0) / Wood (0) / Vinyl (0), 3 rows render with Size/Thickness/Wear Layer/Finish columns ✅
+- Selecting all 3 rows → **bulk bar appears** at the bottom with all 10 actions visible: Colours, Tier Pricing, **Price / Cost / Stock**, **AI Descriptions**, Publish, Unpublish, Reassign, Archive, **Delete** ✅
+- Sidebar shows Flooring Manager · NEW below Materials Manager ✅
+
+**Files added**:
+- `/app/frontend/src/pages/admin/FlooringManager.jsx` (~460 lines)
+- `/app/frontend/src/pages/admin/components/managers/BulkFieldsModal.jsx` (~230 lines)
+- `/app/frontend/src/pages/admin/components/managers/BulkAIDescriptionsModal.jsx` (~230 lines)
+
+**Files updated**:
+- `/app/frontend/src/pages/admin/components/managers/ManagerBulkBar.jsx` — 3 new buttons + hideActions keys `bulkFields`, `aiDescriptions`, `delete`
+- `/app/frontend/src/pages/admin/components/managers/useManagerBulk.js` — new `bulkDelete` op
+- `/app/frontend/src/pages/admin/components/managers/ManagerTabsBar.jsx` — Flooring is live (no more SOON)
+- `/app/frontend/src/pages/admin/MaterialsManager.jsx` — mounted BulkFields + AIDescriptions modals, wired bulk bar to bulkDelete + new modal openers
+- `/app/frontend/src/pages/admin/TilesManager.jsx` — same
+- `/app/frontend/src/pages/admin/CustomManager.jsx` — same
+- `/app/frontend/src/App.js` — lazy import + route `flooring`
+- `/app/frontend/src/components/PageGate.jsx` — permission `/admin/flooring`
+- `/app/frontend/src/components/Layout.js` — sidebar entry Flooring Manager · NEW
+- `/app/backend/routes/manager_definitions.py` — list/single find hardened against `deleted_at: None`
+
+**Remaining P1 backlog (approved order)**:
+- Ship Bathroom / UFH / Tools Managers using the same pattern
+- Bulk Image Upload modal (per-SKU thumbnail drag+drop) — the last parity item
+- Draft Recovery / Auto-save inside Managers (currently only in legacy Bulk Editor)
+- Product Templates (save existing product as a template → pre-populate Wizard)
+- Category-tailored CSV Import per Manager
+- Google Ads dashboard (blocked on Developer Token approval)
+- Prod→preview showroom sync script
+
+
+
 ### [Aug 3, 2026 — Forked, later still still] 🟢 Owner Q&A shipped: unified Workspace Tabs (3b) + Filters Panel (1c) + Custom Manager Builder (2c)
 
 **Owner asked (3 architectural questions after "drag-to-bucket" landed)**:

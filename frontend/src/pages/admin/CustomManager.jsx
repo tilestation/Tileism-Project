@@ -31,6 +31,8 @@ import ManagerFiltersPanel, { applyManagerFilters } from './components/managers/
 import ManagerBulkBar from './components/managers/ManagerBulkBar';
 import AssignColoursModal from './components/managers/AssignColoursModal';
 import CustomManagerBuilder from './components/managers/CustomManagerBuilder';
+import BulkFieldsModal from './components/managers/BulkFieldsModal';
+import BulkAIDescriptionsModal from './components/managers/BulkAIDescriptionsModal';
 import TierPricingModal from './components/supplier-products/TierPricingModal';
 import AddProductWizard from './components/AddProductWizard';
 import { useManagerBulk } from './components/managers/useManagerBulk';
@@ -63,6 +65,8 @@ const CustomManager = () => {
   const [wizardOpen, setWizardOpen] = useState(false);
   const [showAssignColours, setShowAssignColours] = useState(false);
   const [showTierPricing, setShowTierPricing] = useState(false);
+  const [showBulkFields, setShowBulkFields] = useState(false);
+  const [showAIDescriptions, setShowAIDescriptions] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
   const [tierPricingConfig, setTierPricingConfig] = useState({
     thresholds: [10, 50, 100],
@@ -496,8 +500,11 @@ const CustomManager = () => {
         onBulkPublish={bulk.bulkPublish}
         onBulkUnpublish={bulk.bulkUnpublish}
         onBulkArchive={bulk.bulkArchive}
+        onBulkDelete={bulk.bulkDelete}
         onOpenAssignColours={() => setShowAssignColours(true)}
         onOpenTierPricing={() => setShowTierPricing(true)}
+        onOpenBulkFields={() => setShowBulkFields(true)}
+        onOpenAIDescriptions={() => setShowAIDescriptions(true)}
         onOpenReassignCategory={bulk.bulkAssignCategory}
         saving={bulk.bulkSaving}
         themeColor={definition.theme === 'purple' ? 'orange' : definition.theme}
@@ -592,6 +599,24 @@ const CustomManager = () => {
       </Dialog>
 
       <CustomManagerBuilder open={builderOpen} onOpenChange={setBuilderOpen} />
+
+      {/* Bulk: Price / Cost / Stock */}
+      <BulkFieldsModal
+        open={showBulkFields}
+        onOpenChange={setShowBulkFields}
+        selectedList={bulk.getSelectedList()}
+        themeColor={definition.theme || 'purple'}
+        onSuccess={() => { bulk.clearAll(); fetchProducts(); }}
+      />
+
+      {/* Bulk: AI Descriptions */}
+      <BulkAIDescriptionsModal
+        open={showAIDescriptions}
+        onOpenChange={setShowAIDescriptions}
+        selectedList={bulk.getSelectedList()}
+        themeColor={definition.theme || 'purple'}
+        onSuccess={() => { fetchProducts(); }}
+      />
     </div>
   );
 };

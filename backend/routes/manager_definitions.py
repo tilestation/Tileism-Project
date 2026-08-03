@@ -87,7 +87,12 @@ async def list_definitions():
     navigation, not for editing. Editing endpoints below DO require auth.
     """
     db = get_db()
-    cursor = db.manager_definitions.find({"deleted_at": {"$exists": False}}).sort("created_at", 1)
+    cursor = db.manager_definitions.find({
+        "$or": [
+            {"deleted_at": {"$exists": False}},
+            {"deleted_at": None},
+        ]
+    }).sort("created_at", 1)
     docs = [ _serialize(d) async for d in cursor ]
     return {"definitions": docs, "count": len(docs)}
 
@@ -95,7 +100,13 @@ async def list_definitions():
 @router.get("/{slug}")
 async def get_definition(slug: str):
     db = get_db()
-    doc = await db.manager_definitions.find_one({"slug": slug, "deleted_at": {"$exists": False}})
+    doc = await db.manager_definitions.find_one({
+        "slug": slug,
+        "$or": [
+            {"deleted_at": {"$exists": False}},
+            {"deleted_at": None},
+        ]
+    })
     if not doc:
         raise HTTPException(404, f"Manager definition '{slug}' not found")
     return _serialize(doc)
@@ -113,7 +124,7 @@ async def create_definition(
     slug = _slugify(payload.slug or payload.name)
 
     # Guard against duplicate slugs
-    existing = await db.manager_definitions.find_one({"slug": slug, "deleted_at": {"$exists": False}})
+    existing = await db.manager_definitions.find_one({"slug": slug, "$or": [{"deleted_at": {"$exists": False}}, {"deleted_at": None}]})
     if existing:
         raise HTTPException(409, f"A Manager with slug '{slug}' already exists")
 
@@ -154,7 +165,7 @@ async def update_definition(
         raise HTTPException(403, "You need the Supplier Products permission to edit a custom Manager")
 
     db = get_db()
-    doc = await db.manager_definitions.find_one({"slug": slug, "deleted_at": {"$exists": False}})
+    doc = await db.manager_definitions.find_one({"slug": slug, "$or": [{"deleted_at": {"$exists": False}}, {"deleted_at": None}]})
     if not doc:
         raise HTTPException(404, f"Manager definition '{slug}' not found")
 
@@ -177,7 +188,7 @@ async def delete_definition(
         raise HTTPException(403, "You need the Supplier Products permission to delete a custom Manager")
 
     db = get_db()
-    doc = await db.manager_definitions.find_one({"slug": slug, "deleted_at": {"$exists": False}})
+    doc = await db.manager_definitions.find_one({"slug": slug, "$or": [{"deleted_at": {"$exists": False}}, {"deleted_at": None}]})
     if not doc:
         raise HTTPException(404, f"Manager definition '{slug}' not found")
 

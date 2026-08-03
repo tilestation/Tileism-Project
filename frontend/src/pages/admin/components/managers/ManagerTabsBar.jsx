@@ -30,7 +30,7 @@ const HARDCODED_TABS = [
   { key: 'all',       label: 'All Products',   icon: Layers,   to: '/admin/supplier-products', theme: 'gray' },
   { key: 'tiles',     label: 'Tiles',          icon: Square,   to: '/admin/tiles',             theme: 'blue' },
   { key: 'materials', label: 'Materials',      icon: Package,  to: '/admin/materials',         theme: 'orange' },
-  { key: 'flooring',  label: 'Flooring',       icon: Grid3X3,  to: '/admin/flooring',          theme: 'amber',   comingSoon: true },
+  { key: 'flooring',  label: 'Flooring',       icon: Grid3X3,  to: '/admin/flooring',          theme: 'amber' },
   { key: 'bathroom',  label: 'Bathroom',       icon: Bath,     to: '/admin/bathroom',          theme: 'cyan',    comingSoon: true },
   { key: 'ufh',       label: 'Underfloor Heat', icon: Flame,   to: '/admin/underfloor-heating', theme: 'red',    comingSoon: true },
   { key: 'tools',     label: 'Tools',          icon: Wrench,   to: '/admin/tools',             theme: 'slate',   comingSoon: true },

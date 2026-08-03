@@ -101,3 +101,66 @@ class TestManagerDefinitions:
         lst = requests.get(f"{API}/manager-definitions", timeout=15).json()
         slugs = [d["slug"] for d in lst["definitions"]]
         assert TEST_SLUG not in slugs
+
+
+class TestDeletedAtNoneFilter:
+    """Regression: docs with `deleted_at: None` (explicit None, not missing) must
+    still be excluded from public GET list. Verifies the new $or filter."""
+
+    SEED_SLUG = "test-deleted-at-none-regression"
+
+    def _get_db(self):
+        from pymongo import MongoClient
+        mongo_url = os.environ.get("MONGO_URL", "mongodb://localhost:27017")
+        db_name = os.environ.get("DB_NAME", "tile_station")
+        return MongoClient(mongo_url)[db_name]
+
+    def test_deleted_at_none_alive_and_deleted(self, auth_headers):
+        from datetime import datetime, timezone
+        import uuid
+        db = self._get_db()
+        # Cleanup any leftover
+        db.manager_definitions.delete_many({"slug": self.SEED_SLUG})
+
+        # 1) Seed an ALIVE doc with deleted_at: None explicitly present
+        alive_doc = {
+            "id": str(uuid.uuid4()),
+            "slug": self.SEED_SLUG,
+            "name": "Deleted-At-None Regression",
+            "description": None,
+            "theme": "purple",
+            "icon": "Sparkles",
+            "sub_categories": [],
+            "field_definitions": [],
+            "product_group": self.SEED_SLUG,
+            "created_at": datetime.now(timezone.utc),
+            "created_by": "seed",
+            "updated_at": datetime.now(timezone.utc),
+            "deleted_at": None,   # <-- the key point: explicit None, not missing
+        }
+        db.manager_definitions.insert_one(dict(alive_doc))
+
+        try:
+            # It SHOULD appear in list (deleted_at:None is alive)
+            r = requests.get(f"{API}/manager-definitions", timeout=15)
+            assert r.status_code == 200
+            slugs = [d["slug"] for d in r.json()["definitions"]]
+            assert self.SEED_SLUG in slugs, "alive doc with deleted_at:None must appear in list"
+
+            # It SHOULD be gettable
+            g = requests.get(f"{API}/manager-definitions/{self.SEED_SLUG}", timeout=15)
+            assert g.status_code == 200
+
+            # 2) Now flip deleted_at to a real timestamp — should disappear
+            db.manager_definitions.update_one(
+                {"slug": self.SEED_SLUG},
+                {"$set": {"deleted_at": datetime.now(timezone.utc)}},
+            )
+            r2 = requests.get(f"{API}/manager-definitions", timeout=15)
+            slugs2 = [d["slug"] for d in r2.json()["definitions"]]
+            assert self.SEED_SLUG not in slugs2, "doc with deleted_at:<ts> must be excluded"
+
+            g2 = requests.get(f"{API}/manager-definitions/{self.SEED_SLUG}", timeout=15)
+            assert g2.status_code == 404
+        finally:
+            db.manager_definitions.delete_many({"slug": self.SEED_SLUG})
