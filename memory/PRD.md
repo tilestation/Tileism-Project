@@ -9,7 +9,33 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
-### [Jul 24, 2026 — Forked session] 🟢 Credit Note History — pencil Edit button (parity with Refund History)
+### [Aug 3, 2026 — Forked session] 🟢 Online Orders — Click & Collect now shows WHICH store the customer chose
+
+**Owner-reported bug**: for Click & Collect orders, the admin order-details modal just said "Click & Collect from store" without naming the actual branch the customer selected. Staff had no way to tell where to prep the order.
+
+**Root cause**: the backend already tracked `collect_store_id` on `shop_orders` but the admin list + detail endpoints returned the raw ID only — the frontend then rendered a generic "Click & Collect from store" string.
+
+**Fix** — enrich the two admin endpoints in `/app/backend/routes/shop.py`:
+- `GET /api/shop/admin/online-orders/{order_id}` — resolves `collect_store_id` (with legacy `collect_showroom_id` fallback) into a nested `collect_store` object containing `id`, `name`, `address`, `phone`, `email`.
+- `GET /api/shop/admin/online-orders` (list) — resolves ALL `collect_store_id`s in a single bulk Mongo call, and returns `collect_store_id` + `collect_store_name` on each row of the summary payload.
+
+**Frontend** — `/app/frontend/src/pages/admin/OnlineOrders.jsx`:
+- Detail modal: Collection card now renders a full "CLICK & COLLECT FROM → *branch name* → address → phone → email" block. Falls back to an amber warning message if the flag is on the order but the store can't be resolved (legacy / bug).
+- List row: below the "Collect" chip, shows the branch name in bold indigo (`text-indigo-700`, `text-[10px]`, `truncate` at 140px so it doesn't wreck the layout on narrow columns).
+
+**Files**:
+- `/app/backend/routes/shop.py` — enriched detail + list endpoints.
+- `/app/frontend/src/pages/admin/OnlineOrders.jsx` — Collection card + list-row chip.
+
+**Verification**:
+- Seeded a test `shop_orders` row `TS-TEST-COLLECT-001` pointing at Chingford (id `cd750826…`).
+- Curl `GET /api/shop/admin/online-orders/TS-TEST-COLLECT-001` returned `collect_store: {id, name: 'Chingford', address: '10, Deacon Trading Estate, 11 Cabinet Way, South Chingford', phone: '020 8524 6262', email: 'chingford@tilestation.co.uk'}` ✅
+- Curl list search returned `collect_store_name: 'Chingford'` on the summary row ✅
+- Screenshot on `/admin/online-orders`: list row shows the "Chingford" chip under the "Collect" pill ✅; opening the detail modal shows the full store card ✅
+- Test order cleaned up post-verification ✅
+
+
+
 
 **What shipped** in `/app/frontend/src/pages/admin/CreditNoteHistory.js`:
 - Imported `Edit2` icon.

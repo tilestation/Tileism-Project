@@ -3961,9 +3961,26 @@ async def admin_list_online_orders(
     )
     orders = await cursor.to_list(length=limit)
 
+    # 24 Jul 2026 — resolve collect_store_id → store name in ONE bulk
+    # Mongo call so the list rows can also show which branch a Click &
+    # Collect order is going to (matches the detail-modal enhancement).
+    collect_ids = {
+        o.get("collect_store_id") or o.get("collect_showroom_id")
+        for o in orders if (o.get("collect_store_id") or o.get("collect_showroom_id"))
+    }
+    store_name_map = {}
+    if collect_ids:
+        stores_cursor = db.showrooms.find(
+            {"id": {"$in": list(collect_ids)}},
+            {"_id": 0, "id": 1, "name": 1},
+        )
+        async for s in stores_cursor:
+            store_name_map[s["id"]] = s.get("name")
+
     # Trim payload to what the list view actually needs (keeps response small).
     summary = []
     for o in orders:
+        cid = o.get("collect_store_id") or o.get("collect_showroom_id")
         summary.append({
             "id": o.get("id"),
             "order_number": o.get("order_number"),
@@ -3973,6 +3990,8 @@ async def admin_list_online_orders(
             "delivery_method": o.get("delivery_method"),
             "delivery_address": o.get("delivery_address"),
             "billing_address": o.get("billing_address"),
+            "collect_store_id": cid,
+            "collect_store_name": store_name_map.get(cid) if cid else None,
             "subtotal": o.get("subtotal"),
             "delivery_fee": o.get("delivery_fee"),
             "total": o.get("total"),
@@ -4113,6 +4132,21 @@ async def admin_get_online_order(order_id: str, current_user: dict = Depends(get
         order = await db.shop_orders.find_one({"order_number": order_id}, {"_id": 0})
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
+
+    # 24 Jul 2026 — surface the selected Click & Collect store in the
+    # admin modal. Previously we returned only the raw `collect_store_id`,
+    # so the frontend just showed "Click & Collect from store" with no way
+    # to tell which branch the customer picked. Resolve the ID to a small
+    # store card (name / address / phone / email) so shop staff can
+    # confirm the collection point in one glance.
+    collect_store_id = order.get("collect_store_id") or order.get("collect_showroom_id")
+    if collect_store_id:
+        store = await db.showrooms.find_one(
+            {"id": collect_store_id},
+            {"_id": 0, "id": 1, "name": 1, "address": 1, "phone": 1, "email": 1},
+        )
+        if store:
+            order["collect_store"] = store
     return order
 
 

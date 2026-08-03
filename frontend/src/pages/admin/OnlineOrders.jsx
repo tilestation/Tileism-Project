@@ -463,7 +463,31 @@ function OrderDetailModal({ orderId, onClose, onStatusChanged, onDeleted }) {
                     {order.delivery_method === 'collect' ? 'Collection' : 'Delivery Address'}
                   </h3>
                   {order.delivery_method === 'collect' ? (
-                    <p className="text-sm text-gray-700">Click &amp; Collect from store</p>
+                    <div className="space-y-1" data-testid="collect-store-block">
+                      <p className="text-xs uppercase tracking-wider text-gray-400 font-semibold">Click &amp; Collect from</p>
+                      {order.collect_store ? (
+                        <>
+                          <p className="text-sm font-bold text-gray-900" data-testid="collect-store-name">
+                            {order.collect_store.name}
+                          </p>
+                          {order.collect_store.address && (
+                            <p className="text-xs text-gray-600 leading-relaxed whitespace-pre-line">
+                              {order.collect_store.address}
+                            </p>
+                          )}
+                          {(order.collect_store.phone || order.collect_store.email) && (
+                            <div className="pt-1 text-xs text-gray-500 space-y-0.5">
+                              {order.collect_store.phone && <div>{order.collect_store.phone}</div>}
+                              {order.collect_store.email && <div className="truncate">{order.collect_store.email}</div>}
+                            </div>
+                          )}
+                        </>
+                      ) : (
+                        <p className="text-sm text-amber-700 italic" data-testid="collect-store-missing">
+                          No store selected — customer picked Click &amp; Collect without choosing a branch (legacy order or a bug in the checkout flow).
+                        </p>
+                      )}
+                    </div>
                   ) : (
                     <p className="text-sm text-gray-700 leading-relaxed">{formatAddress(order.delivery_address) || <span className="text-gray-400">Not provided</span>}</p>
                   )}
@@ -1213,6 +1237,15 @@ export default function OnlineOrders() {
                           {o.delivery_method === 'collect' ? <Store className="w-3 h-3" /> : <Truck className="w-3 h-3" />}
                           {o.delivery_method === 'collect' ? 'Collect' : 'Delivery'}
                         </span>
+                        {o.delivery_method === 'collect' && o.collect_store_name && (
+                          <div
+                            className="text-[10px] font-semibold text-indigo-700 mt-0.5 truncate max-w-[140px]"
+                            title={`Click & Collect from ${o.collect_store_name}`}
+                            data-testid={`collect-store-name-${o.order_number}`}
+                          >
+                            {o.collect_store_name}
+                          </div>
+                        )}
                       </td>
                       <td className="px-4 py-3 text-gray-700 tabular-nums">{o.items_count}</td>
                       <td className="px-4 py-3 text-right text-gray-900 font-semibold tabular-nums">£{Number(o.total ?? 0).toFixed(2)}</td>
