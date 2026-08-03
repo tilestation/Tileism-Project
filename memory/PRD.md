@@ -9,6 +9,36 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Aug 3, 2026 — Forked session, later] 🟢 P0 Bulk Editor bug fixes shipped
+
+**Symptom the owner reported**: Bulk Category Editor saves colours but the storefront collection card shows "1 COLOUR" instead of 2. PDP for materials also labels the variant selector "Pattern:" which makes no sense for adhesives.
+
+**What shipped (three P0 fixes, all backward-compatible)**:
+
+1. **A1 — Context-aware style/pattern label on the PDP**. Added `styleSelectorLabel` in `CollectionDetailPage.js` — reads `products[0].product_group` (and falls back to `main_category`) to swap the label between: Tiles → `"Pattern"`, Materials → `"Type"`, Flooring → `"Finish"`, Bathroom → `"Model"`, Underfloor Heating → `"Kit Size"`, Tools → `"Model"`. Both the selector label (line 2680) AND the "Please select …" hint (line 3287) are updated. Materials PDPs no longer say "Pattern" on adhesive/grout variants.
+
+2. **A2 — Auto-publish + serializer now include array fields**. The gap was in `supplier_sync.py` line 11397 — `tile_doc` written by auto-publish only carried the scalar `color` / `material` / `size` / `finish` fields, so newly-published products landed in `tiles` without matching `colors[] / materials[] / styles[] / features[] / rooms[]`. The storefront's colour-count heuristic (`tiles.py::_group_products_by_series`) fell back to the singleton scalar → "1 COLOUR" even after saving 7 Grey + 7 White. Fixes:
+   - Added `colors / materials / styles / features / rooms` to the auto-publish `tile_doc` (falls back to `[color]` if the array is empty but the scalar is set).
+   - `serialize_tile_for_shop` now returns the same array fields plus `main_category / sub_categories` so the frontend can render them.
+   - `_group_products_by_series` now prefers the `colors` array over the scalar when computing unique swatches for the collection card — every colour genuinely saved will now be counted.
+
+3. **A3 — Save verification safety net**. `bulk-update-unified` samples up to 10 of the affected SKUs after every save and re-reads them from `supplier_products` to compare `set_fields` and `array_updates` against what actually landed in Mongo. Response now returns `verification_checked`, `verification_failures[]`, `verification_ok`. The Bulk Category Editor collects these across all batches (scoped, SKU-based, supplier-code-based) and shows a persistent warning toast (`Save verification: N field(s) didn't stick on the sampled products — check SKU: field, …`) whenever a mismatch is detected — so silent save failures can never present as a green success again. `lastSaveResult` now also carries `verificationFailures` + `verificationChecked` for the Save Results dialog.
+
+**End-to-end verified (curl on preview)**:
+- `POST /api/supplier-sync/products/bulk-update-unified` on `HE6000` with `updates: {colors: ["White"], color: "White"}` → `verification_checked: 1`, `verification_ok: true`, `verification_failures: []`, and Mongo shows `{sku: "HE6000", color: "White", colors: ["White"]}` ✅
+- Homepage smoke screenshot renders clean, no console errors from the new label logic ✅
+
+**Files touched**:
+- `/app/frontend/src/pages/shop/CollectionDetailPage.js` — `styleSelectorLabel` + label site + "Please select" hint
+- `/app/backend/routes/supplier_sync.py` — auto-publish `tile_doc` array fields + post-save verification block
+- `/app/backend/routes/tiles.py` — `serialize_tile_for_shop` array fields + collection colour aggregation
+- `/app/frontend/src/pages/admin/SupplierProducts.js` — collect + surface `verification_failures` on the two active bulk-save paths
+- `/app/memory/test_credentials.md` — fixture notes
+
+**Next up (approved by owner via "Go with your recommendation")**: Build the Materials Manager as the first category-specific admin section (P1) — reuses same backend, only shows material-relevant fields (Coverage, Pot Life, Setting Time, Bag Weight, Application Thickness, VOC, Suitability, Bag Colour). Legacy `/admin/supplier-products` stays as a hidden fallback route.
+
+
+
 ### [Aug 3, 2026 — Forked session] 🟢 P0 shipped — Trade Discount % / £ toggle + Half+Full Pallet bulk-set
 
 **Owner ask** (two parts, approved this session):

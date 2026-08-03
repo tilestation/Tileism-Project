@@ -4289,6 +4289,8 @@ export default function SupplierProducts() {
         }
         
         let scopedAutoPublished = 0;
+        const verificationFailureSamples = [];
+        let verificationChecked = 0;
         for (const batch of splitBatches) {
           try {
             const response = await fetch(`${API_URL}/api/supplier-sync/products/bulk-update-unified`, {
@@ -4306,6 +4308,10 @@ export default function SupplierProducts() {
               const result = await response.json();
               successCount += batch.ids.length;
               scopedAutoPublished += result.auto_published || 0;
+              verificationChecked += result.verification_checked || 0;
+              if (Array.isArray(result.verification_failures) && result.verification_failures.length > 0) {
+                verificationFailureSamples.push(...result.verification_failures);
+              }
             } else {
               failCount += batch.ids.length;
               try {
@@ -4328,7 +4334,13 @@ export default function SupplierProducts() {
           if (scopedAutoPublished > 0) {
             toast.info(`${scopedAutoPublished} product${scopedAutoPublished > 1 ? 's were' : ' was'} auto-published to the storefront`);
           }
-          setLastSaveResult({ success: successCount, failed: failCount, total: productsToUpdate.length, timestamp: Date.now() });
+          if (verificationFailureSamples.length > 0) {
+            // Some writes didn't stick — highlight loudly
+            const preview = verificationFailureSamples.slice(0, 3).map(f => `${f.sku}: ${f.field}`).join(', ');
+            toast.warning(`Save verification: ${verificationFailureSamples.length} field(s) didn't stick — check ${preview}${verificationFailureSamples.length > 3 ? '…' : ''}`, { duration: 10000 });
+            console.warn('[Bulk Update] Verification failures:', verificationFailureSamples);
+          }
+          setLastSaveResult({ success: successCount, failed: failCount, total: productsToUpdate.length, timestamp: Date.now(), verificationFailures: verificationFailureSamples, verificationChecked });
         }
         if (failCount > 0) {
           toast.error(`Failed to update ${failCount} products`);
@@ -4491,6 +4503,8 @@ export default function SupplierProducts() {
       };
 
       // Send request for SKU-based products
+      let verificationFailures = [];
+      let verificationChecked = 0;
       if (bySkuProducts.length > 0) {
         const skuIds = bySkuProducts.map(p => p.sku).filter(id => id != null && id !== '');
         if (skuIds.length > 0) {
@@ -4512,6 +4526,10 @@ export default function SupplierProducts() {
             updatedCount = result.updated_count || result.total_updated || skuIds.length;
             totalSuccessCount += updatedCount;
             totalAutoPublished += result.auto_published || 0;
+            verificationChecked += result.verification_checked || 0;
+            if (Array.isArray(result.verification_failures) && result.verification_failures.length > 0) {
+              verificationFailures.push(...result.verification_failures);
+            }
           } else {
             try { const err = await response.json(); console.error('SKU batch failed:', response.status, err); } catch (e) { /* ignore */ }
           }
@@ -4567,6 +4585,10 @@ export default function SupplierProducts() {
             updatedCount = result.updated_count || result.total_updated || scIds.length;
             totalSuccessCount += updatedCount;
             totalAutoPublished += result.auto_published || 0;
+            verificationChecked += result.verification_checked || 0;
+            if (Array.isArray(result.verification_failures) && result.verification_failures.length > 0) {
+              verificationFailures.push(...result.verification_failures);
+            }
           } else {
             try { const err = await response.json(); console.error('Supplier code batch failed:', response.status, err); } catch (e) { /* ignore */ }
           }
@@ -4663,11 +4685,24 @@ export default function SupplierProducts() {
         if (totalAutoPublished > 0) {
           toast.info(`${totalAutoPublished} product${totalAutoPublished > 1 ? 's were' : ' was'} auto-published to the storefront`);
         }
+        // Safety check: surface any silent save failures the backend detected
+        if (verificationFailures.length > 0) {
+          const preview = verificationFailures.slice(0, 3).map(f => `${f.sku}: ${f.field}`).join(', ');
+          toast.warning(
+            `Save verification: ${verificationFailures.length} field(s) didn't stick on the sampled products — check ${preview}${verificationFailures.length > 3 ? '…' : ''}`,
+            { duration: 12000 }
+          );
+          console.warn('[Bulk Update] Verification failures:', verificationFailures);
+        } else if (verificationChecked > 0) {
+          console.log(`[Bulk Update] Verification passed — ${verificationChecked} sampled products confirmed`);
+        }
         setLastSaveResult({
           success: totalSuccessCount,
           failed: totalFailCount,
           total: productsToUpdate.length,
           failed_items: failedItems,
+          verificationFailures,
+          verificationChecked,
           timestamp: Date.now(),
         });
         // 3 Aug 2026 — auto-open Save Results dialog when ANY product

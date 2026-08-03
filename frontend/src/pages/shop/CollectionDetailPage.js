@@ -583,6 +583,20 @@ const CollectionDetailPage = () => {
 
   const isMaterialCollection = materialProductOptions.length >= 2;
 
+  // Product-group aware label for the Style/Pattern selector.
+  // Tiles get "Pattern" (existing behaviour); materials/flooring/etc. get a label that
+  // makes sense for that category so the PDP stops calling adhesive bags a "Pattern".
+  const styleSelectorLabel = useMemo(() => {
+    const group = String(products[0]?.product_group || 'tiles').toLowerCase();
+    const mainCat = String(products[0]?.main_category || '').toLowerCase();
+    if (group === 'materials' || mainCat === 'materials' || isMaterialCollection) return 'Type';
+    if (group === 'flooring' || mainCat === 'flooring') return 'Finish';
+    if (group === 'bathroom' || mainCat === 'bathroom') return 'Model';
+    if (group === 'underfloor_heating' || mainCat.includes('underfloor')) return 'Kit Size';
+    if (group === 'tools' || mainCat === 'tools') return 'Model';
+    return 'Pattern';
+  }, [products, isMaterialCollection]);
+
   // Auto-select first material product when collection loads
   useEffect(() => {
     if (isMaterialCollection && !selectedMaterialProduct && products.length > 0) {
@@ -2677,7 +2691,7 @@ const CollectionDetailPage = () => {
             {styleOptions.length > 1 && (
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Pattern: <span className={`font-normal ${selectedStyle ? 'text-gray-500' : 'text-amber-600'}`}>
+                  {styleSelectorLabel}: <span className={`font-normal ${selectedStyle ? 'text-gray-500' : 'text-amber-600'}`}>
                     {selectedStyle || 'Please select'}
                   </span>
                 </label>
@@ -3268,7 +3282,7 @@ const CollectionDetailPage = () => {
                     Please select {[
                       colorOptions.length > 0 && !selectedColor ? (colorOptions.some(c => c.variantType === 'color') ? 'Colour' : 'Variant') : null,
                       hasMultipleFinishes && finishOptions.length > 0 && !selectedFinish ? 'Finish' : null,
-                      styleOptions.length > 1 && !selectedStyle ? 'Pattern' : null,
+                      styleOptions.length > 1 && !selectedStyle ? styleSelectorLabel : null,
                       availableSizes.length > 0 && !selectedSize ? 'Size' : null
                     ].filter(Boolean).join(', ')} to continue
                   </div>

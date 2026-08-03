@@ -235,6 +235,15 @@ def serialize_tile_for_shop(tile: dict) -> dict:
         "trade_discount": tile.get("trade_discount"),
         "trade_discount_type": tile.get("trade_discount_type") or "percent",
         "credit_back_rate": tile.get("credit_back_rate"),
+        # Array fields used by storefront collection card + PDP to build
+        # unique colour / style / feature swatch groups.
+        "colors": tile.get("colors") or ([tile.get("color")] if tile.get("color") else []),
+        "materials": tile.get("materials") or ([tile.get("material")] if tile.get("material") else []),
+        "styles": tile.get("styles", []),
+        "features": tile.get("features", []),
+        "rooms": tile.get("rooms", []),
+        "main_category": tile.get("main_category", ""),
+        "sub_categories": tile.get("sub_categories", []),
     }
 
 
@@ -1060,16 +1069,22 @@ async def _get_tile_collections_impl(
             if rc > group.get("review_count", 0):
                 group["review_count"] = rc
             
-            # Collect color - from spec field first, then fallback to name extraction
-            color = p.get("color") or p.get("attributes", {}).get("color", "")
-            if isinstance(color, list):
-                color = color[0] if color else ""
-            if not isinstance(color, str):
-                color = str(color) if color else ""
-            if not color or not color.strip():
-                color = extract_color_from_name(p.get("display_name") or p.get("name") or "")
-            if color:
-                group["colors"].add(color.strip())
+            # Collect color(s) — arrays win; otherwise scalar; otherwise extract from name.
+            colors_arr = p.get("colors")
+            if isinstance(colors_arr, list) and len(colors_arr) > 0:
+                for c in colors_arr:
+                    if c and isinstance(c, str) and c.strip():
+                        group["colors"].add(c.strip())
+            else:
+                color = p.get("color") or p.get("attributes", {}).get("color", "")
+                if isinstance(color, list):
+                    color = color[0] if color else ""
+                if not isinstance(color, str):
+                    color = str(color) if color else ""
+                if not color or not color.strip():
+                    color = extract_color_from_name(p.get("display_name") or p.get("name") or "")
+                if color:
+                    group["colors"].add(color.strip())
             
             # Collect size - from spec field first, then attributes
             size = p.get("size") or p.get("attributes", {}).get("size", "")
