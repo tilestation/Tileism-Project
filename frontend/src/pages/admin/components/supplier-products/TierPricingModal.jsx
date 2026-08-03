@@ -40,6 +40,7 @@ const TierPricingModal = ({
   overrideListPrice,
   overrideCostPrice,
   tierProductScope,
+  selectedPricingUnit = 'm2', // 'm2' | 'unit' | 'mixed'
 }) => {
   const filterLabel = getFilterDisplayLabel ? getFilterDisplayLabel(pricingSizeFilter) : pricingSizeFilter;
 
@@ -62,6 +63,10 @@ const TierPricingModal = ({
   // Trade discount type — 'percent' (default) or 'fixed' (flat £/m²)
   const tradeType = tierPricingConfig.trade_discount_type === 'fixed' ? 'fixed' : 'percent';
   const isTradeFixed = tradeType === 'fixed';
+  // Unit-aware "per m²" vs "per unit" for the Trade Discount fixed mode.
+  const isUnitPricing = selectedPricingUnit === 'unit';
+  const tradeFixedSuffix = isUnitPricing ? '£/unit' : '£/m²';
+  const tradeFixedLabel = isUnitPricing ? '(£/unit)' : '(£/m²)';
 
   const addTier = () => {
     const lastThreshold = thresholds[thresholds.length - 1] || 100;
@@ -118,6 +123,19 @@ const TierPricingModal = ({
   const setPalletField = (field, value) => {
     setTierPricingConfig(prev => ({ ...prev, [field]: value }));
   };
+  // Unit-aware labels for the pallet block. Materials sold per bag → "bags per pallet";
+  // tiles / flooring → "m² per pallet". Mixed selections default to m² with a warning.
+  const palletIsUnit = selectedPricingUnit === 'unit';
+  const palletIsMixed = selectedPricingUnit === 'mixed';
+  const palletQtyLabel = palletIsUnit ? 'units / bags' : 'm²';
+  const palletPriceLabel = palletIsUnit ? '£ per unit' : '£ per m²';
+  const palletQtyPlaceholderFull = palletIsUnit ? 'e.g., 60' : 'e.g., 32.00';
+  const palletQtyPlaceholderHalf = palletIsUnit ? 'e.g., 30' : 'auto: ½ of full';
+  const palletPricePlaceholderFull = palletIsUnit ? 'e.g., 12.50' : 'e.g., 28.00';
+  const palletPricePlaceholderHalf = palletIsUnit ? 'e.g., 13.20' : 'e.g., 30.00';
+  const palletStorefrontHint = palletIsUnit
+    ? 'On the storefront, customers see a Half Pallet / Full Pallet chip. Selecting one auto-sets the basket quantity to the matching unit count and applies the £/unit rate.'
+    : 'On the storefront, customers see a Half Pallet / Full Pallet chip. Selecting one auto-sets the basket m² to the matching threshold and applies the £/m² rate.';
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -181,7 +199,7 @@ const TierPricingModal = ({
               {/* Tier Thresholds */}
               <div>
                 <div className="flex items-center justify-between mb-3">
-                  <h4 className="font-medium text-sm text-gray-700">Quantity Thresholds (m²)</h4>
+                  <h4 className="font-medium text-sm text-gray-700">Quantity Thresholds ({isUnitPricing ? 'units' : 'm²'})</h4>
                   <span className="text-xs text-gray-400">{tierCount} tiers</span>
                 </div>
                 <div className="flex flex-wrap gap-2">
@@ -227,9 +245,10 @@ const TierPricingModal = ({
                   {discounts.map((discount, i) => {
                     const rangeStart = i === 0 ? 0 : thresholds[i - 1] || 0;
                     const rangeEnd = i < thresholds.length ? thresholds[i] : null;
+                    const qtyUnit = isUnitPricing ? ' units' : 'm²';
                     const rangeLabel = rangeEnd !== null
-                      ? `Tier ${i + 1} (${rangeStart}-${rangeEnd}m²)`
-                      : `Tier ${i + 1} (${rangeStart}m²+)`;
+                      ? `Tier ${i + 1} (${rangeStart}-${rangeEnd}${qtyUnit})`
+                      : `Tier ${i + 1} (${rangeStart}${qtyUnit}+)`;
                     return (
                       <div key={i} className="relative">
                         <label className="text-[10px] text-gray-400 block mb-0.5 truncate max-w-[100px]" title={rangeLabel}>
@@ -258,7 +277,7 @@ const TierPricingModal = ({
           <div className={`grid ${selectedProducts.size > 0 ? 'grid-cols-1' : 'grid-cols-3'} gap-4`}>
             {selectedProducts.size === 0 && (
               <div>
-                <label className="text-xs text-gray-500">Custom Quote Threshold (m²)</label>
+                <label className="text-xs text-gray-500">Custom Quote Threshold ({isUnitPricing ? 'units' : 'm²'})</label>
                 <input
                   type="number"
                   value={tierPricingConfig.custom_quote_threshold || 150}
@@ -271,7 +290,7 @@ const TierPricingModal = ({
             <div>
               <div className="flex items-center justify-between mb-1">
                 <label className="text-xs text-gray-500">
-                  Trade Discount {isTradeFixed ? '(£/m²)' : '(%)'}
+                  Trade Discount {isTradeFixed ? tradeFixedLabel : '(%)'}
                 </label>
                 {/* % / £ segmented toggle */}
                 <div className="inline-flex rounded-md border border-gray-300 overflow-hidden text-[11px]">
@@ -316,12 +335,12 @@ const TierPricingModal = ({
                   data-testid="trade-discount-input"
                 />
                 <span className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400">
-                  {isTradeFixed ? '£/m²' : '%'}
+                  {isTradeFixed ? tradeFixedSuffix : '%'}
                 </span>
               </div>
               <p className="text-xs text-gray-400 mt-1">
                 {isTradeFixed
-                  ? 'Flat £ per m² deducted from the tier-discounted price for trade accounts. Stacks on top of the volume discount.'
+                  ? `Flat £ per ${isUnitPricing ? 'unit' : 'm²'} deducted from the tier-discounted price for trade accounts. Stacks on top of the volume discount.`
                   : (selectedProducts.size > 0 ? 'Extra % off for trade accounts on these products (stacks on volume tier)' : 'Extra % off for trade accounts (stacks on volume tier)')
                 }
               </p>
@@ -366,59 +385,66 @@ const TierPricingModal = ({
 
               {palletEnabled && (
                 <div className="mt-4 space-y-3">
-                  <p className="text-xs text-green-700 font-medium">Pallet quantities (m²) and £/m² rates — leave Half blank to default to ½ of Full.</p>
+                  {palletIsMixed && (
+                    <div className="text-xs bg-amber-100 border border-amber-300 text-amber-900 p-2 rounded">
+                      ⚠️ Your selection mixes m² (surface) and unit (bag / each) products. Split them and edit each group separately — the labels below default to <strong>m²</strong>.
+                    </div>
+                  )}
+                  <p className="text-xs text-green-700 font-medium">
+                    Pallet quantities ({palletQtyLabel}) and {palletPriceLabel} rates — leave Half blank to default to ½ of Full.
+                  </p>
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="text-xs text-green-800 font-medium">Full Pallet (m²)</label>
+                      <label className="text-xs text-green-800 font-medium">Full Pallet ({palletQtyLabel})</label>
                       <input
                         type="number"
-                        step="0.01"
+                        step={palletIsUnit ? '1' : '0.01'}
                         value={tierPricingConfig.m2_per_pallet ?? ''}
                         onChange={(e) => setPalletField('m2_per_pallet', e.target.value === '' ? null : parseFloat(e.target.value))}
-                        placeholder="e.g., 32.00"
+                        placeholder={palletQtyPlaceholderFull}
                         className="w-full mt-1 px-3 py-2 border border-green-200 bg-white rounded-lg text-sm"
                         data-testid="pallet-m2-per-pallet-input"
                       />
                     </div>
                     <div>
-                      <label className="text-xs text-green-800 font-medium">Full Pallet — £/m²</label>
+                      <label className="text-xs text-green-800 font-medium">Full Pallet — {palletPriceLabel}</label>
                       <input
                         type="number"
                         step="0.01"
                         value={tierPricingConfig.pallet_price ?? ''}
                         onChange={(e) => setPalletField('pallet_price', e.target.value === '' ? null : parseFloat(e.target.value))}
-                        placeholder="e.g., 28.00"
+                        placeholder={palletPricePlaceholderFull}
                         className="w-full mt-1 px-3 py-2 border border-green-200 bg-white rounded-lg text-sm"
                         data-testid="pallet-full-price-input"
                       />
                     </div>
                     <div>
-                      <label className="text-xs text-green-800 font-medium">Half Pallet (m²)</label>
+                      <label className="text-xs text-green-800 font-medium">Half Pallet ({palletQtyLabel})</label>
                       <input
                         type="number"
-                        step="0.01"
+                        step={palletIsUnit ? '1' : '0.01'}
                         value={tierPricingConfig.m2_per_half_pallet ?? ''}
                         onChange={(e) => setPalletField('m2_per_half_pallet', e.target.value === '' ? null : parseFloat(e.target.value))}
-                        placeholder="auto: ½ of full"
+                        placeholder={palletQtyPlaceholderHalf}
                         className="w-full mt-1 px-3 py-2 border border-green-200 bg-white rounded-lg text-sm"
                         data-testid="pallet-m2-per-half-input"
                       />
                     </div>
                     <div>
-                      <label className="text-xs text-green-800 font-medium">Half Pallet — £/m²</label>
+                      <label className="text-xs text-green-800 font-medium">Half Pallet — {palletPriceLabel}</label>
                       <input
                         type="number"
                         step="0.01"
                         value={tierPricingConfig.half_pallet_price ?? ''}
                         onChange={(e) => setPalletField('half_pallet_price', e.target.value === '' ? null : parseFloat(e.target.value))}
-                        placeholder="e.g., 30.00"
+                        placeholder={palletPricePlaceholderHalf}
                         className="w-full mt-1 px-3 py-2 border border-green-200 bg-white rounded-lg text-sm"
                         data-testid="pallet-half-price-input"
                       />
                     </div>
                   </div>
                   <p className="text-[11px] text-green-600">
-                    On the storefront, customers see a Half Pallet / Full Pallet chip. Selecting one auto-sets the basket m² to the matching threshold and applies the £/m² rate.
+                    {palletStorefrontHint}
                   </p>
                 </div>
               )}
@@ -553,9 +579,10 @@ const TierPricingModal = ({
                               const tierNetProfit = tierExVat - costPrice - tierCreditBack;
                               const rangeStart = i === 0 ? 0 : thresholds[i - 1] || 0;
                               const rangeEnd = i < thresholds.length ? thresholds[i] : null;
+                              const qtyUnit = isUnitPricing ? ' units' : 'm²';
                               const qtyLabel = rangeEnd !== null
-                                ? `${rangeStart} - ${rangeEnd}m²`
-                                : `${rangeStart}m²+`;
+                                ? `${rangeStart} - ${rangeEnd}${qtyUnit}`
+                                : `${rangeStart}${qtyUnit}+`;
                               const discountLabel = isTradeFixed
                                 ? `${discount}% + £${Number(tradeValue).toFixed(2)}`
                                 : `${discount + tradeValue}%`;

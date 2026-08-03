@@ -4191,6 +4191,9 @@ def get_all_supplier_products(
                 "was_price": p.get("was_price"),
                 "discount_percentage": p.get("discount_percentage"),
                 "sale_savings": p.get("sale_savings"),
+                # Pricing unit + product group (drives labels in the Tier Pricing modal)
+                "pricing_unit": p.get("pricing_unit"),
+                "product_group": p.get("product_group"),
             }
             products.append(product)
         

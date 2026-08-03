@@ -15460,6 +15460,27 @@ export default function SupplierProducts() {
         overrideListPrice={bulkCategorySelections.list_price}
         overrideCostPrice={bulkCategorySelections.cost_price}
         tierProductScope={tierProductScope}
+        selectedPricingUnit={(() => {
+          // Look at the currently-selected products and figure out if we're
+          // dealing with m² surface products or per-unit materials. This drives
+          // the Half + Full Pallet labels: "m² per pallet" vs "bags per pallet".
+          const selectedList = getProductsFilteredBySize(pricingSizeFilter).filter(p => {
+            const key = `${p.supplier || 'unknown'}|||${p.sku || p.supplier_code || p._id}`;
+            return selectedProducts.has(key);
+          });
+          if (selectedList.length === 0) return 'm2';
+          const units = new Set(selectedList.map(p => {
+            if (p.pricing_unit === 'unit') return 'unit';
+            if (p.pricing_unit === 'm2') return 'm2';
+            // Fallback: materials without explicit pricing_unit → treat as unit
+            const grp = String(p.product_group || '').toLowerCase();
+            const mainCat = String(p.main_category || '').toLowerCase();
+            if (grp === 'materials' || mainCat === 'materials') return 'unit';
+            return 'm2';
+          }));
+          if (units.size === 1) return [...units][0];
+          return 'mixed';
+        })()}
       />
 
 
