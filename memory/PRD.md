@@ -9,6 +9,46 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Aug 4, 2026 — Forked, session F] 🟢 Per-Manager Configurable Filters/Sub-Tabs/Spec Fields — VERIFIED
+
+**Owner ask**: Filters, sub-categories, and spec-field values were being shared across all Managers (adding a facet to one leaked into others). Each Manager should have its OWN isolated config.
+
+**This session**: Ran the verification pass the previous session skipped.
+
+1. **Backend `/api/manager-definitions`** verified end-to-end:
+   - `GET /api/manager-definitions/{slug}?with_defaults=true` seeds `BUILTIN_DEFAULTS` on first read for all 6 built-ins (tiles/materials/flooring/bathroom/underfloor_heating/tools). Each returns non-empty `filter_facets`, `sub_tabs`, `spec_fields` arrays. Confirmed via curl:
+     - tiles → 6/4/6, materials → 4/6/5, flooring → 7/5/9, bathroom → 6/7/9, underfloor_heating → 5/5/8, tools → 4/6/8.
+   - `PATCH /api/manager-definitions/{slug}` persists new facets/tabs/specs scoped per-slug. Isolation curl-verified: `PATCH materials` adding `Warranty` facet → `GET materials` shows Warranty; `GET tiles` unchanged (no Warranty). Restored materials to defaults after test.
+
+2. **Frontend** — `ManagerConfigModal` mounted + wired on all 7 pages:
+   - Standalone: MaterialsManager, TilesManager, FlooringManager, CustomManager.
+   - Via `ManagerPageShell`: BathroomManager, UnderfloorHeatingManager, ToolsManager.
+   - Screenshot on `/admin/materials` → Configure button renders in header → clicking opens modal with 3 tabs (Filters 4 / Sub-Categories 6 / Spec Fields 5) matching backend defaults.
+
+3. **Testing agent v3 (iteration 203)** — 100% pass:
+   - 11/11 backend pytest cases (test_manager_config_per_manager.py) covering GET defaults on all 6 slugs, PATCH persistence for facets/tabs/specs, isolation between managers, 403 on unauth, 404 on unknown slug.
+   - E2E Playwright: opened Configure modal on all 6 built-in managers, add-Warranty flow saves + persists on materials, does NOT appear on tiles, cleanup removes the row.
+
+4. **a11y fix** — Radix warning "Missing DialogDescription" resolved. Swapped the raw `<p>` sub-title in `ManagerConfigModal.jsx` header for `<DialogDescription>`.
+
+**Files touched this session**:
+- `/app/frontend/src/pages/admin/components/managers/ManagerConfigModal.jsx` — DialogDescription import + swap `<p>` → `<DialogDescription>`
+- `/app/backend/tests/test_manager_config_per_manager.py` — 11 pytest cases (added by testing agent)
+- `/app/test_reports/iteration_203.json` — pass report
+
+**No regressions**. All 138 Materials products still load, workspace tabs bar renders, Add Product Wizard + Bulk modals unaffected.
+
+**Remaining P1 backlog** (in owner's approved order):
+- Wire `CsvImportModal` into 4 standalone Managers (Materials, Tiles, Flooring, Custom) — shell-based ones already have it
+- Migrate Materials/Tiles/Flooring/Custom to `ManagerPageShell` (~1500 line dedup)
+- "Browse …" storefront CTAs on Materials/Flooring/UFH/Tools landing pages
+- Prod→preview showroom sync script
+- Google Ads dashboard (blocked on Developer Token approval)
+- Google Business Profile integration (blocked on Google allowlist)
+
+
+
+
 ### [Aug 4, 2026 — Forked, session E] 🟢 3-mode Bulk Price editor: Set / Adjust / Edit-each
 
 **Owner report**: 6 products in the same UltraTile cleaning series had DIFFERENT prices, but the existing "Bulk Set Price / Cost / Stock" modal only supported one shared value — overwriting every product with the same number. Not helpful when a collection has mixed pricing.

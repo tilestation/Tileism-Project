@@ -20,7 +20,7 @@
 import React, { useState, useEffect } from 'react';
 import { toast } from 'sonner';
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '../../../../components/ui/dialog';
 import { Button } from '../../../../components/ui/button';
 import { Input } from '../../../../components/ui/input';
@@ -113,9 +113,9 @@ const ManagerConfigModal = ({ open, onOpenChange, slug, config, onSave, themeCol
             <Settings className="w-5 h-5 text-slate-700" />
             Configure Manager — {config?.name || slug}
           </DialogTitle>
-          <p className="text-xs text-gray-500">
+          <DialogDescription className="text-xs text-gray-500">
             Filters, sub-tabs and spec fields — <b>scoped to {config?.name || slug} only</b>. Changes here do not affect other Managers.
-          </p>
+          </DialogDescription>
         </DialogHeader>
 
         {/* Tabs */}
