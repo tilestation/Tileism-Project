@@ -23,7 +23,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import {
-  ArrowLeft, RefreshCw, Search, Save, X, Edit2, Filter, ExternalLink, AlertCircle, CheckCircle, Plus, FileSpreadsheet,
+  ArrowLeft, RefreshCw, Search, Save, X, Edit2, Filter, ExternalLink, AlertCircle, CheckCircle, Plus, FileSpreadsheet, Settings,
 } from 'lucide-react';
 import { Button } from '../../../components/ui/button';
 import { Input } from '../../../components/ui/input';
@@ -41,12 +41,28 @@ import BulkFieldsModal from './managers/BulkFieldsModal';
 import BulkAIDescriptionsModal from './managers/BulkAIDescriptionsModal';
 import BulkImageUploadModal from './managers/BulkImageUploadModal';
 import CsvImportModal from './managers/CsvImportModal';
+import ManagerConfigModal from './managers/ManagerConfigModal';
 import AssignColoursModal from './managers/AssignColoursModal';
 import TierPricingModal from './supplier-products/TierPricingModal';
 import { useManagerBulk } from './managers/useManagerBulk';
 import { useDraftRecovery } from './managers/useDraftRecovery';
+import { useManagerConfig } from './managers/useManagerConfig';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
+
+// Given a stored sub-tab config ({key, label, keywords[]}) and a product,
+// return whether the product should appear in that sub-tab. `all` / empty
+// keywords always match everything.
+const tabMatches = (tab, product) => {
+  const keywords = Array.isArray(tab.keywords) ? tab.keywords : [];
+  if (tab.key === 'all' || keywords.length === 0) return true;
+  const haystack = (
+    (product.our_product_name || product.product_name || product.name || '') + ' ' +
+    (Array.isArray(product.sub_categories) ? product.sub_categories.join(' ') : '') + ' ' +
+    (product.type || '')
+  ).toLowerCase();
+  return keywords.some(kw => haystack.includes(String(kw).toLowerCase()));
+};
 
 // Tailwind class maps keyed by theme (used for header icon, bulk bar accent, buttons, sub-tab active borders)
 const THEME_MAP = {
@@ -93,6 +109,22 @@ const ManagerPageShell = ({
   const [showAIDescriptions, setShowAIDescriptions] = useState(false);
   const [showBulkImages, setShowBulkImages] = useState(false);
   const [showCsvImport, setShowCsvImport] = useState(false);
+  const [showConfig, setShowConfig] = useState(false);
+
+  // ---- Per-Manager config (facets, sub-tabs, spec fields) from the DB ----
+  const { config, save: saveConfig } = useManagerConfig(categoryKey);
+
+  // Merge props with DB config. DB config wins if present — so admin's custom
+  // filters/tabs/fields survive across page reloads.
+  const effectiveFilterFacets = Array.isArray(config?.filter_facets) && config.filter_facets.length > 0
+    ? config.filter_facets
+    : null;   // null means: fall back to ManagerFiltersPanel's category preset
+  const effectiveSubTabs = Array.isArray(config?.sub_tabs) && config.sub_tabs.length > 0
+    ? config.sub_tabs.map(t => ({ ...t, match: (p) => tabMatches(t, p) }))
+    : subTabs;
+  const effectiveEditFields = Array.isArray(config?.spec_fields) && config.spec_fields.length > 0
+    ? config.spec_fields
+    : editFields;
   const [tierPricingConfig, setTierPricingConfig] = useState({
     thresholds: [10, 50, 100],
     discounts: [0, 5, 10, 15],
@@ -142,12 +174,12 @@ const ManagerPageShell = ({
   const filteredProducts = useMemo(() => {
     let list = products;
     // Sub-tab
-    const tab = subTabs.find(t => t.key === subTab) || subTabs[0];
+    const tab = effectiveSubTabs.find(t => t.key === subTab) || effectiveSubTabs[0];
     if (subTab !== 'all' && tab) {
-      list = list.filter(p => tab.match(p));
+      list = list.filter(p => tab.match ? tab.match(p) : tabMatches(tab, p));
     }
     // Facet filters
-    list = applyManagerFilters(list, filters, facetCategory);
+    list = applyManagerFilters(list, filters, facetCategory, effectiveFilterFacets);
     // Search
     if (search.trim()) {
       const q = search.trim().toLowerCase();
@@ -159,23 +191,23 @@ const ManagerPageShell = ({
       });
     }
     return list;
-  }, [products, subTab, filters, search, subTabs, facetCategory]);
+  }, [products, subTab, filters, search, effectiveSubTabs, effectiveFilterFacets, facetCategory]);
 
-  // Sub-tab counts
+  // Sub-tab counts (used to badge each tab)
   const groupCounts = useMemo(() => {
     const counts = { all: products.length };
-    subTabs.forEach(tab => {
+    effectiveSubTabs.forEach(tab => {
       if (tab.key === 'all') return;
-      counts[tab.key] = products.filter(p => tab.match(p)).length;
+      counts[tab.key] = products.filter(p => tab.match ? tab.match(p) : tabMatches(tab, p)).length;
     });
     return counts;
-  }, [products, subTabs]);
+  }, [products, effectiveSubTabs]);
 
   // ---- Edit modal ----
   const openEdit = (product) => {
     setEditingProduct(product);
     const initial = {};
-    editFields.forEach(f => { initial[f.key] = product[f.key] ?? ''; });
+    effectiveEditFields.forEach(f => { initial[f.key] = product[f.key] ?? ''; });
     initial.description = product.description || '';
     setEditForm(initial);
   };
@@ -250,6 +282,9 @@ const ManagerPageShell = ({
             <Button size="sm" className={`text-white ${themeCls.ctaBtn}`} onClick={() => setWizardOpen(true)} data-testid={`${categoryKey}-add-new-btn`}>
               <Plus className="w-4 h-4 mr-1.5" /> Add New
             </Button>
+            <Button size="sm" variant="outline" onClick={() => setShowConfig(true)} data-testid={`${categoryKey}-configure-btn`} title="Add/edit Filters, Sub-Tabs and Spec Fields for this Manager">
+              <Settings className="w-4 h-4 mr-1.5" /> Configure
+            </Button>
             <Button size="sm" variant="outline" onClick={() => setShowCsvImport(true)} data-testid={`${categoryKey}-csv-import-btn`} title="Bulk import products from CSV">
               <FileSpreadsheet className="w-4 h-4 mr-1.5" /> CSV Import
             </Button>
@@ -264,10 +299,10 @@ const ManagerPageShell = ({
         </div>
 
         {/* Sub-tabs */}
-        {subTabs.length > 1 && (
+        {effectiveSubTabs.length > 1 && (
           <div className="max-w-7xl mx-auto px-4">
             <div className="flex flex-wrap gap-1 border-b border-gray-100">
-              {subTabs.map(tab => (
+              {effectiveSubTabs.map(tab => (
                 <button
                   key={tab.key}
                   onClick={() => setSubTab(tab.key)}
@@ -310,6 +345,7 @@ const ManagerPageShell = ({
           onChange={setFilters}
           category={facetCategory}
           themeColor={themeFilter || theme}
+          customFacets={effectiveFilterFacets}
         />
 
         <div className={`rounded-lg p-3 text-sm flex items-start gap-2 border ${themeCls.banner}`}>
@@ -415,7 +451,7 @@ const ManagerPageShell = ({
             </div>
           )}
           <div className="grid grid-cols-2 gap-4 py-2">
-            {editFields.map(f => (
+            {effectiveEditFields.map(f => (
               <div key={f.key} className={f.type === 'textarea' ? 'col-span-2' : ''}>
                 <label className="block text-xs font-medium text-gray-700 mb-1">{f.label}</label>
                 {f.type === 'textarea' ? (
@@ -534,6 +570,15 @@ const ManagerPageShell = ({
         categoryLabel={title}
         themeColor={theme}
         onSuccess={() => { fetchProducts(); }}
+      />
+
+      <ManagerConfigModal
+        open={showConfig}
+        onOpenChange={setShowConfig}
+        slug={categoryKey}
+        config={config}
+        onSave={saveConfig}
+        themeColor={theme}
       />
 
       <TierPricingModal

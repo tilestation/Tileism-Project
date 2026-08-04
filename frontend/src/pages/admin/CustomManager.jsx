@@ -34,9 +34,11 @@ import CustomManagerBuilder from './components/managers/CustomManagerBuilder';
 import BulkFieldsModal from './components/managers/BulkFieldsModal';
 import BulkAIDescriptionsModal from './components/managers/BulkAIDescriptionsModal';
 import BulkImageUploadModal from './components/managers/BulkImageUploadModal';
+import ManagerConfigModal from './components/managers/ManagerConfigModal';
 import TierPricingModal from './components/supplier-products/TierPricingModal';
 import AddProductWizard from './components/AddProductWizard';
 import { useManagerBulk } from './components/managers/useManagerBulk';
+import { useManagerConfig } from './components/managers/useManagerConfig';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
 
@@ -69,6 +71,9 @@ const CustomManager = () => {
   const [showBulkFields, setShowBulkFields] = useState(false);
   const [showAIDescriptions, setShowAIDescriptions] = useState(false);
   const [showBulkImages, setShowBulkImages] = useState(false);
+  const [showConfig, setShowConfig] = useState(false);
+  const { config: managerConfig, save: saveManagerConfig } = useManagerConfig(slug);
+  const effectiveFilterFacets = Array.isArray(managerConfig?.filter_facets) && managerConfig.filter_facets.length > 0 ? managerConfig.filter_facets : null;
   const [searchParams, setSearchParams] = useSearchParams();
   const [tierPricingConfig, setTierPricingConfig] = useState({
     thresholds: [10, 50, 100],
@@ -124,7 +129,7 @@ const CustomManager = () => {
   const bulk = useManagerBulk({ products, onRefresh: fetchProducts });
 
   const filteredProducts = useMemo(() => {
-    let list = applyManagerFilters(products, filters, 'custom');
+    let list = applyManagerFilters(products, filters, 'custom', effectiveFilterFacets);
     if (search.trim()) {
       const q = search.trim().toLowerCase();
       list = list.filter(p => {
@@ -294,6 +299,9 @@ const CustomManager = () => {
               <Plus className="w-4 h-4 mr-1.5" />
               Add New Product
             </Button>
+            <Button size="sm" variant="outline" onClick={() => setShowConfig(true)} data-testid="custom-manager-configure-btn" title="Add/edit Filters, Sub-Tabs and Spec Fields for this Manager">
+              <Settings className="w-4 h-4 mr-1.5" /> Configure
+            </Button>
             <Button size="sm" variant="outline" onClick={fetchProducts} disabled={loading} data-testid="custom-manager-refresh-btn">
               <RefreshCw className={`w-4 h-4 mr-1.5 ${loading ? 'animate-spin' : ''}`} />
               Refresh
@@ -351,6 +359,7 @@ const CustomManager = () => {
           onChange={setFilters}
           category="custom"
           themeColor={definition.theme}
+          customFacets={effectiveFilterFacets}
         />
 
         {/* Product table */}
@@ -628,6 +637,16 @@ const CustomManager = () => {
         selectedList={bulk.getSelectedList()}
         themeColor={definition.theme || 'purple'}
         onSuccess={() => { bulk.clearAll(); fetchProducts(); }}
+      />
+
+      {/* Per-Manager Config (Filters / Sub-Tabs / Spec Fields) */}
+      <ManagerConfigModal
+        open={showConfig}
+        onOpenChange={setShowConfig}
+        slug={slug}
+        config={managerConfig}
+        onSave={saveManagerConfig}
+        themeColor={definition.theme || 'purple'}
       />
     </div>
   );

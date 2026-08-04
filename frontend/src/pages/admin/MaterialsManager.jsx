@@ -27,7 +27,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import {
-  Package, ArrowLeft, RefreshCw, Search, Save, X, Edit2, Filter, ExternalLink, AlertCircle, CheckCircle, Plus,
+  Package, ArrowLeft, RefreshCw, Search, Save, X, Edit2, Filter, ExternalLink, AlertCircle, CheckCircle, Plus, Settings,
 } from 'lucide-react';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
@@ -43,10 +43,12 @@ import CustomManagerBuilder from './components/managers/CustomManagerBuilder';
 import BulkFieldsModal from './components/managers/BulkFieldsModal';
 import BulkAIDescriptionsModal from './components/managers/BulkAIDescriptionsModal';
 import BulkImageUploadModal from './components/managers/BulkImageUploadModal';
+import ManagerConfigModal from './components/managers/ManagerConfigModal';
 import AssignColoursModal from './components/managers/AssignColoursModal';
 import TierPricingModal from './components/supplier-products/TierPricingModal';
 import { useManagerBulk, getProductKey } from './components/managers/useManagerBulk';
 import { useDraftRecovery } from './components/managers/useDraftRecovery';
+import { useManagerConfig } from './components/managers/useManagerConfig';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
 
@@ -92,6 +94,9 @@ const MaterialsManager = () => {
   const [showBulkFields, setShowBulkFields] = useState(false);
   const [showAIDescriptions, setShowAIDescriptions] = useState(false);
   const [showBulkImages, setShowBulkImages] = useState(false);
+  const [showConfig, setShowConfig] = useState(false);
+  const { config: managerConfig, save: saveManagerConfig } = useManagerConfig('materials');
+  const effectiveFilterFacets = Array.isArray(managerConfig?.filter_facets) && managerConfig.filter_facets.length > 0 ? managerConfig.filter_facets : null;
   const [tierPricingConfig, setTierPricingConfig] = useState({
     thresholds: [10, 50, 100],
     discounts: [0, 5, 10, 15],
@@ -162,7 +167,7 @@ const MaterialsManager = () => {
       });
     }
     // Facet filters (Colour, Bag Colour, Suitability, Supplier, Status)
-    list = applyManagerFilters(list, filters, 'materials');
+    list = applyManagerFilters(list, filters, 'materials', effectiveFilterFacets);
     // Search
     if (search.trim()) {
       const q = search.trim().toLowerCase();
@@ -297,6 +302,9 @@ const MaterialsManager = () => {
               <Plus className="w-4 h-4 mr-1.5" />
               Add New Material
             </Button>
+            <Button size="sm" variant="outline" onClick={() => setShowConfig(true)} data-testid="materials-configure-btn" title="Add/edit Filters, Sub-Tabs and Spec Fields for Materials">
+              <Settings className="w-4 h-4 mr-1.5" /> Configure
+            </Button>
             <Button
               size="sm"
               variant="outline"
@@ -363,13 +371,14 @@ const MaterialsManager = () => {
           </Badge>
         </div>
 
-        {/* Filters (facet-driven) */}
+        {/* Filters (facet-driven, honours admin-configured facets) */}
         <ManagerFiltersPanel
           products={products}
           filters={filters}
           onChange={setFilters}
           category="materials"
           themeColor="orange"
+          customFacets={effectiveFilterFacets}
         />
 
         {/* Info banner */}
@@ -668,6 +677,16 @@ const MaterialsManager = () => {
         selectedList={bulk.getSelectedList()}
         themeColor="orange"
         onSuccess={() => { bulk.clearAll(); fetchProducts(); }}
+      />
+
+      {/* Per-Manager Config (Filters / Sub-Tabs / Spec Fields) */}
+      <ManagerConfigModal
+        open={showConfig}
+        onOpenChange={setShowConfig}
+        slug="materials"
+        config={managerConfig}
+        onSave={saveManagerConfig}
+        themeColor="orange"
       />
 
       {/* Bulk: Tier Pricing (% / £ trade + Half+Full Pallet, unit-aware for materials) */}

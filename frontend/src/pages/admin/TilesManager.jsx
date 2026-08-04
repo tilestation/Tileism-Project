@@ -15,7 +15,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import {
-  Square, ArrowLeft, RefreshCw, Search, Save, X, Edit2, Filter, ExternalLink, AlertCircle, CheckCircle, Plus,
+  Square, ArrowLeft, RefreshCw, Search, Save, X, Edit2, Filter, ExternalLink, AlertCircle, CheckCircle, Plus, Settings,
 } from 'lucide-react';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
@@ -31,9 +31,11 @@ import CustomManagerBuilder from './components/managers/CustomManagerBuilder';
 import BulkFieldsModal from './components/managers/BulkFieldsModal';
 import BulkAIDescriptionsModal from './components/managers/BulkAIDescriptionsModal';
 import BulkImageUploadModal from './components/managers/BulkImageUploadModal';
+import ManagerConfigModal from './components/managers/ManagerConfigModal';
 import AssignColoursModal from './components/managers/AssignColoursModal';
 import TierPricingModal from './components/supplier-products/TierPricingModal';
 import { useManagerBulk } from './components/managers/useManagerBulk';
+import { useManagerConfig } from './components/managers/useManagerConfig';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
 
@@ -75,6 +77,9 @@ const TilesManager = () => {
   const [showBulkFields, setShowBulkFields] = useState(false);
   const [showAIDescriptions, setShowAIDescriptions] = useState(false);
   const [showBulkImages, setShowBulkImages] = useState(false);
+  const [showConfig, setShowConfig] = useState(false);
+  const { config: managerConfig, save: saveManagerConfig } = useManagerConfig('tiles');
+  const effectiveFilterFacets = Array.isArray(managerConfig?.filter_facets) && managerConfig.filter_facets.length > 0 ? managerConfig.filter_facets : null;
   const [tierPricingConfig, setTierPricingConfig] = useState({
     thresholds: [10, 50, 100],
     discounts: [0, 5, 10, 15],
@@ -128,7 +133,7 @@ const TilesManager = () => {
       list = list.filter(p => tab.match(p.type, Array.isArray(p.sub_categories) ? p.sub_categories : []));
     }
     // Facet filters (Colour, Finish, Material, Size, Slip, Supplier, Status)
-    list = applyManagerFilters(list, filters, 'tiles');
+    list = applyManagerFilters(list, filters, 'tiles', effectiveFilterFacets);
     if (search.trim()) {
       const q = search.trim().toLowerCase();
       list = list.filter(p => {
@@ -249,6 +254,9 @@ const TilesManager = () => {
               <Plus className="w-4 h-4 mr-1.5" />
               Add New Tile
             </Button>
+            <Button size="sm" variant="outline" onClick={() => setShowConfig(true)} data-testid="tiles-configure-btn" title="Add/edit Filters, Sub-Tabs and Spec Fields for Tiles">
+              <Settings className="w-4 h-4 mr-1.5" /> Configure
+            </Button>
             <Button size="sm" variant="outline" onClick={fetchProducts} disabled={loading} data-testid="tiles-refresh-btn">
               <RefreshCw className={`w-4 h-4 mr-1.5 ${loading ? 'animate-spin' : ''}`} />
               Refresh
@@ -313,6 +321,7 @@ const TilesManager = () => {
           onChange={setFilters}
           category="tiles"
           themeColor="blue"
+          customFacets={effectiveFilterFacets}
         />
 
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm text-blue-800 flex items-start gap-2">
@@ -579,6 +588,16 @@ const TilesManager = () => {
         selectedList={bulk.getSelectedList()}
         themeColor="blue"
         onSuccess={() => { bulk.clearAll(); fetchProducts(); }}
+      />
+
+      {/* Per-Manager Config (Filters / Sub-Tabs / Spec Fields) */}
+      <ManagerConfigModal
+        open={showConfig}
+        onOpenChange={setShowConfig}
+        slug="tiles"
+        config={managerConfig}
+        onSave={saveManagerConfig}
+        themeColor="blue"
       />
 
       {/* Bulk: Tier Pricing (% / £ + Half+Full Pallet — m² for tiles) */}

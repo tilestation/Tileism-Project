@@ -63,9 +63,15 @@ const buildFacetOptions = (products, facetConfig) => {
 };
 
 // -------- Apply filters helper --------
-export const applyManagerFilters = (products, filters, category = 'tiles') => {
+export const applyManagerFilters = (products, filters, category = 'tiles', customFacets = null) => {
   if (!filters || Object.keys(filters).length === 0) return products;
-  const cfg = FACET_KEYS[category] || FACET_KEYS.custom;
+  const cfg = customFacets && customFacets.length > 0
+    ? customFacets.map(f => ({ key: f.key, label: f.label, pluck: (p) => (
+        p[f.field] !== undefined && p[f.field] !== null && p[f.field] !== ''
+          ? p[f.field]
+          : (f.array_field && Array.isArray(p[f.array_field]) ? p[f.array_field][0] : null)
+      ) }))
+    : (FACET_KEYS[category] || FACET_KEYS.custom);
   return products.filter(p => {
     return cfg.every(f => {
       const chosen = filters[f.key];
@@ -84,9 +90,25 @@ const ManagerFiltersPanel = ({
   onChange,
   category = 'tiles',
   themeColor = 'blue',   // 'blue' | 'orange' | 'purple' | …
+  customFacets = null,   // if provided, overrides the category preset (admin-configured facets)
 }) => {
   const [expanded, setExpanded] = useState(false);
-  const facetConfig = FACET_KEYS[category] || FACET_KEYS.custom;
+  // Convert customFacets (from DB: {key, label, field, array_field}) into the
+  // panel's internal format that expects a pluck() function.
+  const facetConfig = React.useMemo(() => {
+    if (customFacets && customFacets.length > 0) {
+      return customFacets.map(f => ({
+        key: f.key,
+        label: f.label,
+        pluck: (p) => {
+          if (p[f.field] !== undefined && p[f.field] !== null && p[f.field] !== '') return p[f.field];
+          if (f.array_field && Array.isArray(p[f.array_field]) && p[f.array_field].length > 0) return p[f.array_field][0];
+          return null;
+        },
+      }));
+    }
+    return FACET_KEYS[category] || FACET_KEYS.custom;
+  }, [customFacets, category]);
   const facets = useMemo(() => buildFacetOptions(products, facetConfig), [products, facetConfig]);
 
   const activeCount = Object.values(filters).reduce((sum, arr) => sum + (Array.isArray(arr) ? arr.length : 0), 0);

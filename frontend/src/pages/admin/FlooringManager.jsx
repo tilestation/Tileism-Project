@@ -14,7 +14,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import {
-  Grid3X3, ArrowLeft, RefreshCw, Search, Save, X, Edit2, Filter, ExternalLink, AlertCircle, CheckCircle, Plus,
+  Grid3X3, ArrowLeft, RefreshCw, Search, Save, X, Edit2, Filter, ExternalLink, AlertCircle, CheckCircle, Plus, Settings,
 } from 'lucide-react';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
@@ -31,9 +31,11 @@ import CustomManagerBuilder from './components/managers/CustomManagerBuilder';
 import BulkFieldsModal from './components/managers/BulkFieldsModal';
 import BulkAIDescriptionsModal from './components/managers/BulkAIDescriptionsModal';
 import BulkImageUploadModal from './components/managers/BulkImageUploadModal';
+import ManagerConfigModal from './components/managers/ManagerConfigModal';
 import AssignColoursModal from './components/managers/AssignColoursModal';
 import TierPricingModal from './components/supplier-products/TierPricingModal';
 import { useManagerBulk } from './components/managers/useManagerBulk';
+import { useManagerConfig } from './components/managers/useManagerConfig';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
 
@@ -71,6 +73,9 @@ const FlooringManager = () => {
   const [showBulkFields, setShowBulkFields] = useState(false);
   const [showAIDescriptions, setShowAIDescriptions] = useState(false);
   const [showBulkImages, setShowBulkImages] = useState(false);
+  const [showConfig, setShowConfig] = useState(false);
+  const { config: managerConfig, save: saveManagerConfig } = useManagerConfig('flooring');
+  const effectiveFilterFacets = Array.isArray(managerConfig?.filter_facets) && managerConfig.filter_facets.length > 0 ? managerConfig.filter_facets : null;
   const [tierPricingConfig, setTierPricingConfig] = useState({
     thresholds: [10, 50, 100],
     discounts: [0, 5, 10, 15],
@@ -118,7 +123,7 @@ const FlooringManager = () => {
     if (subTab !== 'all') {
       list = list.filter(p => tab.match(p.type, Array.isArray(p.sub_categories) ? p.sub_categories : []));
     }
-    list = applyManagerFilters(list, filters, 'tiles');
+    list = applyManagerFilters(list, filters, 'tiles', effectiveFilterFacets);
     if (search.trim()) {
       const q = search.trim().toLowerCase();
       list = list.filter(p => {
@@ -224,6 +229,9 @@ const FlooringManager = () => {
               <Plus className="w-4 h-4 mr-1.5" />
               Add New Flooring
             </Button>
+            <Button size="sm" variant="outline" onClick={() => setShowConfig(true)} data-testid="flooring-configure-btn" title="Add/edit Filters, Sub-Tabs and Spec Fields for Flooring">
+              <Settings className="w-4 h-4 mr-1.5" /> Configure
+            </Button>
             <Button size="sm" variant="outline" onClick={fetchProducts} disabled={loading} data-testid="flooring-refresh-btn">
               <RefreshCw className={`w-4 h-4 mr-1.5 ${loading ? 'animate-spin' : ''}`} />
               Refresh
@@ -283,6 +291,7 @@ const FlooringManager = () => {
           onChange={setFilters}
           category="tiles"
           themeColor="orange"
+          customFacets={effectiveFilterFacets}
         />
 
         <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800 flex items-start gap-2">
@@ -451,6 +460,9 @@ const FlooringManager = () => {
       <BulkFieldsModal open={showBulkFields} onOpenChange={setShowBulkFields} selectedList={bulk.getSelectedList()} themeColor="orange" onSuccess={() => { bulk.clearAll(); fetchProducts(); }} />
       <BulkAIDescriptionsModal open={showAIDescriptions} onOpenChange={setShowAIDescriptions} selectedList={bulk.getSelectedList()} themeColor="orange" onSuccess={() => { fetchProducts(); }} />
       <BulkImageUploadModal open={showBulkImages} onOpenChange={setShowBulkImages} selectedList={bulk.getSelectedList()} themeColor="amber" onSuccess={() => { bulk.clearAll(); fetchProducts(); }} />
+
+      {/* Per-Manager Config (Filters / Sub-Tabs / Spec Fields) */}
+      <ManagerConfigModal open={showConfig} onOpenChange={setShowConfig} slug="flooring" config={managerConfig} onSave={saveManagerConfig} themeColor="amber" />
 
       <TierPricingModal
         open={showTierPricing}
