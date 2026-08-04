@@ -107,6 +107,9 @@ const SupplierProducts = React.lazy(() => import('./pages/admin/SupplierProducts
 const MaterialsManager = React.lazy(() => import('./pages/admin/MaterialsManager'));
 const TilesManager = React.lazy(() => import('./pages/admin/TilesManager'));
 const FlooringManager = React.lazy(() => import('./pages/admin/FlooringManager'));
+const BathroomManager = React.lazy(() => import('./pages/admin/BathroomManager'));
+const UnderfloorHeatingManager = React.lazy(() => import('./pages/admin/UnderfloorHeatingManager'));
+const ToolsManager = React.lazy(() => import('./pages/admin/ToolsManager'));
 const CustomManager = React.lazy(() => import('./pages/admin/CustomManager'));
 const SupplierHealthDashboard = React.lazy(() => import('./pages/admin/SupplierHealthDashboard'));
 const WallcanoPriceImport = React.lazy(() => import('./pages/admin/WallcanoPriceImport'));
@@ -588,6 +591,9 @@ function App() {
             <Route path="materials" element={<MaterialsManager />} />
             <Route path="tiles" element={<TilesManager />} />
             <Route path="flooring" element={<FlooringManager />} />
+            <Route path="bathroom" element={<BathroomManager />} />
+            <Route path="underfloor-heating" element={<UnderfloorHeatingManager />} />
+            <Route path="tools" element={<ToolsManager />} />
             <Route path="custom-manager/:slug" element={<CustomManager />} />
             <Route path="supplier-health" element={<SupplierHealthDashboard />} />
             <Route path="manage-categories" element={<ManageCategories />} />

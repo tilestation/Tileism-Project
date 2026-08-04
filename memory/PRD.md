@@ -9,6 +9,86 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Aug 4, 2026 — Forked] 🟢 Session C: ALL 6 hardcoded Managers live + Bulk Images + Draft Recovery + Product Templates
+
+**Owner steer**: ship the remaining 4 P1 items in one go — Bathroom / UFH / Tools Managers, Bulk Image Upload, Draft Recovery, Product Templates.
+
+**Session C shipped**:
+
+1. **`ManagerPageShell.jsx`** (~500 lines) — shared shell used by every hardcoded Manager. Config-driven: pass `categoryKey`, `theme`, `icon`, `isMatch(product)`, `subTabs[]`, `columns[]`, `editFields[]`, `presetCategory`, `bannerBullets[]`. The shell renders ManagerTabsBar + header + sub-tabs with counts + search + ManagerFiltersPanel + info banner + product table + edit modal (with **draft recovery banner** and **Save as Template** button) + AddProductWizard + ManagerBulkBar + all bulk modals (Assign Colours, Tier Pricing, Bulk Fields, AI Descriptions, **Bulk Images**) + Custom Manager Builder mount. Every new Manager is now ~50-70 lines of config — massive maintainability win.
+
+2. **3 new Managers shipped** (URL / theme / icon):
+   - **BathroomManager** — `/admin/bathroom` — cyan — Bath icon. Sub-tabs: Toilets / Basins / Baths / Showers / Taps & Mixers / Accessories. Fields: brand, model, dimensions, flush type, tank capacity, material, finish, colour, warranty.
+   - **UnderfloorHeatingManager** — `/admin/underfloor-heating` — red — Flame icon. Sub-tabs: Heating Mats / Cables / Thermostats / Insulation. Fields: coverage m², voltage, W/m², mat type, thermostat included, thermostat type, warranty.
+   - **ToolsManager** — `/admin/tools` — slate — Wrench icon. Sub-tabs: Cutters / Trowels / Spacers & Levellers / Mixers & Buckets / Cleaning / Other. Fields: brand, model, material, size, capacity, use with, pack qty, warranty.
+
+3. **`BulkImageUploadModal.jsx`** (~250 lines) — the last parity piece from the legacy Bulk Editor. Drag-drop images per SKU across the whole selection:
+   - Per-product row with drop-zone + "Choose files" button
+   - Parallel uploads via `POST /api/products/upload-image` (R2-backed)
+   - **Apply to all** — upload once, staged across every product in the selection
+   - Save mode: **Append** (keep existing `images[]`) or **Replace** (overwrite)
+   - Per-row saved/failed badges after "Save all"
+   - Uses the same verified `bulk-update-unified` path — silent failures surface immediately
+   - New button on `ManagerBulkBar`: `bar-bulk-images` (Image icon)
+
+4. **`useDraftRecovery.js`** hook — auto-saves the edit form to sessionStorage every 3s and offers to restore next time the same product is opened. Scoped per Manager (e.g. `manager-edit:flooring`) and per SKU. Includes:
+   - "You have an unsaved draft from 5 min ago" banner with Restore / Dismiss
+   - Live "Draft saved" indicator in the footer while typing
+   - Auto-clears on successful Save (so restore banner doesn't reappear)
+   - Drafts expire after 7 days
+   - Wired into `ManagerPageShell` (so Bathroom, UFH, Tools inherit it automatically). Materials/Tiles/Flooring/Custom still use their own JSX — they'll be migrated to the shell as part of a refactor pass.
+
+5. **Product Templates** — new backend collection `product_templates` + full CRUD at `/api/product-templates`:
+   - `GET /api/product-templates?product_group=tiles` — filter by category (used by Wizard picker)
+   - `POST /api/product-templates` — create with `{name, product_group, fields, image_url?}`
+   - `POST /api/product-templates/from-product` — convenience helper: pass `{sku}` and it plucks all fields from the existing supplier_product (excludes SKU, prices, stock, images)
+   - `POST /api/product-templates/{slug}/use` — usage counter (fire-and-forget from the frontend)
+   - `DELETE /api/product-templates/{slug}` — soft-delete
+   - `BLOCKED_FIELDS` set ensures per-SKU/copy fields are never templated (SKU, prices, stock, timestamps)
+
+6. **Wizard integration**: `TemplatesPicker` sub-component in `AddProductWizard.jsx` — appears at the top of step 2 when a category is picked. Lists all templates for that category with name + field-count + usage-count + preview image. Clicking one spreads `template.fields` into the form state (existing fields you've already filled in take precedence — so no lost typing).
+
+7. **"Save as Template" button** in `ManagerPageShell` edit-modal footer — prompts for a template name, POSTs to `/api/product-templates/from-product`, then next time the seller opens the Wizard for that category the template appears.
+
+8. **ManagerTabsBar** — removed `SOON` badges for Bathroom / UFH / Tools; all 6 hardcoded Managers are now real live routes.
+
+9. **Sidebar updates** — Bathroom Manager · NEW / Underfloor Heat · NEW / Tools Manager · NEW added below Flooring Manager.
+
+**Backend routes registered** in `routes/__init__.py`:
+- `manager_definitions_router` (session A)
+- `product_templates_router` (session C, new)
+
+**Live-verified**:
+- `/admin/bathroom` — 42 bathroom-suitable products loaded, sub-tabs render with counts, cyan theme active in workspace tabs, sidebar highlights Bathroom Manager. Filters + banner + table all render.
+- Backend: `POST /api/product-templates` with `{name:'Grey Porcelain 600x600', product_group:'tiles', fields:{…}}` → 200 + full doc. `GET /api/product-templates?product_group=tiles` → returns the template.
+
+**Files added**:
+- `/app/frontend/src/pages/admin/components/ManagerPageShell.jsx` (~500 lines)
+- `/app/frontend/src/pages/admin/components/managers/BulkImageUploadModal.jsx` (~250 lines)
+- `/app/frontend/src/pages/admin/components/managers/useDraftRecovery.js` (~120 lines)
+- `/app/frontend/src/pages/admin/BathroomManager.jsx` (~65 lines, config only)
+- `/app/frontend/src/pages/admin/UnderfloorHeatingManager.jsx` (~65 lines)
+- `/app/frontend/src/pages/admin/ToolsManager.jsx` (~70 lines)
+- `/app/backend/routes/product_templates.py` (~145 lines)
+
+**Files updated**:
+- `/app/frontend/src/pages/admin/components/AddProductWizard.jsx` — new `TemplatesPicker` sub-component + wiring
+- `/app/frontend/src/pages/admin/components/managers/ManagerBulkBar.jsx` — new `onOpenBulkImages` prop + button
+- Materials/Tiles/Flooring/Custom Managers — wired `BulkImageUploadModal` + `onOpenBulkImages` bulk-bar prop
+- `/app/frontend/src/pages/admin/components/managers/ManagerTabsBar.jsx` — removed SOON badges
+- `/app/frontend/src/App.js` — 3 new lazy routes
+- `/app/frontend/src/components/PageGate.jsx` — 3 new permission entries
+- `/app/frontend/src/components/Layout.js` — 3 new sidebar entries
+- `/app/backend/routes/__init__.py` — mounted product_templates_router
+
+**Remaining P1 backlog**:
+- Migrate Materials/Tiles/Flooring/Custom to use `ManagerPageShell` (huge code de-dup, ~1500 lines saved)
+- Category-tailored CSV Import per Manager
+- Google Ads dashboard (blocked on Developer Token approval)
+- Prod→preview showroom sync script
+
+
+
 ### [Aug 3, 2026 — Forked, later still still, session B] 🟢 P1 parity + Flooring Manager shipped
 
 **Owner steer**: "then do P1 all in your suggested order". Order was: (a) bulk parity inside Managers, (b) Flooring / Bathroom / UFH / Tools, (c) Product Templates, (d) CSV per Manager, (e) Google Ads, (f) prod→preview sync.

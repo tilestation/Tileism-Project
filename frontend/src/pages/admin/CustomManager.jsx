@@ -33,6 +33,7 @@ import AssignColoursModal from './components/managers/AssignColoursModal';
 import CustomManagerBuilder from './components/managers/CustomManagerBuilder';
 import BulkFieldsModal from './components/managers/BulkFieldsModal';
 import BulkAIDescriptionsModal from './components/managers/BulkAIDescriptionsModal';
+import BulkImageUploadModal from './components/managers/BulkImageUploadModal';
 import TierPricingModal from './components/supplier-products/TierPricingModal';
 import AddProductWizard from './components/AddProductWizard';
 import { useManagerBulk } from './components/managers/useManagerBulk';
@@ -67,6 +68,7 @@ const CustomManager = () => {
   const [showTierPricing, setShowTierPricing] = useState(false);
   const [showBulkFields, setShowBulkFields] = useState(false);
   const [showAIDescriptions, setShowAIDescriptions] = useState(false);
+  const [showBulkImages, setShowBulkImages] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
   const [tierPricingConfig, setTierPricingConfig] = useState({
     thresholds: [10, 50, 100],
@@ -505,6 +507,7 @@ const CustomManager = () => {
         onOpenTierPricing={() => setShowTierPricing(true)}
         onOpenBulkFields={() => setShowBulkFields(true)}
         onOpenAIDescriptions={() => setShowAIDescriptions(true)}
+        onOpenBulkImages={() => setShowBulkImages(true)}
         onOpenReassignCategory={bulk.bulkAssignCategory}
         saving={bulk.bulkSaving}
         themeColor={definition.theme === 'purple' ? 'orange' : definition.theme}
@@ -616,6 +619,15 @@ const CustomManager = () => {
         selectedList={bulk.getSelectedList()}
         themeColor={definition.theme || 'purple'}
         onSuccess={() => { fetchProducts(); }}
+      />
+
+      {/* Bulk: Image Upload */}
+      <BulkImageUploadModal
+        open={showBulkImages}
+        onOpenChange={setShowBulkImages}
+        selectedList={bulk.getSelectedList()}
+        themeColor={definition.theme || 'purple'}
+        onSuccess={() => { bulk.clearAll(); fetchProducts(); }}
       />
     </div>
   );

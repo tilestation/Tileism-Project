@@ -30,6 +30,7 @@ import ManagerFiltersPanel, { applyManagerFilters } from './components/managers/
 import CustomManagerBuilder from './components/managers/CustomManagerBuilder';
 import BulkFieldsModal from './components/managers/BulkFieldsModal';
 import BulkAIDescriptionsModal from './components/managers/BulkAIDescriptionsModal';
+import BulkImageUploadModal from './components/managers/BulkImageUploadModal';
 import AssignColoursModal from './components/managers/AssignColoursModal';
 import TierPricingModal from './components/supplier-products/TierPricingModal';
 import { useManagerBulk } from './components/managers/useManagerBulk';
@@ -69,6 +70,7 @@ const FlooringManager = () => {
   const [showTierPricing, setShowTierPricing] = useState(false);
   const [showBulkFields, setShowBulkFields] = useState(false);
   const [showAIDescriptions, setShowAIDescriptions] = useState(false);
+  const [showBulkImages, setShowBulkImages] = useState(false);
   const [tierPricingConfig, setTierPricingConfig] = useState({
     thresholds: [10, 50, 100],
     discounts: [0, 5, 10, 15],
@@ -437,6 +439,7 @@ const FlooringManager = () => {
         onOpenTierPricing={() => setShowTierPricing(true)}
         onOpenBulkFields={() => setShowBulkFields(true)}
         onOpenAIDescriptions={() => setShowAIDescriptions(true)}
+        onOpenBulkImages={() => setShowBulkImages(true)}
         onOpenReassignCategory={bulk.bulkAssignCategory}
         saving={bulk.bulkSaving}
         themeColor="orange"
@@ -447,6 +450,7 @@ const FlooringManager = () => {
       <CustomManagerBuilder open={builderOpen} onOpenChange={setBuilderOpen} />
       <BulkFieldsModal open={showBulkFields} onOpenChange={setShowBulkFields} selectedList={bulk.getSelectedList()} themeColor="orange" onSuccess={() => { bulk.clearAll(); fetchProducts(); }} />
       <BulkAIDescriptionsModal open={showAIDescriptions} onOpenChange={setShowAIDescriptions} selectedList={bulk.getSelectedList()} themeColor="orange" onSuccess={() => { fetchProducts(); }} />
+      <BulkImageUploadModal open={showBulkImages} onOpenChange={setShowBulkImages} selectedList={bulk.getSelectedList()} themeColor="amber" onSuccess={() => { bulk.clearAll(); fetchProducts(); }} />
 
       <TierPricingModal
         open={showTierPricing}

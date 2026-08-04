@@ -286,6 +286,13 @@ const AddProductWizard = ({ open, onOpenChange, presetCategory = null, onSuccess
         {/* STEP 2: Universal fields */}
         {step === 2 && (
           <div className="py-2 space-y-3">
+            {/* Templates picker — pre-populate the form from a saved template */}
+            {categoryKey && (
+              <TemplatesPicker
+                productGroup={categoryKey}
+                onPick={(tpl) => setForm(prev => ({ ...tpl.fields, ...prev }))}
+              />
+            )}
             <div className="bg-blue-50 border border-blue-200 rounded-lg p-2.5 text-xs text-blue-800 flex items-start gap-2">
               <AlertCircle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
               <span>These 6 fields are the same for every product type. Required fields are marked with *.</span>
@@ -429,3 +436,79 @@ const WizardField = ({ field, value, onChange }) => {
 };
 
 export default AddProductWizard;
+
+// -------- TemplatesPicker --------
+// Renders a horizontal list of saved templates for the current category.
+// Clicking one calls onPick(template) so the parent can spread template.fields
+// into its form state.
+const TemplatesPicker = ({ productGroup, onPick }) => {
+  const [templates, setTemplates] = React.useState([]);
+  const [loading, setLoading] = React.useState(true);
+  const [picked, setPicked] = React.useState(null);
+
+  React.useEffect(() => {
+    let ignore = false;
+    (async () => {
+      setLoading(true);
+      try {
+        const res = await fetch(`${API_URL}/api/product-templates?product_group=${encodeURIComponent(productGroup)}`);
+        if (!res.ok) throw new Error();
+        const data = await res.json();
+        if (!ignore) setTemplates(Array.isArray(data.templates) ? data.templates : []);
+      } catch {
+        if (!ignore) setTemplates([]);
+      } finally {
+        if (!ignore) setLoading(false);
+      }
+    })();
+    return () => { ignore = true; };
+  }, [productGroup]);
+
+  if (loading) return null;
+  if (templates.length === 0) return null;
+
+  const applyTemplate = async (tpl) => {
+    setPicked(tpl.slug);
+    onPick(tpl);
+    toast.success(`Prefilled from "${tpl.name}"`);
+    try {
+      const token = localStorage.getItem('token');
+      await fetch(`${API_URL}/api/product-templates/${encodeURIComponent(tpl.slug)}/use`, {
+        method: 'POST',
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+    } catch { /* usage tracking is fire-and-forget */ }
+  };
+
+  return (
+    <div className="bg-purple-50 border border-purple-200 rounded-lg p-2.5" data-testid="wizard-templates-picker">
+      <div className="text-xs font-medium text-purple-700 mb-1 flex items-center gap-1">
+        <Plus className="w-3 h-3" />
+        Start from a template ({templates.length} available for {productGroup})
+      </div>
+      <div className="flex gap-2 overflow-x-auto pb-1">
+        {templates.map(tpl => (
+          <button
+            key={tpl.slug}
+            onClick={() => applyTemplate(tpl)}
+            className={`text-left flex-shrink-0 min-w-[140px] max-w-[200px] border rounded p-2 hover:border-purple-400 hover:bg-white transition ${
+              picked === tpl.slug ? 'border-purple-500 bg-white ring-2 ring-purple-200' : 'border-purple-100 bg-white/60'
+            }`}
+            data-testid={`wizard-template-${tpl.slug}`}
+          >
+            {tpl.image_url && (
+              <div className="w-full aspect-square rounded bg-gray-100 mb-1 overflow-hidden">
+                <img src={tpl.image_url} alt="" className="w-full h-full object-cover" />
+              </div>
+            )}
+            <div className="text-xs font-medium text-gray-800 line-clamp-1">{tpl.name}</div>
+            <div className="text-[10px] text-gray-500">
+              {Object.keys(tpl.fields || {}).length} fields
+              {tpl.usage_count > 0 && ` · used ${tpl.usage_count}x`}
+            </div>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+};

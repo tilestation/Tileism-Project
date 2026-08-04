@@ -9,7 +9,7 @@
 import React, { useState } from 'react';
 import { Button } from '../../../../components/ui/button';
 import {
-  X, CheckSquare, Trash2, Archive, Globe, EyeOff, Percent, Palette, Layers, Grid3X3, Package, PoundSterling, Sparkles,
+  X, CheckSquare, Trash2, Archive, Globe, EyeOff, Percent, Palette, Layers, Grid3X3, Package, PoundSterling, Sparkles, Image as ImageIcon,
 } from 'lucide-react';
 
 const ManagerBulkBar = ({
@@ -25,9 +25,10 @@ const ManagerBulkBar = ({
   onOpenBulkCategory,
   onOpenBulkFields,
   onOpenAIDescriptions,
-  onOpenReassignCategory,     // returns which product_group to move to
+  onOpenBulkImages,
+  onOpenReassignCategory,
   saving = false,
-  themeColor = 'orange',      // 'orange' | 'blue' | 'emerald' | 'cyan' | 'red' | 'slate'
+  themeColor = 'orange',
   hideActions = [],
 }) => {
   const [assignCategoryOpen, setAssignCategoryOpen] = useState(false);
@@ -128,6 +129,19 @@ const ManagerBulkBar = ({
         >
           <Sparkles className="w-3.5 h-3.5" />
           AI Descriptions
+        </button>
+      )}
+      {!hidden.has('bulkImages') && onOpenBulkImages && (
+        <button
+          type="button"
+          onClick={onOpenBulkImages}
+          disabled={saving}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/15 hover:bg-white/25 transition text-[13px] font-medium"
+          data-testid="bar-bulk-images"
+          title="Drag &amp; drop images per SKU across the selection"
+        >
+          <ImageIcon className="w-3.5 h-3.5" />
+          Images
         </button>
       )}
 
