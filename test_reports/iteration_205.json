@@ -1,0 +1,24 @@
+{
+  "summary": "Frontend-only E2E testing of CustomManager refactor onto ManagerPageShell. Verified /admin/custom-manager/grout-sealants renders correctly with all new categoryKey-prefixed testids, sub-category chips banner (grout/sealant/silicone), CUSTOM tabs in workspace bar (Materials Manager + Bathroom Manager), all 3 UltraTile products visible. Modals open correctly (AddProductWizard, ManagerConfigModal with 'Configure Manager — Grout Sealants' title + ManagerPresetsBar, CsvImportModal with 'CSV Import — Grout Sealants' title). Edit modal opens with 'Save as Template' button visible. Refresh re-fetches. Delete-manager confirm dialog Cancel keeps page open; Confirm fires toast ('Deleted Manager · Grout Sealants') and redirects to /admin/supplier-products. Regression check on /admin/tiles, /admin/materials, /admin/flooring, /admin/bathroom, /admin/underfloor-heating, /admin/tools — all load, all header buttons resolve (custom-only testids correctly hidden on non-custom pages, no sub-category banner leak). Manager was re-created via POST /api/manager-definitions after destructive test — HTTP 200, slug=grout-sealants, and the page renders again with all 3 products.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": ["/app/test_reports/iteration_205.json"],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "React key warning still logged at AdminDashboard render (`Each child in a list should have a unique key prop`) — pre-existing, not introduced by this refactor, but worth cleaning up.",
+    "ManagerPresetsBar's save-toggle button reads 'Save current as preset' (not 'Save as preset' as the review request wording implied). Not a bug — spec-wording mismatch only.",
+    "UFH manager uses `underfloor_heating` (underscore) as categoryKey while URL is `/admin/underfloor-heating` (hyphen). Consistent with existing convention; noted only for future authoring consistency."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a (skipped)", "frontend": "100%"},
+  "test_credentials": "admin@test.com / admin123",
+  "seed_data_creation": "Re-created the Grout Sealants custom manager (slug=grout-sealants, theme=emerald, sub_categories=[grout,sealant,silicone]) via POST /api/manager-definitions after the destructive delete flow test, as instructed. Verified page re-renders with all 3 UltraTile products.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Custom Manager refactor is fully functional. The grout-sealants demo manager is intact and matches 3 UltraTile products (UT GROUT AID 1L, UT GROUT HAZE 1L, UT TILE AND GROUT SEALER). ManagerPageShell's 4 new optional props (tabsBarActive, extraHeaderActions, topBanner, showLegacyLink, hideDefaultBanner) do NOT regress any existing shell-based managers (Bathroom/UFH/Tools/Materials/Flooring/Tiles). Custom-only testids (custom-manager-delete-btn, custom-manager-sub-categories) correctly appear only on the custom route.",
+  "rca of the issue": "N/A — no issues found"
+}

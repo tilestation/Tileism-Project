@@ -90,6 +90,11 @@ const ManagerPageShell = ({
   tierPricingDefaults = {},
   themeFilter = null,    // filter-panel theme override (defaults to `theme`)
   bulkBarTheme = null,   // bulk-bar theme override (defaults to `theme`)
+  tabsBarActive = null,  // override for <ManagerTabsBar active=...> (e.g. 'custom:slug' for CustomManager)
+  extraHeaderActions = null, // ReactNode slot rendered in the header action row (e.g. delete-manager button)
+  topBanner = null,      // ReactNode slot rendered above the search bar (e.g. sub-category chips)
+  showLegacyLink = true, // hide the "Legacy full editor" link for pages where it's not relevant
+  hideDefaultBanner = false, // hide the built-in "How this page works" info banner
 }) => {
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -258,7 +263,7 @@ const ManagerPageShell = ({
 
   return (
     <div className="min-h-screen bg-gray-50 pb-16">
-      <ManagerTabsBar active={categoryKey} onNewCustom={() => setBuilderOpen(true)} />
+      <ManagerTabsBar active={tabsBarActive || categoryKey} onNewCustom={() => setBuilderOpen(true)} />
 
       {/* Header */}
       <div className="bg-white border-b border-gray-200">
@@ -292,9 +297,12 @@ const ManagerPageShell = ({
               <RefreshCw className={`w-4 h-4 mr-1.5 ${loading ? 'animate-spin' : ''}`} />
               Refresh
             </Button>
-            <Link to="/admin/supplier-products" className="text-xs text-blue-600 hover:underline flex items-center gap-1">
-              Legacy full editor <ExternalLink className="w-3 h-3" />
-            </Link>
+            {extraHeaderActions}
+            {showLegacyLink && (
+              <Link to="/admin/supplier-products" className="text-xs text-blue-600 hover:underline flex items-center gap-1">
+                Legacy full editor <ExternalLink className="w-3 h-3" />
+              </Link>
+            )}
           </div>
         </div>
 
@@ -322,6 +330,7 @@ const ManagerPageShell = ({
 
       {/* Body */}
       <div className="max-w-7xl mx-auto px-4 py-6 space-y-4">
+        {topBanner}
         <div className="bg-white rounded-lg border border-gray-200 p-3 flex items-center gap-3">
           <Search className="w-4 h-4 text-gray-400 flex-shrink-0" />
           <Input
@@ -348,20 +357,22 @@ const ManagerPageShell = ({
           customFacets={effectiveFilterFacets}
         />
 
-        <div className={`rounded-lg p-3 text-sm flex items-start gap-2 border ${themeCls.banner}`}>
-          <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
-          <div>
-            <p className="font-medium">How this page works</p>
-            <ul className="text-xs mt-0.5 space-y-0.5 list-disc list-inside opacity-90">
-              {(bannerBullets.length > 0 ? bannerBullets : [
-                'Search or filter to find the product you need.',
-                'Click Edit on a row to change fields — only category-relevant ones show.',
-                'Use + Add New for a brand-new product (opens the Wizard).',
-                'Tick multiple rows to open the Bulk bar (pricing, images, AI, publish, delete).',
-              ]).map((b, i) => <li key={i}>{b}</li>)}
-            </ul>
+        {!hideDefaultBanner && (
+          <div className={`rounded-lg p-3 text-sm flex items-start gap-2 border ${themeCls.banner}`}>
+            <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="font-medium">How this page works</p>
+              <ul className="text-xs mt-0.5 space-y-0.5 list-disc list-inside opacity-90">
+                {(bannerBullets.length > 0 ? bannerBullets : [
+                  'Search or filter to find the product you need.',
+                  'Click Edit on a row to change fields — only category-relevant ones show.',
+                  'Use + Add New for a brand-new product (opens the Wizard).',
+                  'Tick multiple rows to open the Bulk bar (pricing, images, AI, publish, delete).',
+                ]).map((b, i) => <li key={i}>{b}</li>)}
+              </ul>
+            </div>
           </div>
-        </div>
+        )}
 
         {loading ? (
           <div className="bg-white rounded-lg border border-gray-200 p-12 text-center">
