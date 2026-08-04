@@ -25,17 +25,17 @@ const MATERIAL_SUBCATS = [
 ];
 
 const MATERIAL_SUB_TABS = [
-  { key: 'all',        label: 'All Materials', match: () => true },
-  { key: 'adhesives',  label: 'Adhesives',
-    match: (p) => (p.sub_categories || []).some(s => /adhesive|primer/i.test(String(s))) },
-  { key: 'grouts',     label: 'Grouts',
+  { key: 'all',      label: 'All Materials', match: () => true },
+  { key: 'adhesive', label: 'Adhesives',
+    match: (p) => (p.sub_categories || []).some(s => /adhesive/i.test(String(s))) },
+  { key: 'grout',    label: 'Grouts',
     match: (p) => (p.sub_categories || []).some(s => /grout/i.test(String(s))) },
-  { key: 'sealants',   label: 'Sealants',
+  { key: 'sealant',  label: 'Sealants',
     match: (p) => (p.sub_categories || []).some(s => /sealant|silicone/i.test(String(s))) },
-  { key: 'cleaning',   label: 'Cleaning',
+  { key: 'cleaning', label: 'Cleaning',
     match: (p) => (p.sub_categories || []).some(s => /clean/i.test(String(s))) },
-  { key: 'other',      label: 'Other',
-    match: (p) => (p.sub_categories || []).some(s => /levelling|primer|underlay/i.test(String(s))) },
+  { key: 'primer',   label: 'Primers',
+    match: (p) => (p.sub_categories || []).some(s => /primer|levelling|underlay/i.test(String(s))) },
 ];
 
 const isMaterial = (p) => {

@@ -121,15 +121,54 @@ const ManagerPageShell = ({
 
   // Merge props with DB config. DB config wins if present — so admin's custom
   // filters/tabs/fields survive across page reloads.
+  // ---- Config precedence: MERGE, not override ----
+  // Props supply the SCHEMA (type/options/hint); DB config supplies ADDITIONS + reordering.
+  // For any field present in BOTH, the prop version's type/options/hint win when DB row is
+  // missing those keys (older DB rows only stored key/label). Fields present only in DB
+  // still render (custom fields added via Configure modal). Fields present only in props
+  // still render (silent-upgrade migrations like Tiles select fields).
+  const mergeConfig = (dbRows, propRows) => {
+    if (!Array.isArray(dbRows) || dbRows.length === 0) return propRows;
+    if (!Array.isArray(propRows) || propRows.length === 0) return dbRows;
+    const propMap = new Map(propRows.map(f => [f.key, f]));
+    // Start with DB order (so admin re-ordering sticks), enrich each row from props.
+    // Structural schema upgrades (type/options declared in code) WIN over DB defaults —
+    // this lets a code-level migration ship richer field metadata (select dropdowns,
+    // number inputs, textareas) without requiring an admin to click Configure first.
+    const merged = dbRows.map(dbRow => {
+      const propRow = propMap.get(dbRow.key);
+      if (!propRow) return dbRow;
+      const propHasSchema  = propRow.type && propRow.type !== 'text';
+      const propHasOptions = Array.isArray(propRow.options) && propRow.options.length > 0;
+      const dbHasOptions   = Array.isArray(dbRow.options) && dbRow.options.length > 0;
+      return {
+        ...propRow,
+        ...dbRow,
+        // Prefer richer prop metadata; fall back to DB's when prop is generic
+        type:    propHasSchema  ? propRow.type    : (dbRow.type    || propRow.type),
+        options: propHasOptions ? propRow.options : (dbHasOptions ? dbRow.options : propRow.options),
+        hint:    dbRow.hint     || propRow.hint,
+        label:   dbRow.label    || propRow.label,
+      };
+    });
+    // Append prop-only fields (new fields shipped in a migration, not yet in DB)
+    const dbKeys = new Set(dbRows.map(r => r.key));
+    propRows.forEach(pr => { if (!dbKeys.has(pr.key)) merged.push(pr); });
+    return merged;
+  };
+
   const effectiveFilterFacets = Array.isArray(config?.filter_facets) && config.filter_facets.length > 0
     ? config.filter_facets
     : null;   // null means: fall back to ManagerFiltersPanel's category preset
-  const effectiveSubTabs = Array.isArray(config?.sub_tabs) && config.sub_tabs.length > 0
-    ? config.sub_tabs.map(t => ({ ...t, match: (p) => tabMatches(t, p) }))
-    : subTabs;
-  const effectiveEditFields = Array.isArray(config?.spec_fields) && config.spec_fields.length > 0
-    ? config.spec_fields
-    : editFields;
+  const effectiveSubTabs = (() => {
+    const merged = mergeConfig(config?.sub_tabs, subTabs);
+    if (!Array.isArray(merged) || merged.length === 0) return subTabs;
+    return merged.map(t => ({
+      ...t,
+      match: t.match || ((p) => tabMatches(t, p)),
+    }));
+  })();
+  const effectiveEditFields = mergeConfig(config?.spec_fields, editFields);
   const [tierPricingConfig, setTierPricingConfig] = useState({
     thresholds: [10, 50, 100],
     discounts: [0, 5, 10, 15],

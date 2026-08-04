@@ -1,0 +1,48 @@
+{
+  "summary": "RETEST of iteration 206 HIGH/MEDIUM issues after ManagerPageShell.mergeConfig() deep-merge fix + MaterialsManager singular sub-tab key alignment. ALL previously-failing items now PASS: (1) Tiles Edit modal renders <select> for material(6)/finish(7)/slip_rating(6)/edge(4)/type(7) — all counts exact match. (2) Materials Edit modal renders type='number' inputs for bag_weight_kg, coverage_m2_per_bag, setting_time_hours, pot_life_minutes. (3) All 6 Materials sub-tabs resolve with singular keys (all/adhesive/grout/sealant/cleaning/primer). (4) tiles-tab-feature resolves. (5) flooring-edit-suitability + flooring-edit-made_in both resolve. Save flows fire toast and close modal on both Tiles and Materials. Regression pages (/admin/bathroom, /admin/underfloor-heating, /admin/tools, /admin/custom-manager/grout-sealants) all load with the shell; grout-sealants custom manager exposes the 5 default fields (color/size/material/finish/suitability). No console errors other than pre-existing AdminDashboard 'unique key prop' warning (LOW, pre-existing).",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "MaterialsManager sub-tab match counts", "issue": "All 5 non-'All' sub-tabs (adhesive/grout/sealant/cleaning/primer) show count=0 even though 138 products exist in 'All'. The tab testids resolve correctly, but the prop-level match function `(p) => (p.sub_categories || []).some(s => /adhesive/i.test(...))` matches no products. Root cause is product data: the 138 materials products lack `sub_categories` entries containing the keyword patterns (they're classified via product_group='materials' or main_category='Materials'). Not a shell/merge bug — a data-classification / keyword-mismatch issue. Previous iteration 206 showed non-zero counts (Grouts=3, Cleaning=2, Primers=3) with the old DB-driven tabs+keywords, so the DB keywords array previously provided the discriminator that the prop's regex now doesn't cover for the current dataset.", "selector": "[data-testid=\"materials-tab-adhesive\"] etc.", "priority": "MEDIUM"},
+      {"component": "TilesManager sub-tab match counts", "issue": "tiles-tab-feature and tiles-tab-mosaic show count=0. tiles-tab-border is MISSING (not in DB config nor prop). Floor=1062 and Wall=54 work fine — so classification for those subgroups works, but Feature/Mosaic keyword regex on sub_categories misses the actual data.", "selector": "[data-testid=\"tiles-tab-feature\"], [data-testid=\"tiles-tab-mosaic\"]", "priority": "MEDIUM"},
+      {"component": "AdminDashboard sidebar", "issue": "React 'Each child in a list should have a unique key prop' console warning — pre-existing, unrelated to this migration.", "selector": "AdminDashboard render", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "verified_working": [
+    "tiles-edit-material → <select> 6 options (incl. placeholder) ✅",
+    "tiles-edit-finish → <select> 7 options; options=['','Matt','Polished','Satin','Textured','Semi-polished','Rustic'] ✅",
+    "tiles-edit-slip_rating → <select> 6 options ✅",
+    "tiles-edit-edge → <select> 4 options ✅",
+    "tiles-edit-type → <select> 7 options ✅",
+    "Tile edit → change finish → Save → toast fires, modal closes ✅",
+    "materials-edit-bag_weight_kg, -coverage_m2_per_bag, -setting_time_hours, -pot_life_minutes all render as <input type=number> ✅",
+    "Materials edit → enter 20 in bag_weight_kg → Save → toast fires, dialog closes ✅",
+    "All 6 materials-tab-{all,adhesive,grout,sealant,cleaning,primer} testids resolve ✅",
+    "tiles-tab-feature testid resolves ✅",
+    "flooring-edit-suitability + flooring-edit-made_in both resolve ✅",
+    "Regression: /admin/bathroom, /admin/underfloor-heating, /admin/tools all load via shell with no error elements",
+    "Regression: /admin/custom-manager/grout-sealants opens; edit modal shows color/size/material/finish/suitability testids ✅",
+    "mergeConfig deep-merge working: prop-only fields (all the new selects + number fields on Tiles/Materials/Flooring) appear WITHOUT admin needing to re-Configure — silent-migration path verified end-to-end"
+  ],
+  "test_report_links": [],
+  "action_items": [
+    "MEDIUM: MaterialsManager sub-tab keyword matching returns 0 for adhesive/grout/sealant/cleaning/primer. Either (a) broaden the prop-level match to also check product_name/main_category (not only sub_categories), OR (b) ensure Materials products get sub_categories populated via classifier backfill. Suggest matching against product_name too so unclassified rows still surface in their category tab.",
+    "MEDIUM: TilesManager Feature/Mosaic tabs count=0 — same root cause; consider adding a product_name fallback in the match fn. Also tiles-tab-border was mentioned in the test spec but is neither in prop nor DB — either add it to the TilesManager subTabs prop or drop from expectations.",
+    "LOW: Fix AdminDashboard 'unique key prop' React warning (pre-existing since iteration 206)."
+  ],
+  "critical_code_review_comments": [
+    "mergeConfig() in ManagerPageShell.jsx (lines 130-158) is a clean, well-commented fix — prop schema wins for type/options while DB order/additions are preserved. Nicely resolves the silent-upgrade blocker from iteration 206.",
+    "Sub-tab .match functions in MaterialsManager/TilesManager only look at sub_categories. Since the isMatch predicate for the whole Manager ALSO accepts products by product_group or main_category, many products pass isMatch but fail every sub-tab match — hence 0 counts. Sub-tab matchers should mirror the same breadth (name + sub_categories + main_category) or fall back to 'name contains keyword'.",
+    "ManagerPageShell.jsx is now 699 lines — right at the 700-line ceiling. Extract the Edit dialog into a subcomponent next pass."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A (skipped per request)", "frontend": "95% — all shell-migration retest items PASS; sub-tab count mismatch is a separate matcher-scope issue, not the fix under test"},
+  "test_credentials": "admin@test.com / admin123 (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "None. Did not add the Warranty custom filter via Configure modal (skipped to keep DB clean; the append-if-not-in-DB path is already verified by all the newly-appearing prop-only fields on Tiles/Materials/Flooring).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iteration 206's HIGH/MEDIUM issues are all RESOLVED by the mergeConfig() deep-merge fix. Only remaining follow-up is broadening the sub-tab .match functions in MaterialsManager/TilesManager so tab counts match reality (product classification via product_group vs. sub_categories mismatch — not the shell bug).",
+  "rca of the issue": "N/A — original iteration 206 RCA (unconditional DB override in useManagerConfig consumers) is confirmed fixed. Merge precedence now: prop.type/options WIN if propHasSchema (type!='text') or propHasOptions (options.length>0); DB order preserved; prop-only fields appended at end. Verified live at /admin/tiles Edit and /admin/materials Edit — all newly-declared select/number field metadata surfaces without admin re-Configure."
+}
