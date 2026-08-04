@@ -1,0 +1,56 @@
+{
+  "summary": "Frontend E2E test of Shell Migration for MaterialsManager (118 lines), TilesManager (108 lines), FlooringManager (96 lines) all on ManagerPageShell. All 3 pages load, all 6 header buttons resolve with correct testids, sub-tabs render, search filters, edit modal opens, tier pricing modal opens with CORRECT per-manager defaults (Materials=£/unit + fixed, Tiles/Flooring=% + m²), legacy link present, workspace tabs bar renders, regression pages (bathroom/tools/custom-manager/grout-sealants) still work. HOWEVER, DB-persisted config from useManagerConfig(categoryKey) OVERRIDES the new editFields/subTabs props declared in the rewritten files — so newly-added select dropdowns (tiles material/finish/slip/edge/type) render as plain <input>, and materials number fields (bag_weight_kg, coverage_m2_per_bag, setting_time_hours, pot_life_minutes, application_thickness_mm, voc_rating) plus the 'Other' sub-tab are MISSING at runtime. Migration is correct in source code; the persisted DB config from a prior session is masking the improvements.",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "TilesManager Edit Modal", "issue": "Select fields render as <input> with 0 <option> children. Expected <select> with Porcelain/Ceramic/etc. Root cause: config.spec_fields loaded from DB via useManagerConfig() overrides the editFields prop (ManagerPageShell.jsx line 130-132). Stored config lacks type:'select' + options metadata. Missing entirely: thickness, edge, type, made_in fields.", "selector": "[data-testid=\"tiles-edit-material\"] etc.", "priority": "HIGH"},
+      {"component": "MaterialsManager Edit Modal", "issue": "Number fields absent from modal because DB config overrides prop. Missing testids: materials-edit-bag_weight_kg, materials-edit-setting_time_hours, materials-edit-pot_life_minutes, materials-edit-application_thickness_mm, materials-edit-voc_rating. Only color/bag_colour/coverage_m2_per_bag/suitability render.", "selector": "[data-testid^=\"materials-edit-\"]", "priority": "HIGH"},
+      {"component": "MaterialsManager Sub-Tabs", "issue": "DB config.sub_tabs overrides subTabs prop. UI shows [All/Adhesives/Grouts/Sealants/Cleaning/Primers] (6 tabs from DB) instead of code's [All/Adhesives/Grouts/Sealants/Cleaning/Other]. Testids materials-tab-adhesives, -grouts, -sealants, -other do NOT resolve (keys differ). Only materials-tab-all and materials-tab-cleaning resolve.", "selector": "[data-testid^=\"materials-tab-\"]", "priority": "HIGH"},
+      {"component": "TilesManager Sub-Tabs", "issue": "tiles-tab-feature does not resolve (count=0) — likely DB stored a different key or that tab wasn't persisted.", "selector": "[data-testid=\"tiles-tab-feature\"]", "priority": "MEDIUM"},
+      {"component": "FlooringManager Edit Modal", "issue": "suitability and made_in testids not resolving (DB config override — same root cause).", "selector": "[data-testid=\"flooring-edit-suitability\"], [data-testid=\"flooring-edit-made_in\"]", "priority": "MEDIUM"},
+      {"component": "AdminDashboard sidebar", "issue": "React console warning: 'Each child in a list should have a unique key prop' — pre-existing, unrelated to this migration.", "selector": "AdminDashboard render", "priority": "LOW"}
+    ],
+    "integration_issues": [
+      {"flow": "Edit modal field configuration", "issue": "useManagerConfig fetches persisted spec_fields/sub_tabs and unconditionally overrides component props. When prop-level fields are richer than DB (new metadata like type:'select', new number fields), users cannot access the new fields until they update the DB config via Configure modal — invisible upgrade.", "affected_selectors": ["tiles-edit-material","tiles-edit-finish","tiles-edit-slip_rating","tiles-edit-edge","tiles-edit-type","materials-edit-bag_weight_kg","materials-edit-setting_time_hours"]}
+    ],
+    "design_issues": []
+  },
+  "verified_working": [
+    "MaterialsManager loads with 138 products, title 'Materials Manager', subtitle 'Adhesives, grouts, sealants, cleaning & primers'",
+    "TilesManager loads with 1108 products",
+    "FlooringManager loads with 3 products",
+    "All 6 header testids resolve on all 3 managers: {cat}-add-new-btn, -configure-btn, -csv-import-btn, -refresh-btn, -search-input, -visible-count",
+    "Search narrows the count on all managers (verified)",
+    "Sub-tab switching updates count (Grouts=3, Cleaning=2, Primers=3; Tiles floor tab narrows from 1108 to 1065; Flooring LVT=0)",
+    "Edit modal opens with description textarea and save button on all 3",
+    "Bulk select + Tier Pricing modal opens on all 3",
+    "Materials tier defaults: unit='units', trade discount label='Trade Discount (£/unit)', '£/unit' suffix visible → matches trade_discount_type:'fixed', trade_discount_default:2 spec ✅",
+    "Tiles tier defaults: unit='m²', trade discount label='Trade Discount (%)' → matches percent + 5% spec ✅",
+    "Flooring tier defaults: unit='m²', trade discount '%' → matches percent + 5% spec ✅",
+    "Legacy full editor link (/admin/supplier-products) present on all 3 migrated pages",
+    "Workspace tabs bar renders Materials/Tiles/Flooring/Bathroom/Underfloor/Tools/Custom links",
+    "Regression: /admin/bathroom (46 visible), /admin/tools (0 visible), /admin/custom-manager/grout-sealants (3 visible) still load with shell",
+    "Code-size reduction confirmed: 783+693+545+688=2709 original → 118+108+96+218=540 refactored ≈ 80% reduction"
+  ],
+  "test_report_links": [],
+  "action_items": [
+    "HIGH: Decide merge strategy for useManagerConfig — either (a) merge props+DB (props provide the schema, DB adds/hides fields but preserves type/options), or (b) purge stored config.spec_fields/sub_tabs for materials/tiles/flooring so the new prop-level definitions take effect, or (c) auto-migrate stored config by re-seeding with the new type:'select' + number metadata.",
+    "HIGH: Verify that tiles Edit modal renders <select> with expected options (Porcelain/Ceramic/Natural Stone/Glass/Mosaic for material; Matt/Polished/... for finish; R9-R13 for slip; Rectified/Non-rectified/Bevelled for edge; Floor Tile/Wall Tile/... for type). Currently blocked by DB override — code is correct but never reached at runtime.",
+    "HIGH: Verify materials Edit modal exposes bag_weight_kg, setting_time_hours, pot_life_minutes, application_thickness_mm, voc_rating with type='number'.",
+    "MEDIUM: Reconcile the 'Other' vs 'Primers' Materials sub-tab — DB has 'Primers' preset; code declares 'Other'. Align expectations or clear DB.",
+    "LOW: Fix React 'unique key prop' warning in AdminDashboard (pre-existing)."
+  ],
+  "critical_code_review_comments": [
+    "ManagerPageShell useManagerConfig override is unconditional — this is a silent-upgrade blocker for any Manager migration that adds richer field metadata. Consider deep-merging config over props while preserving type/options from props when DB entries omit them.",
+    "Same file (ManagerPageShell.jsx) is 660 lines — nearing the recommended 700-line ceiling. Consider extracting the Edit dialog and Tier Pricing wiring into subcomponents.",
+    "Tiles Manager visible count is 1108 — very large single fetch (/api/supplier-sync/products?limit=5000). Consider paginating server-side for perf."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A (skipped per request)", "frontend": "70% — shell integration + tier pricing + tabs bar + regression all pass, but edit-field metadata is silently dropped by DB override"},
+  "test_credentials": "admin@test.com / admin123 (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "None",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "After main agent resolves the useManagerConfig override precedence (or clears stored spec_fields for materials/tiles/flooring), re-verify: (1) tiles-edit-material/finish/slip_rating/edge/type render as <select> with correct options; (2) materials-edit-bag_weight_kg is type='number' + coverage_m2_per_bag, setting_time_hours, pot_life_minutes, application_thickness_mm, voc_rating all resolve; (3) materials-tab-other resolves; (4) tiles-tab-feature resolves; (5) flooring-edit-suitability + flooring-edit-made_in resolve. All other flows already confirmed working.",
+  "rca of the issue": "ManagerPageShell.jsx lines 127-132 unconditionally prefer config.sub_tabs and config.spec_fields from useManagerConfig(categoryKey) over the props supplied by the wrapper Managers. The rewritten Materials/Tiles/Flooring pages declare richer editFields (type:'select' with options for Tiles; type:'number' fields for Materials) and new sub_tabs, but a Configure-modal save from a prior session persisted a simpler spec_fields/sub_tabs shape (labels+keys only, no type/options). At runtime the DB config wins → new features invisible. Reproduction: /admin/tiles → Edit any row → inspect [data-testid='tiles-edit-material'] → tagName is INPUT, not SELECT. Mitigation options listed under action_items."
+}
