@@ -9,6 +9,49 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Aug 4, 2026 — Forked, session F+4] 🟢 5 Manager-parity gaps shipped — Per-product tier overrides / Cross-nav selection / F5 persistence / Sale-Labels / Made In select — VERIFIED
+
+**Owner ask (from screenshots 190-196)**: Five real gaps flagged, two of them repeated (per-product tier discounts + cross-nav selection):
+- 🔴 **P0-1** (screenshots 190, 195 — flagged twice): "How do I set up Tier pricing and Trade discounts to individual products. It says all 14 will be applied. But I want option to have changes individually if needed."
+- 🔴 **P0-2** (screenshots 191, 196 — flagged twice): "When I select multiple products from the list of suppliers, I can't go direct to the Manager to make changes unlike Legacy Bulk Categories Editor" / "clicking on relevant Manager takes me to Manager and asks me to select the products again which is pain in the back"
+- 🔴 **P0-3** (screenshot 194): "When I refresh the page it should just refresh it but it deselects the products"
+- 🟠 **P1** (screenshot 192): "Are sales and labels feature available in Managers like in Legacy Bulk Categories Editor. If not, don't forget we are going to hard remove bulk editor in coming days so we need to have all the features are in place"
+- 🟠 **P1** (screenshot 193): "Same as in Made in and others, are these implemented in Managers"
+
+**Delivered**:
+
+1. **P0-1 Per-product Tier Pricing Overrides** — new `PerProductOverridesPanel` (~200 lines) inside `TierPricingModal`. Expandable table with a row per selected product; each row has independent trade-discount, credit-back, disable-tier fields. Blank fields inherit global setting; filled fields override for that product only. Amber "N customised" badge on the toggle. Backend `bulk_update_product_tier_pricing()` (`supplier_sync.py` lines ~5730-5820) extended: each item in `products[]` can carry its own trade_discount / trade_discount_type / credit_back_rate / disabled / tier_thresholds / tier_discounts / pallet_* keys — when present, they win row-by-row over the top-level defaults. Backward compatible (existing legacy payloads untouched).
+
+2. **P0-2 Cross-nav selection carry-over** — `ManagerTabsBar` now accepts a `selectionKeys` prop. When non-empty, every tab link becomes `to={original}?ids=<url-encoded key1,key2,...>&mode=bulk` AND shows a `+N` amber counter chip on non-active tabs. `SupplierProducts.js` passes its live selectedProducts Set. `ManagerPageShell.jsx` reads `?ids=` on mount → matches keys against fresh products → pre-selects them → toasts "X of N carried over" and (if some didn't match) "N products don't belong to this Manager". URL params are stripped after apply so a subsequent F5 doesn't re-apply the URL selection (that path is now handled by localStorage — see P0-3).
+
+3. **P0-3 F5 refresh preserves selection** — `useManagerBulk` gained an optional `storageKey` argument. When provided, selection Set is persisted to `localStorage['managerBulk:{storageKey}:selected']` on every change and restored on mount. `ManagerPageShell` passes `storageKey={categoryKey}` so each Manager gets its own isolated bucket (verified: `managerBulk:tiles:selected` ≠ `managerBulk:materials:selected`, no cross-bleed).
+
+4. **P1 Sale / Labels** — New `bar-sale-labels` button (Tag icon) added to `ManagerBulkBar`. Wired to existing `BulkSaleModal` (reused from SupplierProducts). Handles both label mutations (`/api/supplier-sync/products/bulk-labels`) and sale % (`/api/supplier-sync/products/bulk-sale-pricing`) with support for `add / replace / remove / clear` actions. Available on all 7 Managers.
+
+5. **P1 Made In select** — Upgraded `made_in` field from free-text to a canonical `<SELECT>` with 11 country options (Italy, Spain, Portugal, Poland, Turkey, India, Vietnam, China, UK, Europe, Other) across Materials/Tiles/Flooring — matching the production Bulk Category Editor's list from screenshot 193's context.
+
+**Testing (iteration 208)** — 100% on both:
+- **Backend (pytest 3/3)**: Legacy payload (no per-product keys) still applies top-level defaults to all rows ✅. Per-product overrides (`trade_discount=10 + disabled=True`) win for that row while others inherit defaults ✅. Partial override (credit-back only) — override wins for that field, others inherit ✅. Round-trip verified via GET.
+- **Frontend (Playwright, all 5 items)**: P0-1 override panel + rows + badge updates ✅. P0-2 `?ids=` param + `+N` chip + toast messaging ✅. P0-3 F5 preserves 3-item selection via localStorage ✅. P0-3b buckets isolated across managers ✅. P1 Sale/Labels button opens modal with correct N-count title ✅. P1 Made In renders as SELECT with 12 options (placeholder + 11 countries) ✅.
+
+**Files touched this session**:
+- Backend: `/app/backend/routes/supplier_sync.py` (per-product override precedence in bulk-tier-update), `/app/backend/tests/test_bulk_tier_overrides.py` (new — 3 pytest cases)
+- Frontend new: `/app/frontend/src/pages/admin/components/supplier-products/PerProductOverridesPanel.jsx` (~200 lines)
+- Frontend modified: `TierPricingModal.jsx` (accepts productOverrides + setProductOverrides + selectedProductsList props), `ManagerPageShell.jsx` (new state, cross-nav useEffect, storageKey, BulkSaleModal wiring), `useManagerBulk.js` (localStorage persistence), `ManagerTabsBar.jsx` (selectionKeys + withSelection helper + +N chip), `ManagerBulkBar.jsx` (new Sale/Labels button), `SupplierProducts.js` (passes selectionKeys to ManagerTabsBar), `MaterialsManager.jsx` + `TilesManager.jsx` + `FlooringManager.jsx` (made_in upgraded to SELECT).
+
+**Backlog note**: `ManagerPageShell.jsx` is now 828 lines — testing agent flagged this for extraction into a `useManagerModals` hook (mainly the TierPricing + Sale/Labels onSave closures). Cosmetic split, no functional change.
+
+**Remaining P1/P2 backlog**:
+- Extract Edit dialog + Tier/Sale onSave closures into `ManagerModalsHost` component or `useManagerModals` hook
+- Storefront CTAs for Materials/Flooring/UFH/Tools landing pages
+- Bulk Category Editor "hard remove" — user said "coming days" — need to greenlight this once user confirms remaining parity items land
+- Prod→preview showroom sync script
+- Google Ads dashboard (blocked on Developer Token approval)
+- Google Business Profile integration (blocked on Google allowlist)
+
+
+
+
 ### [Aug 4, 2026 — Forked, session F+3] 🟢 Materials / Tiles / Flooring Managers migrated to ManagerPageShell — VERIFIED
 
 **Owner ask**: Complete the shell-migration set — port the remaining three legacy standalone managers (Materials 783 lines, Tiles 693 lines, Flooring 545 lines) onto the shared `ManagerPageShell`. Preserve TierPricingModal (Materials) and AssignColoursModal (Tiles) — both already live inside the shell. Preserve category-specific edit fields with type='select' (Tiles) and type='number' (Materials).
