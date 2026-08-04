@@ -1,0 +1,67 @@
+{
+  "summary": "Tested the new BulkSpecsFiltersModal / bar-specs-filters button end-to-end. FRONTEND: modal renders dynamically from Manager config (Materials shows 3 sections × 15 rows: Filters 4, Spec Fields 5, Sub-Categories 6 — matches spec). Header and DialogDescription present. Checkbox auto-ticks when value typed. Colour filter row shows 'Array append' badge because array_field=colors. Tiles Manager modal renders too (6 filters + 6 spec fields + 4 sub-tabs). BACKEND (via direct API): /api/supplier-sync/products/bulk-update-unified persists whitelisted fields (material, colors[], sub_categories[]) correctly BUT SILENTLY DROPS every non-whitelisted Configure-defined field (coverage_m2_per_bag, pack_size, bag_colour, bag_weight_kg, warranty, etc.) while still returning success=true and verification_ok=true. This breaks the entire promise of 'Configure → immediately usable in Action Bar'.",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "POST /api/supplier-sync/products/bulk-update-unified",
+        "issue": "Hardcoded whitelist (single_value_fields at line 11489, array_fields at line 11490 in /app/backend/routes/supplier_sync.py) silently discards any field key outside the list. Tested with {coverage_m2_per_bag:'3.5', pack_size:'20kg', bag_colour:'White'} on ULT-GGI — response was {success:true, supplier_products_updated:1, verification_ok:true, verification_failures:[]} yet a follow-up GET showed all three fields still None. Only updated_at/bulk_edited_at timestamps were written. verification_ok is a false-positive because the verifier uses the same whitelist. This means EVERY Configure-defined field beyond the ~30 hardcoded keys is a no-op via the new Specs/Filters modal.",
+        "priority": "CRITICAL"
+      }
+    ],
+    "minor": [
+      {
+        "endpoint": "POST /api/supplier-sync/products/bulk-update-unified",
+        "issue": "fields_to_clear={material:true} does NOT clear the field (fields_cleared returned null in response and value remained). Also empty-string values are silently skipped (line 11499: `if updates[field] is not None and updates[field] != ''`), so admin cannot blank a spec value through this endpoint."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {
+        "flow": "BulkSpecsFiltersModal → bulk-update-unified",
+        "issue": "Modal reports 'Applied N fields to M products' toast even when the backend silently dropped every value the admin typed. Because verification_ok comes back true, no warning surfaces. Users will believe their edit landed while the DB is untouched. Recommend the modal either (a) POST to a new endpoint that accepts arbitrary keys, or (b) validate that verification_checked > 0 AND each intended key appears in a verified-field list before showing the success toast.",
+        "affected_selectors": ["bulk-specs-save", "bulk-field-input-*"]
+      }
+    ],
+    "design_issues": [
+      {
+        "screen": "Tiles Manager → Specs/Filters modal",
+        "issues": [
+          "Review request specified Tiles Spec Fields should include SELECT dropdowns for material (5 options), finish (6), slip_rating (5), edge (3), type (6). Actual modal renders all Tiles spec rows as plain text <Input> — the Tiles Manager config has neither type:'select' nor an options array on these rows. Fields 'edge' and 'type' are entirely missing from the Tiles config too. Modal itself is correct (falls back to text input when options are absent); the fix is in the Tiles default Configure schema."
+        ]
+      },
+      {
+        "screen": "/admin/custom-manager/grout-sealants → Specs/Filters modal",
+        "issues": [
+          "Custom manager modal opens but renders ZERO rows (empty-state message). The grout-sealants custom config has no filter_facets / spec_fields / sub_tabs defined — either seed defaults are missing for custom managers or the config hook isn't wiring them for this route."
+        ]
+      }
+    ]
+  },
+  "test_report_links": [],
+  "action_items": [
+    "CRITICAL: Fix /api/supplier-sync/products/bulk-update-unified to accept arbitrary Configure-driven field keys. Simplest fix: after processing whitelisted single_value_fields and array_fields, also merge any remaining top-level keys from updates{} into set_fields (scalar) or array_updates (list) — optionally guarded by an allowlist derived from the current Manager's config sent alongside the payload. Also update the verifier loop to actually compare intended vs stored for these new keys so verification_ok stops lying.",
+    "Add a 'clear value' semantic (explicit null or fields_to_clear support for spec keys). Currently blank strings are silently ignored so admin cannot wipe a spec via the new modal.",
+    "Tiles Manager Configure defaults: add options[] + type:'select' to material/finish/slip_rating and add missing edge / type spec rows, so the modal renders proper dropdowns as promised.",
+    "Custom Managers (e.g. grout-sealants): ensure config seed provides at least filter_facets + spec_fields + sub_tabs, otherwise the Specs/Filters modal is empty and the feature is unusable for custom category admins.",
+    "Frontend: after handleSave, inspect the response's verification_failures and (once backend is fixed) show a warning toast + auto-open Save Results if any intended key was not persisted.",
+    "Cleanup: SKU ULT-GGI on Ultra Tile still has residual test value material='TestMat123' — please restore/clear."
+  ],
+  "critical_code_review_comments": [
+    "supplier_sync.py is 14k+ lines — bulk-update-unified whitelist should live in a single shared constant so Configure schema + endpoint stay in lockstep.",
+    "verification_ok returned true while nothing persisted → verifier is asserting only on whitelisted keys. This is dangerous: main-agent's earlier work depends on this signal to auto-open Save Results on failure (see /app/memory/test_credentials.md 'Bulk save verification + array-field publish'). It must fail loud when unknown keys are dropped.",
+    "BulkSpecsFiltersModal.jsx normalizeRows correctly flattens config.filter_facets/spec_fields/sub_tabs, uses `field` vs `key` correctly per section, handles array_field for filter facets, and uses append/replace modes appropriately. Frontend code is clean.",
+    "BulkSpecsFiltersModal handleSave uses r.type === 'number' → Number(v). Good, but no numeric validation (NaN passes through). Fine for MVP.",
+    "The 'Nothing to save' guard requires both updates empty AND subCategoryTags empty — correct.",
+    "DialogDescription is present (a11y OK)."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "40%", "frontend": "90%"},
+  "test_credentials": "admin@test.com / admin123 (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "Wrote material='TestMat123', colors=['Grey'], sub_categories=['adhesive'] on ULT-GGI, ULT-INS-MB, ULT-LIR (Ultra Tile). colors + sub_categories were cleared during cleanup; material=TestMat123 still dirty on ULT-GGI (bulk-update-unified doesn't accept empty-string clears and fields_to_clear didn't work either).",
+  "retest_needed": true,
+  "main_agent_can_self_test": false,
+  "context_for_next_testing_agent": "The frontend BulkSpecsFiltersModal is correct — the blocker is 100% backend. Once bulk-update-unified accepts arbitrary Configure keys, re-test: (1) POST with coverage_m2_per_bag=3.5 & GET verify field==3.5; (2) UI Configure→add Warranty filter→open modal→verify 'warranty' row appears (schema plumbing already works based on Materials rendering all 15 config rows); (3) Tiles select-dropdown rendering after Tiles config seeds proper options[]; (4) Custom Manager grout-sealants after seed provides default filter_facets/spec_fields. Regression suites for older features (workspace tabs +N, F5 selection, cross-nav) were NOT re-run this iteration — earlier iterations already covered them.",
+  "rca of the issue": "Root cause: /app/backend/routes/supplier_sync.py::bulk_update_unified (line 11405) processes updates{} by iterating a hardcoded whitelist of ~30 single_value_fields and 6 array_fields. Any key not on this list never enters set_fields and thus never reaches MongoDB update_many. The response still reports supplier_products_updated>0 because the timestamp fields (updated_at, bulk_edited_at) DO get written on every call, and verification_ok is true because the verifier only re-reads whitelisted keys. Repro: `curl -X POST /api/supplier-sync/products/bulk-update-unified -d '{\"product_ids\":[\"ULT-GGI\"],\"updates\":{\"bag_weight_kg\":25},\"id_field\":\"sku\"}'` → response success:true; follow-up GET shows bag_weight_kg:null. Mitigation: after the whitelist loop, add: `for k,v in updates.items(): if k not in single_value_fields and k not in array_fields and k not in RESERVED: set_fields[k] = v` (with proper type coercion and a config-driven allowlist to prevent arbitrary field pollution). Then extend the verifier to include every intended key from `updates` in its comparison so verification_ok is honest."
+}

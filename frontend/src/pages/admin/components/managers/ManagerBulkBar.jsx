@@ -9,7 +9,7 @@
 import React, { useState } from 'react';
 import { Button } from '../../../../components/ui/button';
 import {
-  X, CheckSquare, Trash2, Archive, Globe, EyeOff, Percent, Palette, Layers, Grid3X3, Package, PoundSterling, Sparkles, Image as ImageIcon, Tag,
+  X, CheckSquare, Trash2, Archive, Globe, EyeOff, Percent, Palette, Layers, Grid3X3, Package, PoundSterling, Sparkles, Image as ImageIcon, Tag, Sliders,
 } from 'lucide-react';
 
 const ManagerBulkBar = ({
@@ -24,6 +24,7 @@ const ManagerBulkBar = ({
   onOpenAssignColours,
   onOpenBulkCategory,
   onOpenBulkFields,
+  onOpenBulkSpecs,
   onOpenAIDescriptions,
   onOpenBulkImages,
   onOpenReassignCategory,
@@ -156,6 +157,19 @@ const ManagerBulkBar = ({
         >
           <Tag className="w-3.5 h-3.5" />
           Sale / Labels
+        </button>
+      )}
+      {!hidden.has('specs') && onOpenBulkSpecs && (
+        <button
+          type="button"
+          onClick={onOpenBulkSpecs}
+          disabled={saving}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/15 hover:bg-white/25 transition text-[13px] font-medium"
+          data-testid="bar-specs-filters"
+          title="Bulk-edit any Filter, Spec Field or Sub-Category you configured for this Manager"
+        >
+          <Sliders className="w-3.5 h-3.5" />
+          Specs / Filters
         </button>
       )}
 
