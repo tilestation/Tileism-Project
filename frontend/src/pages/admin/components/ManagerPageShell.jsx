@@ -35,6 +35,7 @@ import {
 import AddProductWizard from './AddProductWizard';
 import ManagerBulkBar from './managers/ManagerBulkBar';
 import ManagerTabsBar from './managers/ManagerTabsBar';
+import { bucketSelectionByManager } from './managers/classifyProductToManager';
 import ManagerFiltersPanel, { applyManagerFilters } from './managers/ManagerFiltersPanel';
 import CustomManagerBuilder from './managers/CustomManagerBuilder';
 import BulkFieldsModal from './managers/BulkFieldsModal';
@@ -342,7 +343,14 @@ const ManagerPageShell = ({
 
   return (
     <div className="min-h-screen bg-gray-50 pb-16">
-      <ManagerTabsBar active={tabsBarActive || categoryKey} onNewCustom={() => setBuilderOpen(true)} />
+      <ManagerTabsBar
+        active={tabsBarActive || categoryKey}
+        onNewCustom={() => setBuilderOpen(true)}
+        selectionKeys={bulk.selectedProducts && bulk.selectedProducts.size > 0 ? [...bulk.selectedProducts] : null}
+        selectionByCategory={bulk.selectedProducts && bulk.selectedProducts.size > 0
+          ? bucketSelectionByManager(products, bulk.selectedProducts, (p) => `${p.supplier || 'unknown'}|||${p.sku || p.supplier_code || p._id}`)
+          : null}
+      />
 
       {/* Header */}
       <div className="bg-white border-b border-gray-200">

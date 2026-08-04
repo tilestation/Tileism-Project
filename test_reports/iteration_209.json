@@ -1,0 +1,30 @@
+{
+  "summary": "E2E frontend verification of the ManagerTabsBar per-category selection chip fix. Reproduced the fix on live env: on /admin/supplier-products, 49 auto-selected products (25 tile-classified) render '+25' ONLY on the Tiles tab; Materials/Flooring/Bathroom/UFH/Tools + custom Grout Sealants tabs show NO chip. On /admin/materials, 5 selected material rows produce no chip on any Manager tab (Materials is active — self-chip suppressed). Cross-nav Tiles chip → /admin/tiles carries the 25 tile ids and fires 'X of 25 selected products carried over' toast with bulk bar showing 25 selected. F5 on /admin/materials preserves the 5-row selection. All Manager tab hrefs correctly encode per-category buckets; tabs with 0 classified selections drop the ?ids param entirely. Custom manager (Grout Sealants) correctly falls through the same 'no bucket → no chip' path.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Minor: When active tab has ids in href (e.g. Materials tab on /admin/materials with materials selected), clicking your own active tab is a no-op UX-wise but the URL query string is still generated. Not a bug — active tab suppresses only the chip, not the href — but could be cleaner to skip withSelection() on the active tab.",
+    "Pre-existing (unrelated to this fix): Console warning 'Each child in a list should have a unique key prop' in AdminDashboard render. Multiple 403 errors on unrelated resource loads — not blocking.",
+    "classifyProductToManager relies on product_group / main_category / sub_categories / product_name heuristics. Products with none of these signals will be silently dropped from every bucket. This is by-design per the request, but worth logging (console.debug) so dev can spot rogue rows during triage."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A (skipped)", "frontend": "100%"},
+  "test_credentials": "admin@test.com / admin123",
+  "seed_data_creation": "None — used existing TestSupplier products already in DB",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Verified fix for '+N chip on all Manager tabs' bug. Key files: classifyProductToManager.js (new) + ManagerTabsBar.jsx.keysForTab() + selectionByCategory prop wired through SupplierProducts.js and ManagerPageShell.jsx. On env with TestSupplier auto-selection persisting, /admin/supplier-products page loads with 49 preselected products → Tiles+25 chip, all others clean. classifyProductToManager returns null for rows lacking category signals — those are silently excluded from all buckets (correct behaviour, no chip anywhere).",
+  "test_evidence": {
+    "supplier_products_49_selected": "Tiles chip=+25; Materials/Flooring/Bathroom/UFH/Tools/GroutSealants chip=None",
+    "materials_5_selected": "All tabs chip=None (Materials is active)",
+    "cross_nav_tiles": "Landed on /admin/tiles with 25 rows pre-checked, bulk bar '25 selected', toast '25 of 25 selected products carried over'",
+    "f5_persistence": "5 checked rows survived reload on /admin/materials",
+    "url_contract_materials_zero": "Materials tab href = /admin/materials (no ?ids param when zero materials selected) — verified"
+  }
+}

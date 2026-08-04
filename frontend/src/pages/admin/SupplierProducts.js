@@ -35,6 +35,7 @@ import DryRunPreview from './components/supplier-products/DryRunPreview';
 import BulkEditPresets from './components/supplier-products/BulkEditPresets';
 import BulkEditHistory from './components/supplier-products/BulkEditHistory';
 import ManagerTabsBar from './components/managers/ManagerTabsBar';
+import { bucketSelectionByManager } from './components/managers/classifyProductToManager';
 import CustomManagerBuilder from './components/managers/CustomManagerBuilder';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
@@ -7762,6 +7763,9 @@ export default function SupplierProducts() {
           active="all"
           onNewCustom={() => setManagerBuilderOpen(true)}
           selectionKeys={selectedProducts && selectedProducts.size > 0 ? [...selectedProducts] : null}
+          selectionByCategory={selectedProducts && selectedProducts.size > 0
+            ? bucketSelectionByManager(products, selectedProducts, getProductKey)
+            : null}
         />
       </div>
 
