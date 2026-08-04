@@ -7758,7 +7758,11 @@ export default function SupplierProducts() {
     <div className="p-6 space-y-6" data-testid="supplier-products-page">
       {/* Workspace tabs — unified across Managers + legacy Bulk Editor */}
       <div className="-mx-6 -mt-6 mb-2">
-        <ManagerTabsBar active="all" onNewCustom={() => setManagerBuilderOpen(true)} />
+        <ManagerTabsBar
+          active="all"
+          onNewCustom={() => setManagerBuilderOpen(true)}
+          selectionKeys={selectedProducts && selectedProducts.size > 0 ? [...selectedProducts] : null}
+        />
       </div>
 
       <CustomManagerBuilder open={managerBuilderOpen} onOpenChange={setManagerBuilderOpen} />

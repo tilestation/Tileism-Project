@@ -63,7 +63,8 @@ const FlooringManager = () => (
       { key: 'color',             label: 'Colour' },
       { key: 'pack_coverage',     label: 'Pack Coverage (m²)',   hint: 'e.g., 2.20' },
       { key: 'suitability',       label: 'Suitability',          hint: 'Indoor / Wet room / Underfloor Heat' },
-      { key: 'made_in',           label: 'Made In' },
+      { key: 'made_in',           label: 'Made In', type: 'select',
+        options: ['Italy','Spain','Portugal','Poland','Turkey','India','Vietnam','China','UK','Europe','Other'] },
     ]}
     presetCategory="flooring"
     tierPricingDefaults={{ default_unit: 'm2', trade_discount_default: 5, trade_discount_type: 'percent' }}

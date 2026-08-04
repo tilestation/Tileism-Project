@@ -103,6 +103,8 @@ const MaterialsManager = () => (
       { key: 'application_thickness_mm', label: 'Application Thickness (mm)', hint: 'e.g. 3-15 or 6' },
       { key: 'voc_rating',               label: 'VOC Rating',                 hint: 'e.g. Low, EC1 Plus' },
       { key: 'suitability',              label: 'Suitability',                hint: 'Indoor / Outdoor / Wet room / Underfloor heating' },
+      { key: 'made_in',                  label: 'Made In', type: 'select',
+        options: ['Italy','Spain','Portugal','Poland','Turkey','India','Vietnam','China','UK','Europe','Other'] },
     ]}
     presetCategory="materials"
     tierPricingDefaults={{ default_unit: 'unit', trade_discount_default: 2, trade_discount_type: 'fixed' }}

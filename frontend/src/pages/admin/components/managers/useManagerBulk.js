@@ -21,7 +21,7 @@
  * flow, tier pricing, refunds — everything — keeps working.
  */
 
-import { useState, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
 import { toast } from 'sonner';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
@@ -29,11 +29,29 @@ const API_URL = process.env.REACT_APP_BACKEND_URL;
 // Must match getProductKey in SupplierProducts.js exactly for cross-page compat
 export const getProductKey = (p) => `${p.supplier || 'unknown'}|||${p.sku || p.supplier_code || p._id}`;
 
-export function useManagerBulk({ products = [], onRefresh }) {
-  const [selectedProducts, setSelectedProducts] = useState(new Set());
+export function useManagerBulk({ products = [], onRefresh, storageKey = null }) {
+  // If storageKey is provided, persist selection so a browser refresh (F5) keeps
+  // the ticked rows. Legacy SupplierProducts.js already does this — Managers now match.
+  const [selectedProducts, setSelectedProducts] = useState(() => {
+    if (!storageKey) return new Set();
+    try {
+      const raw = localStorage.getItem(`managerBulk:${storageKey}:selected`);
+      if (!raw) return new Set();
+      const arr = JSON.parse(raw);
+      return Array.isArray(arr) ? new Set(arr) : new Set();
+    } catch { return new Set(); }
+  });
   const [bulkSaving, setBulkSaving] = useState(false);
   const [lastBulkResult, setLastBulkResult] = useState(null);
   const [showBulkResult, setShowBulkResult] = useState(false);
+
+  // Persist selection to localStorage on every change (per-manager scope).
+  React.useEffect(() => {
+    if (!storageKey) return;
+    try {
+      localStorage.setItem(`managerBulk:${storageKey}:selected`, JSON.stringify([...selectedProducts]));
+    } catch { /* silent — storage disabled */ }
+  }, [selectedProducts, storageKey]);
 
   const toggleProduct = useCallback((product) => {
     const key = getProductKey(product);

@@ -5757,73 +5757,97 @@ def bulk_update_product_tier_pricing(data: BulkTierUpdateRequest):
     Update tier pricing settings for multiple products at once.
     Saves custom tier_thresholds, tier_discounts, and optionally trade_discount to each product.
     Products with custom settings will use these instead of global defaults.
-    
-    If disabled=True, tier pricing is completely disabled for these products.
-    Half + Full pallet fields are applied independently of the tier-disabled flag.
+
+    Per-product overrides:
+    Each item in `products` can carry its own trade_discount / trade_discount_type /
+    credit_back_rate / disabled / tier_thresholds / tier_discounts / pallet_* fields.
+    When present these WIN over the top-level defaults for that specific product —
+    so a caller can set a global 5% trade discount for 14 rows and tune 2 of them
+    individually in one atomic request.
+
+    If disabled=True (top-level or per-product), tier pricing is completely disabled for
+    that product. Half + Full pallet fields are applied independently of the tier-disabled flag.
     """
     try:
         db = get_db()
         updated_count = 0
-        
-        # Normalise trade_discount_type
-        td_type = None
+
+        # Normalise top-level trade_discount_type
+        default_td_type = None
         if data.trade_discount_type is not None:
-            td_type = "fixed" if str(data.trade_discount_type).lower() == "fixed" else "percent"
-        
+            default_td_type = "fixed" if str(data.trade_discount_type).lower() == "fixed" else "percent"
+
         for product in data.products:
             supplier = product.get('supplier')
             sku = product.get('sku')
-            
+
             query = build_product_query(supplier, sku)
             if not query:
                 continue
-            
+
+            # Per-product overrides — any of these keys, when present on this row,
+            # win over the top-level defaults for this specific product.
+            row_disabled          = product.get('disabled')          if 'disabled'          in product else data.disabled
+            row_thresholds        = product.get('tier_thresholds')   if 'tier_thresholds'   in product else data.tier_thresholds
+            row_discounts         = product.get('tier_discounts')    if 'tier_discounts'    in product else data.tier_discounts
+            row_trade_discount    = product.get('trade_discount')    if 'trade_discount'    in product else data.trade_discount
+            row_credit_back       = product.get('credit_back_rate')  if 'credit_back_rate'  in product else data.credit_back_rate
+            row_pallet_enabled    = product.get('pallet_enabled')    if 'pallet_enabled'    in product else data.pallet_enabled
+            row_pallet_price      = product.get('pallet_price')      if 'pallet_price'      in product else data.pallet_price
+            row_half_pallet_price = product.get('half_pallet_price') if 'half_pallet_price' in product else data.half_pallet_price
+            row_m2_per_pallet     = product.get('m2_per_pallet')     if 'm2_per_pallet'     in product else data.m2_per_pallet
+            row_m2_per_half       = product.get('m2_per_half_pallet') if 'm2_per_half_pallet' in product else data.m2_per_half_pallet
+
+            row_td_type = default_td_type
+            if 'trade_discount_type' in product and product.get('trade_discount_type') is not None:
+                row_td_type = "fixed" if str(product.get('trade_discount_type')).lower() == "fixed" else "percent"
+
             update_data = {
                 "updated_at": datetime.now(timezone.utc)
             }
-            
-            # Check if disabling tier pricing
-            if data.disabled:
+
+            # Check if disabling tier pricing (per-product OR top-level)
+            if row_disabled:
                 update_data["tier_pricing_disabled"] = True
                 update_data["has_custom_tier_pricing"] = False
             else:
                 # Enabling tier pricing with custom settings
                 update_data["tier_pricing_disabled"] = False
-                if data.tier_thresholds is not None:
-                    update_data["tier_thresholds"] = data.tier_thresholds
-                if data.tier_discounts is not None:
-                    update_data["tier_discounts"] = data.tier_discounts
+                if row_thresholds is not None:
+                    update_data["tier_thresholds"] = row_thresholds
+                if row_discounts is not None:
+                    update_data["tier_discounts"] = row_discounts
                 update_data["has_custom_tier_pricing"] = True
-            
-            # Add trade discount if provided
-            if data.trade_discount is not None:
-                update_data["trade_discount"] = data.trade_discount
-            if td_type is not None:
-                update_data["trade_discount_type"] = td_type
-            
+
+            # Add trade discount if provided (per-product or top-level)
+            if row_trade_discount is not None:
+                update_data["trade_discount"] = row_trade_discount
+            if row_td_type is not None:
+                update_data["trade_discount_type"] = row_td_type
+
             # Add credit back rate if provided
-            if data.credit_back_rate is not None:
-                update_data["credit_back_rate"] = data.credit_back_rate
-            
+            if row_credit_back is not None:
+                update_data["credit_back_rate"] = row_credit_back
+
             # Half + Full pallet pricing (independent of tier_pricing_disabled)
-            if data.pallet_enabled is not None:
-                update_data["pallet_enabled"] = bool(data.pallet_enabled)
-                if not data.pallet_enabled:
+            if row_pallet_enabled is not None:
+                update_data["pallet_enabled"] = bool(row_pallet_enabled)
+                if not row_pallet_enabled:
                     # Explicit disable — clear the rates & thresholds so the storefront
                     # stops offering the pallet selector.
                     update_data["pallet_price"] = None
                     update_data["half_pallet_price"] = None
                     update_data["m2_per_pallet"] = None
                     update_data["m2_per_half_pallet"] = None
-            if data.pallet_price is not None:
-                update_data["pallet_price"] = data.pallet_price
-            if data.half_pallet_price is not None:
-                update_data["half_pallet_price"] = data.half_pallet_price
-            if data.m2_per_pallet is not None:
-                update_data["m2_per_pallet"] = data.m2_per_pallet
-            if data.m2_per_half_pallet is not None:
-                update_data["m2_per_half_pallet"] = data.m2_per_half_pallet
-            
+            if row_pallet_price is not None:
+                update_data["pallet_price"] = row_pallet_price
+            if row_half_pallet_price is not None:
+                update_data["half_pallet_price"] = row_half_pallet_price
+            if row_m2_per_pallet is not None:
+                update_data["m2_per_pallet"] = row_m2_per_pallet
+            if row_m2_per_half is not None:
+                update_data["m2_per_half_pallet"] = row_m2_per_half
+
             # Update supplier_products
             result = db.supplier_products.update_one(
                 query,

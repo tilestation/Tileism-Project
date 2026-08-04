@@ -44,6 +44,7 @@ import CsvImportModal from './managers/CsvImportModal';
 import ManagerConfigModal from './managers/ManagerConfigModal';
 import AssignColoursModal from './managers/AssignColoursModal';
 import TierPricingModal from './supplier-products/TierPricingModal';
+import BulkSaleModal from './supplier-products/BulkSaleModal';
 import { useManagerBulk } from './managers/useManagerBulk';
 import { useDraftRecovery } from './managers/useDraftRecovery';
 import { useManagerConfig } from './managers/useManagerConfig';
@@ -115,6 +116,17 @@ const ManagerPageShell = ({
   const [showBulkImages, setShowBulkImages] = useState(false);
   const [showCsvImport, setShowCsvImport] = useState(false);
   const [showConfig, setShowConfig] = useState(false);
+
+  // Per-product overrides for the Tier Pricing modal.
+  // Shape: { 'supplier|||sku': { trade_discount?, credit_back_rate?, disabled? } }
+  const [tierProductOverrides, setTierProductOverrides] = useState({});
+
+  // Bulk Sale/Labels modal state (Sale %, Sale, Clearance, New Arrival, etc.)
+  const [showBulkSaleLabels, setShowBulkSaleLabels] = useState(false);
+  const [bulkSaleForm, setBulkSaleForm] = useState({
+    labels: [], custom_labels: [], discount_percentage: '', action: 'add', applyDiscount: false,
+  });
+  const [bulkSaleSaving, setBulkSaleSaving] = useState(false);
 
   // ---- Per-Manager config (facets, sub-tabs, spec fields) from the DB ----
   const { config, save: saveConfig, refresh: refreshConfig } = useManagerConfig(categoryKey);
@@ -203,7 +215,7 @@ const ManagerPageShell = ({
   }, [isMatch, categoryKey]);
 
   useEffect(() => { fetchProducts(); }, [fetchProducts]);
-  const bulk = useManagerBulk({ products, onRefresh: fetchProducts });
+  const bulk = useManagerBulk({ products, onRefresh: fetchProducts, storageKey: categoryKey });
 
   // Auto-open edit on ?edit=SKU
   useEffect(() => {
@@ -212,6 +224,34 @@ const ManagerPageShell = ({
       const target = products.find(p => p.sku === editSku || p.supplier_code === editSku);
       if (target) { openEdit(target); setSearchParams({}); }
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [products, searchParams]);
+
+  // Cross-page selection carry-over: ?ids=<encoded key1>,<encoded key2>,...&mode=bulk
+  // Set by ManagerTabsBar when the user clicks a Manager tab from /admin/supplier-products
+  // (or another Manager) with products selected. Pre-selects them here + opens the bulk bar.
+  useEffect(() => {
+    const idsParam = searchParams.get('ids');
+    if (!idsParam || products.length === 0) return;
+    const wantedKeys = idsParam.split(',').map(k => decodeURIComponent(k)).filter(Boolean);
+    if (wantedKeys.length === 0) return;
+    const productKeySet = new Set(products.map(p => `${p.supplier || 'unknown'}|||${p.sku || p.supplier_code || p._id}`));
+    const matched = wantedKeys.filter(k => productKeySet.has(k));
+    if (matched.length > 0) {
+      bulk.setSelectedProducts(new Set(matched));
+      toast.success(`${matched.length} of ${wantedKeys.length} selected products carried over`);
+      if (wantedKeys.length > matched.length) {
+        // Some SKUs don't belong to this Manager (data-classification gap)
+        toast.info(`${wantedKeys.length - matched.length} products didn't match this Manager — they stay selected in Supplier Products`);
+      }
+    } else {
+      toast.warning(`None of the ${wantedKeys.length} selected products belong to ${title}`);
+    }
+    // Strip the URL params so a refresh doesn't re-apply
+    const next = new URLSearchParams(searchParams);
+    next.delete('ids');
+    next.delete('mode');
+    setSearchParams(next, { replace: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [products, searchParams]);
 
@@ -601,6 +641,7 @@ const ManagerPageShell = ({
         onOpenBulkFields={() => setShowBulkFields(true)}
         onOpenAIDescriptions={() => setShowAIDescriptions(true)}
         onOpenBulkImages={() => setShowBulkImages(true)}
+        onOpenSaleLabels={() => setShowBulkSaleLabels(true)}
         onOpenReassignCategory={bulk.bulkAssignCategory}
         saving={bulk.bulkSaving}
         themeColor={bulkBarTheme || theme}
@@ -612,6 +653,74 @@ const ManagerPageShell = ({
       <BulkFieldsModal open={showBulkFields} onOpenChange={setShowBulkFields} selectedList={bulk.getSelectedList()} themeColor={theme} onSuccess={() => { bulk.clearAll(); fetchProducts(); }} />
       <BulkAIDescriptionsModal open={showAIDescriptions} onOpenChange={setShowAIDescriptions} selectedList={bulk.getSelectedList()} themeColor={theme} onSuccess={() => fetchProducts()} />
       <BulkImageUploadModal open={showBulkImages} onOpenChange={setShowBulkImages} selectedList={bulk.getSelectedList()} themeColor={theme} onSuccess={() => { bulk.clearAll(); fetchProducts(); }} />
+
+      {/* Sale % + Labels (Sale, Clearance, New Arrival, Limited Stock, Best Seller) */}
+      <BulkSaleModal
+        open={showBulkSaleLabels}
+        onOpenChange={setShowBulkSaleLabels}
+        selectedProducts={new Set([...bulk.selectedProducts])}
+        products={products}
+        getProductKey={(p) => `${p.supplier || 'unknown'}|||${p.sku || p.supplier_code || p._id}`}
+        form={bulkSaleForm}
+        setForm={setBulkSaleForm}
+        loading={bulkSaleSaving}
+        onApply={async (targetProductKeys) => {
+          const selectedList = bulk.getSelectedList();
+          const scopedList = (targetProductKeys && targetProductKeys.size > 0)
+            ? selectedList.filter(p => targetProductKeys.has(`${p.supplier || 'unknown'}|||${p.sku || p.supplier_code || p._id}`))
+            : selectedList;
+          if (scopedList.length === 0) return;
+          const productIds = scopedList.map(p => ({ sku: p.sku || p.supplier_code || p._id, supplier: p.supplier }));
+
+          setBulkSaleSaving(true);
+          try {
+            // Labels
+            if (bulkSaleForm.labels.length > 0 || bulkSaleForm.custom_labels.length > 0 || bulkSaleForm.action === 'clear') {
+              const labelsAction = bulkSaleForm.action === 'clear' ? 'replace' : bulkSaleForm.action;
+              await fetch(`${API_URL}/api/supplier-sync/products/bulk-labels`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  product_ids: productIds,
+                  labels: bulkSaleForm.action === 'clear' ? [] : bulkSaleForm.labels,
+                  custom_labels: bulkSaleForm.action === 'clear' ? [] : bulkSaleForm.custom_labels,
+                  action: labelsAction,
+                }),
+              });
+            }
+            // Sale discount %
+            if (bulkSaleForm.applyDiscount && bulkSaleForm.discount_percentage) {
+              await fetch(`${API_URL}/api/supplier-sync/products/bulk-sale-pricing`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  product_ids: productIds,
+                  discount_percentage: parseFloat(bulkSaleForm.discount_percentage),
+                  sale_active: true,
+                  clear_sale: false,
+                }),
+              });
+            }
+            // Clear-sale action
+            if (bulkSaleForm.action === 'clear') {
+              await fetch(`${API_URL}/api/supplier-sync/products/bulk-sale-pricing`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ product_ids: productIds, clear_sale: true }),
+              });
+            }
+            toast.success(`Updated ${scopedList.length} product${scopedList.length !== 1 ? 's' : ''}`);
+            setShowBulkSaleLabels(false);
+            setBulkSaleForm({ labels: [], custom_labels: [], discount_percentage: '', action: 'add', applyDiscount: false });
+            bulk.clearAll();
+            fetchProducts();
+          } catch (err) {
+            toast.error(`Sale/Labels update failed: ${err.message}`);
+          } finally {
+            setBulkSaleSaving(false);
+          }
+        }}
+      />
 
       <CsvImportModal
         open={showCsvImport}
@@ -634,8 +743,14 @@ const ManagerPageShell = ({
 
       <TierPricingModal
         open={showTierPricing}
-        onOpenChange={setShowTierPricing}
+        onOpenChange={(next) => {
+          setShowTierPricing(next);
+          if (!next) setTierProductOverrides({});  // reset overrides when the modal closes
+        }}
         selectedProducts={new Set([...bulk.selectedProducts])}
+        selectedProductsList={bulk.getSelectedList()}
+        productOverrides={tierProductOverrides}
+        setProductOverrides={setTierProductOverrides}
         pricingSizeFilter="all"
         tierPricingConfig={tierPricingConfig}
         setTierPricingConfig={setTierPricingConfig}
@@ -644,7 +759,19 @@ const ManagerPageShell = ({
           const selectedList = bulk.getSelectedList();
           if (selectedList.length === 0) return;
           try {
-            const payload = selectedList.map(p => ({ supplier: p.supplier, sku: p.sku || p.supplier_code }));
+            // Merge global settings with per-product overrides. Overrides win row-by-row on the server.
+            const payload = selectedList.map(p => {
+              const key = `${p.supplier || ''}|||${p.sku || p.supplier_code || ''}`;
+              const o = tierProductOverrides[key] || {};
+              return {
+                supplier: p.supplier,
+                sku: p.sku || p.supplier_code,
+                ...(o.trade_discount !== undefined ? { trade_discount: o.trade_discount } : {}),
+                ...(o.credit_back_rate !== undefined ? { credit_back_rate: o.credit_back_rate } : {}),
+                ...(o.disabled !== undefined ? { disabled: o.disabled } : {}),
+              };
+            });
+            const overrideCount = Object.keys(tierProductOverrides).length;
             const res = await fetch(`${API_URL}/api/supplier-sync/products/bulk-tier-update`, {
               method: 'PUT',
               headers: { 'Content-Type': 'application/json' },
@@ -665,8 +792,10 @@ const ManagerPageShell = ({
             });
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
             const data = await res.json();
-            toast.success(`Tier pricing saved: ${data.updated_count || selectedList.length}`);
+            const overrideNote = overrideCount > 0 ? ` (${overrideCount} customised)` : '';
+            toast.success(`Tier pricing saved: ${data.updated_count || selectedList.length}${overrideNote}`);
             setShowTierPricing(false);
+            setTierProductOverrides({});
             fetchProducts();
           } catch (err) { toast.error(`Save failed: ${err.message}`); }
         }}

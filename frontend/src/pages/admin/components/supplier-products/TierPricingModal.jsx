@@ -24,6 +24,7 @@ import {
   Truck,
   PoundSterling,
 } from 'lucide-react';
+import PerProductOverridesPanel from './PerProductOverridesPanel';
 
 const TierPricingModal = ({
   open,
@@ -41,6 +42,10 @@ const TierPricingModal = ({
   overrideCostPrice,
   tierProductScope,
   selectedPricingUnit = 'm2', // 'm2' | 'unit' | 'mixed'
+  // NEW — per-product overrides. Optional. When present, per-row overrides win on save.
+  productOverrides = null,          // { 'supplier|||sku': { trade_discount, credit_back_rate, disabled, ... } }
+  setProductOverrides = null,       // (updater) => void
+  selectedProductsList = null,      // full array of selected product objects (for the panel)
 }) => {
   const filterLabel = getFilterDisplayLabel ? getFilterDisplayLabel(pricingSizeFilter) : pricingSizeFilter;
 
@@ -623,6 +628,17 @@ const TierPricingModal = ({
               <p className="text-sm text-gray-500 mt-1">Selected products will show list price only — no quantity-based tier discounts.</p>
               <p className="text-sm text-green-600 mt-1">Trade discount, credit back and Half + Full Pallet settings above still apply.</p>
             </div>
+          )}
+
+          {/* Per-Product Overrides (optional) — only shown when parent provides productOverrides + setter */}
+          {productOverrides && setProductOverrides && Array.isArray(selectedProductsList) && selectedProductsList.length > 0 && (
+            <PerProductOverridesPanel
+              products={selectedProductsList}
+              overrides={productOverrides}
+              setOverrides={setProductOverrides}
+              tradeFixedSuffix={tradeFixedSuffix}
+              isTradeFixed={isTradeFixed}
+            />
           )}
         </div>
 

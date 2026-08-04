@@ -49,7 +49,7 @@ const THEME_ACTIVE = {
   pink:   'border-pink-600   text-pink-700   bg-pink-50',
 };
 
-const ManagerTabsBar = ({ active = 'all', onNewCustom }) => {
+const ManagerTabsBar = ({ active = 'all', onNewCustom, selectionKeys = null }) => {
   const [customTabs, setCustomTabs] = useState([]);
 
   useEffect(() => {
@@ -64,6 +64,15 @@ const ManagerTabsBar = ({ active = 'all', onNewCustom }) => {
     })();
     return () => { ignore = true; };
   }, []);
+
+  // If the parent handed us a non-empty selection, append ?ids=<encoded-keys>&mode=bulk
+  // so the target Manager page can pre-select and open its bulk bar.
+  const withSelection = (path) => {
+    if (!Array.isArray(selectionKeys) || selectionKeys.length === 0) return path;
+    const enc = selectionKeys.map(k => encodeURIComponent(k)).join(',');
+    const sep = path.includes('?') ? '&' : '?';
+    return `${path}${sep}ids=${enc}&mode=bulk`;
+  };
 
   return (
     <div className="bg-white border-b border-gray-200" data-testid="manager-tabs-bar">
@@ -92,12 +101,17 @@ const ManagerTabsBar = ({ active = 'all', onNewCustom }) => {
           return (
             <Link
               key={tab.key}
-              to={tab.to}
+              to={withSelection(tab.to)}
               className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs font-medium whitespace-nowrap transition-colors ${activeCls}`}
               data-testid={`manager-tab-${tab.key}`}
             >
               <Icon className="w-3.5 h-3.5" />
               {tab.label}
+              {tab.key !== active && Array.isArray(selectionKeys) && selectionKeys.length > 0 && (
+                <span className="ml-1 px-1.5 py-0 rounded bg-amber-100 text-amber-700 text-[9px] font-bold" title={`Carries ${selectionKeys.length} selected products`}>
+                  +{selectionKeys.length}
+                </span>
+              )}
             </Link>
           );
         })}
@@ -110,7 +124,7 @@ const ManagerTabsBar = ({ active = 'all', onNewCustom }) => {
           return (
             <Link
               key={def.slug}
-              to={`/admin/custom-manager/${def.slug}`}
+              to={withSelection(`/admin/custom-manager/${def.slug}`)}
               className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs font-medium whitespace-nowrap transition-colors ${themeCls}`}
               data-testid={`manager-tab-custom-${def.slug}`}
               title={def.description || def.name}
@@ -118,6 +132,11 @@ const ManagerTabsBar = ({ active = 'all', onNewCustom }) => {
               <Sparkles className="w-3.5 h-3.5" />
               {def.name}
               <span className="ml-0.5 px-1 py-0 rounded bg-white/80 text-[9px] font-bold uppercase tracking-wide opacity-70">Custom</span>
+              {!isActive && Array.isArray(selectionKeys) && selectionKeys.length > 0 && (
+                <span className="ml-1 px-1.5 py-0 rounded bg-amber-100 text-amber-700 text-[9px] font-bold">
+                  +{selectionKeys.length}
+                </span>
+              )}
             </Link>
           );
         })}
