@@ -9,6 +9,44 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Aug 4, 2026 — Forked, session F+7] 🟢 Configure-driven Bulk Bar Actions — Specs/Filters/Sub-Categories one-click editable — VERIFIED
+
+**Owner ask (with screenshot)**: "Why don't I see Categories, Specs, Filters etc in Action Bar, as I can't be bothered to edit each and every product one by one — very time consuming. Any new Action added through Configure must be visible in action bar straight away for me to work on."
+
+**Delivered**:
+
+1. **New Bulk button + modal** — `bar-specs-filters` in `ManagerBulkBar` opens `BulkSpecsFiltersModal.jsx` (~260 lines). Modal is DYNAMICALLY generated from the Manager's `config` — reads `config.filter_facets + config.spec_fields + config.sub_tabs` and renders one row per field grouped by section (🔵 Filters / 🟠 Spec Fields / 🟢 Sub-Categories). Each row has a checkbox + label + key code + type-appropriate input (text/number/select). Blank rows are ignored on Save. On Apply, posts to `/api/supplier-sync/products/bulk-update-unified` with the checked field/value pairs (2 requests when sub-category tags are also checked — separate array-append path).
+
+2. **CRITICAL backend fix** — `bulk-update-unified` was silently dropping any field key outside a hardcoded ~30-key whitelist while returning `success:true + verification_ok:true`. Iteration 210 exposed this false-positive path. Fix (`supplier_sync.py` line ~11584):
+   - After the built-in whitelist processing, iterate through remaining `updates{}` keys
+   - Reject reserved system keys (`RESERVED_SYSTEM_KEYS = {_id, id, supplier, sku, supplier_code, created_at, updated_at, deleted_at, bulk_edited_at, is_active, is_deleted, is_builtin, verification_ok, verification_failures, sale_pricing, password, password_hash}`)
+   - Route non-list values into `set_fields`, list values into `array_updates`, `None`/`""` into `unset_fields` (blank-clear semantic)
+   - The existing re-read verifier automatically covers the new keys → `verification_ok` is now HONEST
+
+3. **Add-via-Configure round-trip proven** (testing agent iteration 211):
+   - Added a new "Warranty" filter via Configure modal
+   - Warranty row appeared in the Specs/Filters bulk modal immediately (no code change, no reload)
+   - Applied `warranty='2 years'` to 3 selected products
+   - Direct MongoDB inspection confirmed `warranty: '2 years'` on all 3 SKUs
+   - Backend `verification_ok:true` matched reality
+
+**Testing (iteration 211)** — 100% pass on both:
+- Backend pytest 3/3: arbitrary-key persistence, blank-clear via $unset, reserved-key protection
+- Frontend E2E: modal generation from config, spec-field save round-trip, add-filter-via-Configure → immediately-usable-in-bulk-bar flow
+
+**Files touched this session**:
+- Backend: `/app/backend/routes/supplier_sync.py` (~35 lines added around line 11584), `/app/backend/tests/test_bulk_update_unified_extras.py` (new — 3 pytest cases)
+- Frontend NEW: `/app/frontend/src/pages/admin/components/managers/BulkSpecsFiltersModal.jsx` (~260 lines)
+- Frontend MODIFIED: `/app/frontend/src/pages/admin/components/managers/ManagerBulkBar.jsx` (new `bar-specs-filters` button + Sliders icon), `/app/frontend/src/pages/admin/components/ManagerPageShell.jsx` (showBulkSpecs state + modal mount with config prop)
+
+**Minor open (non-blocking)**:
+- `GET /api/supplier-sync/products/{supplier}/{sku}` still projects only whitelisted fields — admins can't visually confirm a Configure-driven write via the API alone (they see it in the storefront/edit modal instead). Optional follow-up: extend the GET projection to include Configure extras.
+- Tiles Configure default spec_fields still lack `options[]` on material/finish/slip_rating and are missing edge/type rows in DB seed (schema issue, iteration 210 finding).
+- Custom manager (`grout-sealants`) modal is empty until Configure seeds facets/specs — by design, not a bug.
+
+
+
+
 ### [Aug 4, 2026 — Forked, session F+6] 🟢 Workspace tabs "+N" chip now Manager-specific — VERIFIED
 
 **Owner ask (with screenshot)**: "I highlighted 14 products from Material category but it highlights all the Managers instead of the actual Manager it belongs to". The workspace bar was decorating EVERY non-active tab with the same +N count, regardless of what category the selected products actually belonged to.
