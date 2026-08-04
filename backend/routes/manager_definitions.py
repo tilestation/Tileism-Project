@@ -287,6 +287,57 @@ def _serialize(doc: dict) -> dict:
     return doc
 
 
+@router.post("/cleanup-duplicates")
+async def cleanup_duplicate_definitions(current_user: dict = Depends(get_current_user)):
+    """One-shot cleanup: soft-delete any non-builtin manager_definitions whose slug or
+    name clashes with a built-in Manager. Fixes the "Materials Manager (CUSTOM)" style
+    duplicate tabs that appear when someone accidentally created a custom row with the
+    same slug/name as a hardcoded tab.
+
+    Returns a summary of removed rows so the caller can show it to the admin.
+    """
+    if not has_permission(current_user, "supplier_products"):
+        raise HTTPException(403, "You need the Supplier Products permission to clean up Managers")
+
+    db = get_db()
+    builtin_slugs = set(BUILTIN_DEFAULTS.keys())
+    builtin_names = {v["name"].lower() for v in BUILTIN_DEFAULTS.values()}
+
+    # Load candidates: any non-builtin, non-deleted row
+    cursor = db.manager_definitions.find({
+        "is_builtin": {"$ne": True},
+        "$or": [{"deleted_at": {"$exists": False}}, {"deleted_at": None}],
+    })
+
+    to_remove: list[dict] = []
+    async for doc in cursor:
+        slug = str(doc.get("slug") or "")
+        name = str(doc.get("name") or "").strip().lower()
+        if slug in builtin_slugs or name in builtin_names:
+            to_remove.append({"slug": slug, "name": doc.get("name"), "id": doc.get("id")})
+
+    if not to_remove:
+        return {"ok": True, "removed_count": 0, "removed": []}
+
+    now = datetime.now(timezone.utc)
+    slugs = [r["slug"] for r in to_remove]
+    await db.manager_definitions.update_many(
+        {"slug": {"$in": slugs}, "is_builtin": {"$ne": True}},
+        {"$set": {"deleted_at": now, "deleted_by": current_user.get("email")}},
+    )
+    await log_audit(
+        action="CLEANUP_DUPLICATES",
+        entity_type="manager_definition",
+        user=current_user,
+        entity_id="bulk",
+        entity_name=f"{len(to_remove)} duplicate custom managers",
+        before_data={"removed": to_remove},
+    )
+    return {"ok": True, "removed_count": len(to_remove), "removed": to_remove}
+
+
+
+
 @router.get("")
 async def list_definitions():
     """Public list — the Manager Tabs Bar reads this on every page load.
@@ -362,6 +413,25 @@ async def create_definition(
     existing = await db.manager_definitions.find_one({"slug": slug, "$or": [{"deleted_at": {"$exists": False}}, {"deleted_at": None}]})
     if existing:
         raise HTTPException(409, f"A Manager with slug '{slug}' already exists")
+
+    # Guard against slug clashes with a built-in Manager (materials/tiles/flooring/
+    # bathroom/underfloor_heating/tools). Non-admin flag not enough — even a
+    # super-admin creating "Materials Manager" as a custom would double up the tab.
+    if slug in BUILTIN_DEFAULTS and not payload.is_builtin:
+        raise HTTPException(
+            409,
+            f"'{slug}' is a built-in Manager slug. Pick a different name (e.g. '{slug}-extras', 'my-{slug}', or a bespoke slug) — the workspace tabs bar would otherwise show two tabs for the same category.",
+        )
+
+    # Guard against name clash with a built-in Manager name (Materials Manager, etc.)
+    # This catches the case where someone types "Materials Manager" as the name and
+    # the slugify picks a UUID-style slug; the tab would still visually duplicate.
+    _builtin_names = {v["name"].lower() for v in BUILTIN_DEFAULTS.values()}
+    if payload.name.strip().lower() in _builtin_names and not payload.is_builtin:
+        raise HTTPException(
+            409,
+            f"'{payload.name.strip()}' is the display name of a built-in Manager. Please choose a distinct name.",
+        )
 
     now = datetime.now(timezone.utc)
     doc = {

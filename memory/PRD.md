@@ -9,6 +9,33 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Aug 4, 2026 — Forked, session F+5] 🟢 Duplicate Manager tabs — FIXED (root-cause + cleanup UI)
+
+**Owner ask**: Screenshot showed the workspace tabs bar displaying "Materials Manager (CUSTOM)", "Tools Manager (CUSTOM)", "Tiles Manager (CUSTOM)" alongside the built-in Materials / Tools / Tiles tabs. Root cause: someone (possibly an earlier admin, possibly test scripts) created custom rows in `manager_definitions` with names/slugs clashing with hardcoded tabs.
+
+**Delivered — 3-layer defense**:
+
+1. **Frontend filter (immediate hide)** — `ManagerTabsBar` now filters `/api/manager-definitions` response through 3 rules before rendering as Custom tabs:
+   - `is_builtin: true` → skip (server-flagged built-ins)
+   - `slug` matches a hardcoded tab key → skip (belt-and-braces for legacy rows without is_builtin)
+   - `name` (case-insensitive) matches a built-in Manager name → skip (catches "Materials Manager" custom with slug like `materials-manager`)
+
+2. **Backend guard (prevention)** — `POST /api/manager-definitions` now raises 409 when:
+   - `slug in BUILTIN_DEFAULTS` (unless payload.is_builtin=True — server internal use)
+   - `name.lower() in builtin_names` (unless payload.is_builtin=True)
+   - Error messages spell out why + suggest safe alternatives ("try 'materials-extras' or 'my-materials'")
+
+3. **Cleanup endpoint + UI pill (fix existing rows)** — new `POST /api/manager-definitions/cleanup-duplicates` (super_admin only) soft-deletes any non-builtin row whose slug or name clashes. Returns `{removed_count, removed:[{slug,name,id}]}`. Audit-logged. The `ManagerTabsBar` counts filtered-out duplicates on every page load and, when >0, renders an amber `⚠ Clean up N duplicate tabs` pill next to "+ New Custom Manager". One click → confirm dialog → cleanup runs → toast + refresh. Verified end-to-end by seeding 3 duplicates (`materials-manager`, `tools-mgr`, `tiles-mgr`), confirming they hide from tabs, then clicking the pill and watching them get soft-deleted.
+
+**Files touched**:
+- `/app/backend/routes/manager_definitions.py` — added `POST /cleanup-duplicates` route + strengthened `POST /` guards against slug/name clashes with BUILTIN_DEFAULTS
+- `/app/frontend/src/pages/admin/components/managers/ManagerTabsBar.jsx` — 3-rule filter, duplicatesCount tracking, `handleCleanup` action, amber pill next to "+ New Custom Manager"
+
+**How to run on production**: Once this deploys, open any Manager page (`/admin/materials`, `/admin/tiles`, etc.) — the workspace tabs bar will immediately hide the 3 rogue custom tabs and show an amber `⚠ Clean up 3 duplicate tabs` pill on the right. Click it, confirm, done — audit log will capture the operation.
+
+
+
+
 ### [Aug 4, 2026 — Forked, session F+4] 🟢 5 Manager-parity gaps shipped — Per-product tier overrides / Cross-nav selection / F5 persistence / Sale-Labels / Made In select — VERIFIED
 
 **Owner ask (from screenshots 190-196)**: Five real gaps flagged, two of them repeated (per-product tier discounts + cross-nav selection):

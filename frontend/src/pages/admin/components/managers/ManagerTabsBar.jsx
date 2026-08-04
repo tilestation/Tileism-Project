@@ -21,7 +21,7 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
-  Layers, Grid3X3, Package, Square, Bath, Flame, Wrench, Plus, Sparkles,
+  Layers, Grid3X3, Package, Square, Bath, Flame, Wrench, Plus, Sparkles, AlertTriangle, RefreshCw,
 } from 'lucide-react';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
@@ -51,19 +51,65 @@ const THEME_ACTIVE = {
 
 const ManagerTabsBar = ({ active = 'all', onNewCustom, selectionKeys = null }) => {
   const [customTabs, setCustomTabs] = useState([]);
+  const [duplicatesCount, setDuplicatesCount] = useState(0);
+  const [cleaning, setCleaning] = useState(false);
+
+  const loadTabs = React.useCallback(async () => {
+    try {
+      const res = await fetch(`${API_URL}/api/manager-definitions`);
+      if (!res.ok) return;
+      const data = await res.json();
+      // Only render TRUE custom managers here. Three safeguards:
+      //   1. Skip anything with is_builtin: true (server-flagged built-ins).
+      //   2. Skip anything whose slug matches a hardcoded tab (belt-and-braces
+      //      in case a legacy row was created without the is_builtin flag).
+      //   3. Skip anything whose display name matches a built-in name — catches
+      //      the case where someone created "Materials Manager" as a custom with
+      //      a differently-shaped slug (e.g. materials-manager).
+      const hardcodedSlugs = new Set(HARDCODED_TABS.map(t => t.key));
+      const hardcodedNames = new Set([
+        'tiles manager','materials manager','flooring manager','bathroom manager',
+        'underfloor heating manager','underfloor heat manager','tools manager',
+      ]);
+      const all = (data.definitions || []).filter(def => !def.is_builtin);
+      const filtered = all.filter(def =>
+        !hardcodedSlugs.has(def.slug)
+        && !hardcodedNames.has(String(def.name || '').trim().toLowerCase())
+      );
+      setCustomTabs(filtered);
+      setDuplicatesCount(all.length - filtered.length);
+    } catch { /* silent — tabs still render */ }
+  }, []);
 
   useEffect(() => {
     let ignore = false;
-    (async () => {
-      try {
-        const res = await fetch(`${API_URL}/api/manager-definitions`);
-        if (!res.ok) return;
-        const data = await res.json();
-        if (!ignore) setCustomTabs(Array.isArray(data.definitions) ? data.definitions : []);
-      } catch { /* silent — tabs still render */ }
-    })();
+    (async () => { if (!ignore) await loadTabs(); })();
     return () => { ignore = true; };
-  }, []);
+  }, [loadTabs]);
+
+  const handleCleanup = async () => {
+    if (cleaning) return;
+    if (!window.confirm(`Remove ${duplicatesCount} duplicate custom Manager${duplicatesCount === 1 ? '' : 's'}? Products stay in the database — only the duplicate tab is hidden.`)) return;
+    setCleaning(true);
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch(`${API_URL}/api/manager-definitions/cleanup-duplicates`, {
+        method: 'POST',
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      // Import toast lazily so the module stays lean when not needed
+      const { toast } = await import('sonner');
+      toast.success(`Removed ${data.removed_count} duplicate tab${data.removed_count === 1 ? '' : 's'}`);
+      await loadTabs();
+    } catch (err) {
+      const { toast } = await import('sonner');
+      toast.error(`Cleanup failed: ${err.message}`);
+    } finally {
+      setCleaning(false);
+    }
+  };
 
   // If the parent handed us a non-empty selection, append ?ids=<encoded-keys>&mode=bulk
   // so the target Manager page can pre-select and open its bulk bar.
@@ -142,10 +188,22 @@ const ManagerTabsBar = ({ active = 'all', onNewCustom, selectionKeys = null }) =
         })}
 
         {/* + New Custom Manager pill */}
+        {duplicatesCount > 0 && (
+          <button
+            onClick={handleCleanup}
+            disabled={cleaning}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-amber-400 bg-amber-50 text-xs font-medium text-amber-800 hover:bg-amber-100 whitespace-nowrap ml-auto flex-shrink-0 disabled:opacity-60"
+            data-testid="manager-tab-cleanup-duplicates"
+            title={`${duplicatesCount} custom Manager tab${duplicatesCount === 1 ? '' : 's'} clash with built-in tabs — click to soft-delete them`}
+          >
+            {cleaning ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <AlertTriangle className="w-3.5 h-3.5" />}
+            Clean up {duplicatesCount} duplicate tab{duplicatesCount === 1 ? '' : 's'}
+          </button>
+        )}
         {onNewCustom && (
           <button
             onClick={onNewCustom}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-dashed border-purple-400 text-xs font-medium text-purple-600 hover:bg-purple-50 whitespace-nowrap ml-auto flex-shrink-0"
+            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-dashed border-purple-400 text-xs font-medium text-purple-600 hover:bg-purple-50 whitespace-nowrap flex-shrink-0 ${duplicatesCount > 0 ? '' : 'ml-auto'}`}
             data-testid="manager-tab-add-custom"
             title="Create a new custom Manager (e.g. Paint, Lighting, Grout Extras)"
           >
