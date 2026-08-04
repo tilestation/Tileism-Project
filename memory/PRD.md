@@ -9,6 +9,31 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Aug 4, 2026 — Forked, session E] 🟢 3-mode Bulk Price editor: Set / Adjust / Edit-each
+
+**Owner report**: 6 products in the same UltraTile cleaning series had DIFFERENT prices, but the existing "Bulk Set Price / Cost / Stock" modal only supported one shared value — overwriting every product with the same number. Not helpful when a collection has mixed pricing.
+
+**Session E shipped** — full rewrite of `BulkFieldsModal.jsx` (~380 lines, was ~230) with **3 tabbed modes**:
+
+1. **Set all to same** — original behavior. Same value written to every selected SKU. (Best for: standardising a whole collection to one flat number.)
+2. **Adjust each** — bumps each product's OWN existing value by a **percentage** or **£ amount**, up or down. Preserves the relative differences between SKUs. E.g. "+5% List Price" applied to a mixed-price series raises every SKU by exactly 5% of its own value. Live "New avg" preview updates as the user types. Per-field controls: `+/-` toggle · amount input · `%`/`£` toggle.
+3. **Edit each** — per-SKU inline table with 4 editable columns (List £ / Cost £ / Stock / Sale %) for every selected product. Current value shown as a small grey hint above each input. **Only rows the user actually types into are saved** (empty cells → unchanged). Save button displays live "Save N rows" count based on filled cells. Handles 100+ products with a scrollable table.
+
+All 3 modes use the same verified `POST /api/supplier-sync/products/bulk-update-unified` endpoint. For Adjust + Edit-each (where values differ per SKU), the frontend loops one API call per SKU so each row gets its own computed value; success/failure count is toast'd with any verification failures logged to the console.
+
+**UX polish**:
+- Mode tabs with icon + short hint ("Same price for every product" / "Bump by % or £ — keeps differences" / "Per-SKU inline table")
+- Amber warning banner adapts per mode
+- Save button label adapts: "Save to 6" / "Adjust 6" / "Save N (rows touched)"
+- Footer live-summary: `Mode: Edit 6 rows · 2 row(s) to save`
+
+**Live-verified**: On /admin/materials with 138 products selected, all 3 tabs render correctly. Edit-each shows the inline table with 138 rows in a scrollable body; adjust mode shows +/- toggles + %/£ switches; set mode retains the original UX.
+
+**Files updated**:
+- `/app/frontend/src/pages/admin/components/managers/BulkFieldsModal.jsx` — rewritten (~380 lines)
+
+
+
 ### [Aug 4, 2026 — Forked, later] 🟢 Session D: Sub-Category Filters (storefront) + CSV Import per Manager (admin)
 
 Owner asked for the next 2 items from P1: (a) let bathroom shoppers narrow by tap finish, basin shape, bath size on the storefront, (b) CSV Import per Manager.
