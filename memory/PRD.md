@@ -9,6 +9,47 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Aug 4, 2026 — Forked, session F+6] 🟢 Workspace tabs "+N" chip now Manager-specific — VERIFIED
+
+**Owner ask (with screenshot)**: "I highlighted 14 products from Material category but it highlights all the Managers instead of the actual Manager it belongs to". The workspace bar was decorating EVERY non-active tab with the same +N count, regardless of what category the selected products actually belonged to.
+
+**Root cause**: `ManagerTabsBar`'s `withSelection()` and the `+N` chip render used a flat `selectionKeys` prop for every tab. It didn't know which products belonged to which Manager.
+
+**Delivered**:
+
+1. **New shared classifier** — `/app/frontend/src/pages/admin/components/managers/classifyProductToManager.js` exports:
+   - `classifyProductToManager(product)` → returns one of `tiles / materials / flooring / bathroom / underfloor_heating / tools / null`. Inspects `product_group` → `main_category` → `sub_categories` → `product_name` in that priority order.
+   - `bucketSelectionByManager(products, selectedKeysSet, getKey)` → returns `{ [managerSlug]: [selectionKey1, selectionKey2, …] }`. Products that don't classify to a built-in are silently dropped.
+
+2. **ManagerTabsBar** — new `selectionByCategory` prop (optional, backward-compatible):
+   - `keysForTab(tabKey)` returns the bucket for that tab (or `[]` when the caller classified but this Manager has no selected products; falls back to flat `selectionKeys` ONLY when no classification was done at all).
+   - `withSelection(path, tabKey)` now uses per-tab bucket to build the `?ids=…&mode=bulk` URL. Tabs with zero classified selections stay clean — no `?ids=` param at all.
+   - The `+N` chip only renders when `keysForTab(tabKey).length > 0`.
+
+3. **Wired at call sites**:
+   - `SupplierProducts.js` → passes `selectionByCategory={bucketSelectionByManager(products, selectedProducts, getProductKey)}`.
+   - `ManagerPageShell.jsx` → same wiring using `bulk.selectedProducts`.
+
+**Testing (iteration 209, frontend-only)** — 100% pass:
+- On `/admin/supplier-products` with 49 selected (25 tile-classified): Tiles tab shows `+25`, all other tabs (Materials/Flooring/Bathroom/UFH/Tools + Grout Sealants CUSTOM) show NO chip ✅
+- On `/admin/materials` with 5 selected: no chip on any Manager tab (Materials is active — self-chip suppressed by design) ✅
+- Cross-nav Tiles chip → `/admin/tiles` carries exactly the 25 tile ids (not all 49), bulk bar opens with 25 selected, correct toast fires ✅
+- Materials tab href drops the `?ids=` param entirely when zero materials selected ✅
+- F5 preserves selection on `/admin/materials` ✅
+
+**Files touched**:
+- NEW: `/app/frontend/src/pages/admin/components/managers/classifyProductToManager.js` (~65 lines)
+- MODIFIED: `/app/frontend/src/pages/admin/components/managers/ManagerTabsBar.jsx` (new prop + keysForTab helper)
+- MODIFIED: `/app/frontend/src/pages/admin/SupplierProducts.js` (imports + passes selectionByCategory)
+- MODIFIED: `/app/frontend/src/pages/admin/components/ManagerPageShell.jsx` (imports + passes selectionByCategory)
+
+**Nice-to-haves** noted by testing agent (LOW priority, none blocking):
+- Active tab still generates a redundant `?ids=…` href (chip suppressed but URL still built) — cosmetic
+- classifyProductToManager silently drops rows lacking any category signals — by design; consider `console.debug` logging for dev triage in a future iteration
+
+
+
+
 ### [Aug 4, 2026 — Forked, session F+5] 🟢 Duplicate Manager tabs — FIXED (root-cause + cleanup UI)
 
 **Owner ask**: Screenshot showed the workspace tabs bar displaying "Materials Manager (CUSTOM)", "Tools Manager (CUSTOM)", "Tiles Manager (CUSTOM)" alongside the built-in Materials / Tools / Tiles tabs. Root cause: someone (possibly an earlier admin, possibly test scripts) created custom rows in `manager_definitions` with names/slugs clashing with hardcoded tabs.
