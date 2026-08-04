@@ -9,6 +9,76 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Aug 4, 2026 — Forked, later] 🟢 Session D: Sub-Category Filters (storefront) + CSV Import per Manager (admin)
+
+Owner asked for the next 2 items from P1: (a) let bathroom shoppers narrow by tap finish, basin shape, bath size on the storefront, (b) CSV Import per Manager.
+
+**Session D shipped**:
+
+1. **Universal Shop Category endpoints** (`/app/backend/routes/shop_category.py`, ~220 lines):
+   - `GET /api/shop/category/{category}/filters` — returns per-category facet options with live counts. Category presets: tiles (sizes/finishes/materials/colors/slip_ratings/suppliers), flooring (sizes/finishes/materials/colors/thicknesses/click_systems/suppliers), materials (colors/bag_colours/suitabilities/suppliers), bathroom (sub_types/brands/finishes/materials/colors/sizes/suppliers), underfloor_heating (coverages/voltages/mat_types/thermostat_types/suppliers), tools (brands/materials/sizes/suppliers). Custom Manager slugs get a universal fallback (colors/suppliers).
+   - `GET /api/shop/category/{category}/products` — paginated + filtered + sorted list. Same envelope as `/api/tiles/products` for drop-in reuse. Applies all facet params + search + price range + sort.
+   - Category classification rules: product_group == category OR main_category matches OR sub_categories contains keyword (e.g. `bathroom-tiles` matches bathroom) OR (for custom Managers) any of the definition's sub_category keywords match.
+
+2. **CategoryShopPage** (`/app/frontend/src/pages/shop/CategoryShopPage.js`, ~360 lines):
+   - Route `/shop/browse/:category` — data-driven customer-facing product listing.
+   - Left sidebar with search + facet dropdowns (collapsible, live counts, click to filter).
+   - Product grid (24 per page) with skeleton loaders + empty state + pagination.
+   - Sort dropdown (Featured / Price asc/desc / Name / Newest).
+   - Active-filter chip strip with per-chip remove + Clear All.
+   - Theme + facet order per category preset (cyan for bathroom, amber for flooring, red for UFH, slate for tools).
+
+3. **BathroomPage CTA** — added a **"Browse Bathroom Products →"** button next to the existing "Download Catalogue" CTA, linking to `/shop/browse/bathroom`. Same pattern to be replicated on Flooring/Materials/UFH/Tools landing pages when they ship.
+
+4. **CSV Import backend** (`/app/backend/routes/manager_csv.py`, ~200 lines):
+   - `GET /api/managers/{category}/csv-template` — downloads a category-tailored CSV with the exact column headers + 1 example row.
+   - `POST /api/managers/{category}/csv-import?dry_run=true|false` — accepts multipart CSV, upserts products.
+   - Category-specific column templates:
+     - `tiles`: supplier / sku / our_product_name / size / finish / material / color / slip_rating / list_price / cost_price / warehouse_stock / pricing_unit / description
+     - `flooring`: + thickness / wear_layer / click_system / underlay_included / pack_coverage
+     - `materials`: color / bag_colour / suitability / pack_size / coverage_m2_per_bag …
+     - `bathroom`: type / brand / model / dimensions / flush_type / tank_capacity / material / finish / color / warranty
+     - `underfloor_heating`: mat_type / kit_size_m2 / voltage / watts_per_m2 / cable_length_m / thermostat_included / thermostat_type / warranty
+     - `tools`: brand / model / material / dimensions / capacity / pack_qty / suitability / warranty
+     - Custom Managers use `field_definitions` from the manager_definitions doc
+   - Auto-coerces numeric fields, sets `product_group` + `main_category` from URL, treats empty cells as skip-not-overwrite.
+   - Response includes total_rows / created / updated / skipped / errors[] / preview[] (first N rows with CREATE|UPDATE action).
+   - Auth: requires supplier_products permission.
+
+5. **CsvImportModal** (`/app/frontend/src/pages/admin/components/managers/CsvImportModal.jsx`, ~260 lines):
+   - Downloads the template with one click (opens `/csv-template`).
+   - File drop-zone + Choose file (.csv only).
+   - Preview button runs `dry_run=true` first — shows created/updated counts + per-row action badges before writing.
+   - Import button (only enabled after preview) runs the real import.
+   - Post-import summary with per-row status.
+   - Themed per Manager.
+
+6. **ManagerPageShell integration** — added a **"CSV Import"** button in the header (next to Add New / Refresh) that opens the modal. Every hardcoded Manager (Bathroom / UFH / Tools) inherits this automatically via the shell.
+
+**Testing (iteration 202)**: 18/18 backend pytest + all frontend flows pass. Zero failures.
+- Backend: `/filters` + `/products` for bathroom, flooring, materials, underfloor_heating, tools + custom `nonexistent-cat` (empty facets, no 500). Facet narrowing verified (finish=Matt drops count, brand=Villeroy → 2). CSV template header exact match. Dry-run + real import both work. 400 on missing sku column. 401/403 without token.
+- Frontend: /shop/browse/bathroom shows 46→24 grid with 7 facet groups; clicking Brand=Villeroy narrows to 2. Admin: `bathroom-csv-import-btn` present, opens modal with all controls, file upload → preview → Import enabled. Same for /admin/tools.
+
+**Files added**:
+- `/app/backend/routes/shop_category.py` (~220 lines)
+- `/app/backend/routes/manager_csv.py` (~200 lines)
+- `/app/frontend/src/pages/shop/CategoryShopPage.js` (~360 lines)
+- `/app/frontend/src/pages/admin/components/managers/CsvImportModal.jsx` (~260 lines)
+
+**Files updated**:
+- `/app/backend/routes/__init__.py` — mounted 2 new routers
+- `/app/frontend/src/App.js` — lazy import + `/shop/browse/:category` route
+- `/app/frontend/src/pages/shop/BathroomPage.js` — new "Browse Bathroom Products" CTA
+- `/app/frontend/src/pages/admin/components/ManagerPageShell.jsx` — CSV Import button + modal mount
+
+**Remaining P1 backlog**:
+- Migrate Materials/Tiles/Flooring/Custom to `ManagerPageShell` (~1500 line dedup)
+- Google Ads dashboard (blocked on Developer Token approval)
+- Prod→preview showroom sync script
+- Add "Browse …" CTAs on Materials/Flooring/UFH/Tools landing pages once they ship
+
+
+
 ### [Aug 4, 2026 — Forked] 🟢 Session C: ALL 6 hardcoded Managers live + Bulk Images + Draft Recovery + Product Templates
 
 **Owner steer**: ship the remaining 4 P1 items in one go — Bathroom / UFH / Tools Managers, Bulk Image Upload, Draft Recovery, Product Templates.
