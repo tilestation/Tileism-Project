@@ -9,6 +9,48 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Aug 4, 2026 — Forked, session F+2] 🟢 CustomManager migrated to ManagerPageShell — VERIFIED
+
+**Owner ask**: First step of the Shell Migration backlog — port `CustomManager.jsx` (688-line monolith) onto the shared `ManagerPageShell` used by Bathroom/UFH/Tools. Prove the pattern before touching Materials/Tiles/Flooring.
+
+**Delivered**:
+
+1. **ManagerPageShell extended** with 5 new optional props (backward compatible — no shell-based Manager touched):
+   - `tabsBarActive` — override for `<ManagerTabsBar active=...>` (CustomManager passes `custom:${slug}`)
+   - `extraHeaderActions` — JSX slot in the header action row (for the delete-manager trash button)
+   - `topBanner` — JSX slot above the search bar (for the sub-category chips)
+   - `showLegacyLink` — hide the "Legacy full editor" link when not relevant
+   - `hideDefaultBanner` — suppress the default "How this page works" info banner if a page wants its own
+
+2. **CustomManager rewritten as a thin wrapper**: 688 → **218 lines (68% / ~470 line reduction)**. All state hooks, product-fetching, tabbing, filtering, bulk operations, edit modal, draft recovery, presets, CSV import — now live inside the shared shell. The wrapper only:
+   - Fetches `/api/manager-definitions/:slug` and shows loading/error states
+   - Injects the delete-manager button + confirm dialog (deletes the manager, redirects to `/admin/supplier-products`)
+   - Renders the sub-category chip banner
+   - Feeds definition metadata (name / theme / description / product_group / field_definitions) into shell props
+
+3. **Testing (iteration 205)** — 100% frontend E2E PASS on:
+   - Rendering `/admin/custom-manager/grout-sealants` (demo seeded with sub_categories=[grout,sealant,silicone])
+   - All new categoryKey-prefixed testids (`grout-sealants-add-new-btn`, `grout-sealants-configure-btn`, `grout-sealants-csv-import-btn`, `grout-sealants-refresh-btn`) resolve
+   - Custom-only testids (`custom-manager-delete-btn`, `custom-manager-sub-categories`, `custom-manager-confirm-delete`) present ONLY on this route
+   - Modals: AddProductWizard, ManagerConfigModal (with ManagerPresetsBar), CsvImportModal, Edit modal (with "Save as Template" button)
+   - Delete flow: cancel keeps page open; confirm fires toast + redirects to `/admin/supplier-products`; seed manager re-created after the destructive test
+   - Regression check on `/admin/tiles`, `/admin/materials`, `/admin/flooring`, `/admin/bathroom`, `/admin/underfloor-heating`, `/admin/tools` — all still load correctly
+
+4. **No backend changes** this session — the manager_definitions DELETE endpoint was already in place from prior work.
+
+**Files touched this session**:
+- `/app/frontend/src/pages/admin/CustomManager.jsx` — full rewrite (688 → 218 lines)
+- `/app/frontend/src/pages/admin/components/ManagerPageShell.jsx` — added 5 optional props, all backward-compatible
+
+**Pattern proven — next migrations queued**:
+- `FlooringManager.jsx` (531 lines) — simplest of the remaining three; no legacy modals
+- `TilesManager.jsx` (683 lines) — has AssignColoursModal + tile-specific edit fields
+- `MaterialsManager.jsx` (783 lines) — has TierPricingModal + Materials-specific edit fields
+- Estimated total additional dedup once complete: ~1200 more lines removed
+
+
+
+
 ### [Aug 4, 2026 — Forked, session F+1] 🟢 CSV Import Parity + Manager Templates Library — VERIFIED
 
 **Owner ask**: (1) Wire CsvImportModal into the 4 standalone Managers (Materials, Tiles, Flooring, Custom) so CSV import parity is 100%. (2) Ship a Manager Templates Library — save the current Manager's filter_facets + sub_tabs + spec_fields as a reusable preset that can be one-click applied (Replace or Append) to any other Manager.
