@@ -139,6 +139,8 @@ from .voice_showroom_routes import router as voice_showroom_routes_router
 from .warehouse import router as warehouse_router
 from .manager_definitions import router as manager_definitions_router
 from .product_templates import router as product_templates_router
+from .shop_category import router as shop_category_router
+from .manager_csv import router as manager_csv_router
 
 # Create main API router that includes all sub-routers
 api_router = APIRouter()
@@ -286,6 +288,8 @@ api_router.include_router(radio_studio_public_router)
 api_router.include_router(warehouse_router)
 api_router.include_router(manager_definitions_router)
 api_router.include_router(product_templates_router)
+api_router.include_router(shop_category_router)
+api_router.include_router(manager_csv_router)
 __all__ = [
     "api_router",
     "showrooms_router",

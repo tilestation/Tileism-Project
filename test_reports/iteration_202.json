@@ -1,0 +1,31 @@
+{
+  "summary": "Session D verification (both backend + frontend). Backend: 18/18 pytest cases PASS covering /api/shop/category/{cat}/filters + /products (bathroom, flooring, materials, underfloor_heating, tools + custom nonexistent-cat), facet filter narrowing (finish=Matt reduces count, brand=Villeroy narrows to 2), CSV template (bathroom header exact match, correct Content-Disposition), CSV import dry-run + real import, auth (401/403 without admin token), malformed CSV (missing sku returns 400). Frontend: /shop/browse/bathroom renders category-title 'Bathroom', 24 grid children, all facet groups (TYPE/BRAND/FINISH/MATERIAL/COLOUR/SIZE/SUPPLIER) with counts. Facet click updates URL (?brand=Villeroy&page=1) and reduces count 46→2. /shop/browse/{flooring,materials,underfloor_heating,tools} all render without hard errors. Admin CSV modal: bathroom-csv-import-btn present, opens csv-import-modal with title 'CSV Import — Bathroom Manager', Download Template + drop-zone + Preview/Import buttons all present. File upload → Preview → toast 'Preview ready — 1 row(s) parsed', preview table with CREATE badge, Import button enabled. tools-csv-import-btn present on /admin/tools.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "ManagerPageShell (UFH)", "issue": "On /admin/underfloor-heating the CSV button data-testid is 'underfloor_heating-csv-import-btn' (underscore) while review request expected 'underfloor-heating-csv-import-btn' (dash matching route slug). Button IS rendered and functional — testid string is derived from category key not URL slug. Minor naming inconsistency.", "selector": "[data-testid=\"underfloor_heating-csv-import-btn\"]", "priority": "LOW"},
+      {"component": "CategoryShopPage facets", "issue": "Finish facet shows both 'Matt' (33) and 'matt' (3) as separate options — value dedupe is case-sensitive. Same treatment across facets (see BRAND has 'TestBrand' vs supplier 'TestBrand'). Consider normalising case when aggregating facet counts in shop_category.py._get_category_filters.", "selector": "[data-testid=\"facet-finishes\"]", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_session_d.py", "/app/test_reports/pytest/session_d.xml"],
+  "action_items": [
+    "OPTIONAL: normalise casing in facet aggregation (Matt vs matt) in /app/backend/routes/shop_category.py",
+    "OPTIONAL: align UFH CSV button testid to route slug ('underfloor-heating-csv-import-btn') or update review docs to reflect current underscore-based naming"
+  ],
+  "critical_code_review_comments": [
+    "shop_category.py: facet aggregation uses raw string values (str(val).strip()) so 'Matt' vs 'matt' produce duplicate facet entries — consider .title() or lower() based grouping while preserving display casing",
+    "manager_csv.py: real-import path silently coerces bad numeric strings to their raw string form (see _coerce) — could cause list_price to be stored as string 'abc' without error being surfaced to user; consider adding to stats.errors when coerce falls back",
+    "manager_csv.py: creates new supplier_products docs with published=False but sets status='active'; verify this is consistent with rest of codebase expectations",
+    "shop_category.py: intentionally serves draft products (per session note) — must be tightened before go-live"
+  ],
+  "updated_files": ["/app/backend/tests/test_session_d.py"],
+  "success_rate": {"backend": "100% (18/18)", "frontend": "100% core flows verified"},
+  "test_credentials": "admin@test.com / admin123 (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "Test created bathroom products via CSV import with SKU prefix TEST-CSV-* and supplier TEST_Supplier / UITest. Small number (2-3 rows). Cleanup not performed — E1 may prune if needed.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Session D fully verified. Iteration file uses 202 (previous was 201). Test file: /app/backend/tests/test_session_d.py. Note the UFH testid uses underscore not dash. Facet case-duplication is a known minor issue.",
+  "rca of the issue": "N/A — all requested features working"
+}

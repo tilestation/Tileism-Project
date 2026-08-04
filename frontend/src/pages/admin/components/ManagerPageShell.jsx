@@ -23,7 +23,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import {
-  ArrowLeft, RefreshCw, Search, Save, X, Edit2, Filter, ExternalLink, AlertCircle, CheckCircle, Plus,
+  ArrowLeft, RefreshCw, Search, Save, X, Edit2, Filter, ExternalLink, AlertCircle, CheckCircle, Plus, FileSpreadsheet,
 } from 'lucide-react';
 import { Button } from '../../../components/ui/button';
 import { Input } from '../../../components/ui/input';
@@ -40,6 +40,7 @@ import CustomManagerBuilder from './managers/CustomManagerBuilder';
 import BulkFieldsModal from './managers/BulkFieldsModal';
 import BulkAIDescriptionsModal from './managers/BulkAIDescriptionsModal';
 import BulkImageUploadModal from './managers/BulkImageUploadModal';
+import CsvImportModal from './managers/CsvImportModal';
 import AssignColoursModal from './managers/AssignColoursModal';
 import TierPricingModal from './supplier-products/TierPricingModal';
 import { useManagerBulk } from './managers/useManagerBulk';
@@ -91,6 +92,7 @@ const ManagerPageShell = ({
   const [showBulkFields, setShowBulkFields] = useState(false);
   const [showAIDescriptions, setShowAIDescriptions] = useState(false);
   const [showBulkImages, setShowBulkImages] = useState(false);
+  const [showCsvImport, setShowCsvImport] = useState(false);
   const [tierPricingConfig, setTierPricingConfig] = useState({
     thresholds: [10, 50, 100],
     discounts: [0, 5, 10, 15],
@@ -247,6 +249,9 @@ const ManagerPageShell = ({
             )}
             <Button size="sm" className={`text-white ${themeCls.ctaBtn}`} onClick={() => setWizardOpen(true)} data-testid={`${categoryKey}-add-new-btn`}>
               <Plus className="w-4 h-4 mr-1.5" /> Add New
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => setShowCsvImport(true)} data-testid={`${categoryKey}-csv-import-btn`} title="Bulk import products from CSV">
+              <FileSpreadsheet className="w-4 h-4 mr-1.5" /> CSV Import
             </Button>
             <Button size="sm" variant="outline" onClick={fetchProducts} disabled={loading} data-testid={`${categoryKey}-refresh-btn`}>
               <RefreshCw className={`w-4 h-4 mr-1.5 ${loading ? 'animate-spin' : ''}`} />
@@ -521,6 +526,15 @@ const ManagerPageShell = ({
       <BulkFieldsModal open={showBulkFields} onOpenChange={setShowBulkFields} selectedList={bulk.getSelectedList()} themeColor={theme} onSuccess={() => { bulk.clearAll(); fetchProducts(); }} />
       <BulkAIDescriptionsModal open={showAIDescriptions} onOpenChange={setShowAIDescriptions} selectedList={bulk.getSelectedList()} themeColor={theme} onSuccess={() => fetchProducts()} />
       <BulkImageUploadModal open={showBulkImages} onOpenChange={setShowBulkImages} selectedList={bulk.getSelectedList()} themeColor={theme} onSuccess={() => { bulk.clearAll(); fetchProducts(); }} />
+
+      <CsvImportModal
+        open={showCsvImport}
+        onOpenChange={setShowCsvImport}
+        category={categoryKey}
+        categoryLabel={title}
+        themeColor={theme}
+        onSuccess={() => { fetchProducts(); }}
+      />
 
       <TierPricingModal
         open={showTierPricing}

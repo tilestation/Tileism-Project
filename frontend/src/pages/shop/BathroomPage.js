@@ -180,22 +180,32 @@ export default function BathroomPage() {
                 </div>
               </div>
 
-              {/* Download CTA only */}
-              <button
-                onClick={handleDownload}
-                disabled={downloading}
-                className="inline-flex items-center gap-3 bg-[#F7EA1C] hover:bg-yellow-400 text-[#333] font-bold px-8 py-4 rounded-full shadow-lg hover:shadow-xl transition-all transform hover:scale-105 disabled:opacity-50"
-                data-testid="download-catalogue-btn"
-              >
-                {downloading ? (
-                  <div className="w-5 h-5 border-2 border-gray-600 border-t-transparent rounded-full animate-spin" />
-                ) : user ? (
-                  <Download className="w-5 h-5" />
-                ) : (
-                  <Lock className="w-5 h-5" />
-                )}
-                {user ? 'Download Catalogue' : 'Sign In to Download'}
-              </button>
+              {/* Download CTA + Browse products */}
+              <div className="flex flex-wrap gap-3">
+                <button
+                  onClick={handleDownload}
+                  disabled={downloading}
+                  className="inline-flex items-center gap-3 bg-[#F7EA1C] hover:bg-yellow-400 text-[#333] font-bold px-8 py-4 rounded-full shadow-lg hover:shadow-xl transition-all transform hover:scale-105 disabled:opacity-50"
+                  data-testid="download-catalogue-btn"
+                >
+                  {downloading ? (
+                    <div className="w-5 h-5 border-2 border-gray-600 border-t-transparent rounded-full animate-spin" />
+                  ) : user ? (
+                    <Download className="w-5 h-5" />
+                  ) : (
+                    <Lock className="w-5 h-5" />
+                  )}
+                  {user ? 'Download Catalogue' : 'Sign In to Download'}
+                </button>
+                <button
+                  onClick={() => navigate('/shop/browse/bathroom')}
+                  className="inline-flex items-center gap-3 bg-white hover:bg-slate-100 text-slate-800 font-bold px-8 py-4 rounded-full border border-slate-300 shadow transition-all"
+                  data-testid="browse-bathroom-btn"
+                >
+                  Browse Bathroom Products
+                  <ArrowRight className="w-5 h-5" />
+                </button>
+              </div>
             </div>
           </div>
 

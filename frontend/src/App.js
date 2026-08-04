@@ -217,6 +217,7 @@ const TileDetailPage = React.lazy(() => import('./pages/shop/TileDetailPage'));
 const TileProductRedirect = React.lazy(() => import('./pages/shop/TileProductRedirect'));
 const TileCartPage = React.lazy(() => import('./pages/shop/TileCartPage'));
 const BathroomPage = React.lazy(() => import('./pages/shop/BathroomPage'));
+const CategoryShopPage = React.lazy(() => import('./pages/shop/CategoryShopPage'));
 const TileCheckoutPage = React.lazy(() => import('./pages/shop/TileCheckoutPage'));
 const OrderSuccessPage = React.lazy(() => import('./pages/shop/OrderSuccessPage'));
 const TileWishlistPage = React.lazy(() => import('./pages/shop/TileWishlistPage'));
@@ -802,6 +803,20 @@ function App() {
               <WishlistProvider>
                 <SampleCartProvider>
                   <BathroomPage />
+                </SampleCartProvider>
+              </WishlistProvider>
+            </TileCartProvider>
+            </MaintenanceGuard>
+          } />
+          
+          {/* Universal category shop page — filters + product grid for any category
+             (bathroom, flooring, materials, underfloor-heating, tools, or custom Manager slug) */}
+          <Route path="/shop/browse/:category" element={
+            <MaintenanceGuard>
+            <TileCartProvider>
+              <WishlistProvider>
+                <SampleCartProvider>
+                  <CategoryShopPage />
                 </SampleCartProvider>
               </WishlistProvider>
             </TileCartProvider>
