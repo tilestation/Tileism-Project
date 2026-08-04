@@ -141,6 +141,7 @@ from .manager_definitions import router as manager_definitions_router
 from .product_templates import router as product_templates_router
 from .shop_category import router as shop_category_router
 from .manager_csv import router as manager_csv_router
+from .manager_config_templates import router as manager_config_templates_router
 
 # Create main API router that includes all sub-routers
 api_router = APIRouter()
@@ -290,6 +291,7 @@ api_router.include_router(manager_definitions_router)
 api_router.include_router(product_templates_router)
 api_router.include_router(shop_category_router)
 api_router.include_router(manager_csv_router)
+api_router.include_router(manager_config_templates_router)
 __all__ = [
     "api_router",
     "showrooms_router",

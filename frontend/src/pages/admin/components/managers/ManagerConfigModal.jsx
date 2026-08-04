@@ -19,6 +19,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { toast } from 'sonner';
+import ManagerPresetsBar from './ManagerPresetsBar';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '../../../../components/ui/dialog';
@@ -33,7 +34,7 @@ const KEBAB = (s) => (s || '').toString().trim().toLowerCase().replace(/[^a-z0-9
 
 const FIELD_TYPE_OPTIONS = ['text', 'number', 'select', 'textarea'];
 
-const ManagerConfigModal = ({ open, onOpenChange, slug, config, onSave, themeColor = 'orange' }) => {
+const ManagerConfigModal = ({ open, onOpenChange, slug, config, onSave, onRefresh, themeColor = 'orange' }) => {
   const [tab, setTab] = useState('filters');
   const [facets, setFacets] = useState([]);
   const [subTabs, setSubTabs] = useState([]);
@@ -117,6 +118,14 @@ const ManagerConfigModal = ({ open, onOpenChange, slug, config, onSave, themeCol
             Filters, sub-tabs and spec fields — <b>scoped to {config?.name || slug} only</b>. Changes here do not affect other Managers.
           </DialogDescription>
         </DialogHeader>
+
+        {/* Manager Presets (save / load reusable configs across Managers) */}
+        <ManagerPresetsBar
+          slug={slug}
+          config={config}
+          themeColor={themeColor}
+          onApplied={() => { if (onRefresh) onRefresh(); }}
+        />
 
         {/* Tabs */}
         <div className="flex gap-1 border-b border-gray-200">

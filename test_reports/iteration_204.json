@@ -1,0 +1,35 @@
+{
+  "summary": "Verified CSV Import parity (materials/tiles/flooring buttons render and open modal) and full Manager Config Templates lifecycle (list, create-from-source with 4/6/8 counts, duplicate 409, apply replace/append idempotent, ghost 404, soft-delete, unauth 401/403). 11/11 pytest cases pass; frontend ManagerPresetsBar UI end-to-end works: save→row appears with 4/6/5 badges→delete removes. Materials fully restored to defaults post-test. Discovered a real duplicate-slug data-integrity bug in DELETE endpoint (see rca).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "DELETE /api/manager-config-templates/{slug}", "issue": "When the DB contains multiple docs sharing the same slug (soft-deleted + live), update_one({'slug': slug}, ...) may target the already-deleted duplicate because it lacks the same $or filter used by find_one. Result: the current live doc remains visible in GET /list even though DELETE returns 200. Reproduced live during testing — required hard-delete via Mongo to recover."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "CSV Import modals (materials/tiles/flooring)", "issues": ["Radix Dialog missing Description/aria-describedby — a11y warning in console"]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_manager_config_templates.py", "/app/test_reports/pytest/manager_config_templates.xml"],
+  "action_items": [
+    "Fix DELETE /api/manager-config-templates/{slug}: change update_one filter to `{'slug': slug, '$or': [{'deleted_at': {'$exists': False}}, {'deleted_at': None}]}` (same as find_one) OR use the doc's id (`{'id': doc['id']}`) to guarantee the live row is soft-deleted, not an already-deleted duplicate.",
+    "Consider adding a unique partial index on (slug) where deleted_at is null to prevent duplicate live slugs at DB level.",
+    "Add DialogDescription (or aria-describedby) to CsvImportModal to remove Radix a11y warnings."
+  ],
+  "critical_code_review_comments": [
+    "manager_config_templates.py DELETE endpoint has a subtle bug: find_one uses the deleted-at $or filter but update_one drops it — dangerous when slug collisions exist (which the CREATE endpoint explicitly permits after soft-delete).",
+    "apply_template default booleans set include_facets/sub_tabs/spec_fields=True — this makes 'replace' aggressive. Frontend ManagerPresetsBar always sends only {target_slug, mode} without narrowing, so a click of Replace overwrites ALL 3 arrays. Consider surfacing per-array checkboxes in the UI so admins can pick just facets or just sub_tabs.",
+    "ManagerPresetsBar uses window.confirm() for destructive actions — inconsistent with the app's shadcn AlertDialog pattern used elsewhere."
+  ],
+  "updated_files": ["/app/backend/tests/test_manager_config_templates.py"],
+  "success_rate": {"backend": "100% (11/11)", "frontend": "100% on the flows tested"},
+  "test_credentials": "admin@test.com / admin123",
+  "seed_data_creation": "Test preset 'test-hardware' created and deleted; test preset 'Test Preset UI' created via UI and deleted via UI; materials manager_definition polluted then fully restored (filter_facets/sub_tabs/spec_fields all reset to BUILTIN_DEFAULTS). Also hard-deleted 2 duplicate 'test-hardware' rows from mongo left by the DELETE bug.",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend pytest is at /app/backend/tests/test_manager_config_templates.py — 11 cases cover the full lifecycle + auth. If you retest after main-agent fix, first check `manager_config_templates` collection has no duplicate slugs; the CREATE endpoint's 409 check only blocks live-slug collisions, so soft-deleted duplicates can pile up unnoticed.",
+  "rca of the issue": "RCA of DELETE bug — Repro: (1) POST create preset slug X, (2) DELETE X (soft-deletes), (3) POST create X again (now 2 docs: one deleted, one live), (4) DELETE X — server calls find_one({slug:X, $or:[not_deleted]}) which returns the LIVE doc, then update_one({slug:X}, {$set:{deleted_at:...}}) which mongo applies to the FIRST match by natural order — this can be the ALREADY-deleted doc, refreshing its deleted_at while leaving the live one untouched. GET /list then still returns the live one. Mitigation: use `{'id': doc['id']}` in update_one, or add the same $or filter as find_one."
+}

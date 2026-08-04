@@ -17,7 +17,7 @@ import { Link, useParams, useSearchParams, useNavigate } from 'react-router-dom'
 import { toast } from 'sonner';
 import {
   ArrowLeft, RefreshCw, Search, Save, X, Edit2, Filter as FilterIcon, ExternalLink,
-  Plus, Sparkles, Settings, Trash2, AlertCircle, CheckCircle,
+  Plus, Sparkles, Settings, Trash2, AlertCircle, CheckCircle, FileSpreadsheet,
 } from 'lucide-react';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
@@ -35,6 +35,7 @@ import BulkFieldsModal from './components/managers/BulkFieldsModal';
 import BulkAIDescriptionsModal from './components/managers/BulkAIDescriptionsModal';
 import BulkImageUploadModal from './components/managers/BulkImageUploadModal';
 import ManagerConfigModal from './components/managers/ManagerConfigModal';
+import CsvImportModal from './components/managers/CsvImportModal';
 import TierPricingModal from './components/supplier-products/TierPricingModal';
 import AddProductWizard from './components/AddProductWizard';
 import { useManagerBulk } from './components/managers/useManagerBulk';
@@ -72,7 +73,8 @@ const CustomManager = () => {
   const [showAIDescriptions, setShowAIDescriptions] = useState(false);
   const [showBulkImages, setShowBulkImages] = useState(false);
   const [showConfig, setShowConfig] = useState(false);
-  const { config: managerConfig, save: saveManagerConfig } = useManagerConfig(slug);
+  const [showCsvImport, setShowCsvImport] = useState(false);
+  const { config: managerConfig, save: saveManagerConfig, refresh: refreshManagerConfig } = useManagerConfig(slug);
   const effectiveFilterFacets = Array.isArray(managerConfig?.filter_facets) && managerConfig.filter_facets.length > 0 ? managerConfig.filter_facets : null;
   const [searchParams, setSearchParams] = useSearchParams();
   const [tierPricingConfig, setTierPricingConfig] = useState({
@@ -301,6 +303,9 @@ const CustomManager = () => {
             </Button>
             <Button size="sm" variant="outline" onClick={() => setShowConfig(true)} data-testid="custom-manager-configure-btn" title="Add/edit Filters, Sub-Tabs and Spec Fields for this Manager">
               <Settings className="w-4 h-4 mr-1.5" /> Configure
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => setShowCsvImport(true)} data-testid="custom-manager-csv-import-btn" title={`Bulk import ${definition?.name || 'products'} from CSV`}>
+              <FileSpreadsheet className="w-4 h-4 mr-1.5" /> CSV Import
             </Button>
             <Button size="sm" variant="outline" onClick={fetchProducts} disabled={loading} data-testid="custom-manager-refresh-btn">
               <RefreshCw className={`w-4 h-4 mr-1.5 ${loading ? 'animate-spin' : ''}`} />
@@ -646,7 +651,18 @@ const CustomManager = () => {
         slug={slug}
         config={managerConfig}
         onSave={saveManagerConfig}
+        onRefresh={refreshManagerConfig}
         themeColor={definition.theme || 'purple'}
+      />
+
+      {/* Bulk CSV Import (tailored to this custom Manager's field_definitions) */}
+      <CsvImportModal
+        open={showCsvImport}
+        onOpenChange={setShowCsvImport}
+        category={slug}
+        categoryLabel={definition?.name || slug}
+        themeColor={definition.theme || 'purple'}
+        onSuccess={() => { fetchProducts(); }}
       />
     </div>
   );

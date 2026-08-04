@@ -112,7 +112,7 @@ const ManagerPageShell = ({
   const [showConfig, setShowConfig] = useState(false);
 
   // ---- Per-Manager config (facets, sub-tabs, spec fields) from the DB ----
-  const { config, save: saveConfig } = useManagerConfig(categoryKey);
+  const { config, save: saveConfig, refresh: refreshConfig } = useManagerConfig(categoryKey);
 
   // Merge props with DB config. DB config wins if present — so admin's custom
   // filters/tabs/fields survive across page reloads.
@@ -578,6 +578,7 @@ const ManagerPageShell = ({
         slug={categoryKey}
         config={config}
         onSave={saveConfig}
+        onRefresh={refreshConfig}
         themeColor={theme}
       />
 

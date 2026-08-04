@@ -27,7 +27,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import {
-  Package, ArrowLeft, RefreshCw, Search, Save, X, Edit2, Filter, ExternalLink, AlertCircle, CheckCircle, Plus, Settings,
+  Package, ArrowLeft, RefreshCw, Search, Save, X, Edit2, Filter, ExternalLink, AlertCircle, CheckCircle, Plus, Settings, FileSpreadsheet,
 } from 'lucide-react';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
@@ -44,6 +44,7 @@ import BulkFieldsModal from './components/managers/BulkFieldsModal';
 import BulkAIDescriptionsModal from './components/managers/BulkAIDescriptionsModal';
 import BulkImageUploadModal from './components/managers/BulkImageUploadModal';
 import ManagerConfigModal from './components/managers/ManagerConfigModal';
+import CsvImportModal from './components/managers/CsvImportModal';
 import AssignColoursModal from './components/managers/AssignColoursModal';
 import TierPricingModal from './components/supplier-products/TierPricingModal';
 import { useManagerBulk, getProductKey } from './components/managers/useManagerBulk';
@@ -95,7 +96,8 @@ const MaterialsManager = () => {
   const [showAIDescriptions, setShowAIDescriptions] = useState(false);
   const [showBulkImages, setShowBulkImages] = useState(false);
   const [showConfig, setShowConfig] = useState(false);
-  const { config: managerConfig, save: saveManagerConfig } = useManagerConfig('materials');
+  const [showCsvImport, setShowCsvImport] = useState(false);
+  const { config: managerConfig, save: saveManagerConfig, refresh: refreshManagerConfig } = useManagerConfig('materials');
   const effectiveFilterFacets = Array.isArray(managerConfig?.filter_facets) && managerConfig.filter_facets.length > 0 ? managerConfig.filter_facets : null;
   const [tierPricingConfig, setTierPricingConfig] = useState({
     thresholds: [10, 50, 100],
@@ -304,6 +306,9 @@ const MaterialsManager = () => {
             </Button>
             <Button size="sm" variant="outline" onClick={() => setShowConfig(true)} data-testid="materials-configure-btn" title="Add/edit Filters, Sub-Tabs and Spec Fields for Materials">
               <Settings className="w-4 h-4 mr-1.5" /> Configure
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => setShowCsvImport(true)} data-testid="materials-csv-import-btn" title="Bulk import Materials from CSV">
+              <FileSpreadsheet className="w-4 h-4 mr-1.5" /> CSV Import
             </Button>
             <Button
               size="sm"
@@ -686,7 +691,18 @@ const MaterialsManager = () => {
         slug="materials"
         config={managerConfig}
         onSave={saveManagerConfig}
+        onRefresh={refreshManagerConfig}
         themeColor="orange"
+      />
+
+      {/* Bulk CSV Import (tailored to Materials columns) */}
+      <CsvImportModal
+        open={showCsvImport}
+        onOpenChange={setShowCsvImport}
+        category="materials"
+        categoryLabel="Materials Manager"
+        themeColor="orange"
+        onSuccess={() => { fetchProducts(); }}
       />
 
       {/* Bulk: Tier Pricing (% / £ trade + Half+Full Pallet, unit-aware for materials) */}

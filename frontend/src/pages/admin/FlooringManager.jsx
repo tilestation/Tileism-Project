@@ -14,7 +14,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import {
-  Grid3X3, ArrowLeft, RefreshCw, Search, Save, X, Edit2, Filter, ExternalLink, AlertCircle, CheckCircle, Plus, Settings,
+  Grid3X3, ArrowLeft, RefreshCw, Search, Save, X, Edit2, Filter, ExternalLink, AlertCircle, CheckCircle, Plus, Settings, FileSpreadsheet,
 } from 'lucide-react';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
@@ -32,6 +32,7 @@ import BulkFieldsModal from './components/managers/BulkFieldsModal';
 import BulkAIDescriptionsModal from './components/managers/BulkAIDescriptionsModal';
 import BulkImageUploadModal from './components/managers/BulkImageUploadModal';
 import ManagerConfigModal from './components/managers/ManagerConfigModal';
+import CsvImportModal from './components/managers/CsvImportModal';
 import AssignColoursModal from './components/managers/AssignColoursModal';
 import TierPricingModal from './components/supplier-products/TierPricingModal';
 import { useManagerBulk } from './components/managers/useManagerBulk';
@@ -74,7 +75,8 @@ const FlooringManager = () => {
   const [showAIDescriptions, setShowAIDescriptions] = useState(false);
   const [showBulkImages, setShowBulkImages] = useState(false);
   const [showConfig, setShowConfig] = useState(false);
-  const { config: managerConfig, save: saveManagerConfig } = useManagerConfig('flooring');
+  const [showCsvImport, setShowCsvImport] = useState(false);
+  const { config: managerConfig, save: saveManagerConfig, refresh: refreshManagerConfig } = useManagerConfig('flooring');
   const effectiveFilterFacets = Array.isArray(managerConfig?.filter_facets) && managerConfig.filter_facets.length > 0 ? managerConfig.filter_facets : null;
   const [tierPricingConfig, setTierPricingConfig] = useState({
     thresholds: [10, 50, 100],
@@ -231,6 +233,9 @@ const FlooringManager = () => {
             </Button>
             <Button size="sm" variant="outline" onClick={() => setShowConfig(true)} data-testid="flooring-configure-btn" title="Add/edit Filters, Sub-Tabs and Spec Fields for Flooring">
               <Settings className="w-4 h-4 mr-1.5" /> Configure
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => setShowCsvImport(true)} data-testid="flooring-csv-import-btn" title="Bulk import Flooring from CSV">
+              <FileSpreadsheet className="w-4 h-4 mr-1.5" /> CSV Import
             </Button>
             <Button size="sm" variant="outline" onClick={fetchProducts} disabled={loading} data-testid="flooring-refresh-btn">
               <RefreshCw className={`w-4 h-4 mr-1.5 ${loading ? 'animate-spin' : ''}`} />
@@ -462,7 +467,17 @@ const FlooringManager = () => {
       <BulkImageUploadModal open={showBulkImages} onOpenChange={setShowBulkImages} selectedList={bulk.getSelectedList()} themeColor="amber" onSuccess={() => { bulk.clearAll(); fetchProducts(); }} />
 
       {/* Per-Manager Config (Filters / Sub-Tabs / Spec Fields) */}
-      <ManagerConfigModal open={showConfig} onOpenChange={setShowConfig} slug="flooring" config={managerConfig} onSave={saveManagerConfig} themeColor="amber" />
+      <ManagerConfigModal open={showConfig} onOpenChange={setShowConfig} slug="flooring" config={managerConfig} onSave={saveManagerConfig} onRefresh={refreshManagerConfig} themeColor="amber" />
+
+      {/* Bulk CSV Import (tailored to Flooring columns) */}
+      <CsvImportModal
+        open={showCsvImport}
+        onOpenChange={setShowCsvImport}
+        category="flooring"
+        categoryLabel="Flooring Manager"
+        themeColor="amber"
+        onSuccess={() => { fetchProducts(); }}
+      />
 
       <TierPricingModal
         open={showTierPricing}
