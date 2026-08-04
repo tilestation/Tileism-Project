@@ -9,6 +9,53 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Aug 4, 2026 — Forked, session F+1] 🟢 CSV Import Parity + Manager Templates Library — VERIFIED
+
+**Owner ask**: (1) Wire CsvImportModal into the 4 standalone Managers (Materials, Tiles, Flooring, Custom) so CSV import parity is 100%. (2) Ship a Manager Templates Library — save the current Manager's filter_facets + sub_tabs + spec_fields as a reusable preset that can be one-click applied (Replace or Append) to any other Manager.
+
+**Delivered**:
+
+1. **CSV Import Parity — all 7 Managers now import from CSV**
+   - MaterialsManager.jsx / TilesManager.jsx / FlooringManager.jsx / CustomManager.jsx all mount `<CsvImportModal>` + expose a `csv-import-btn` next to Configure
+   - Category-tailored: passes `category=<slug>` + `categoryLabel=<Manager name>` to `/api/manager-csv/*` for template + preview + import flows
+   - Shell-based managers (Bathroom / UFH / Tools) already had this from prior work; no changes needed there
+
+2. **Manager Templates Library**
+   - Backend: `/app/backend/routes/manager_config_templates.py` — new collection `manager_config_templates`
+     - `GET  /api/manager-config-templates` (public list)
+     - `POST /api/manager-config-templates` (create — either from `source_slug` or raw arrays; requires `supplier_products` perm; 409 on live-slug collision)
+     - `POST /api/manager-config-templates/{slug}/apply` (target_slug + mode:replace|append; auto-materialises built-in targets from `BUILTIN_DEFAULTS`)
+     - `DELETE /api/manager-config-templates/{slug}` (soft-delete via `id`-scoped update — the DELETE bug found in testing iteration 204 is fixed)
+   - Frontend: `/app/frontend/src/pages/admin/components/managers/ManagerPresetsBar.jsx` — new sub-component
+     - Rendered inside `ManagerConfigModal` (below the header banner, above the tabs)
+     - "Save current as preset" workflow: click → inline name form → POST with `source_slug` → row appears with facets/sub_tabs/spec_fields counts
+     - Per-preset Actions: **Append** (adds missing keys, keeps existing), **Replace** (overwrites), **Delete** (soft)
+     - Live refresh via new `onRefresh` prop on `ManagerConfigModal` → after apply, the modal re-fetches the freshly-updated manager_definition
+     - Themed to match parent Manager (orange/blue/amber/cyan/red/slate/purple)
+
+3. **Bugs fixed during this session**
+   - `DELETE /api/manager-config-templates/{slug}` used `update_one({slug: slug}, ...)` which could soft-delete an already-deleted duplicate instead of the live one. **Fixed** to use `{id: doc['id']}` (target by primary key). Verified via 5-step round-trip curl (create → delete → recreate same slug → delete → list count 0).
+   - `CsvImportModal` was missing `DialogDescription` — Radix a11y warning. **Fixed** by importing + swapping the header sub-title `<p>` for `<DialogDescription>`.
+
+4. **Testing (iteration 204)** — 11/11 backend pytest PASS, full frontend E2E on the presets flow (save → row appears → delete removes) + CSV Import buttons render on all 4 standalone managers. Materials restored to defaults after test.
+
+**Files touched this session**:
+- Backend: `/app/backend/routes/manager_config_templates.py` (new, ~250 lines), `/app/backend/routes/__init__.py` (registered new router), `/app/backend/tests/test_manager_config_templates.py` (11 pytest cases added by testing agent)
+- Frontend: `/app/frontend/src/pages/admin/components/managers/ManagerPresetsBar.jsx` (new, ~205 lines), `/app/frontend/src/pages/admin/components/managers/ManagerConfigModal.jsx` (imports + mounts bar; onRefresh prop), `/app/frontend/src/pages/admin/components/managers/CsvImportModal.jsx` (a11y fix), `/app/frontend/src/pages/admin/MaterialsManager.jsx` + `TilesManager.jsx` + `FlooringManager.jsx` + `CustomManager.jsx` (CsvImportModal wired + refreshManagerConfig threaded through), `/app/frontend/src/pages/admin/components/ManagerPageShell.jsx` (refreshConfig threaded through)
+
+**Not yet done — user's original 3-task list**:
+- ⏭ **Task 2: Shell Migration** — Move Materials/Tiles/Flooring/Custom onto `ManagerPageShell` to drop ~1500 duplicated lines. This is a substantial refactor (4 large stateful files, ~2400 lines total, each with unique JSX like tier-pricing, colour-assign, wizards). Needs a dedicated session with heavy regression testing. Recommend tackling **one manager at a time** (Custom first — smallest and most data-driven; Flooring second; Materials/Tiles last since they carry the most legacy JSX).
+
+**Remaining P1 backlog** (in owner's approved order):
+- Shell Migration (see above)
+- "Browse …" storefront CTAs on Materials/Flooring/UFH/Tools landing pages
+- Prod→preview showroom sync script
+- Google Ads dashboard (blocked on Developer Token approval)
+- Google Business Profile integration (blocked on Google allowlist)
+
+
+
+
 ### [Aug 4, 2026 — Forked, session F] 🟢 Per-Manager Configurable Filters/Sub-Tabs/Spec Fields — VERIFIED
 
 **Owner ask**: Filters, sub-categories, and spec-field values were being shared across all Managers (adding a facet to one leaked into others). Each Manager should have its OWN isolated config.

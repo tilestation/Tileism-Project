@@ -12,7 +12,7 @@
 import React, { useState, useRef } from 'react';
 import { toast } from 'sonner';
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '../../../../components/ui/dialog';
 import { Button } from '../../../../components/ui/button';
 import { Badge } from '../../../../components/ui/badge';
@@ -118,9 +118,9 @@ const CsvImportModal = ({ open, onOpenChange, category, categoryLabel, themeColo
             <FileSpreadsheet className="w-5 h-5 text-emerald-600" />
             CSV Import — {categoryLabel || category}
           </DialogTitle>
-          <p className="text-xs text-gray-500">
+          <DialogDescription className="text-xs text-gray-500">
             Drop a CSV to preview + import products in bulk. Columns match this Manager&rsquo;s fields — download the template if you need the exact headers.
-          </p>
+          </DialogDescription>
         </DialogHeader>
 
         {/* Step 1: template */}

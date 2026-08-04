@@ -292,7 +292,7 @@ async def delete_template(
         raise HTTPException(404, f"Preset '{slug}' not found")
 
     await db.manager_config_templates.update_one(
-        {"slug": slug},
+        {"id": doc["id"]},
         {"$set": {"deleted_at": datetime.now(timezone.utc), "deleted_by": current_user.get("email")}},
     )
     await log_audit(
