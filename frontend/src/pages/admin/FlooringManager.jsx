@@ -12,32 +12,19 @@ import React from 'react';
 import { Grid3X3 } from 'lucide-react';
 import ManagerPageShell from './components/ManagerPageShell';
 
+const _floorSubTest = (p, re) => {
+  if (re.test(String(p.type || ''))) return true;
+  if ((p.sub_categories || []).some(s => re.test(String(s)))) return true;
+  const name = String(p.our_product_name || p.product_name || p.name || '');
+  return re.test(name);
+};
+
 const FLOOR_SUB_TABS = [
   { key: 'all',      label: 'All Flooring', match: () => true },
-  { key: 'lvt',      label: 'LVT',
-    match: (p) => {
-      const t = String(p.type || '');
-      const sc = Array.isArray(p.sub_categories) ? p.sub_categories : [];
-      return /lvt|luxury vinyl/i.test(t) || sc.some(s => /lvt|luxury vinyl/i.test(s));
-    } },
-  { key: 'laminate', label: 'Laminate',
-    match: (p) => {
-      const t = String(p.type || '');
-      const sc = Array.isArray(p.sub_categories) ? p.sub_categories : [];
-      return /laminate/i.test(t) || sc.some(s => /laminate/i.test(s));
-    } },
-  { key: 'wood',     label: 'Wood',
-    match: (p) => {
-      const t = String(p.type || '');
-      const sc = Array.isArray(p.sub_categories) ? p.sub_categories : [];
-      return /(engineered|solid)? ?wood/i.test(t) || sc.some(s => /wood|engineered/i.test(s));
-    } },
-  { key: 'vinyl',    label: 'Vinyl',
-    match: (p) => {
-      const t = String(p.type || '');
-      const sc = Array.isArray(p.sub_categories) ? p.sub_categories : [];
-      return /vinyl/i.test(t) || sc.some(s => /vinyl/i.test(s));
-    } },
+  { key: 'lvt',      label: 'LVT',      match: (p) => _floorSubTest(p, /lvt|luxury vinyl/i) },
+  { key: 'laminate', label: 'Laminate', match: (p) => _floorSubTest(p, /laminate/i) },
+  { key: 'wood',     label: 'Wood',     match: (p) => _floorSubTest(p, /wood|engineered/i) },
+  { key: 'vinyl',    label: 'Vinyl',    match: (p) => _floorSubTest(p, /vinyl/i) },
 ];
 
 const isFlooring = (p) => {

@@ -12,32 +12,19 @@ import React from 'react';
 import { Square } from 'lucide-react';
 import ManagerPageShell from './components/ManagerPageShell';
 
+const _tileSubTest = (p, re) => {
+  if (re.test(String(p.type || ''))) return true;
+  if ((p.sub_categories || []).some(s => re.test(String(s)))) return true;
+  const name = String(p.our_product_name || p.product_name || p.name || '');
+  return re.test(name);
+};
+
 const TILE_SUB_TABS = [
   { key: 'all',     label: 'All Tiles', match: () => true },
-  { key: 'floor',   label: 'Floor',
-    match: (p) => {
-      const t = String(p.type || '');
-      const sc = Array.isArray(p.sub_categories) ? p.sub_categories : [];
-      return /floor/i.test(t) || sc.some(s => /floor tile|floor tiles/i.test(s));
-    } },
-  { key: 'wall',    label: 'Wall',
-    match: (p) => {
-      const t = String(p.type || '');
-      const sc = Array.isArray(p.sub_categories) ? p.sub_categories : [];
-      return /wall/i.test(t) || sc.some(s => /wall tile|wall tiles/i.test(s));
-    } },
-  { key: 'mosaic',  label: 'Mosaic',
-    match: (p) => {
-      const t = String(p.type || '');
-      const sc = Array.isArray(p.sub_categories) ? p.sub_categories : [];
-      return /mosaic/i.test(t) || sc.some(s => /mosaic/i.test(s));
-    } },
-  { key: 'feature', label: 'Feature',
-    match: (p) => {
-      const t = String(p.type || '');
-      const sc = Array.isArray(p.sub_categories) ? p.sub_categories : [];
-      return /feature|border/i.test(t) || sc.some(s => /feature|border/i.test(s));
-    } },
+  { key: 'floor',   label: 'Floor',   match: (p) => _tileSubTest(p, /floor/i) },
+  { key: 'wall',    label: 'Wall',    match: (p) => _tileSubTest(p, /wall/i) },
+  { key: 'mosaic',  label: 'Mosaic',  match: (p) => _tileSubTest(p, /mosaic/i) },
+  { key: 'feature', label: 'Feature', match: (p) => _tileSubTest(p, /feature|border|decor/i) },
 ];
 
 const isTile = (p) => {

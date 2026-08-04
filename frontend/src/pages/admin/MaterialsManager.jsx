@@ -24,18 +24,27 @@ const MATERIAL_SUBCATS = [
   'levelling compound', 'self-levelling',
 ];
 
+const _matSubTest = (p, re) => {
+  if ((p.sub_categories || []).some(s => re.test(String(s)))) return true;
+  const name = String(p.our_product_name || p.product_name || p.name || '');
+  if (re.test(name)) return true;
+  const grp = String(p.product_group || '').toLowerCase();
+  if (re.test(grp)) return true;
+  return false;
+};
+
 const MATERIAL_SUB_TABS = [
   { key: 'all',      label: 'All Materials', match: () => true },
   { key: 'adhesive', label: 'Adhesives',
-    match: (p) => (p.sub_categories || []).some(s => /adhesive/i.test(String(s))) },
+    match: (p) => _matSubTest(p, /adhesive/i) },
   { key: 'grout',    label: 'Grouts',
-    match: (p) => (p.sub_categories || []).some(s => /grout/i.test(String(s))) },
+    match: (p) => _matSubTest(p, /grout/i) },
   { key: 'sealant',  label: 'Sealants',
-    match: (p) => (p.sub_categories || []).some(s => /sealant|silicone/i.test(String(s))) },
+    match: (p) => _matSubTest(p, /sealant|silicone/i) },
   { key: 'cleaning', label: 'Cleaning',
-    match: (p) => (p.sub_categories || []).some(s => /clean/i.test(String(s))) },
+    match: (p) => _matSubTest(p, /clean/i) },
   { key: 'primer',   label: 'Primers',
-    match: (p) => (p.sub_categories || []).some(s => /primer|levelling|underlay/i.test(String(s))) },
+    match: (p) => _matSubTest(p, /primer|levelling|underlay/i) },
 ];
 
 const isMaterial = (p) => {

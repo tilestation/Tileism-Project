@@ -9,6 +9,51 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Aug 4, 2026 — Forked, session F+3] 🟢 Materials / Tiles / Flooring Managers migrated to ManagerPageShell — VERIFIED
+
+**Owner ask**: Complete the shell-migration set — port the remaining three legacy standalone managers (Materials 783 lines, Tiles 693 lines, Flooring 545 lines) onto the shared `ManagerPageShell`. Preserve TierPricingModal (Materials) and AssignColoursModal (Tiles) — both already live inside the shell. Preserve category-specific edit fields with type='select' (Tiles) and type='number' (Materials).
+
+**Delivered**:
+
+1. **Three thin-wrapper rewrites** (~2100 lines of duplicated stateful React removed):
+   - `MaterialsManager.jsx`: 783 → **118 lines** (85% reduction). editFields include number types for bag_weight_kg / coverage_m2_per_bag / setting_time_hours / pot_life_minutes. Custom column renders for Coverage(m²), Bag Wt(kg), Setting(h), Sub-cat badges. Tier pricing default: £/unit + fixed + £2.
+   - `TilesManager.jsx`: 693 → **108 lines** (84% reduction). editFields include SELECT dropdowns for material(6 opts), finish(7), slip_rating(6), edge(4), type(7). Tier pricing default: % + 5 + m² pallets.
+   - `FlooringManager.jsx`: 545 → **96 lines** (82% reduction). Text-only editFields with hints. Tier pricing default: % + 5 + m² pallets.
+
+2. **Cumulative shell-migration total (with the earlier CustomManager session)**:
+   - 4 files: 688 + 545 + 693 + 783 = **2709 lines → 540 lines (80% dedup / ~2170 line reduction)**
+   - All 7 Managers (Materials, Tiles, Flooring, Bathroom, UFH, Tools, Custom) now share the exact same code path — future fixes/features land in one place.
+
+3. **Critical bug fixed during testing (iteration 206 → 207)**: `useManagerConfig`'s DB response was unconditionally overriding prop-level editFields/subTabs metadata, so newly-shipped `type: 'select'` / `type: 'number'` code declarations were silently masked by the DB's older `type: 'text'` defaults. **Root fix**: Introduced `mergeConfig()` in `ManagerPageShell.jsx` (~30 lines, lines ~127-160) — a well-commented deep-merge that:
+   - Preserves DB row ORDER (so admin re-ordering via Configure sticks)
+   - Prop-level SCHEMA wins when the prop declares a non-default type or non-empty options[] (structural upgrade)
+   - Appends prop-only fields at the end (silent code-level migration path — new fields ship without needing an admin to click Configure)
+   - Verified: /admin/tiles Edit now renders 5 `<select>` dropdowns (material=6opts, finish=7opts, slip_rating=6opts, edge=4opts, type=7opts). /admin/materials Edit renders 4 `<input type="number">` fields.
+
+4. **Sub-tab matcher broadening (iteration 207 MEDIUM → resolved)**: Original tab `.match` functions only inspected `sub_categories`, missing products classified by `product_group` or `product_name`. Added `_matSubTest` / `_tileSubTest` / `_floorSubTest` helpers that inspect sub_categories + type + product_name + product_group. Post-fix counts on live data:
+   - **Materials**: All(138), Grouts(3), Cleaning(2), Primers(3) — remaining 0s (Adhesives, Sealants) reflect a real data-classification gap, not a bug
+   - **Tiles**: All(1108), Floor(1065), Wall(1091), Mosaic(2), Feature(25) — Feature/Mosaic previously showed 0; now correctly non-zero
+   - **Flooring**: All(3), Wood(3) — matches the 3 Oak engineered-wood products in the DB
+
+5. **Testing (iteration 207)** — full retest of iteration 206's HIGH/MEDIUM issues: ALL RESOLVED. success_rate frontend 95% (the 5% is a pre-existing unrelated `AdminDashboard` unique-key React warning).
+
+**Files touched this session**:
+- `/app/frontend/src/pages/admin/MaterialsManager.jsx` — full rewrite (783 → 118 lines) + tabbed matcher broadening
+- `/app/frontend/src/pages/admin/TilesManager.jsx` — full rewrite (693 → 108 lines) + tabbed matcher broadening
+- `/app/frontend/src/pages/admin/FlooringManager.jsx` — full rewrite (545 → 96 lines) + tabbed matcher broadening
+- `/app/frontend/src/pages/admin/components/ManagerPageShell.jsx` — new `mergeConfig()` deep-merge (~30 lines added)
+
+**Remaining backlog**:
+- Extract the Edit dialog out of `ManagerPageShell.jsx` (now 699 lines) into a `ManagerEditDialog` subcomponent — cosmetic split, no functional change
+- Broaden BUILTIN_DEFAULTS sub-tabs on the backend so first-time seeds carry keyword arrays that match the broadened matchers (currently seeded arrays are narrower than prop-level regex)
+- Storefront CTAs for Materials/Flooring/UFH/Tools landing pages
+- Prod→preview showroom sync script
+- Google Ads dashboard (blocked on Developer Token approval)
+- Google Business Profile integration (blocked on Google allowlist)
+
+
+
+
 ### [Aug 4, 2026 — Forked, session F+2] 🟢 CustomManager migrated to ManagerPageShell — VERIFIED
 
 **Owner ask**: First step of the Shell Migration backlog — port `CustomManager.jsx` (688-line monolith) onto the shared `ManagerPageShell` used by Bathroom/UFH/Tools. Prove the pattern before touching Materials/Tiles/Flooring.
