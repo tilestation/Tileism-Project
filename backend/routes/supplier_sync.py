@@ -11531,6 +11531,7 @@ def bulk_update_unified(data: dict):
             if field in set_fields:
                 set_fields[f"attributes.{field}"] = set_fields[field]
         set_fields["bulk_edited_at"] = datetime.now(timezone.utc).isoformat()
+
         
         # Process array fields (website categories)
         # Note: We need to handle empty arrays [] to allow clearing values
@@ -11579,6 +11580,38 @@ def bulk_update_unified(data: dict):
                     array_updates[arr_field] = [val]
                 else:
                     array_updates[arr_field] = []
+
+        # NEW — Accept any Configure-driven field key that is NOT already handled by
+        # the built-in whitelists (single_value_fields / array_fields). This makes
+        # the BulkSpecsFiltersModal promise "any field added via Configure is
+        # immediately bulk-editable" actually true. Reserved system keys must never
+        # be user-writable via this path.
+        RESERVED_SYSTEM_KEYS = {
+            "_id", "id", "supplier", "sku", "supplier_code",
+            "created_at", "updated_at", "deleted_at", "bulk_edited_at",
+            "is_active", "is_deleted", "is_builtin",
+            "verification_ok", "verification_failures", "sale_pricing",
+            "password", "password_hash",
+        }
+        _extra_keys = [
+            k for k, v in updates.items()
+            if k not in single_value_fields
+            and k not in array_fields
+            and k not in RESERVED_SYSTEM_KEYS
+            and not k.startswith("__")
+        ]
+        for k in _extra_keys:
+            v = updates[k]
+            if isinstance(v, list):
+                # Configure-defined array field (rare) — go the array-append route.
+                array_updates[k] = v
+                continue
+            if v is None or v == "":
+                # Blank-clear semantic: admin explicitly typing '' should unset.
+                unset_fields[k] = ""
+                continue
+            set_fields[k] = v
+
         
         staging_updated = 0
         supplier_updated = 0

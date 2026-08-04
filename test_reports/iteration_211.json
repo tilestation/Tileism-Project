@@ -1,0 +1,40 @@
+{
+  "summary": "RETEST of iteration 210 CRITICAL fix — bulk-update-unified now accepts arbitrary Configure-driven keys. Backend pytest suite (3/3 pass): (a) posting bag_weight_kg=25 + coverage_m2_per_bag=3.5 + warranty='5 years' + bag_colour='White' returned success:true, verification_ok:true, verification_failures:[] AND direct MongoDB inspection confirmed all four fields persisted; (b) blank-string clear now $unsets the field (warranty='' removes it — previously silent no-op); (c) reserved keys (is_builtin, id, verification_ok, password_hash) are correctly blocked from mutating the doc. Frontend E2E: /admin/materials → select 3 rows → Specs/Filters modal → coverage_m2_per_bag=5.5 + pack_size='20kg' → Apply → toast 'Applied 2 fields to 3 products' → DB confirms both fields on 355POL6060, 4405, 5225. Add-via-Configure promise verified: added 'Warranty' filter via Configure → immediately visible in Specs/Filters modal → typed '2 years' → Apply → toast 'Applied 1 field to 3 products' → DB confirms warranty='2 years' on all 3 products. All dirty data cleaned up post-test.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "POST /api/supplier-sync/products/bulk-update-unified",
+        "issue": "iter210 minor finding still open: the endpoint's own GET /api/supplier-sync/products/{supplier}/{sku} does NOT project non-whitelisted extras (bag_weight_kg / coverage_m2_per_bag / warranty appear null on GET even though MongoDB has them). Not a bulk-update bug — separate GET-side projection whitelist. Main agent already flagged this."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_bulk_update_unified_extras.py",
+    "/app/test_reports/pytest/iter211_results.xml"
+  ],
+  "action_items": [
+    "OPTIONAL: extend GET /api/supplier-sync/products/{supplier}/{sku} to return Configure-driven extras so admins can immediately see the value they just saved via bulk edit without a Mongo peek.",
+    "OPTIONAL: iter210 design finding — custom-manager grout-sealants has empty Specs/Filters modal until Configure seeds facets/spec_fields (not blocking, admin can self-seed).",
+    "OPTIONAL: iter210 design finding — Tiles Configure default spec_fields still lack options[] on material/finish/slip_rating and are missing edge/type rows."
+  ],
+  "critical_code_review_comments": [
+    "The new extras block in supplier_sync.py (line 11584) is clean, minimal and correctly plumbs list values into array_updates, non-empty scalars into set_fields, and None/'' into unset_fields — matches the verifier's re-read loop, so verification_ok is now honest.",
+    "RESERVED_SYSTEM_KEYS set correctly guards id, supplier, sku, is_builtin, verification_ok, password_hash from being writeable via user-supplied updates{}."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_bulk_update_unified_extras.py (new)"
+  ],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "admin@test.com / admin123 (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "Wrote coverage_m2_per_bag/pack_size/warranty on SKUs 355POL6060, 4405, 5225 during E2E — all $unset via mongo after test. Added 'Warranty' filter to manager_definitions.materials.filter_facets during Configure test — removed via mongo after test (facets restored to original 4). Backend pytest also wrote+unset on ULT-GGI.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "The bulk-update-unified silent-drop bug is fully fixed. If future iterations touch this endpoint, /app/backend/tests/test_bulk_update_unified_extras.py is a regression guard (3 tests: arbitrary-key persistence + verification_ok, blank-clear $unset, reserved-key protection). REACT_APP_BACKEND_URL from frontend/.env. Note: for the modal E2E, first Configure→Add Filter row inputs are in order [label, field, value_key, array_field] — use last 4 inputs of dialog after clicking Add Filter.",
+  "rca of the issue": "N/A — retest passed; original RCA in iteration_210.json remains the reference for the historical bug."
+}
