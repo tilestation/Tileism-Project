@@ -104,6 +104,7 @@ const Suppliers = React.lazy(() => import('./pages/admin/Suppliers'));
 const StocktakeReport = React.lazy(() => import('./pages/admin/StocktakeReport'));
 const SupplierSyncDashboard = React.lazy(() => import('./pages/admin/SupplierSyncDashboard'));
 const SupplierProducts = React.lazy(() => import('./pages/admin/SupplierProducts'));
+const ProductNameSanity = React.lazy(() => import('./pages/admin/ProductNameSanity'));
 const MaterialsManager = React.lazy(() => import('./pages/admin/MaterialsManager'));
 const TilesManager = React.lazy(() => import('./pages/admin/TilesManager'));
 const FlooringManager = React.lazy(() => import('./pages/admin/FlooringManager'));
@@ -589,6 +590,7 @@ function App() {
             <Route path="suppliers" element={<Suppliers />} />
             <Route path="supplier-sync" element={<SupplierSyncDashboard />} />
             <Route path="supplier-products" element={<SupplierProducts />} />
+            <Route path="product-name-sanity" element={<ProductNameSanity />} />
             <Route path="materials" element={<MaterialsManager />} />
             <Route path="tiles" element={<TilesManager />} />
             <Route path="flooring" element={<FlooringManager />} />

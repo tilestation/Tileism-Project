@@ -290,6 +290,7 @@ export const Layout = () => {
         { to: '/admin/bathroom', icon: Grid3X3, label: 'Bathroom Manager', badge: 'NEW', permission: 'supplier_products', legacyPermission: 'products' },
         { to: '/admin/underfloor-heating', icon: Grid3X3, label: 'Underfloor Heat', badge: 'NEW', permission: 'supplier_products', legacyPermission: 'products' },
         { to: '/admin/tools', icon: Grid3X3, label: 'Tools Manager', badge: 'NEW', permission: 'supplier_products', legacyPermission: 'products' },
+        { to: '/admin/product-name-sanity', icon: ShieldCheck, label: 'Name Sanity', permission: 'supplier_products', legacyPermission: 'products' },
         { to: '/admin/price-tickets', icon: Tag, label: 'Price Tickets', permission: 'supplier_products', legacyPermission: 'products' },
         { to: '/admin/supplier-health', icon: Activity, label: 'Supplier Health', permission: 'supplier_health', legacyPermission: 'products' },
         { to: '/admin/sync-hub', icon: RefreshCw, label: 'Sync Hub', permission: 'sync_hub', legacyPermission: 'products' },
