@@ -3,6 +3,7 @@ import { Trash2, Plus, RotateCcw, Store, ChevronDown, ChevronUp } from 'lucide-r
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Checkbox } from '../ui/checkbox';
+import ProductSearchModal from './ProductSearchModal';
 
 // Capitalize first letter of every word (Title Case)
 const toTitleCase = (str) => {
@@ -215,6 +216,14 @@ export const InvoiceLineItemsTable = ({
   // a piece of paper that hasn't been paid for yet.
   showReturnColumn = true,
 }) => {
+  // Modal-based product search — replaces the tight inline dropdown that was
+  // hard to read inside a table row. Track WHICH line index opened the modal
+  // so the picked product goes to the right row.
+  const [searchModalIndex, setSearchModalIndex] = React.useState(null);
+  const openSearchModalFor = (index) => setSearchModalIndex(index);
+  const closeSearchModal = () => setSearchModalIndex(null);
+  const modalOpen = searchModalIndex !== null;
+  const modalInitialQuery = modalOpen ? (lineItems[searchModalIndex]?.sku || lineItems[searchModalIndex]?.product || '') : '';
   // Filter products based on search - supports word-by-word matching in any order
   // e.g., "chrome tin" matches "Tin Chrome Edge Finish"
   // Also searches by original supplier product name for flexible search
@@ -300,70 +309,19 @@ export const InvoiceLineItemsTable = ({
               
               return (
                 <tr key={index} className={`${qtyExceedsStock ? 'bg-red-50' : ''} ${isReturn ? 'bg-red-50 border-l-4 border-l-red-500' : ''}`}>
-                  {/* SKU Column */}
+                  {/* SKU Column — opens the ProductSearchModal on focus/click */}
                   <td className="border px-1 py-1 relative">
                     <Input
-                      className="h-8 text-sm"
+                      className="h-8 text-sm cursor-pointer"
                       value={item.sku}
-                      onChange={(e) => {
-                        onUpdateLineItem(index, 'sku', e.target.value);
-                        onSearchTermChange(e.target.value);
-                        onActiveLineIndexChange(index);
-                      }}
-                      onFocus={() => {
-                        onActiveLineIndexChange(index);
-                        onSearchTermChange(item.sku || '');
-                      }}
-                      placeholder="Search SKU..."
+                      readOnly
+                      onFocus={() => openSearchModalFor(index)}
+                      onClick={() => openSearchModalFor(index)}
+                      placeholder="Click to search…"
+                      data-testid={`invoice-sku-input-${index}`}
                     />
-                    {/* Product Search Dropdown */}
-                    {activeLineIndex === index && searchTerm && (
-                      <div className="absolute z-50 top-full left-0 bg-white border rounded-md shadow-lg max-h-72 overflow-y-auto min-w-[500px] w-[500px]">
-                        {filteredProducts.length === 0 ? (
-                          <div className="px-3 py-2 text-sm text-gray-500">No products found</div>
-                        ) : (
-                          filteredProducts.slice(0, 10).map(product => {
-                            // Get showroom-specific stock
-                            const showroomStock = userShowroomId && product.showroom_stock 
-                              ? (product.showroom_stock[userShowroomId] || 0)
-                              : product.stock;
-                            const otherStoresStock = product.showroom_stock 
-                              ? Object.entries(product.showroom_stock)
-                                  .filter(([id]) => id !== userShowroomId)
-                                  .reduce((sum, [_, qty]) => sum + qty, 0)
-                              : 0;
-                            
-                            return (
-                            <div
-                              key={product.id}
-                              className="px-3 py-2 hover:bg-gray-100 cursor-pointer text-sm border-b"
-                              onClick={() => onSelectProduct(index, product)}
-                            >
-                              <div className="flex justify-between">
-                                <span className="font-medium">{product.sku || 'N/A'}</span>
-                                <span className="text-green-600">£{(product.price || 0).toFixed(2)}</span>
-                              </div>
-                              <div className="text-xs text-gray-500">{product.name}</div>
-                              {product.description && (
-                                <div className="text-xs text-purple-600 font-medium">{product.description}</div>
-                              )}
-                              <div className="flex justify-between items-center mt-1">
-                                <span className={`text-xs font-medium ${showroomStock > 0 ? 'text-green-600' : 'text-red-500'}`}>
-                                  This Store: {showroomStock}
-                                </span>
-                                {otherStoresStock > 0 && (
-                                  <span className="text-xs text-purple-600">
-                                    Other Stores: {otherStoresStock}
-                                  </span>
-                                )}
-                              </div>
-                            </div>
-                          )})
-                        )}
-                      </div>
-                    )}
                   </td>
-                  
+
                   {/* Product Column */}
                   <td className="border px-1 py-1">
                     {isReturn && (
@@ -379,19 +337,11 @@ export const InvoiceLineItemsTable = ({
                     <Input
                       className={`h-8 text-sm ${isReturn ? 'line-through text-red-700' : ''}`}
                       value={item.product}
-                      onChange={(e) => {
-                        onUpdateLineItem(index, 'product', e.target.value);
-                        onSearchTermChange(e.target.value);
-                        onActiveLineIndexChange(index);
-                      }}
-                      onFocus={() => {
-                        onActiveLineIndexChange(index);
-                        onSearchTermChange(item.product || '');
-                      }}
+                      onChange={(e) => onUpdateLineItem(index, 'product', e.target.value)}
                       onBlur={(e) => {
                         onUpdateLineItem(index, 'product', toTitleCase(e.target.value));
                       }}
-                      placeholder="Search product..."
+                      placeholder="Product name (picked from search)"
                     />
                   </td>
                   
@@ -697,6 +647,21 @@ export const InvoiceLineItemsTable = ({
           </tfoot>
         </table>
       </div>
+
+      {/* Product Search Modal — replaces the old cramped inline dropdown */}
+      <ProductSearchModal
+        open={modalOpen}
+        onClose={closeSearchModal}
+        products={products}
+        initialQuery={modalInitialQuery}
+        userShowroomId={userShowroomId}
+        onSelect={(product) => {
+          if (searchModalIndex !== null) {
+            onSelectProduct(searchModalIndex, product);
+          }
+          closeSearchModal();
+        }}
+      />
     </div>
   );
 };

@@ -951,45 +951,20 @@ export const Invoice = () => {
     }
   };
 
-  // Filter products based on search (by SKU or name)
-  // Supports word-by-word matching in any order (e.g., "chrome tin" matches "Tin Chrome Edge")
-  // Also searches by original supplier product name (e.g., "Tenby White" finds "Sparta White")
+  // STRICT search — only matches against product `name` and `sku`.
+  // Fuzzy matching on descriptions/supplier tags was pulling in unrelated
+  // products (e.g. "standard set" surfacing Fossil Beige because the marketing
+  // blurb happened to contain both words), so those fields are excluded.
   const filteredProducts = products.filter(p => {
     if (!searchTerm) return true;
-    
-    const searchLower = searchTerm.toLowerCase().trim();
-    const nameLower = (p.name || '').toLowerCase();
-    const skuLower = (p.sku || '').toLowerCase();
-    const descLower = (p.description || '').toLowerCase();
-    const supplierLower = (p.supplier_name || '').toLowerCase();
-    // Allow searching by original supplier product name (flexible search)
-    const supplierProductNameLower = (p.supplier_product_name || '').toLowerCase();
-    
-    // First check if exact substring match (original behavior)
-    if (nameLower.includes(searchLower) || skuLower.includes(searchLower)) {
-      return true;
-    }
-    
-    // Check if search matches original supplier product name
-    if (supplierProductNameLower && supplierProductNameLower.includes(searchLower)) {
-      return true;
-    }
-    
-    // Split search into words and check if ALL words are found in product (any order)
-    const searchWords = searchLower.split(/\s+/).filter(w => w.length > 0);
-    
-    // If single word, just check contains
-    if (searchWords.length === 1) {
-      return nameLower.includes(searchWords[0]) || 
-             skuLower.includes(searchWords[0]) ||
-             descLower.includes(searchWords[0]) ||
-             supplierLower.includes(searchWords[0]) ||
-             supplierProductNameLower.includes(searchWords[0]);
-    }
-    
-    // For multiple words, ALL words must be found somewhere in the product (including supplier product name)
-    const combinedText = `${nameLower} ${skuLower} ${descLower} ${supplierLower} ${supplierProductNameLower}`;
-    return searchWords.every(word => combinedText.includes(word));
+    const query = searchTerm.toLowerCase().trim();
+    const name = (p.name || '').toLowerCase();
+    const sku = (p.sku || '').toLowerCase();
+    // Every typed word must appear somewhere in the combined name+sku string
+    // (order agnostic, so "chrome tin" still matches "Tin Chrome Edge").
+    const words = query.split(/\s+/).filter(Boolean);
+    const hay = `${name} ${sku}`;
+    return words.every(w => hay.includes(w));
   });
 
   // Capitalize first letter of every word (Title Case)
