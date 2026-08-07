@@ -15565,6 +15565,7 @@ export default function SupplierProducts() {
         open={showNameSanity}
         onClose={() => setShowNameSanity(false)}
         defaultSupplier={selectedSupplier && selectedSupplier !== 'all' ? selectedSupplier : ''}
+        knownSuppliers={SUPPLIERS.filter(s => s.id !== 'all').map(s => ({ name: s.id }))}
         selectedSkus={
           showNameSanity && selectedProducts.size > 0
             ? Array.from(selectedProducts).map(k => (k.includes('|||') ? k.split('|||')[1] : k)).filter(Boolean)

@@ -147,6 +147,7 @@ async def sanity_report(
     supplier: Optional[str] = Query(None),
     issue: Optional[str] = Query(None, description="Filter to one issue type (e.g. too_short)"),
     limit: int = Query(500, ge=1, le=5000),
+    include_clean: bool = Query(False, description="If true, also return non-flagged rows (useful when a supplier is selected so admins can rename ANY product)"),
     current_user: dict = Depends(get_current_user),
 ):
     """Scan `supplier_products` and return rows with detected issues."""
@@ -164,15 +165,19 @@ async def sanity_report(
     rows: list[dict] = []
     supplier_counts: dict[str, int] = {}
     total_scanned = 0
+    total_flagged = 0
 
     # Scan with a modest limit — the collection can be huge; the frontend paginates.
     cursor = db.supplier_products.find(filt).limit(min(limit * 5, 8000))
     async for doc in cursor:
         total_scanned += 1
         issues = _scan_issues(doc)
-        if not issues:
+        if issues:
+            total_flagged += 1
+        # Skip clean rows unless include_clean=true (typically set when a supplier is scoped).
+        if not issues and not include_clean:
             continue
-        if issue and issue not in issues:
+        if issue and issues and issue not in issues:
             continue
         for i in issues:
             issue_counts[i] = issue_counts.get(i, 0) + 1
@@ -184,7 +189,7 @@ async def sanity_report(
     return {
         "rows": rows,
         "total_scanned": total_scanned,
-        "total_flagged": len(rows),
+        "total_flagged": total_flagged,
         "issue_counts": issue_counts,
         "supplier_counts": supplier_counts,
     }
@@ -286,10 +291,20 @@ async def apply_new_names(
         if res.matched_count == 0:
             failed.append({"sku": item.sku, "reason": "not_found"})
             continue
+        # Mirror to `tiles` (website tile listings) and `products` (EPOS + general products).
+        # Best-effort — a missing SKU in either collection is fine.
+        clean_name = item.new_name.strip()
         try:
-            await db.tiles.update_one({"sku": item.sku}, {"$set": {"name": item.new_name.strip(), "updated_at": now}})
+            await db.tiles.update_one({"sku": item.sku}, {"$set": {"name": clean_name, "updated_at": now}})
         except Exception:
-            pass  # tiles mirror is best-effort
+            pass
+        try:
+            await db.products.update_many(
+                {"sku": item.sku},
+                {"$set": {"name": clean_name, "product_name": clean_name, "updated_at": now}},
+            )
+        except Exception:
+            pass
         ok += 1
 
     await log_audit(
@@ -350,11 +365,19 @@ async def apply_suggested_names(
             }},
         )
         if res.modified_count:
-            # Mirror to tiles collection (some routes still read from there) — best-effort.
+            # Mirror to `tiles` + `products` collections (some routes read from there,
+            # especially the storefront and EPOS). Best-effort — errors are swallowed.
             try:
                 await db.tiles.update_one(
                     {"sku": doc.get("sku")},
                     {"$set": {"name": suggested, "updated_at": now}},
+                )
+            except Exception:
+                pass
+            try:
+                await db.products.update_many(
+                    {"sku": doc.get("sku")},
+                    {"$set": {"name": suggested, "product_name": suggested, "updated_at": now}},
                 )
             except Exception:
                 pass

@@ -34,7 +34,7 @@ const ISSUE_META = {
   has_placeholder: { label: 'Placeholder',    color: 'bg-red-100 text-red-700' },
 };
 
-const NameSanityDrawer = ({ open, onClose, defaultSupplier = '', onRenamed, selectedSkus = null }) => {
+const NameSanityDrawer = ({ open, onClose, defaultSupplier = '', onRenamed, selectedSkus = null, knownSuppliers = [] }) => {
   const [report, setReport] = useState({ rows: [], total_scanned: 0, total_flagged: 0, issue_counts: {}, supplier_counts: {} });
   const [loading, setLoading] = useState(false);
   const [running, setRunning] = useState(false);
@@ -43,6 +43,7 @@ const NameSanityDrawer = ({ open, onClose, defaultSupplier = '', onRenamed, sele
   const [supplierFilter, setSupplierFilter] = useState(defaultSupplier || '');
   const [issueFilter, setIssueFilter] = useState('');
   const [limit, setLimit] = useState(200);
+  const [searchQuery, setSearchQuery] = useState('');
 
   const scoped = Array.isArray(selectedSkus) && selectedSkus.length > 0;
 
@@ -63,9 +64,13 @@ const NameSanityDrawer = ({ open, onClose, defaultSupplier = '', onRenamed, sele
           body: JSON.stringify({ skus: selectedSkus, include_clean: true }),
         });
       } else {
-        // Global scan mode.
+        // Global scan mode. If a supplier is chosen we include clean rows too,
+        // so admins can rename ANY product in that supplier (not only flagged).
         const params = new URLSearchParams();
-        if (supplierFilter) params.set('supplier', supplierFilter);
+        if (supplierFilter) {
+          params.set('supplier', supplierFilter);
+          params.set('include_clean', 'true');
+        }
         if (issueFilter) params.set('issue', issueFilter);
         params.set('limit', String(limit));
         res = await fetch(`${API_URL}/api/product-name-sanity/report?${params}`, { headers: authHeaders() });
@@ -161,7 +166,18 @@ const NameSanityDrawer = ({ open, onClose, defaultSupplier = '', onRenamed, sele
     }
   };
 
-  const suppliers = Object.keys(report.supplier_counts || {}).sort();
+  const suppliers = knownSuppliers && knownSuppliers.length > 0
+    ? knownSuppliers
+    : Object.keys(report.supplier_counts || {}).sort();
+
+  // Apply local search filter (name / sku / range / supplier) on top of the fetched rows.
+  const q = searchQuery.trim().toLowerCase();
+  const visibleRows = q
+    ? report.rows.filter((r) => {
+        const hay = `${r.product_name || ''} ${r.sku || ''} ${r.range_name || ''} ${r.supplier || ''}`.toLowerCase();
+        return hay.includes(q);
+      })
+    : report.rows;
 
   if (!open) return null;
 
@@ -239,7 +255,18 @@ const NameSanityDrawer = ({ open, onClose, defaultSupplier = '', onRenamed, sele
               disabled={scoped}
             >
               <option value="">All suppliers</option>
-              {suppliers.map(s => <option key={s} value={s}>{s} ({report.supplier_counts[s]})</option>)}
+              {suppliers.map((s) => {
+                // Support both plain strings and { name, count } objects.
+                const name = typeof s === 'string' ? s : s.name || s.id;
+                const cnt = typeof s === 'string'
+                  ? report.supplier_counts?.[s]
+                  : (s.count ?? report.supplier_counts?.[name]);
+                return (
+                  <option key={name} value={name}>
+                    {name}{cnt ? ` (${cnt})` : ''}
+                  </option>
+                );
+              })}
             </select>
             <select
               className="h-8 text-xs border border-gray-300 rounded px-2 min-w-[180px] disabled:bg-gray-100 disabled:text-gray-400"
@@ -273,6 +300,31 @@ const NameSanityDrawer = ({ open, onClose, defaultSupplier = '', onRenamed, sele
             >
               <Search className="w-3.5 h-3.5 mr-1" /> Apply
             </Button>
+
+            {/* Search box — client-side filter across name / SKU / series / supplier. */}
+            <div className="relative flex-1 min-w-[220px] max-w-[360px]">
+              <Search className="w-3.5 h-3.5 text-gray-400 absolute left-2 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <Input
+                type="text"
+                placeholder="Search name, SKU, series…"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="h-8 text-xs pl-7 pr-7"
+                data-testid="pns-search"
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery('')}
+                  className="absolute right-1.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                  data-testid="pns-search-clear"
+                  title="Clear search"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+
             <div className="ml-auto">
               <Button
                 onClick={applyAllSuggested}
@@ -296,11 +348,15 @@ const NameSanityDrawer = ({ open, onClose, defaultSupplier = '', onRenamed, sele
             <div className="text-center py-16 text-gray-400 text-sm">
               <RefreshCw className="w-6 h-6 mx-auto animate-spin mb-2" />Scanning…
             </div>
-          ) : report.rows.length === 0 ? (
+          ) : visibleRows.length === 0 ? (
             <div className="bg-white border border-emerald-200 rounded-lg p-8 text-center">
               <ShieldCheck className="w-10 h-10 mx-auto text-emerald-500 mb-2" />
-              <p className="text-lg font-medium text-emerald-700">Zero problems detected in this filter</p>
-              <p className="text-xs text-gray-500 mt-1">Change filters above or hit Rescan to run again.</p>
+              <p className="text-lg font-medium text-emerald-700">
+                {searchQuery ? `No products match "${searchQuery}"` : 'Zero problems detected in this filter'}
+              </p>
+              <p className="text-xs text-gray-500 mt-1">
+                {searchQuery ? 'Clear the search or refine your query.' : 'Change filters above or hit Rescan to run again.'}
+              </p>
             </div>
           ) : (
             <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
@@ -316,7 +372,7 @@ const NameSanityDrawer = ({ open, onClose, defaultSupplier = '', onRenamed, sele
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
-                  {report.rows.map(row => {
+                  {visibleRows.map(row => {
                     const busy = !!rowSaving[row.sku];
                     const currentEdit = suggestedEdits[row.sku] ?? row.suggested_name;
                     const willChange = currentEdit && currentEdit !== row.product_name;
