@@ -19,7 +19,7 @@
  *   onSelect(product) — called when a row is clicked; parent closes the modal
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Search, X, Store, PackageCheck } from 'lucide-react';
+import { Search, X, Store, PackageCheck, Plus } from 'lucide-react';
 import { Input } from '../ui/input';
 import { Button } from '../ui/button';
 
@@ -30,6 +30,7 @@ const ProductSearchModal = ({
   initialQuery = '',
   userShowroomId = null,
   onSelect,
+  onAddMisc = null,
 }) => {
   const [q, setQ] = useState(initialQuery || '');
   const inputRef = useRef(null);
@@ -128,9 +129,26 @@ const ProductSearchModal = ({
         {/* Results list */}
         <div className="flex-1 overflow-y-auto">
           {visible.length === 0 ? (
-            <div className="text-center py-12 text-sm text-gray-400" data-testid="product-search-empty">
+            <div className="text-center py-10 px-6" data-testid="product-search-empty">
               <PackageCheck className="w-8 h-8 mx-auto text-gray-300 mb-2" />
-              No products match &ldquo;{q}&rdquo;
+              <p className="text-sm text-gray-500 mb-4">
+                No products match &ldquo;{q}&rdquo;
+              </p>
+              {onAddMisc && q.trim() && (
+                <Button
+                  onClick={() => onAddMisc(q.trim())}
+                  className="bg-amber-600 hover:bg-amber-700 text-white"
+                  data-testid="product-search-add-misc"
+                >
+                  <Plus className="w-4 h-4 mr-1.5" />
+                  Add &ldquo;{q.trim()}&rdquo; as Miscellaneous
+                </Button>
+              )}
+              {onAddMisc && q.trim() && (
+                <p className="text-[11px] text-gray-400 mt-2">
+                  Adds a temporary line item with this name at £0 — set the price on the invoice row.
+                </p>
+              )}
             </div>
           ) : (
             <ul className="divide-y divide-gray-100">
@@ -148,23 +166,23 @@ const ProductSearchModal = ({
                 return (
                   <li
                     key={p.id || p.sku || idx}
-                    className={`px-5 py-3 cursor-pointer flex items-center gap-4 transition-colors ${
+                    className={`px-5 py-3 cursor-pointer flex items-start gap-4 transition-colors ${
                       highlighted ? 'bg-blue-50' : 'hover:bg-slate-50'
                     }`}
                     onMouseEnter={() => setHighlight(idx)}
                     onClick={() => onSelect?.(p)}
                     data-testid={`product-search-row-${p.sku || idx}`}
                   >
-                    {/* Left — name + SKU only. NO description on purpose. */}
+                    {/* Left — full product name (wraps, no truncate) + SKU */}
                     <div className="flex-1 min-w-0">
-                      <div className="text-sm font-medium text-slate-900 truncate" title={p.name}>
+                      <div className="text-sm font-medium text-slate-900 leading-snug break-words">
                         {p.name || <span className="text-gray-400">— no name —</span>}
                       </div>
-                      <div className="text-[11px] text-slate-500 font-mono">{p.sku || 'no-sku'}</div>
+                      <div className="text-[11px] text-slate-500 font-mono mt-0.5">{p.sku || 'no-sku'}</div>
                     </div>
 
                     {/* Middle — stock */}
-                    <div className="text-right shrink-0 min-w-[130px]">
+                    <div className="text-right shrink-0 min-w-[120px] pt-0.5">
                       <div className={`text-xs font-medium flex items-center gap-1 justify-end ${showroomStock > 0 ? 'text-emerald-700' : 'text-red-600'}`}>
                         <Store className="w-3 h-3" />
                         This store: {showroomStock}
@@ -175,7 +193,7 @@ const ProductSearchModal = ({
                     </div>
 
                     {/* Right — price */}
-                    <div className="text-right shrink-0 min-w-[90px]">
+                    <div className="text-right shrink-0 min-w-[80px] pt-0.5">
                       <div className="text-sm font-semibold text-emerald-700">
                         £{(p.price || 0).toFixed(2)}
                       </div>

@@ -309,15 +309,17 @@ export const InvoiceLineItemsTable = ({
               
               return (
                 <tr key={index} className={`${qtyExceedsStock ? 'bg-red-50' : ''} ${isReturn ? 'bg-red-50 border-l-4 border-l-red-500' : ''}`}>
-                  {/* SKU Column — opens the ProductSearchModal on focus/click */}
+                  {/* SKU Column — opens the ProductSearchModal on focus/click.
+                      Staff can just start typing in the row — modal opens
+                      and their keystrokes flow into its autofocused input. */}
                   <td className="border px-1 py-1 relative">
                     <Input
                       className="h-8 text-sm cursor-pointer"
                       value={item.sku}
-                      readOnly
+                      onChange={() => { /* modal owns the text — this input is display-only */ }}
                       onFocus={() => openSearchModalFor(index)}
                       onClick={() => openSearchModalFor(index)}
-                      placeholder="Click to search…"
+                      placeholder="Type to search…"
                       data-testid={`invoice-sku-input-${index}`}
                     />
                   </td>
@@ -659,6 +661,23 @@ export const InvoiceLineItemsTable = ({
           if (searchModalIndex !== null) {
             onSelectProduct(searchModalIndex, product);
           }
+          closeSearchModal();
+        }}
+        onAddMisc={(name) => {
+          // Build a synthetic Miscellaneous product so the invoice row picks it
+          // up like any real product. SKU is prefixed MISC- + timestamp so the
+          // audit log can tell miscs apart from real stock. Price starts at 0
+          // and staff sets it inline on the row.
+          if (searchModalIndex === null) return;
+          const miscProduct = {
+            id: `misc-${Date.now()}`,
+            sku: `MISC-${Date.now().toString(36).toUpperCase()}`,
+            name,
+            price: 0,
+            stock: 0,
+            is_misc: true,
+          };
+          onSelectProduct(searchModalIndex, miscProduct);
           closeSearchModal();
         }}
       />
