@@ -491,3 +491,84 @@ async def sync_supplier_names_to_epos_and_website(
         "skipped_no_sku": skipped_no_sku,
         "samples": changed_samples,
     }
+
+
+@router.get("/locate")
+async def locate_sku(
+    sku: str = Query(..., description="SKU to trace across every name-carrying collection"),
+    current_user: dict = Depends(get_current_user),
+):
+    """Find every collection that stores a product with this SKU. Useful when
+    EPOS/Website shows a name the admin can't find in Supplier Products —
+    the ghost record usually lives in `db.products` (manual entry) or `db.tiles`
+    (orphaned website record).
+    """
+    if not has_permission(current_user, "supplier_products"):
+        raise HTTPException(403, "You need the Supplier Products permission to trace SKUs")
+
+    db = get_db()
+    locations: list[dict] = []
+    # These are the collections EPOS + Website + Sanity reads from.
+    for col_name in ("supplier_products", "products", "tiles"):
+        try:
+            async for d in db[col_name].find({"$or": [{"sku": sku}, {"supplier_code": sku}]}).limit(20):
+                locations.append({
+                    "collection": col_name,
+                    "id": str(d.get("id") or d.get("_id") or ""),
+                    "sku": d.get("sku"),
+                    "supplier_code": d.get("supplier_code"),
+                    "name": d.get("name"),
+                    "product_name": d.get("product_name"),
+                    "supplier": d.get("supplier") or d.get("supplier_name"),
+                    "supplier_product_name": d.get("supplier_product_name"),
+                    "in_products_db": d.get("in_products_db"),
+                    "created_at": str(d.get("created_at") or ""),
+                    "updated_at": str(d.get("updated_at") or ""),
+                })
+        except Exception:
+            pass
+    return {"sku": sku, "found": len(locations), "locations": locations}
+
+
+class PurgeRequest(BaseModel):
+    sku: str = Field(min_length=1)
+    collections: List[str] = Field(default_factory=lambda: ["products", "tiles"], description="Which collections to purge from. Never purges supplier_products via this endpoint.")
+
+
+@router.post("/purge")
+async def purge_sku(
+    payload: PurgeRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """Delete every doc for this SKU from the requested collections. Used to
+    remove ghost EPOS / Website entries that don't have a matching
+    Supplier Product row. Never touches `supplier_products` — use the usual
+    delete flow for that.
+    """
+    if not has_permission(current_user, "supplier_products"):
+        raise HTTPException(403, "You need the Supplier Products permission to purge products")
+
+    ALLOWED = {"products", "tiles"}
+    targets = [c for c in payload.collections if c in ALLOWED]
+    if not targets:
+        raise HTTPException(400, f"No valid collections. Allowed: {sorted(ALLOWED)}")
+
+    db = get_db()
+    deleted: dict[str, int] = {}
+    for col in targets:
+        try:
+            res = await db[col].delete_many({"$or": [{"sku": payload.sku}, {"supplier_code": payload.sku}]})
+            deleted[col] = res.deleted_count
+        except Exception as e:
+            deleted[col] = 0
+            deleted[f"{col}_error"] = str(e)  # type: ignore
+
+    await log_audit(
+        action="PURGE_GHOST_SKU",
+        entity_type="product",
+        user=current_user,
+        entity_id=payload.sku,
+        entity_name=f"Purged ghost SKU {payload.sku} from {targets}",
+        after_data={"deleted": deleted, "collections": targets},
+    )
+    return {"ok": True, "sku": payload.sku, "deleted": deleted}

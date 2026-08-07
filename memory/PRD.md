@@ -9,7 +9,40 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
-### [Aug 7, 2026 — Forked, session F+9] 🟢 Name Sanity: EPOS+Website backfill sync + merged flows + selection mode + all-supplier scan + search — VERIFIED
+### [Aug 7, 2026 — Forked, session F+9] 🟢 Name Sanity: Ghost SKU locator + EPOS/Website backfill + all Name Sanity improvements — VERIFIED
+
+**Owner ask (final iteration)**: `ULT-PSS-1 / Proflex White` shows up in EPOS as a duplicate with wrong name but isn't in Supplier Products. Where is that name being pulled from and how do I delete it?
+
+**Answer explained to admin**: EPOS reads product names from only 2 collections — `db.products` (primary) and `db.supplier_products` (fallback). A ghost like `ULT-PSS-1` that's absent from Supplier Products must live in `db.products` (added manually / legacy CSV import).
+
+**Delivered** (Ghost SKU locator + purge, added ON TOP of the earlier session work):
+- **`GET /api/product-name-sanity/locate?sku=…`** — scans `supplier_products` + `products` + `tiles` for the SKU (matches on `sku` OR `supplier_code`) and returns every location with collection, id, name, product_name, supplier, and timestamps.
+- **`POST /api/product-name-sanity/purge`** — body `{ sku, collections: ["products", "tiles"] }` — deletes ghost rows from EPOS/Website. **Never** touches `supplier_products` (guarded). Audited as `PURGE_GHOST_SKU`.
+- **New "Trace ghost SKU" indigo panel** inside the Name Sanity drawer between the filter bar and the table. Type a SKU → click Locate → results table shows each collection with contextual sub-labels ("source of truth" / "EPOS + main products" / "Website storefront") + a per-collection **Delete** button.
+- Purge auto-refreshes the locate result and fires `onRenamed()` so the parent list re-fetches.
+
+**Session (F+9) full delivery list — one-line each**:
+1. Toolbar cleanup (5 buttons removed) + drawer merge + sidebar unlink.
+2. Selection-driven scoped mode + `POST /report-for-selection`.
+3. Supplier-scoped "show all" via `include_clean=true` (Ultra Tile: 81/81).
+4. `knownSuppliers` prop (20 suppliers in dropdown).
+5. Client-side search box (name/SKU/range/supplier).
+6. Auto-mirror renames to `tiles` + `products` in `/apply` and `/apply-suggested`.
+7. `POST /sync-to-epos-website` backfill endpoint + "Sync to EPOS & Website" header button.
+8. `GET /locate` + `POST /purge` for ghost SKUs + "Trace ghost SKU" panel.
+
+**Files touched (session F+9 final)**:
+- MODIFIED: `/app/backend/routes/product_name_sanity.py` — 4 new endpoints (`/report-for-selection`, `/sync-to-epos-website`, `/locate`, `/purge`), `include_clean` on `/report`, dual-collection mirror on `/apply` + `/apply-suggested`.
+- MODIFIED: `/app/frontend/src/pages/admin/components/supplier-products/NameSanityDrawer.jsx` — full-featured drawer (~600 LOC): scoped mode, search, sync backfill, ghost locator + purge.
+- MODIFIED: `/app/frontend/src/pages/admin/SupplierProducts.js` — merged sanity trigger, selection-count label, `<NameSanityDrawer>` with `selectedSkus` + `knownSuppliers`, 5 toolbar buttons removed.
+- MODIFIED: `/app/frontend/src/components/Layout.js` — sidebar Name Sanity entry removed.
+
+**Verification** (Playwright + curl + Mongo):
+- Locate `D11197` → 3 rows returned (supplier_products, products, tiles) with correct labels + purge buttons.
+- Purge `products` deletes only that collection (never `supplier_products`).
+- Backfill sync updated 376 tile names + 1 product name across 1,603 supplier products in one call.
+
+
 
 **Owner asks (5 iterations)**:
 1. Hard-remove 5 toolbar buttons: Name Changes / Fix Product Names / Bulk Edit (N) / Archive (N) / Bulk Stock.

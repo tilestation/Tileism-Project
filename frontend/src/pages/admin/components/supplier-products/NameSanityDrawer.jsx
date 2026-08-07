@@ -16,7 +16,7 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import { toast } from 'sonner';
 import {
-  ShieldCheck, AlertTriangle, RefreshCw, Save, X, Zap, Filter, Search, Wand2, Send,
+  ShieldCheck, AlertTriangle, RefreshCw, Save, X, Zap, Filter, Search, Wand2, Send, MapPin, Trash2,
 } from 'lucide-react';
 import { Button } from '../../../../components/ui/button';
 import { Input } from '../../../../components/ui/input';
@@ -44,6 +44,10 @@ const NameSanityDrawer = ({ open, onClose, defaultSupplier = '', onRenamed, sele
   const [issueFilter, setIssueFilter] = useState('');
   const [limit, setLimit] = useState(200);
   const [searchQuery, setSearchQuery] = useState('');
+  const [locateSku, setLocateSku] = useState('');
+  const [locateResult, setLocateResult] = useState(null); // { sku, locations: [...] }
+  const [locating, setLocating] = useState(false);
+  const [purging, setPurging] = useState({}); // { collection: bool }
 
   const scoped = Array.isArray(selectedSkus) && selectedSkus.length > 0;
 
@@ -190,6 +194,47 @@ const NameSanityDrawer = ({ open, onClose, defaultSupplier = '', onRenamed, sele
       toast.error(`Sync failed: ${err.message}`);
     } finally {
       setRunning(false);
+    }
+  };
+
+  const locateSkuAcrossCollections = async () => {
+    const sku = locateSku.trim();
+    if (!sku) { toast.info('Type a SKU to locate'); return; }
+    setLocating(true);
+    setLocateResult(null);
+    try {
+      const res = await fetch(`${API_URL}/api/product-name-sanity/locate?sku=${encodeURIComponent(sku)}`, { headers: authHeaders() });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      setLocateResult(data);
+      if (data.found === 0) toast.info(`No matches for "${sku}" in supplier_products, products, or tiles.`);
+    } catch (err) {
+      toast.error(`Locate failed: ${err.message}`);
+    } finally {
+      setLocating(false);
+    }
+  };
+
+  const purgeFromCollection = async (sku, collection) => {
+    if (!window.confirm(`Delete every row where sku="${sku}" from the "${collection}" collection?\n\nThis is IRREVERSIBLE. Use this only for ghost EPOS/website records that don't have a matching Supplier Product. This is logged.`)) return;
+    setPurging((p) => ({ ...p, [collection]: true }));
+    try {
+      const res = await fetch(`${API_URL}/api/product-name-sanity/purge`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
+        body: JSON.stringify({ sku, collections: [collection] }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      const removed = data.deleted?.[collection] ?? 0;
+      toast.success(`Deleted ${removed} row${removed === 1 ? '' : 's'} from ${collection}`);
+      // Re-run locate so the panel refreshes.
+      await locateSkuAcrossCollections();
+      onRenamed?.();
+    } catch (err) {
+      toast.error(`Purge failed: ${err.message}`);
+    } finally {
+      setPurging((p) => ({ ...p, [collection]: false }));
     }
   };
 
@@ -383,6 +428,108 @@ const NameSanityDrawer = ({ open, onClose, defaultSupplier = '', onRenamed, sele
               </Button>
             </div>
           </div>
+
+          {/* Locate SKU helper — pinpoint ghost EPOS / Website records that don't
+              have a matching Supplier Product row (like duplicate/wrong-name entries). */}
+          <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-2.5 flex items-center gap-2 flex-wrap" data-testid="pns-locate-panel">
+            <MapPin className="w-4 h-4 text-indigo-600 shrink-0" />
+            <span className="text-xs font-medium text-indigo-800 shrink-0">Trace ghost SKU:</span>
+            <Input
+              type="text"
+              placeholder="e.g. ULT-PSS-1"
+              value={locateSku}
+              onChange={(e) => setLocateSku(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') locateSkuAcrossCollections(); }}
+              className="h-8 text-xs w-56 bg-white"
+              data-testid="pns-locate-input"
+            />
+            <Button
+              size="sm"
+              onClick={locateSkuAcrossCollections}
+              disabled={locating || !locateSku.trim()}
+              className="bg-indigo-600 hover:bg-indigo-700 text-white h-8"
+              data-testid="pns-locate-btn"
+            >
+              {locating ? <RefreshCw className="w-3.5 h-3.5 mr-1 animate-spin" /> : <Search className="w-3.5 h-3.5 mr-1" />}
+              Locate
+            </Button>
+            {locateResult && (
+              <span className="text-[11px] text-indigo-700">
+                {locateResult.found === 0
+                  ? `No matches for "${locateResult.sku}"`
+                  : `Found in ${locateResult.found} record${locateResult.found === 1 ? '' : 's'}`}
+              </span>
+            )}
+            {locateResult && (
+              <button
+                type="button"
+                onClick={() => { setLocateSku(''); setLocateResult(null); }}
+                className="text-[11px] text-indigo-500 hover:text-indigo-800 underline"
+                data-testid="pns-locate-clear"
+              >
+                clear
+              </button>
+            )}
+          </div>
+
+          {locateResult && locateResult.found > 0 && (
+            <div className="bg-white border border-indigo-200 rounded-lg overflow-hidden" data-testid="pns-locate-results">
+              <table className="w-full text-xs">
+                <thead className="bg-indigo-50 border-b border-indigo-200">
+                  <tr className="text-left text-indigo-800">
+                    <th className="px-3 py-2 font-medium w-32">Collection</th>
+                    <th className="px-3 py-2 font-medium">Name / product_name</th>
+                    <th className="px-3 py-2 font-medium">Supplier</th>
+                    <th className="px-3 py-2 font-medium text-right w-40">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {locateResult.locations.map((loc, idx) => (
+                    <tr key={`${loc.collection}-${loc.id}-${idx}`} data-testid={`pns-locate-row-${loc.collection}`}>
+                      <td className="px-3 py-2 font-mono text-[11px] text-indigo-700">
+                        {loc.collection}
+                        {loc.collection === 'supplier_products' && (
+                          <div className="text-[10px] text-emerald-600">source of truth</div>
+                        )}
+                        {loc.collection === 'products' && (
+                          <div className="text-[10px] text-orange-600">EPOS + main products</div>
+                        )}
+                        {loc.collection === 'tiles' && (
+                          <div className="text-[10px] text-blue-600">Website storefront</div>
+                        )}
+                      </td>
+                      <td className="px-3 py-2">
+                        <div className="text-slate-800">{loc.product_name || loc.name || <span className="text-gray-300">—</span>}</div>
+                        {loc.supplier_product_name && loc.supplier_product_name !== loc.name && (
+                          <div className="text-[10px] text-gray-500">supplier: {loc.supplier_product_name}</div>
+                        )}
+                        <div className="text-[10px] text-gray-400 font-mono">id: {loc.id}</div>
+                      </td>
+                      <td className="px-3 py-2 text-slate-600">{loc.supplier || <span className="text-gray-300">—</span>}</td>
+                      <td className="px-3 py-2 text-right">
+                        {loc.collection === 'supplier_products' ? (
+                          <span className="text-[10px] text-gray-400 italic">delete via Supplier Products</span>
+                        ) : (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => purgeFromCollection(locateResult.sku, loc.collection)}
+                            disabled={!!purging[loc.collection]}
+                            className="h-7 text-[11px] border-red-500 text-red-700 hover:bg-red-50"
+                            data-testid={`pns-purge-${loc.collection}`}
+                          >
+                            {purging[loc.collection]
+                              ? <RefreshCw className="w-3 h-3 animate-spin" />
+                              : <><Trash2 className="w-3 h-3 mr-1" />Delete from {loc.collection}</>}
+                          </Button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
 
         {/* Table body (scrollable) */}
