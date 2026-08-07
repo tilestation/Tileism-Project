@@ -223,12 +223,14 @@ export const InvoiceLineItemsTable = ({
   const openSearchModalFor = (index) => setSearchModalIndex(index);
   const closeSearchModal = () => setSearchModalIndex(null);
   const modalOpen = searchModalIndex !== null;
-  // Prefill modal search with whatever the staff has already typed in the row —
-  // check the SKU column first, then the Product column so "Standard" typed
-  // in the Product cell flows straight through to the modal search field.
+  // Prefill modal search:
+  //  - Prefer the human-readable Product name (that's what staff want to see
+  //    when re-editing a line; the raw SKU — especially a MISC-XXXX random —
+  //    is meaningless for a search).
+  //  - Fall back to the SKU if the Product field is blank (fresh row).
   const modalInitialQuery = modalOpen
-    ? (lineItems[searchModalIndex]?.sku
-        || lineItems[searchModalIndex]?.product
+    ? (lineItems[searchModalIndex]?.product
+        || lineItems[searchModalIndex]?.sku
         || '')
     : '';
   // Filter products based on search - supports word-by-word matching in any order

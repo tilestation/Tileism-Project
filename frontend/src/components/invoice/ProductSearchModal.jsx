@@ -158,6 +158,29 @@ const ProductSearchModal = ({
             className="h-9 text-sm border-slate-300"
             data-testid="product-search-modal-input"
           />
+          {/* Misc button — always visible so staff can add off-catalogue lines
+              without having to hunt for the empty-state button. */}
+          {onAddMisc && (
+            <Button
+              size="sm"
+              onClick={() => {
+                const name = q.trim();
+                if (name) {
+                  onAddMisc(name);
+                  return;
+                }
+                // Prompt for a name so an empty search box doesn't produce a blank misc line.
+                const typed = window.prompt('Add a Miscellaneous line — what should it be called on the invoice?');
+                if (typed && typed.trim()) onAddMisc(typed.trim());
+              }}
+              className="bg-amber-600 hover:bg-amber-700 text-white h-9 shrink-0"
+              data-testid="product-search-add-misc-header"
+              title="Add a Miscellaneous line item — use whatever's typed in the search box, or prompt for a name if empty"
+            >
+              <Plus className="w-4 h-4 mr-1" />
+              Misc
+            </Button>
+          )}
           <Button
             variant="ghost"
             size="sm"
