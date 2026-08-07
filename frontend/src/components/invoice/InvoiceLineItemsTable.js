@@ -223,7 +223,14 @@ export const InvoiceLineItemsTable = ({
   const openSearchModalFor = (index) => setSearchModalIndex(index);
   const closeSearchModal = () => setSearchModalIndex(null);
   const modalOpen = searchModalIndex !== null;
-  const modalInitialQuery = modalOpen ? (lineItems[searchModalIndex]?.sku || lineItems[searchModalIndex]?.product || '') : '';
+  // Prefill modal search with whatever the staff has already typed in the row —
+  // check the SKU column first, then the Product column so "Standard" typed
+  // in the Product cell flows straight through to the modal search field.
+  const modalInitialQuery = modalOpen
+    ? (lineItems[searchModalIndex]?.sku
+        || lineItems[searchModalIndex]?.product
+        || '')
+    : '';
   // Filter products based on search - supports word-by-word matching in any order
   // e.g., "chrome tin" matches "Tin Chrome Edge Finish"
   // Also searches by original supplier product name for flexible search
@@ -340,10 +347,12 @@ export const InvoiceLineItemsTable = ({
                       className={`h-8 text-sm ${isReturn ? 'line-through text-red-700' : ''}`}
                       value={item.product}
                       onChange={(e) => onUpdateLineItem(index, 'product', e.target.value)}
+                      onFocus={() => openSearchModalFor(index)}
+                      onClick={() => openSearchModalFor(index)}
                       onBlur={(e) => {
                         onUpdateLineItem(index, 'product', toTitleCase(e.target.value));
                       }}
-                      placeholder="Product name (picked from search)"
+                      placeholder="Type to search…"
                     />
                   </td>
                   
