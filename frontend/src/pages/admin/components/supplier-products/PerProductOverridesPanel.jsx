@@ -117,6 +117,7 @@ const PerProductOverridesPanel = ({ products, overrides, setOverrides, tradeFixe
                   // Live-compute the discounted price so the admin can see what N% off actually costs.
                   const discountedPrice = (() => {
                     if (o.disabled) return null;    // No tier discount = no preview
+                    if (listPrice <= 0) return null; // No base price = no meaningful preview
                     if (effectiveTrade === null || Number.isNaN(effectiveTrade)) return null;
                     if (isTradeFixed) return Math.max(0, listPrice - effectiveTrade);
                     return Math.max(0, listPrice * (1 - effectiveTrade / 100));

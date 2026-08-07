@@ -9,6 +9,33 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Aug 7, 2026 — Forked, session F+8] 🟢 Per-Product Overrides panel now shows Cost £, List £ + live Discounted preview — VERIFIED
+
+**Owner ask (screenshot)**: "Can you show the current cost and list price next to these individual lines so I know what discount I am doing against"
+
+**Delivered** — added 3 new columns to the per-product overrides table inside `TierPricingModal → PerProductOverridesPanel`:
+
+1. **Cost £** — reads `p.cost_price ?? p.wholesale_price ?? 0` (shows `—` when null)
+2. **List £** — reads `p.list_price ?? p.price ?? p.room_lot_price ?? p.retail_price ?? 0` (same fallback chain as the modal's existing Live Preview helper, shows `—` when null)
+3. **Discounted** — live-computed preview reflecting the row's Trade Disc typed value + isTradeFixed toggle. Below the price a **coloured margin** badge shows: **green ≥ 20%** (safe), **amber 5-20%** (thin), **red < 5%** or negative (danger — selling below cost). Preview is suppressed (`—`) when: Disable Tier is checked OR listPrice is 0 OR trade disc is blank.
+
+**Column order** (headers verified by testing agent):
+Product / **Cost £** / **List £** / Trade Disc / **Discounted** / Credit % / Disable Tier / Reset
+
+**Testing (iteration 212)** — 100% frontend pass across all 3 shell-based managers (`/admin/materials`, `/admin/tiles`, `/admin/flooring`):
+- Tiles TEST_NO_CAT_1775766472: cost £23.00, list £54.99, +20% trade → £43.99 with **48% green** margin
+- Flooring HE7013FSC: cost £12.50, list £62.99, +20% trade → £50.39 with **75% green** margin
+- Materials 355POL6060: cost/list both `—` (real DB state — no prices), Discounted also stayed `—` (post-polish guard)
+- Below-cost warning verified: seeded list_price=25 + cost_price=12, typed 20 (£/unit trade) → **£5.00 with -140% RED margin** — exactly the safety signal the admin was asking for
+
+**Files touched**:
+- MODIFIED: `/app/frontend/src/pages/admin/components/supplier-products/PerProductOverridesPanel.jsx` — 3 new columns + live-compute IIFE + margin colour tiers + `listPrice<=0` guard (added post-testing-agent's 1-line polish suggestion)
+
+No backend changes. No new dependencies. Testids `override-cost-{sku}`, `override-list-{sku}`, `override-discounted-{sku}` added. All existing testids preserved.
+
+
+
+
 ### [Aug 4, 2026 — Forked, session F+7] 🟢 Configure-driven Bulk Bar Actions — Specs/Filters/Sub-Categories one-click editable — VERIFIED
 
 **Owner ask (with screenshot)**: "Why don't I see Categories, Specs, Filters etc in Action Bar, as I can't be bothered to edit each and every product one by one — very time consuming. Any new Action added through Configure must be visible in action bar straight away for me to work on."
