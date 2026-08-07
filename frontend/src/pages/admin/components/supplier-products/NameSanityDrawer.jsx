@@ -436,11 +436,11 @@ const NameSanityDrawer = ({ open, onClose, defaultSupplier = '', onRenamed, sele
             <span className="text-xs font-medium text-indigo-800 shrink-0">Trace ghost SKU:</span>
             <Input
               type="text"
-              placeholder="e.g. ULT-PSS-1"
+              placeholder="e.g. ULT-PSS-1 or ult-pss (partial)"
               value={locateSku}
               onChange={(e) => setLocateSku(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter') locateSkuAcrossCollections(); }}
-              className="h-8 text-xs w-56 bg-white"
+              className="h-8 text-xs w-64 bg-white"
               data-testid="pns-locate-input"
             />
             <Button
@@ -496,6 +496,12 @@ const NameSanityDrawer = ({ open, onClose, defaultSupplier = '', onRenamed, sele
                         )}
                         {loc.collection === 'tiles' && (
                           <div className="text-[10px] text-blue-600">Website storefront</div>
+                        )}
+                        {loc.collection === 'sync_staging' && (
+                          <div className="text-[10px] text-purple-600">CSV import staging</div>
+                        )}
+                        {loc.collection === 'custom_mappings' && (
+                          <div className="text-[10px] text-pink-600">Name override rule</div>
                         )}
                       </td>
                       <td className="px-3 py-2">

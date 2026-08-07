@@ -495,29 +495,52 @@ async def sync_supplier_names_to_epos_and_website(
 
 @router.get("/locate")
 async def locate_sku(
-    sku: str = Query(..., description="SKU to trace across every name-carrying collection"),
+    sku: str = Query(..., description="SKU to trace across every name-carrying collection (case-insensitive, supports partial match)"),
+    exact: bool = Query(False, description="If true, requires an exact case-insensitive equality; otherwise does a substring regex match"),
     current_user: dict = Depends(get_current_user),
 ):
     """Find every collection that stores a product with this SKU. Useful when
     EPOS/Website shows a name the admin can't find in Supplier Products —
-    the ghost record usually lives in `db.products` (manual entry) or `db.tiles`
-    (orphaned website record).
+    the ghost record usually lives in `db.products` (manual entry), `db.tiles`
+    (orphaned website record), `db.sync_staging` (unsynced CSV import row), or
+    `db.custom_mappings` (name override rule).
     """
     if not has_permission(current_user, "supplier_products"):
         raise HTTPException(403, "You need the Supplier Products permission to trace SKUs")
 
     db = get_db()
+    # Build a case-insensitive query. `re.escape` guards against regex-injection.
+    import re
+    pattern = f"^{re.escape(sku.strip())}$" if exact else re.escape(sku.strip())
+    regex = {"$regex": pattern, "$options": "i"}
+
+    # Every collection that could plausibly hold a product name / SKU keyed record.
+    # supplier_products = source of truth
+    # products         = EPOS + main products
+    # tiles            = website storefront
+    # sync_staging     = CSV import staging (may leak into EPOS if promoted)
+    # custom_mappings  = admin name-override rules (SKU → display name)
+    scan_targets = ("supplier_products", "products", "tiles", "sync_staging", "custom_mappings")
+
     locations: list[dict] = []
-    # These are the collections EPOS + Website + Sanity reads from.
-    for col_name in ("supplier_products", "products", "tiles"):
+    for col_name in scan_targets:
         try:
-            async for d in db[col_name].find({"$or": [{"sku": sku}, {"supplier_code": sku}]}).limit(20):
+            # Match on `sku`, `supplier_code`, `barcode`, `id`, or the underlying key used in mappings.
+            or_clauses = [
+                {"sku": regex},
+                {"supplier_code": regex},
+                {"barcode": regex},
+                {"id": regex},
+                {"key": regex},  # custom_mappings uses `key`
+            ]
+            async for d in db[col_name].find({"$or": or_clauses}).limit(20):
                 locations.append({
                     "collection": col_name,
                     "id": str(d.get("id") or d.get("_id") or ""),
-                    "sku": d.get("sku"),
+                    "sku": d.get("sku") or d.get("key") or d.get("id"),
                     "supplier_code": d.get("supplier_code"),
-                    "name": d.get("name"),
+                    "barcode": d.get("barcode"),
+                    "name": d.get("name") or d.get("display_name") or d.get("mapped_name"),
                     "product_name": d.get("product_name"),
                     "supplier": d.get("supplier") or d.get("supplier_name"),
                     "supplier_product_name": d.get("supplier_product_name"),
@@ -527,7 +550,7 @@ async def locate_sku(
                 })
         except Exception:
             pass
-    return {"sku": sku, "found": len(locations), "locations": locations}
+    return {"sku": sku, "found": len(locations), "locations": locations, "scanned_collections": list(scan_targets)}
 
 
 class PurgeRequest(BaseModel):
@@ -548,16 +571,27 @@ async def purge_sku(
     if not has_permission(current_user, "supplier_products"):
         raise HTTPException(403, "You need the Supplier Products permission to purge products")
 
-    ALLOWED = {"products", "tiles"}
+    ALLOWED = {"products", "tiles", "sync_staging", "custom_mappings"}
     targets = [c for c in payload.collections if c in ALLOWED]
     if not targets:
         raise HTTPException(400, f"No valid collections. Allowed: {sorted(ALLOWED)}")
 
     db = get_db()
+    # Case-insensitive purge — mirrors the locate query.
+    import re
+    regex = {"$regex": f"^{re.escape(payload.sku.strip())}$", "$options": "i"}
     deleted: dict[str, int] = {}
     for col in targets:
         try:
-            res = await db[col].delete_many({"$or": [{"sku": payload.sku}, {"supplier_code": payload.sku}]})
+            res = await db[col].delete_many({
+                "$or": [
+                    {"sku": regex},
+                    {"supplier_code": regex},
+                    {"barcode": regex},
+                    {"id": regex},
+                    {"key": regex},
+                ]
+            })
             deleted[col] = res.deleted_count
         except Exception as e:
             deleted[col] = 0
