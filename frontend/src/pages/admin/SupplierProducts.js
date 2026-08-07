@@ -7795,16 +7795,6 @@ export default function SupplierProducts() {
               </span>
             )}
           </Button>
-          {/* Name Mismatches Filter Button */}
-          <Button 
-            variant={showNameMismatches ? "default" : "outline"} 
-            onClick={() => { setShowNameMismatches(!showNameMismatches); setCurrentPage(1); }}
-            className={showNameMismatches ? "bg-amber-600 hover:bg-amber-700" : ""}
-            title="Show products where display name differs from supplier's original name"
-          >
-            <AlertTriangle className="w-4 h-4 mr-2" />
-            Name Changes
-          </Button>
           <Button variant="outline" onClick={() => { fetchProducts(); fetchStats(); }}>
             <RefreshCw className="w-4 h-4 mr-2" />
             Refresh
@@ -7870,23 +7860,6 @@ export default function SupplierProducts() {
             >
               <Plus className="w-4 h-4 mr-2" />
               Add All to Database
-            </Button>
-          )}
-          {/* Fix Product Names - Apply name mapping transformation */}
-          {selectedSupplier !== 'all' && PROTECTED_SUPPLIERS.includes(selectedSupplier) && (
-            <Button 
-              variant="outline"
-              className="border-amber-500 text-amber-700 hover:bg-amber-50"
-              onClick={handleFixProductNames}
-              disabled={fixingProductNames}
-              data-testid="fix-product-names-btn"
-            >
-              {fixingProductNames ? (
-                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-              ) : (
-                <Sparkles className="w-4 h-4 mr-2" />
-              )}
-              {fixingProductNames ? 'Fixing Names...' : 'Fix Product Names'}
             </Button>
           )}
           {/* Custom Name Mappings - View/manage custom product name overrides - Admin only */}
@@ -8123,34 +8096,8 @@ export default function SupplierProducts() {
                 <FileText className="w-4 h-4 mr-2" />
                 Upload PDFs ({selectedProducts.size})
               </Button>
-              <Button 
-                variant="default"
-                className="bg-accent hover:bg-accent/90"
-                onClick={openBulkEditModal}
-                data-testid="bulk-edit-btn"
-              >
-                <Settings2 className="w-4 h-4 mr-2" />
-                Bulk Edit ({selectedProducts.size})
-              </Button>
-              <Button 
-                variant="outline"
-                onClick={handleBulkArchive}
-                data-testid="bulk-archive-btn"
-              >
-                <Archive className="w-4 h-4 mr-2" />
-                Archive ({selectedProducts.size})
-              </Button>
             </>
           )}
-          {/* Bulk Stock Navigation */}
-          <Button 
-            variant="outline"
-            onClick={() => navigate('/admin/bulk-stock')}
-            data-testid="bulk-stock-btn"
-          >
-            <Layers className="w-4 h-4 mr-2" />
-            Bulk Stock
-          </Button>
           {/* Bulk delete - Only for Super Admin and non-protected suppliers */}
           {isSuperAdmin && selectedSupplier !== 'all' && !PROTECTED_SUPPLIERS.includes(selectedSupplier) && (
             <Button 
