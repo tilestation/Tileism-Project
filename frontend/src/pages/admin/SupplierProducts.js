@@ -7835,16 +7835,20 @@ export default function SupplierProducts() {
             <Database className="w-4 h-4 mr-2" />
             Sync from Products
           </Button>
-          {/* Name Sanity — inline drawer (merged from standalone page). */}
+          {/* Name Sanity — inline drawer (merged from standalone page).
+              When products are selected, drawer opens scoped to that selection.
+              When no selection, drawer runs the full-DB scan. */}
           <Button
             variant="outline"
             className="border-emerald-500 text-emerald-700 hover:bg-emerald-50"
             onClick={() => setShowNameSanity(true)}
             data-testid="open-name-sanity-btn"
-            title="Scan supplier products for garbled or truncated names — fix them inline without leaving this page"
+            title={selectedProducts.size > 0
+              ? `Review name sanity for the ${selectedProducts.size} selected product(s) only`
+              : 'Scan every supplier product for garbled or truncated names — fix them inline'}
           >
             <ShieldCheck className="w-4 h-4 mr-2" />
-            Name Sanity
+            Name Sanity{selectedProducts.size > 0 ? ` (${selectedProducts.size})` : ''}
           </Button>
           {/* Import New Suppliers (RSA Tiles + ThermoSphere) */}
           {isSuperAdmin && (selectedSupplier === 'RSA Tiles' || selectedSupplier === 'ThermoSphere' || selectedSupplier === 'all') && (
@@ -15554,11 +15558,18 @@ export default function SupplierProducts() {
         fetchProducts={fetchProducts}
       />
 
-      {/* Name Sanity Drawer — merged from the standalone /admin/product-name-sanity page. */}
+      {/* Name Sanity Drawer — merged from the standalone /admin/product-name-sanity page.
+          If products are selected on the parent list, we send those SKUs so the drawer
+          shows ONLY that selection (even non-flagged ones). Otherwise it runs a global scan. */}
       <NameSanityDrawer
         open={showNameSanity}
         onClose={() => setShowNameSanity(false)}
         defaultSupplier={selectedSupplier && selectedSupplier !== 'all' ? selectedSupplier : ''}
+        selectedSkus={
+          showNameSanity && selectedProducts.size > 0
+            ? Array.from(selectedProducts).map(k => (k.includes('|||') ? k.split('|||')[1] : k)).filter(Boolean)
+            : null
+        }
         onRenamed={() => { fetchProducts(); fetchStats(); }}
       />
 

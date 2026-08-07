@@ -9,29 +9,38 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
-### [Aug 7, 2026 — Forked, session F+9] 🟢 Name Sanity MERGED into Supplier Products + 5 toolbar buttons hard-removed — VERIFIED
+### [Aug 7, 2026 — Forked, session F+9] 🟢 Name Sanity MERGED into Supplier Products + Selection-driven mode + 5 toolbar buttons hard-removed — VERIFIED
 
-**Owner ask (2 screenshots)**:
-1. Hard remove 5 buttons from Supplier Products toolbar: `Name Changes`, `Fix Product Names`, `Bulk Edit (N)`, `Archive (N)`, `Bulk Stock`.
-2. Merge the standalone `Product Name Sanity` page (`/admin/product-name-sanity`) into the Supplier Products page so it can be managed from one place instead of jumping to a different page.
+**Owner asks (3 iterations)**:
+1. Hard-remove 5 toolbar buttons: `Name Changes`, `Fix Product Names`, `Bulk Edit (N)`, `Archive (N)`, `Bulk Stock`.
+2. Merge the standalone `Product Name Sanity` page into Supplier Products (no more jumping to a different page).
+3. Let admins pick products in the Supplier Products list, click Name Sanity, and see ONLY those selected products in the popup.
 
 **Delivered**:
-1. **Toolbar cleanup** — removed 3 JSX blocks from `SupplierProducts.js`:
-   - `Name Changes` filter chip (top-row)
-   - `Fix Product Names` amber button (2nd row)
-   - `Bulk Edit / Archive` selection-row pair + `Bulk Stock` navigation button
-   State + handlers left intact (still used by the bottom floating quick-action pill bar, e.g. `qa-archive`, `qa-change-supplier`).
+1. **Toolbar cleanup** — 3 JSX blocks removed from `SupplierProducts.js`. Bottom floating quick-action pill bar (with its own qa-archive/qa-change-supplier) left intact.
+2. **In-page slide-in drawer** — new `NameSanityDrawer.jsx` reuses the existing endpoints. Triggered by the new **Name Sanity** toolbar button (`data-testid=open-name-sanity-btn`) next to `Sync from Products`. Sidebar link removed (route kept for backward compat).
+3. **Selection-driven scoped mode** — when products are ticked on the parent list:
+   - Button label updates to `Name Sanity (N)`
+   - Drawer opens with a **N selected** badge + a scoped subtitle
+   - Supplier / Issue / Limit filters are visually disabled (they don't apply)
+   - Auto-fix-all counts only the FLAGGED subset of the selection (e.g. "Auto-fix all (15)" when 15/27 selected are flagged)
+   - `Clean` badge is shown for zero-issue rows so admins can still rename anything they picked
+4. **Sync verified** — every rename (single-row Apply *and* Auto-fix all) fires `onRenamed()` which triggers `fetchProducts() + fetchStats()` on the parent page.
 
-2. **Name Sanity → in-page slide-in drawer** — new component `NameSanityDrawer.jsx` reuses the exact backend endpoints (`/api/product-name-sanity/report`, `apply`, `apply-suggested`). Triggered by a new **"Name Sanity"** toolbar button (`data-testid=open-name-sanity-btn`) placed next to `Sync from Products`. Drawer pre-filters by the currently-selected supplier chip and refreshes the parent product list on rename via an `onRenamed()` callback.
-
-3. **Sidebar link removed** — `/admin/product-name-sanity` sidebar entry pulled from `Layout.js` since the page is now merged. The standalone route still resolves for direct URL access / backward compat.
+**New backend endpoint** — `POST /api/product-name-sanity/report-for-selection`
+Request body: `{ skus: [...], include_clean: true }` — matches on `sku` OR `supplier_code` so non-SKU suppliers (RSA Tiles, ThermoSphere) also resolve. Returns rows for exactly the requested SKUs, flagged or clean. Response shape matches the existing `/report` output. Curl test confirmed: 3 SKUs in → 3 rows out with correct issues + suggested names.
 
 **Files touched**:
-- MODIFIED: `/app/frontend/src/pages/admin/SupplierProducts.js` — 5 button blocks removed, `ShieldCheck` icon imported, `showNameSanity` state, new toolbar button, `<NameSanityDrawer>` mounted at end of JSX.
-- MODIFIED: `/app/frontend/src/components/Layout.js` — sidebar entry for Name Sanity removed.
-- NEW: `/app/frontend/src/pages/admin/components/supplier-products/NameSanityDrawer.jsx` — drawer wrapper around the existing endpoints (~300 LOC).
+- MODIFIED: `/app/frontend/src/pages/admin/SupplierProducts.js` — button removals, `ShieldCheck` import, `showNameSanity` state, new toolbar button with selection-count label, `<NameSanityDrawer>` mounted with `selectedSkus` prop derived from `selectedProducts` Set.
+- MODIFIED: `/app/frontend/src/components/Layout.js` — sidebar Name Sanity entry removed.
+- MODIFIED: `/app/backend/routes/product_name_sanity.py` — added `SelectionRequest` model + `POST /report-for-selection` endpoint (~60 LOC).
+- NEW: `/app/frontend/src/pages/admin/components/supplier-products/NameSanityDrawer.jsx` — drawer with dual-mode (scoped vs global), `Clean` badge for zero-issue rows.
 
-**Smoke test** (Playwright): logged in as admin@test.com, opened `/admin/supplier-products`, clicked "Name Sanity" — drawer opened showing **238 scanned / 200 flagged**, supplier + issue filters populated, Auto-fix all (200) button visible, rows rendered with `Apply` / `Skip` inline actions. All `pns-*` testids resolve inside the drawer.
+**Smoke test** (Playwright, admin@test.com):
+- Global mode: drawer showed 238 scanned / 200 flagged, all filters active, `Auto-fix all (200)` visible.
+- Scoped mode: selected 27 checkboxes → button became `Name Sanity (27)` → drawer opened showing `27 selected` badge, `Scanned 27 / Flagged 15`, filters disabled, `Auto-fix all (15)` correctly counted the flagged subset.
+- Backend curl on `POST /report-for-selection` with 3 SKUs returned 3 rows with correct issues + suggestions.
+
 
 
 

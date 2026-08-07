@@ -34,7 +34,7 @@ const ISSUE_META = {
   has_placeholder: { label: 'Placeholder',    color: 'bg-red-100 text-red-700' },
 };
 
-const NameSanityDrawer = ({ open, onClose, defaultSupplier = '', onRenamed }) => {
+const NameSanityDrawer = ({ open, onClose, defaultSupplier = '', onRenamed, selectedSkus = null }) => {
   const [report, setReport] = useState({ rows: [], total_scanned: 0, total_flagged: 0, issue_counts: {}, supplier_counts: {} });
   const [loading, setLoading] = useState(false);
   const [running, setRunning] = useState(false);
@@ -44,6 +44,8 @@ const NameSanityDrawer = ({ open, onClose, defaultSupplier = '', onRenamed }) =>
   const [issueFilter, setIssueFilter] = useState('');
   const [limit, setLimit] = useState(200);
 
+  const scoped = Array.isArray(selectedSkus) && selectedSkus.length > 0;
+
   const authHeaders = () => {
     const token = localStorage.getItem('token');
     return token ? { Authorization: `Bearer ${token}` } : {};
@@ -52,11 +54,22 @@ const NameSanityDrawer = ({ open, onClose, defaultSupplier = '', onRenamed }) =>
   const loadReport = useCallback(async () => {
     setLoading(true);
     try {
-      const params = new URLSearchParams();
-      if (supplierFilter) params.set('supplier', supplierFilter);
-      if (issueFilter) params.set('issue', issueFilter);
-      params.set('limit', String(limit));
-      const res = await fetch(`${API_URL}/api/product-name-sanity/report?${params}`, { headers: authHeaders() });
+      let res;
+      if (scoped) {
+        // Selection mode — POST the SKU list and get back rows for exactly those products.
+        res = await fetch(`${API_URL}/api/product-name-sanity/report-for-selection`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...authHeaders() },
+          body: JSON.stringify({ skus: selectedSkus, include_clean: true }),
+        });
+      } else {
+        // Global scan mode.
+        const params = new URLSearchParams();
+        if (supplierFilter) params.set('supplier', supplierFilter);
+        if (issueFilter) params.set('issue', issueFilter);
+        params.set('limit', String(limit));
+        res = await fetch(`${API_URL}/api/product-name-sanity/report?${params}`, { headers: authHeaders() });
+      }
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       setReport(data);
@@ -66,7 +79,7 @@ const NameSanityDrawer = ({ open, onClose, defaultSupplier = '', onRenamed }) =>
     } finally {
       setLoading(false);
     }
-  }, [supplierFilter, issueFilter, limit]);
+  }, [supplierFilter, issueFilter, limit, scoped, selectedSkus]);
 
   // Re-fetch when drawer opens
   useEffect(() => {
@@ -107,22 +120,38 @@ const NameSanityDrawer = ({ open, onClose, defaultSupplier = '', onRenamed }) =>
   };
 
   const applyAllSuggested = async () => {
-    const count = report.rows.length;
+    const count = report.rows.filter(r => r.issues.length > 0).length;
     if (count === 0) { toast.info('No rows to fix'); return; }
     if (!window.confirm(`Auto-apply the suggested name to ALL ${count} flagged product${count === 1 ? '' : 's'} shown?\n\nEach product's suggested name will REPLACE its current name in the database. This is logged.`)) return;
     setRunning(true);
     try {
-      const params = new URLSearchParams();
-      if (supplierFilter) params.set('supplier', supplierFilter);
-      if (issueFilter) params.append('only_issues', issueFilter);
-      params.set('limit', String(count));
-      const res = await fetch(`${API_URL}/api/product-name-sanity/apply-suggested?${params}`, {
-        method: 'POST',
-        headers: authHeaders(),
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      toast.success(`Auto-fixed ${data.updated} product name${data.updated === 1 ? '' : 's'} (${data.skipped} skipped)`);
+      if (scoped) {
+        // In selection mode we don't have a "auto-fix by filter" endpoint — apply row-by-row via /apply.
+        const items = report.rows
+          .filter(r => r.issues.length > 0 && r.suggested_name && r.suggested_name !== r.product_name)
+          .map(r => ({ sku: r.sku, supplier: r.supplier, new_name: r.suggested_name }));
+        if (items.length === 0) { toast.info('Nothing to auto-fix'); setRunning(false); return; }
+        const res = await fetch(`${API_URL}/api/product-name-sanity/apply`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...authHeaders() },
+          body: JSON.stringify({ items }),
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        toast.success(`Auto-fixed ${data.updated} product name${data.updated === 1 ? '' : 's'} (${data.failed?.length || 0} failed)`);
+      } else {
+        const params = new URLSearchParams();
+        if (supplierFilter) params.set('supplier', supplierFilter);
+        if (issueFilter) params.append('only_issues', issueFilter);
+        params.set('limit', String(count));
+        const res = await fetch(`${API_URL}/api/product-name-sanity/apply-suggested?${params}`, {
+          method: 'POST',
+          headers: authHeaders(),
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        toast.success(`Auto-fixed ${data.updated} product name${data.updated === 1 ? '' : 's'} (${data.skipped} skipped)`);
+      }
       onRenamed?.();
       loadReport();
     } catch (err) {
@@ -151,8 +180,23 @@ const NameSanityDrawer = ({ open, onClose, defaultSupplier = '', onRenamed }) =>
           <div className="flex items-center gap-3">
             <ShieldCheck className="w-5 h-5 text-emerald-600" />
             <div>
-              <h2 className="text-base font-bold text-gray-900">Product Name Sanity</h2>
-              <p className="text-[11px] text-gray-500">Spot garbled or truncated names — fix inline without leaving Supplier Products.</p>
+              <h2 className="text-base font-bold text-gray-900">
+                Product Name Sanity
+                {scoped && (
+                  <span
+                    className="ml-2 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700 text-[11px] font-medium align-middle"
+                    data-testid="pns-selection-badge"
+                  >
+                    <AlertTriangle className="w-3 h-3" />
+                    {selectedSkus.length} selected
+                  </span>
+                )}
+              </h2>
+              <p className="text-[11px] text-gray-500">
+                {scoped
+                  ? 'Reviewing ONLY the products you selected on Supplier Products — fix names and close to return.'
+                  : 'Spot garbled or truncated names — fix inline without leaving Supplier Products.'}
+              </p>
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -188,19 +232,21 @@ const NameSanityDrawer = ({ open, onClose, defaultSupplier = '', onRenamed }) =>
             <Filter className="w-4 h-4 text-gray-400" />
             <span className="text-xs text-gray-500 font-medium">Filter:</span>
             <select
-              className="h-8 text-xs border border-gray-300 rounded px-2 min-w-[180px]"
+              className="h-8 text-xs border border-gray-300 rounded px-2 min-w-[180px] disabled:bg-gray-100 disabled:text-gray-400"
               value={supplierFilter}
               onChange={(e) => setSupplierFilter(e.target.value)}
               data-testid="pns-filter-supplier"
+              disabled={scoped}
             >
               <option value="">All suppliers</option>
               {suppliers.map(s => <option key={s} value={s}>{s} ({report.supplier_counts[s]})</option>)}
             </select>
             <select
-              className="h-8 text-xs border border-gray-300 rounded px-2 min-w-[180px]"
+              className="h-8 text-xs border border-gray-300 rounded px-2 min-w-[180px] disabled:bg-gray-100 disabled:text-gray-400"
               value={issueFilter}
               onChange={(e) => setIssueFilter(e.target.value)}
               data-testid="pns-filter-issue"
+              disabled={scoped}
             >
               <option value="">All issues</option>
               {Object.keys(ISSUE_META).map(k => (
@@ -210,14 +256,21 @@ const NameSanityDrawer = ({ open, onClose, defaultSupplier = '', onRenamed }) =>
               ))}
             </select>
             <select
-              className="h-8 text-xs border border-gray-300 rounded px-2"
+              className="h-8 text-xs border border-gray-300 rounded px-2 disabled:bg-gray-100 disabled:text-gray-400"
               value={limit}
               onChange={(e) => setLimit(Number(e.target.value))}
               data-testid="pns-filter-limit"
+              disabled={scoped}
             >
               {[100, 200, 500, 1000, 5000].map(n => <option key={n} value={n}>Limit {n}</option>)}
             </select>
-            <Button size="sm" onClick={loadReport} disabled={loading} className="bg-slate-700 hover:bg-slate-800 text-white h-8" data-testid="pns-apply-filter">
+            <Button
+              size="sm"
+              onClick={loadReport}
+              disabled={loading || scoped}
+              className="bg-slate-700 hover:bg-slate-800 text-white h-8 disabled:bg-gray-300"
+              data-testid="pns-apply-filter"
+            >
               <Search className="w-3.5 h-3.5 mr-1" /> Apply
             </Button>
             <div className="ml-auto">
@@ -228,7 +281,10 @@ const NameSanityDrawer = ({ open, onClose, defaultSupplier = '', onRenamed }) =>
                 data-testid="pns-auto-fix-all"
               >
                 {running ? <RefreshCw className="w-4 h-4 mr-1.5 animate-spin" /> : <Zap className="w-4 h-4 mr-1.5" />}
-                Auto-fix all {report.rows.length ? `(${report.rows.length})` : ''}
+                Auto-fix all {(() => {
+                  const flaggedCount = report.rows.filter(r => r.issues.length > 0).length;
+                  return flaggedCount ? `(${flaggedCount})` : '';
+                })()}
               </Button>
             </div>
           </div>
@@ -275,7 +331,11 @@ const NameSanityDrawer = ({ open, onClose, defaultSupplier = '', onRenamed }) =>
                         </td>
                         <td className="px-3 py-2 align-top">
                           <div className="flex flex-wrap gap-1">
-                            {row.issues.map(i => (
+                            {row.issues.length === 0 ? (
+                              <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-emerald-100 text-emerald-700" data-testid="pns-issue-clean">
+                                Clean
+                              </span>
+                            ) : row.issues.map(i => (
                               <span
                                 key={i}
                                 className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${ISSUE_META[i]?.color || 'bg-gray-100 text-gray-600'}`}

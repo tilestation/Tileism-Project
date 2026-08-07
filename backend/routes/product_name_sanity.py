@@ -190,6 +190,60 @@ async def sanity_report(
     }
 
 
+class SelectionRequest(BaseModel):
+    skus: List[str] = Field(default_factory=list, description="Exact list of supplier product SKUs to review")
+    include_clean: bool = Field(default=True, description="If true, return rows even when the scanner finds no issues (so admins can rename anything they selected)")
+
+
+@router.post("/report-for-selection")
+async def sanity_report_for_selection(
+    payload: SelectionRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """Return sanity rows for a specific set of SKUs (as selected in the Supplier
+    Products list). Unlike GET /report which paginates the entire collection,
+    this returns exactly what the admin picked — flagged OR clean — so they can
+    rename any of them from one drawer.
+    """
+    if not has_permission(current_user, "supplier_products"):
+        raise HTTPException(403, "You need the Supplier Products permission to view this report")
+
+    if not payload.skus:
+        return {"rows": [], "total_scanned": 0, "total_flagged": 0, "issue_counts": {}, "supplier_counts": {}}
+
+    db = get_db()
+    # Match on sku OR supplier_code so RSA Tiles / ThermoSphere (no sku) also resolve.
+    filt = {
+        "$and": [
+            {"$or": [{"sku": {"$in": payload.skus}}, {"supplier_code": {"$in": payload.skus}}]},
+            {"$or": [{"deleted_at": {"$exists": False}}, {"deleted_at": None}]},
+        ]
+    }
+
+    rows: list[dict] = []
+    issue_counts: dict[str, int] = {}
+    supplier_counts: dict[str, int] = {}
+
+    async for doc in db.supplier_products.find(filt).limit(5000):
+        issues = _scan_issues(doc)
+        if not issues and not payload.include_clean:
+            continue
+        for i in issues:
+            issue_counts[i] = issue_counts.get(i, 0) + 1
+        supplier_counts[str(doc.get("supplier") or "unknown")] = (
+            supplier_counts.get(str(doc.get("supplier") or "unknown"), 0) + 1
+        )
+        rows.append(_serialize_row(doc, issues))
+
+    return {
+        "rows": rows,
+        "total_scanned": len(rows),
+        "total_flagged": sum(1 for r in rows if r["issues"]),
+        "issue_counts": issue_counts,
+        "supplier_counts": supplier_counts,
+    }
+
+
 class ApplyItem(BaseModel):
     sku: str
     supplier: Optional[str] = None
