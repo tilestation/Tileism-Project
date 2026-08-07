@@ -9,7 +9,42 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
-### [Aug 7, 2026 — Forked, session F+9] 🟢 Name Sanity: Ghost SKU locator + EPOS/Website backfill + all Name Sanity improvements — VERIFIED
+### [Aug 7, 2026 — Forked, session F+9] 🟢 Bulk Ghost Sweep (final layer) — VERIFIED
+
+**Owner ask**: "One-click scanner that lists every row in products/tiles/sync_staging with NO matching Supplier Product, so I can purge them all in one go."
+
+**Delivered**:
+- **`GET /api/product-name-sanity/ghost-sweep?limit=2000`** — builds a set of live Supplier Product SKUs (`sku` + `supplier_code`), then scans `products`, `tiles`, and `sync_staging` and returns every row whose SKU has NO match in the live set. Groups by collection with per-collection counts.
+- **`POST /api/product-name-sanity/ghost-sweep/purge`** — accepts `{ items: [{sku, collection}, …] }` and bulk-deletes. Enforces the allowlist `products / tiles / sync_staging`. Case-insensitive regex delete. Audited as `GHOST_SWEEP_PURGE`.
+- **Frontend UI in Name Sanity drawer**:
+  - Rose **"Sweep all ghosts"** button next to the Locate box.
+  - Results panel with header count ("N orphan rows across A products • B tiles • C sync_staging (compared against N live Supplier SKUs)")
+  - Per-row checkboxes + a **"Select all N"** toggle + **"Purge selected (N)"** red action + dismiss link
+  - Colour-coded collection tags (products=orange, tiles=blue, sync_staging=purple)
+  - Empty state ("No ghost rows detected — every EPOS / Website / staging record maps to a live Supplier Product. Nice.")
+  - After purge, the sweep re-runs automatically so the panel stays fresh.
+
+**Preview run**: **782 orphan rows** detected — 58 products + 6 tiles + 718 sync_staging (compared against 1,582 live Supplier SKUs). UI rendered all 782 with checkboxes; "Select all 782" clicked → "Purge selected (780)" button armed correctly (2 rows had no valid SKU/collection combo, gracefully skipped from selection).
+
+**Session F+9 grand total (in one continuous session)**:
+1. Removed 5 toolbar buttons.
+2. Merged Name Sanity into Supplier Products as a slide-in drawer + removed sidebar link.
+3. Selection-driven scoped mode (button becomes `Name Sanity (N)`, filters disabled, correct auto-fix count).
+4. Supplier-scoped "show all" via `include_clean=true` (Ultra Tile 18 → 81).
+5. Full supplier list in dropdown via `knownSuppliers` prop.
+6. Client-side search across name/SKU/range/supplier.
+7. Every rename mirrors to `tiles` + `products` (EPOS + Website).
+8. `POST /sync-to-epos-website` backfill + header button.
+9. `GET /locate` + `POST /purge` (case-insensitive, partial substring, 5 collections) + "Trace ghost SKU" panel.
+10. `GET /ghost-sweep` + `POST /ghost-sweep/purge` + "Sweep all ghosts" bulk cleanup UI.
+
+**Files touched (final)**:
+- MODIFIED: `/app/backend/routes/product_name_sanity.py` — 6 new endpoints total.
+- MODIFIED: `/app/frontend/src/pages/admin/components/supplier-products/NameSanityDrawer.jsx` — ~750 LOC single-file feature drawer.
+- MODIFIED: `/app/frontend/src/pages/admin/SupplierProducts.js` — toolbar cleanup + drawer wiring.
+- MODIFIED: `/app/frontend/src/components/Layout.js` — sidebar entry removed.
+
+
 
 **Owner ask (final iteration)**: `ULT-PSS-1 / Proflex White` shows up in EPOS as a duplicate with wrong name but isn't in Supplier Products. Where is that name being pulled from and how do I delete it?
 

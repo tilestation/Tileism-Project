@@ -16,7 +16,7 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import { toast } from 'sonner';
 import {
-  ShieldCheck, AlertTriangle, RefreshCw, Save, X, Zap, Filter, Search, Wand2, Send, MapPin, Trash2,
+  ShieldCheck, AlertTriangle, RefreshCw, Save, X, Zap, Filter, Search, Wand2, Send, MapPin, Trash2, Ghost,
 } from 'lucide-react';
 import { Button } from '../../../../components/ui/button';
 import { Input } from '../../../../components/ui/input';
@@ -48,6 +48,10 @@ const NameSanityDrawer = ({ open, onClose, defaultSupplier = '', onRenamed, sele
   const [locateResult, setLocateResult] = useState(null); // { sku, locations: [...] }
   const [locating, setLocating] = useState(false);
   const [purging, setPurging] = useState({}); // { collection: bool }
+  const [sweepRunning, setSweepRunning] = useState(false);
+  const [sweepResult, setSweepResult] = useState(null); // { total_ghosts, per_collection, rows }
+  const [sweepSelected, setSweepSelected] = useState(() => new Set()); // Set of `${col}|${sku}`
+  const [sweepPurging, setSweepPurging] = useState(false);
 
   const scoped = Array.isArray(selectedSkus) && selectedSkus.length > 0;
 
@@ -235,6 +239,75 @@ const NameSanityDrawer = ({ open, onClose, defaultSupplier = '', onRenamed, sele
       toast.error(`Purge failed: ${err.message}`);
     } finally {
       setPurging((p) => ({ ...p, [collection]: false }));
+    }
+  };
+
+  const runGhostSweep = async () => {
+    setSweepRunning(true);
+    setSweepResult(null);
+    setSweepSelected(new Set());
+    try {
+      const res = await fetch(`${API_URL}/api/product-name-sanity/ghost-sweep?limit=2000`, { headers: authHeaders() });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      setSweepResult(data);
+      toast.success(
+        `Ghost sweep found ${data.total_ghosts} orphan${data.total_ghosts === 1 ? '' : 's'} — ${data.per_collection?.products || 0} products / ${data.per_collection?.tiles || 0} tiles / ${data.per_collection?.sync_staging || 0} staging`,
+        { duration: 6000 }
+      );
+    } catch (err) {
+      toast.error(`Ghost sweep failed: ${err.message}`);
+    } finally {
+      setSweepRunning(false);
+    }
+  };
+
+  const toggleSweepRow = (col, sku) => {
+    const k = `${col}|${sku}`;
+    setSweepSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(k)) next.delete(k); else next.add(k);
+      return next;
+    });
+  };
+
+  const toggleSweepAll = () => {
+    if (!sweepResult) return;
+    if (sweepSelected.size === sweepResult.rows.length) {
+      setSweepSelected(new Set());
+    } else {
+      setSweepSelected(new Set(sweepResult.rows.map((r) => `${r.collection}|${r.sku}`)));
+    }
+  };
+
+  const bulkPurgeGhosts = async () => {
+    if (sweepSelected.size === 0) { toast.info('Select at least one ghost row to purge'); return; }
+    if (!window.confirm(`Permanently delete ${sweepSelected.size} ghost row${sweepSelected.size === 1 ? '' : 's'} from EPOS/Website/staging?\n\nThis is IRREVERSIBLE. Each row will be removed from the collection shown. supplier_products is untouched. This is logged.`)) return;
+    const items = Array.from(sweepSelected).map((k) => {
+      const [collection, ...rest] = k.split('|');
+      return { collection, sku: rest.join('|') };
+    });
+    setSweepPurging(true);
+    try {
+      const res = await fetch(`${API_URL}/api/product-name-sanity/ghost-sweep/purge`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
+        body: JSON.stringify({ items }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      const totalDeleted = Object.values(data.deleted || {}).reduce((a, b) => a + b, 0);
+      toast.success(
+        `Purged ${totalDeleted} ghost row${totalDeleted === 1 ? '' : 's'} — ${data.deleted?.products || 0} products / ${data.deleted?.tiles || 0} tiles / ${data.deleted?.sync_staging || 0} staging`,
+        { duration: 6000 }
+      );
+      onRenamed?.();
+      // Refresh the sweep after purge
+      await runGhostSweep();
+    } catch (err) {
+      toast.error(`Bulk purge failed: ${err.message}`);
+    } finally {
+      setSweepPurging(false);
     }
   };
 
@@ -453,6 +526,22 @@ const NameSanityDrawer = ({ open, onClose, defaultSupplier = '', onRenamed, sele
               {locating ? <RefreshCw className="w-3.5 h-3.5 mr-1 animate-spin" /> : <Search className="w-3.5 h-3.5 mr-1" />}
               Locate
             </Button>
+
+            {/* Divider */}
+            <span className="text-indigo-300">|</span>
+
+            {/* Bulk Ghost Sweep — scans EVERY orphan across products/tiles/sync_staging */}
+            <Button
+              size="sm"
+              onClick={runGhostSweep}
+              disabled={sweepRunning}
+              className="bg-rose-600 hover:bg-rose-700 text-white h-8"
+              data-testid="pns-ghost-sweep-btn"
+              title="Scan products, tiles, and sync_staging for rows whose SKU has NO matching Supplier Product. Then bulk-purge in one click."
+            >
+              {sweepRunning ? <RefreshCw className="w-3.5 h-3.5 mr-1 animate-spin" /> : <Ghost className="w-3.5 h-3.5 mr-1" />}
+              Sweep all ghosts
+            </Button>
             {locateResult && (
               <span className="text-[11px] text-indigo-700">
                 {locateResult.found === 0
@@ -534,6 +623,116 @@ const NameSanityDrawer = ({ open, onClose, defaultSupplier = '', onRenamed, sele
                   ))}
                 </tbody>
               </table>
+            </div>
+          )}
+
+          {/* Ghost Sweep results — bulk orphan cleanup across products/tiles/sync_staging */}
+          {sweepResult && (
+            <div className="bg-white border-2 border-rose-200 rounded-lg overflow-hidden" data-testid="pns-ghost-sweep-results">
+              <div className="bg-rose-50 border-b border-rose-200 px-3 py-2 flex items-center gap-3 flex-wrap">
+                <Ghost className="w-4 h-4 text-rose-600" />
+                <span className="text-xs font-semibold text-rose-800">
+                  Ghost sweep — {sweepResult.total_ghosts} orphan row{sweepResult.total_ghosts === 1 ? '' : 's'} across{' '}
+                  {(sweepResult.per_collection?.products || 0)} products •{' '}
+                  {(sweepResult.per_collection?.tiles || 0)} tiles •{' '}
+                  {(sweepResult.per_collection?.sync_staging || 0)} sync_staging
+                </span>
+                <span className="text-[10px] text-rose-600">
+                  (compared against {sweepResult.supplier_skus_seen} live Supplier SKUs)
+                </span>
+                <div className="ml-auto flex items-center gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={toggleSweepAll}
+                    disabled={sweepResult.rows.length === 0}
+                    className="h-7 text-[11px]"
+                    data-testid="pns-ghost-toggle-all"
+                  >
+                    {sweepSelected.size === sweepResult.rows.length && sweepResult.rows.length > 0 ? 'Deselect all' : `Select all ${sweepResult.rows.length}`}
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={bulkPurgeGhosts}
+                    disabled={sweepPurging || sweepSelected.size === 0}
+                    className="bg-red-600 hover:bg-red-700 text-white h-7 text-[11px]"
+                    data-testid="pns-ghost-bulk-purge"
+                  >
+                    {sweepPurging ? <RefreshCw className="w-3 h-3 mr-1 animate-spin" /> : <Trash2 className="w-3 h-3 mr-1" />}
+                    Purge selected ({sweepSelected.size})
+                  </Button>
+                  <button
+                    type="button"
+                    onClick={() => { setSweepResult(null); setSweepSelected(new Set()); }}
+                    className="text-[11px] text-rose-500 hover:text-rose-800 underline"
+                    data-testid="pns-ghost-clear"
+                  >
+                    dismiss
+                  </button>
+                </div>
+              </div>
+              {sweepResult.rows.length === 0 ? (
+                <div className="p-6 text-center text-sm text-emerald-600" data-testid="pns-ghost-empty">
+                  <ShieldCheck className="w-8 h-8 mx-auto mb-1" />
+                  No ghost rows detected — every EPOS / Website / staging record maps to a live Supplier Product. Nice.
+                </div>
+              ) : (
+                <div className="max-h-[400px] overflow-y-auto">
+                  <table className="w-full text-xs">
+                    <thead className="bg-slate-50 border-b border-gray-200 sticky top-0">
+                      <tr className="text-left text-gray-500">
+                        <th className="px-2 py-2 font-medium w-8">
+                          <input
+                            type="checkbox"
+                            checked={sweepSelected.size === sweepResult.rows.length && sweepResult.rows.length > 0}
+                            onChange={toggleSweepAll}
+                            className="cursor-pointer"
+                            data-testid="pns-ghost-header-check"
+                          />
+                        </th>
+                        <th className="px-2 py-2 font-medium w-32">Collection</th>
+                        <th className="px-2 py-2 font-medium w-32">SKU</th>
+                        <th className="px-2 py-2 font-medium">Name in that collection</th>
+                        <th className="px-2 py-2 font-medium w-32">Supplier tag</th>
+                        <th className="px-2 py-2 font-medium w-32">Updated</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {sweepResult.rows.map((r, idx) => {
+                        const k = `${r.collection}|${r.sku}`;
+                        const checked = sweepSelected.has(k);
+                        return (
+                          <tr key={`${k}-${idx}`} className={checked ? 'bg-rose-50' : ''} data-testid={`pns-ghost-row-${r.sku}`}>
+                            <td className="px-2 py-1.5">
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={() => toggleSweepRow(r.collection, r.sku)}
+                                className="cursor-pointer"
+                                data-testid={`pns-ghost-check-${r.sku}`}
+                              />
+                            </td>
+                            <td className="px-2 py-1.5 font-mono text-[11px]">
+                              {r.collection === 'products' && <span className="text-orange-700">products</span>}
+                              {r.collection === 'tiles' && <span className="text-blue-700">tiles</span>}
+                              {r.collection === 'sync_staging' && <span className="text-purple-700">sync_staging</span>}
+                            </td>
+                            <td className="px-2 py-1.5 font-mono text-[11px] text-slate-700">{r.sku}</td>
+                            <td className="px-2 py-1.5 text-slate-800">
+                              {r.name || r.product_name || <span className="text-gray-300">—</span>}
+                              {r.supplier_product_name && r.supplier_product_name !== r.name && (
+                                <div className="text-[10px] text-gray-500">supplier: {r.supplier_product_name}</div>
+                              )}
+                            </td>
+                            <td className="px-2 py-1.5 text-slate-600 text-[11px]">{r.supplier || <span className="text-gray-300">—</span>}</td>
+                            <td className="px-2 py-1.5 text-[10px] text-gray-500">{(r.updated_at || '').slice(0, 10)}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
           )}
         </div>

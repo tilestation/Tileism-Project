@@ -606,3 +606,131 @@ async def purge_sku(
         after_data={"deleted": deleted, "collections": targets},
     )
     return {"ok": True, "sku": payload.sku, "deleted": deleted}
+
+
+@router.get("/ghost-sweep")
+async def ghost_sweep(
+    limit: int = Query(2000, ge=1, le=10000, description="Max rows to return per collection"),
+    current_user: dict = Depends(get_current_user),
+):
+    """Scan `products`, `tiles`, and `sync_staging` for rows whose SKU has NO
+    matching entry in `supplier_products`. Those are ghost records — usually
+    left over from CSVs, manual EPOS entries, or old imports — that keep
+    surfacing in EPOS/Website but can't be managed from Supplier Products.
+    """
+    if not has_permission(current_user, "supplier_products"):
+        raise HTTPException(403, "You need the Supplier Products permission to run the ghost sweep")
+
+    db = get_db()
+
+    # Pull all live supplier SKUs (both from `sku` and `supplier_code`) into a lowercase set.
+    live_skus: set[str] = set()
+    async for d in db.supplier_products.find(
+        {"$or": [{"deleted_at": {"$exists": False}}, {"deleted_at": None}]},
+        {"sku": 1, "supplier_code": 1, "_id": 0},
+    ):
+        if d.get("sku"):
+            live_skus.add(str(d["sku"]).strip().lower())
+        if d.get("supplier_code"):
+            live_skus.add(str(d["supplier_code"]).strip().lower())
+
+    ghost_rows: list[dict] = []
+    per_collection_counts: dict[str, int] = {}
+
+    for col_name in ("products", "tiles", "sync_staging"):
+        count = 0
+        try:
+            async for d in db[col_name].find({}).limit(limit * 3):
+                sku_val = str(d.get("sku") or d.get("supplier_code") or d.get("key") or "").strip()
+                if not sku_val:
+                    continue
+                if sku_val.lower() in live_skus:
+                    continue
+                ghost_rows.append({
+                    "collection": col_name,
+                    "id": str(d.get("id") or d.get("_id") or ""),
+                    "sku": sku_val,
+                    "name": d.get("name") or d.get("display_name") or d.get("mapped_name"),
+                    "product_name": d.get("product_name"),
+                    "supplier": d.get("supplier") or d.get("supplier_name"),
+                    "supplier_product_name": d.get("supplier_product_name"),
+                    "created_at": str(d.get("created_at") or ""),
+                    "updated_at": str(d.get("updated_at") or ""),
+                })
+                count += 1
+                if count >= limit:
+                    break
+        except Exception:
+            pass
+        per_collection_counts[col_name] = count
+
+    return {
+        "ok": True,
+        "total_ghosts": len(ghost_rows),
+        "supplier_skus_seen": len(live_skus),
+        "per_collection": per_collection_counts,
+        "rows": ghost_rows,
+    }
+
+
+class GhostBulkPurgeRequest(BaseModel):
+    items: List[dict] = Field(
+        default_factory=list,
+        description="List of { sku, collection } pairs from the ghost sweep to delete",
+    )
+
+
+@router.post("/ghost-sweep/purge")
+async def ghost_sweep_purge(
+    payload: GhostBulkPurgeRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """Bulk-delete a list of ghost `{sku, collection}` pairs returned by
+    /ghost-sweep. Never touches `supplier_products`. Each pair is validated
+    before deletion; unknown collections are rejected silently.
+    """
+    if not has_permission(current_user, "supplier_products"):
+        raise HTTPException(403, "You need the Supplier Products permission to purge ghost SKUs")
+
+    ALLOWED = {"products", "tiles", "sync_staging"}
+    db = get_db()
+
+    import re
+    deleted: dict[str, int] = {"products": 0, "tiles": 0, "sync_staging": 0}
+    failed: list[dict] = []
+    processed = 0
+
+    for it in payload.items:
+        sku = str(it.get("sku") or "").strip()
+        col = str(it.get("collection") or "").strip()
+        if not sku or col not in ALLOWED:
+            failed.append({"item": it, "reason": "invalid_sku_or_collection"})
+            continue
+        try:
+            regex = {"$regex": f"^{re.escape(sku)}$", "$options": "i"}
+            res = await db[col].delete_many({
+                "$or": [
+                    {"sku": regex},
+                    {"supplier_code": regex},
+                    {"key": regex},
+                ]
+            })
+            deleted[col] += res.deleted_count
+            processed += 1
+        except Exception as e:
+            failed.append({"item": it, "reason": str(e)})
+
+    await log_audit(
+        action="GHOST_SWEEP_PURGE",
+        entity_type="product",
+        user=current_user,
+        entity_id="bulk-ghost-sweep",
+        entity_name=f"Ghost sweep purge — {sum(deleted.values())} rows across {processed} items",
+        after_data={"deleted": deleted, "processed": processed, "failed_count": len(failed)},
+    )
+    return {
+        "ok": True,
+        "processed": processed,
+        "deleted": deleted,
+        "failed": failed,
+    }
