@@ -296,6 +296,14 @@ async def apply_suggested_names(
             }},
         )
         if res.modified_count:
+            # Mirror to tiles collection (some routes still read from there) — best-effort.
+            try:
+                await db.tiles.update_one(
+                    {"sku": doc.get("sku")},
+                    {"$set": {"name": suggested, "updated_at": now}},
+                )
+            except Exception:
+                pass
             updated += 1
             if len(changed_samples) < 20:
                 changed_samples.append({
