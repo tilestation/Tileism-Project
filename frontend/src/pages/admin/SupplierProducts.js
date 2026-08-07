@@ -10,7 +10,7 @@ import {
   Sparkles, Bell, AlertTriangle, Database, CheckSquare, EyeOff, Store, Globe,
   Settings2, Archive, Layers, PenLine, ExternalLink, Save, Edit2, Loader2, Flag, Copy, Pencil,
   Tag, Percent, DollarSign, BadgePercent, Zap, Star, Clock, AlertCircle, ArrowRight, ShoppingCart, XCircle, Minus, CheckCircle,
-  Home, FolderTree, Palette, Replace, PlusCircle, Shield, History, Undo2, HelpCircle, Grid3X3
+  Home, FolderTree, Palette, Replace, PlusCircle, Shield, ShieldCheck, History, Undo2, HelpCircle, Grid3X3
 } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -34,6 +34,7 @@ import DiscountCalculatorPreview from './components/supplier-products/DiscountCa
 import DryRunPreview from './components/supplier-products/DryRunPreview';
 import BulkEditPresets from './components/supplier-products/BulkEditPresets';
 import BulkEditHistory from './components/supplier-products/BulkEditHistory';
+import NameSanityDrawer from './components/supplier-products/NameSanityDrawer';
 import ManagerTabsBar from './components/managers/ManagerTabsBar';
 import { bucketSelectionByManager } from './components/managers/classifyProductToManager';
 import CustomManagerBuilder from './components/managers/CustomManagerBuilder';
@@ -322,6 +323,7 @@ export default function SupplierProducts() {
   };
   
   const [showSyncDialog, setShowSyncDialog] = useState(false);
+  const [showNameSanity, setShowNameSanity] = useState(false);
   const [syncLoading, setSyncLoading] = useState(false);
   const [userRole, setUserRole] = useState(null);
   const [previewImage, setPreviewImage] = useState(null);
@@ -7832,6 +7834,17 @@ export default function SupplierProducts() {
           >
             <Database className="w-4 h-4 mr-2" />
             Sync from Products
+          </Button>
+          {/* Name Sanity — inline drawer (merged from standalone page). */}
+          <Button
+            variant="outline"
+            className="border-emerald-500 text-emerald-700 hover:bg-emerald-50"
+            onClick={() => setShowNameSanity(true)}
+            data-testid="open-name-sanity-btn"
+            title="Scan supplier products for garbled or truncated names — fix them inline without leaving this page"
+          >
+            <ShieldCheck className="w-4 h-4 mr-2" />
+            Name Sanity
           </Button>
           {/* Import New Suppliers (RSA Tiles + ThermoSphere) */}
           {isSuperAdmin && (selectedSupplier === 'RSA Tiles' || selectedSupplier === 'ThermoSphere' || selectedSupplier === 'all') && (
@@ -15539,6 +15552,14 @@ export default function SupplierProducts() {
         setCanopyStockPreview={setCanopyStockPreview}
         api={api}
         fetchProducts={fetchProducts}
+      />
+
+      {/* Name Sanity Drawer — merged from the standalone /admin/product-name-sanity page. */}
+      <NameSanityDrawer
+        open={showNameSanity}
+        onClose={() => setShowNameSanity(false)}
+        defaultSupplier={selectedSupplier && selectedSupplier !== 'all' ? selectedSupplier : ''}
+        onRenamed={() => { fetchProducts(); fetchStats(); }}
       />
 
       {/* Custom Mappings Modal - Extracted Component */}

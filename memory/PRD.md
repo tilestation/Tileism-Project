@@ -9,6 +9,32 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Aug 7, 2026 — Forked, session F+9] 🟢 Name Sanity MERGED into Supplier Products + 5 toolbar buttons hard-removed — VERIFIED
+
+**Owner ask (2 screenshots)**:
+1. Hard remove 5 buttons from Supplier Products toolbar: `Name Changes`, `Fix Product Names`, `Bulk Edit (N)`, `Archive (N)`, `Bulk Stock`.
+2. Merge the standalone `Product Name Sanity` page (`/admin/product-name-sanity`) into the Supplier Products page so it can be managed from one place instead of jumping to a different page.
+
+**Delivered**:
+1. **Toolbar cleanup** — removed 3 JSX blocks from `SupplierProducts.js`:
+   - `Name Changes` filter chip (top-row)
+   - `Fix Product Names` amber button (2nd row)
+   - `Bulk Edit / Archive` selection-row pair + `Bulk Stock` navigation button
+   State + handlers left intact (still used by the bottom floating quick-action pill bar, e.g. `qa-archive`, `qa-change-supplier`).
+
+2. **Name Sanity → in-page slide-in drawer** — new component `NameSanityDrawer.jsx` reuses the exact backend endpoints (`/api/product-name-sanity/report`, `apply`, `apply-suggested`). Triggered by a new **"Name Sanity"** toolbar button (`data-testid=open-name-sanity-btn`) placed next to `Sync from Products`. Drawer pre-filters by the currently-selected supplier chip and refreshes the parent product list on rename via an `onRenamed()` callback.
+
+3. **Sidebar link removed** — `/admin/product-name-sanity` sidebar entry pulled from `Layout.js` since the page is now merged. The standalone route still resolves for direct URL access / backward compat.
+
+**Files touched**:
+- MODIFIED: `/app/frontend/src/pages/admin/SupplierProducts.js` — 5 button blocks removed, `ShieldCheck` icon imported, `showNameSanity` state, new toolbar button, `<NameSanityDrawer>` mounted at end of JSX.
+- MODIFIED: `/app/frontend/src/components/Layout.js` — sidebar entry for Name Sanity removed.
+- NEW: `/app/frontend/src/pages/admin/components/supplier-products/NameSanityDrawer.jsx` — drawer wrapper around the existing endpoints (~300 LOC).
+
+**Smoke test** (Playwright): logged in as admin@test.com, opened `/admin/supplier-products`, clicked "Name Sanity" — drawer opened showing **238 scanned / 200 flagged**, supplier + issue filters populated, Auto-fix all (200) button visible, rows rendered with `Apply` / `Skip` inline actions. All `pns-*` testids resolve inside the drawer.
+
+
+
 ### [Aug 7, 2026 — Forked, session F+8] 🟢 Per-Product Overrides panel now shows Cost £, List £ + live Discounted preview — VERIFIED
 
 **Owner ask (screenshot)**: "Can you show the current cost and list price next to these individual lines so I know what discount I am doing against"
