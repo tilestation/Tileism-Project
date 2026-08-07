@@ -97,7 +97,10 @@ const PerProductOverridesPanel = ({ products, overrides, setOverrides, tradeFixe
               <thead className="bg-gray-50 sticky top-0 z-10">
                 <tr className="text-left text-gray-500">
                   <th className="px-2 py-1.5 font-medium">Product</th>
+                  <th className="px-2 py-1.5 font-medium text-right w-16">Cost £</th>
+                  <th className="px-2 py-1.5 font-medium text-right w-16">List £</th>
                   <th className="px-2 py-1.5 font-medium text-right w-28">Trade Disc</th>
+                  <th className="px-2 py-1.5 font-medium text-right w-20">Discounted</th>
                   <th className="px-2 py-1.5 font-medium text-right w-20">Credit %</th>
                   <th className="px-2 py-1.5 font-medium text-center w-16">Disable Tier</th>
                   <th className="px-2 py-1.5 font-medium text-center w-16">Reset</th>
@@ -108,13 +111,32 @@ const PerProductOverridesPanel = ({ products, overrides, setOverrides, tradeFixe
                   const key = productKey(p);
                   const o = overrides?.[key] || {};
                   const hasAny = o.trade_discount !== undefined || o.credit_back_rate !== undefined || o.disabled !== undefined;
+                  const listPrice = Number(p.list_price ?? p.price ?? p.room_lot_price ?? p.retail_price ?? 0);
+                  const costPrice = Number(p.cost_price ?? p.wholesale_price ?? 0);
+                  const effectiveTrade = o.trade_discount !== undefined ? Number(o.trade_discount) : null;
+                  // Live-compute the discounted price so the admin can see what N% off actually costs.
+                  const discountedPrice = (() => {
+                    if (o.disabled) return null;    // No tier discount = no preview
+                    if (effectiveTrade === null || Number.isNaN(effectiveTrade)) return null;
+                    if (isTradeFixed) return Math.max(0, listPrice - effectiveTrade);
+                    return Math.max(0, listPrice * (1 - effectiveTrade / 100));
+                  })();
+                  const margin = discountedPrice !== null && costPrice > 0
+                    ? ((discountedPrice - costPrice) / discountedPrice) * 100
+                    : null;
                   return (
                     <tr key={key} className={`border-b ${hasAny ? 'bg-amber-50/60' : ''}`} data-testid={`override-row-${p.sku || p.supplier_code}`}>
-                      <td className="px-2 py-1.5 max-w-[240px]">
+                      <td className="px-2 py-1.5 max-w-[220px]">
                         <div className="truncate font-medium text-gray-800" title={p.our_product_name || p.product_name || p.name}>
                           {p.our_product_name || p.product_name || p.name || '—'}
                         </div>
                         <div className="text-[10px] text-gray-400 truncate">{p.supplier} · {p.sku || p.supplier_code}</div>
+                      </td>
+                      <td className="px-2 py-1.5 text-right text-[11px] font-mono text-slate-600" data-testid={`override-cost-${p.sku || p.supplier_code}`}>
+                        {costPrice > 0 ? `£${costPrice.toFixed(2)}` : <span className="text-gray-300">—</span>}
+                      </td>
+                      <td className="px-2 py-1.5 text-right text-[11px] font-mono text-slate-800 font-medium" data-testid={`override-list-${p.sku || p.supplier_code}`}>
+                        {listPrice > 0 ? `£${listPrice.toFixed(2)}` : <span className="text-gray-300">—</span>}
                       </td>
                       <td className="px-2 py-1.5 text-right">
                         <div className="flex items-center justify-end gap-0.5">
@@ -132,6 +154,20 @@ const PerProductOverridesPanel = ({ products, overrides, setOverrides, tradeFixe
                           />
                           <span className="text-[10px] text-gray-500 w-8">{isTradeFixed ? tradeFixedSuffix.replace('£/', '£/') : '%'}</span>
                         </div>
+                      </td>
+                      <td className="px-2 py-1.5 text-right text-[11px] font-mono" data-testid={`override-discounted-${p.sku || p.supplier_code}`}>
+                        {discountedPrice !== null ? (
+                          <div>
+                            <div className="text-emerald-700 font-semibold">£{discountedPrice.toFixed(2)}</div>
+                            {margin !== null && (
+                              <div className={`text-[9px] ${margin >= 20 ? 'text-emerald-600' : margin >= 5 ? 'text-amber-600' : 'text-red-600'}`} title="Margin against Cost">
+                                {margin.toFixed(0)}% margin
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-gray-300">—</span>
+                        )}
                       </td>
                       <td className="px-2 py-1.5 text-right">
                         <div className="flex items-center justify-end gap-0.5">
