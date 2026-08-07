@@ -401,3 +401,93 @@ async def apply_suggested_names(
         after_data={"updated": updated, "skipped": skipped, "filter_issues": only_issues, "filter_supplier": supplier},
     )
     return {"ok": True, "updated": updated, "skipped": skipped, "samples": changed_samples}
+
+
+@router.post("/sync-to-epos-website")
+async def sync_supplier_names_to_epos_and_website(
+    supplier: Optional[str] = Query(None, description="Optional supplier to limit the sync"),
+    current_user: dict = Depends(get_current_user),
+):
+    """Backfill sync: push every `supplier_products.product_name` value into the
+    matching row in `db.tiles.name` (website storefront) and `db.products.name`
+    (EPOS + main products DB). This is idempotent — a doc already in sync is
+    counted as `unchanged`.
+
+    Use case: historical renames done before the auto-mirror shipped are now stale
+    in EPOS / the website. One click through this endpoint re-aligns them all.
+    """
+    if not has_permission(current_user, "supplier_products"):
+        raise HTTPException(403, "You need the Supplier Products permission to sync product names")
+
+    db = get_db()
+    now = datetime.now(timezone.utc)
+
+    filt: dict = {
+        "$or": [{"deleted_at": {"$exists": False}}, {"deleted_at": None}],
+        "product_name": {"$nin": [None, ""]},
+    }
+    if supplier:
+        filt["supplier"] = supplier
+
+    tiles_updated = 0
+    products_updated = 0
+    scanned = 0
+    skipped_no_sku = 0
+    changed_samples: list[dict] = []
+
+    async for doc in db.supplier_products.find(filt):
+        scanned += 1
+        sku = doc.get("sku") or doc.get("supplier_code")
+        if not sku:
+            skipped_no_sku += 1
+            continue
+        target_name = str(doc.get("product_name") or "").strip()
+        if not target_name:
+            continue
+
+        # tiles collection — best-effort mirror
+        try:
+            tres = await db.tiles.update_many(
+                {"sku": sku, "$or": [{"name": {"$ne": target_name}}, {"name": {"$exists": False}}]},
+                {"$set": {"name": target_name, "updated_at": now}},
+            )
+            if tres.modified_count:
+                tiles_updated += tres.modified_count
+        except Exception:
+            pass
+
+        # products collection — EPOS + main products
+        try:
+            pres = await db.products.update_many(
+                {"sku": sku, "$or": [{"name": {"$ne": target_name}}, {"name": {"$exists": False}}]},
+                {"$set": {"name": target_name, "product_name": target_name, "updated_at": now}},
+            )
+            if pres.modified_count:
+                products_updated += pres.modified_count
+                if len(changed_samples) < 20:
+                    changed_samples.append({"sku": sku, "new_name": target_name})
+        except Exception:
+            pass
+
+    await log_audit(
+        action="RENAME_BACKFILL_SYNC",
+        entity_type="supplier_product",
+        user=current_user,
+        entity_id="bulk-backfill",
+        entity_name=f"Backfilled {tiles_updated + products_updated} names to EPOS/tiles",
+        after_data={
+            "scanned": scanned,
+            "tiles_updated": tiles_updated,
+            "products_updated": products_updated,
+            "skipped_no_sku": skipped_no_sku,
+            "supplier_filter": supplier,
+        },
+    )
+    return {
+        "ok": True,
+        "scanned": scanned,
+        "tiles_updated": tiles_updated,
+        "products_updated": products_updated,
+        "skipped_no_sku": skipped_no_sku,
+        "samples": changed_samples,
+    }

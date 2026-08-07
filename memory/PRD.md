@@ -9,44 +9,41 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
-### [Aug 7, 2026 — Forked, session F+9] 🟢 Name Sanity MERGED + selection + all-supplier scan + search + EPOS/Web sync — VERIFIED
+### [Aug 7, 2026 — Forked, session F+9] 🟢 Name Sanity: EPOS+Website backfill sync + merged flows + selection mode + all-supplier scan + search — VERIFIED
 
-**Owner asks (4 iterations)**:
+**Owner asks (5 iterations)**:
 1. Hard-remove 5 toolbar buttons: Name Changes / Fix Product Names / Bulk Edit (N) / Archive (N) / Bulk Stock.
 2. Merge the standalone `Product Name Sanity` page into Supplier Products.
 3. Selection-driven mode: tick products on Supplier Products, click Name Sanity, see ONLY those in the popup.
-4a. Ultra Tile has 82 products but Name Sanity shows only 18 (flagged-only bias).
-4b. Other suppliers not "syncing" into Name Sanity (dropdown only shows suppliers with flagged rows).
-4c. Add a Search box for a specific Name/Series.
-4d. Any Name Sanity rename must reflect on EPOS + Website (mirror `db.products` + `db.tiles`, not only `supplier_products`).
+4a-c. Ultra Tile showed 18 out of 82; other suppliers missing from dropdown; add a search box.
+4d. Any Sanity rename must reflect on EPOS + Website.
+5. "Why aren't clean names syncing in EPOS?" — because historical renames done via bulk-edit or pre-mirror Name Sanity never touched `db.products` (EPOS) or `db.tiles` (website). Fix = add a backfill.
 
-**Delivered — all shipped in one session**:
-
-1. **Toolbar cleanup + drawer merge + sidebar unlink** — see earlier notes.
-
-2. **Selection-driven scoped mode** — button becomes `Name Sanity (N)`, header shows `N selected` badge, filters disabled, Auto-fix-all counts the flagged subset. Backend endpoint `POST /report-for-selection` returns rows for exactly the selected SKUs (matches on `sku` OR `supplier_code`).
-
-3. **Supplier-scoped "show all" mode** — `GET /report` extended with `include_clean=true`. When the drawer's supplier filter is set, the request auto-includes clean rows so admins see EVERY product for that supplier — verified: Ultra Tile now returns 81/81 (was 18). Clean rows render with an emerald `Clean` badge.
-
-4. **Supplier dropdown = all known suppliers** — drawer accepts a `knownSuppliers` prop (20 suppliers from parent's `SUPPLIERS` array). Previously the dropdown only listed suppliers that had at least one flagged row; now it lists every one from the parent chip bar.
-
-5. **Search box** — new `pns-search` input inside the drawer's filter bar. Client-side matches `product_name / sku / range_name / supplier` (case-insensitive). Clear button (`pns-search-clear`) resets. Empty-state text adapts to say `No products match "…"` vs `Zero problems detected`.
-
-6. **EPOS + Website sync (Fix #4d)** — both `/apply` and `/apply-suggested` now mirror rename writes to `db.tiles` (best-effort) AND `db.products` (best-effort, `update_many` in case duplicates exist). Verified via direct MongoDB check:
-   - Before: `supplier_products.D11197 = "Test Product"` / `tiles = "Test Product 60x60cm"` / `products = "Test Product Updated"`
-   - After Sanity rename: all 3 collections → `"D11197 EPOS + Web Sync Test"` (Test data restored afterwards).
+**Delivered — final state**:
+- Toolbar cleanup + drawer merge + sidebar unlink.
+- Selection-driven scoped mode with badge + disabled filters + Auto-fix-all counted from flagged subset.
+- `POST /report-for-selection` returns rows for selected SKUs (flagged or clean).
+- `GET /report` accepts `include_clean=true`; drawer sends it whenever a supplier filter is active → Ultra Tile now shows 81/81 (was 18).
+- `knownSuppliers` prop populates the supplier dropdown from the parent chip bar (20 suppliers), not just those with flagged rows.
+- `Search` box (client-side) filters rows by name / SKU / range / supplier.
+- Every rename via `/apply` and `/apply-suggested` now mirrors to `db.tiles` (website) AND `db.products` (EPOS + main products).
+- **`POST /sync-to-epos-website`** — new backfill endpoint. Iterates `supplier_products`, pushes every `product_name` into matching `db.tiles.name` + `db.products.name`. Idempotent (only touches drifted rows). Optional `supplier` param scopes it. Preview run against 1,603 supplier products fixed 376 stale tile names + 1 product name.
+- **"Sync to EPOS & Website"** button (indigo-outline, paper-plane icon) in the drawer header. Confirms first, respects the supplier filter, shows a toast with counts.
 
 **Files touched**:
-- MODIFIED: `/app/backend/routes/product_name_sanity.py` — `include_clean` query param on `/report`, dual-collection mirror (`tiles` + `products`) on `/apply` and `/apply-suggested`, `POST /report-for-selection` endpoint.
-- MODIFIED: `/app/frontend/src/pages/admin/components/supplier-products/NameSanityDrawer.jsx` — `knownSuppliers` prop, `include_clean=true` on supplier-scoped fetches, search box + client-side row filter, `Clean` badge for zero-issue rows, empty-state variants.
-- MODIFIED: `/app/frontend/src/pages/admin/SupplierProducts.js` — passes `SUPPLIERS` (minus 'all') to the drawer as `knownSuppliers`.
+- MODIFIED: `/app/backend/routes/product_name_sanity.py` — `include_clean` on `/report`, `POST /report-for-selection`, dual-collection mirror on `/apply` + `/apply-suggested`, `POST /sync-to-epos-website` backfill.
+- MODIFIED: `/app/frontend/src/pages/admin/components/supplier-products/NameSanityDrawer.jsx` — `knownSuppliers`, `include_clean` toggle, search box, sync button + handler, `Clean` badge for zero-issue rows.
+- MODIFIED: `/app/frontend/src/pages/admin/SupplierProducts.js` — button removals, `ShieldCheck` import, `showNameSanity` state, selection-count label, `<NameSanityDrawer>` mount with `selectedSkus` + `knownSuppliers`.
 - MODIFIED: `/app/frontend/src/components/Layout.js` — sidebar Name Sanity entry removed.
 
-**Smoke test** (Playwright, admin@test.com):
-- Global scan filtered to Ultra Tile → 81 scanned / 2 flagged / 20 suppliers in dropdown.
-- Search "GGI" → 81 rows narrow to 1 (`ULT-GGI`). Clear → back to 81.
-- Selection mode (27 checkboxes) → drawer shows `27 selected` badge, `Scanned 27 / Flagged 15`, filters disabled.
-- Backend curl round-trip: rename `D11197` — mirrored to `supplier_products` + `tiles` + `products`. Test data restored.
+**Verification** (Playwright + backend curl + Mongo checks):
+- Ultra Tile with supplier filter shows 81 scanned, `Clean` badge on non-flagged rows.
+- Supplier dropdown lists 20 suppliers.
+- Search "GGI" narrows 81 → 1; clear restores 81.
+- Selection of 27 checkboxes → drawer shows 27 selected badge / 15 flagged.
+- Rename `D11197` propagates to `supplier_products` + `tiles` + `products` (test data restored).
+- Backfill sync run: 376 tiles + 1 product updated across 1,603 supplier products.
+
 
 
 

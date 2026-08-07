@@ -16,7 +16,7 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import { toast } from 'sonner';
 import {
-  ShieldCheck, AlertTriangle, RefreshCw, Save, X, Zap, Filter, Search, Wand2,
+  ShieldCheck, AlertTriangle, RefreshCw, Save, X, Zap, Filter, Search, Wand2, Send,
 } from 'lucide-react';
 import { Button } from '../../../../components/ui/button';
 import { Input } from '../../../../components/ui/input';
@@ -166,6 +166,33 @@ const NameSanityDrawer = ({ open, onClose, defaultSupplier = '', onRenamed, sele
     }
   };
 
+  const syncToEposAndWebsite = async () => {
+    const scope = supplierFilter
+      ? `every product in ${supplierFilter}`
+      : 'EVERY supplier product in the database';
+    if (!window.confirm(`Push each supplier product's current name to the Website (tiles) and EPOS (products) collections for ${scope}?\n\nThis is a one-way sync — supplier_products.product_name wins over what's currently in EPOS/tiles. Only rows where the name has drifted will be updated. This is logged.`)) return;
+    setRunning(true);
+    try {
+      const params = new URLSearchParams();
+      if (supplierFilter) params.set('supplier', supplierFilter);
+      const res = await fetch(`${API_URL}/api/product-name-sanity/sync-to-epos-website?${params}`, {
+        method: 'POST',
+        headers: authHeaders(),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      toast.success(
+        `Backfill synced ${data.tiles_updated} website row${data.tiles_updated === 1 ? '' : 's'} + ${data.products_updated} EPOS product${data.products_updated === 1 ? '' : 's'} (scanned ${data.scanned})`,
+        { duration: 6000 }
+      );
+      onRenamed?.();
+    } catch (err) {
+      toast.error(`Sync failed: ${err.message}`);
+    } finally {
+      setRunning(false);
+    }
+  };
+
   const suppliers = knownSuppliers && knownSuppliers.length > 0
     ? knownSuppliers
     : Object.keys(report.supplier_counts || {}).sort();
@@ -216,6 +243,22 @@ const NameSanityDrawer = ({ open, onClose, defaultSupplier = '', onRenamed, sele
             </div>
           </div>
           <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={syncToEposAndWebsite}
+              disabled={running || loading || scoped}
+              className="border-indigo-500 text-indigo-700 hover:bg-indigo-50 disabled:opacity-50"
+              data-testid="pns-sync-epos-website"
+              title={scoped
+                ? 'Disabled — clear the selection first, then choose a supplier to sync it, or leave supplier blank for a full DB sync'
+                : (supplierFilter
+                    ? `Push every ${supplierFilter} product name from Supplier Products into EPOS + Website (backfill)`
+                    : 'Push every supplier product name into EPOS + Website (backfill across all suppliers)')}
+            >
+              {running ? <RefreshCw className="w-4 h-4 mr-1.5 animate-spin" /> : <Send className="w-4 h-4 mr-1.5" />}
+              Sync to EPOS &amp; Website
+            </Button>
             <Button variant="outline" size="sm" onClick={loadReport} disabled={loading} data-testid="pns-refresh">
               <RefreshCw className={`w-4 h-4 mr-1.5 ${loading ? 'animate-spin' : ''}`} /> Rescan
             </Button>
