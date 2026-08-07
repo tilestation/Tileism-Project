@@ -19,9 +19,11 @@
  *   onSelect(product) — called when a row is clicked; parent closes the modal
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Search, X, Store, PackageCheck, Plus } from 'lucide-react';
+import { Search, X, Store, PackageCheck, Plus, Flame } from 'lucide-react';
 import { Input } from '../ui/input';
 import { Button } from '../ui/button';
+
+const API_URL = process.env.REACT_APP_BACKEND_URL;
 
 const ProductSearchModal = ({
   open,
@@ -35,6 +37,15 @@ const ProductSearchModal = ({
   const [q, setQ] = useState(initialQuery || '');
   const inputRef = useRef(null);
   const [highlight, setHighlight] = useState(0);
+  // topSellers = { sku: units_sold } — fetched once when modal opens so
+  // empty-query results surface the shop's most-sold products first.
+  const [topSellers, setTopSellers] = useState({});
+  const [topSellersLoaded, setTopSellersLoaded] = useState(false);
+
+  const authHeaders = () => {
+    const token = localStorage.getItem('token');
+    return token ? { Authorization: `Bearer ${token}` } : {};
+  };
 
   // Reset query + highlight whenever modal opens
   useEffect(() => {
@@ -48,22 +59,64 @@ const ProductSearchModal = ({
     }
   }, [open, initialQuery]);
 
+  // Fetch top sellers ONCE on first open — the ranking is stable enough
+  // during a session that we don't need to re-hit the API on every open.
+  // Start with a 90-day window (recency-weighted). If nothing sold in 90 days
+  // (small shop / preview DB / new setup), fall back to all-time so the modal
+  // still has SOMETHING to rank by.
+  useEffect(() => {
+    if (!open || topSellersLoaded) return;
+    (async () => {
+      const fetchWindow = async (days) => {
+        const res = await fetch(`${API_URL}/api/products/epos/top-sellers?days=${days}&limit=200`, { headers: authHeaders() });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json();
+      };
+      try {
+        let data = await fetchWindow(90);
+        if (!data.ranking || data.ranking.length === 0) {
+          data = await fetchWindow(3650); // all-time fallback (~10 years)
+        }
+        const map = {};
+        (data.ranking || []).forEach(({ sku, units_sold }) => { map[String(sku).toLowerCase()] = units_sold; });
+        setTopSellers(map);
+      } catch {
+        // Silent — if ranking fails, we just render products in their natural order.
+      } finally {
+        setTopSellersLoaded(true);
+      }
+    })();
+  }, [open, topSellersLoaded]);
+
   // Strict word-based match — only against `name` and `sku`. No description
   // fuzz-matching, so "standard set" won't drag in unrelated products via their
   // marketing blurb.
   const filtered = useMemo(() => {
     const query = q.trim().toLowerCase();
-    if (!query) return products;
-    const words = query.split(/\s+/).filter(Boolean);
-    return products.filter((p) => {
-      const name = (p.name || '').toLowerCase();
-      const sku = (p.sku || '').toLowerCase();
-      const hay = `${name} ${sku}`;
-      // Every typed word must appear somewhere in the combined name+sku string.
-      // This keeps the search intuitive (any order) but blocks description spam.
-      return words.every((w) => hay.includes(w));
-    });
-  }, [products, q]);
+    let list;
+    if (!query) {
+      list = products;
+    } else {
+      const words = query.split(/\s+/).filter(Boolean);
+      list = products.filter((p) => {
+        const name = (p.name || '').toLowerCase();
+        const sku = (p.sku || '').toLowerCase();
+        const hay = `${name} ${sku}`;
+        // Every typed word must appear somewhere in the combined name+sku
+        // string. Keeps the search intuitive (any order) but blocks description spam.
+        return words.every((w) => hay.includes(w));
+      });
+    }
+
+    // When no query is typed, prioritise the shop's bestsellers so staff hit
+    // frequent items in one click. Products missing from the ranking keep
+    // their natural order below.
+    if (!query && Object.keys(topSellers).length > 0) {
+      const rank = (sku) => topSellers[String(sku || '').toLowerCase()] ?? -1;
+      return [...list].sort((a, b) => rank(b.sku) - rank(a.sku));
+    }
+    return list;
+  }, [products, q, topSellers]);
 
   const visible = filtered.slice(0, 100);
 
@@ -121,7 +174,9 @@ const ProductSearchModal = ({
           <span>
             {q.trim()
               ? `${filtered.length} match${filtered.length === 1 ? '' : 'es'}${filtered.length > visible.length ? ` (showing first ${visible.length})` : ''}`
-              : `${products.length} products available`}
+              : (Object.keys(topSellers).length > 0
+                  ? `${products.length} products • Bestsellers first`
+                  : `${products.length} products available`)}
           </span>
           <span className="text-gray-400">↑↓ to navigate • Enter to add • Esc to close</span>
         </div>
@@ -175,8 +230,18 @@ const ProductSearchModal = ({
                   >
                     {/* Left — full product name (wraps, no truncate) + SKU */}
                     <div className="flex-1 min-w-0">
-                      <div className="text-sm font-medium text-slate-900 leading-snug break-words">
-                        {p.name || <span className="text-gray-400">— no name —</span>}
+                      <div className="text-sm font-medium text-slate-900 leading-snug break-words flex items-center gap-1.5 flex-wrap">
+                        <span>{p.name || <span className="text-gray-400">— no name —</span>}</span>
+                        {!q.trim() && topSellers[String(p.sku || '').toLowerCase()] > 0 && (
+                          <span
+                            className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-orange-100 text-orange-700 text-[10px] font-medium"
+                            data-testid={`top-seller-chip-${p.sku}`}
+                            title={`Sold ${topSellers[String(p.sku).toLowerCase()]} units in the last 90 days`}
+                          >
+                            <Flame className="w-2.5 h-2.5" />
+                            Top seller
+                          </span>
+                        )}
                       </div>
                       <div className="text-[11px] text-slate-500 font-mono mt-0.5">{p.sku || 'no-sku'}</div>
                     </div>

@@ -2409,6 +2409,64 @@ async def regenerate_all_products_seo(current_user: dict = Depends(get_current_u
     }
 
 
+@api_router.get("/products/epos/top-sellers")
+async def epos_top_sellers(
+    days: int = Query(90, ge=1, le=3650, description="Look-back window in days"),
+    limit: int = Query(200, ge=1, le=500),
+    current_user: dict = Depends(get_current_user),
+):
+    """Return a ranking of the most-sold SKUs across the given window. Used to
+    sort the EPOS product search modal when the query is empty so staff see
+    the shop's bestsellers first. Aggregates `invoices.line_items[]` and
+    `shop_orders.items[]`.
+    """
+    from datetime import timedelta
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+
+    counts: dict = {}
+
+    # 1) Invoices — sum quantities keyed by sku on line_items.
+    try:
+        async for inv in db.invoices.find(
+            {"created_at": {"$gte": cutoff}},
+            {"line_items": 1, "_id": 0},
+        ):
+            for li in (inv.get("line_items") or []):
+                sku = str(li.get("sku") or "").strip()
+                if not sku:
+                    continue
+                qty = float(li.get("quantity") or 0)
+                if qty <= 0:
+                    continue
+                counts[sku] = counts.get(sku, 0) + qty
+    except Exception:
+        pass
+
+    # 2) Shop orders — items keyed by sku or product_id (which usually equals sku).
+    try:
+        async for so in db.shop_orders.find(
+            {"created_at": {"$gte": cutoff}},
+            {"items": 1, "_id": 0},
+        ):
+            for it in (so.get("items") or []):
+                sku = str(it.get("sku") or it.get("product_id") or "").strip()
+                if not sku:
+                    continue
+                qty = float(it.get("quantity") or 0)
+                if qty <= 0:
+                    continue
+                counts[sku] = counts.get(sku, 0) + qty
+    except Exception:
+        pass
+
+    ranked = sorted(counts.items(), key=lambda kv: -kv[1])[:limit]
+    return {
+        "window_days": days,
+        "total_ranked": len(ranked),
+        "ranking": [{"sku": sku, "units_sold": qty} for sku, qty in ranked],
+    }
+
+
 @api_router.get("/products/epos/search")
 async def epos_product_search(
     search: str = Query(..., description="Search term"),
