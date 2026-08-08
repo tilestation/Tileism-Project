@@ -9,7 +9,60 @@
  * "Ultra Tile Cleaning & Maintenance". Historical Canopy imports have
  * dumped full product names into series-carrying fields; we filter those
  * out so a row doesn't end up in its own singleton bucket.
+ *
+ * The name-parsing fallback strips descriptor words (colours, finishes,
+ * sizes) so a product like "Grigio Polished 60x60cm Wall Tile" reduces
+ * to the "Grigio" series (or better, its multi-word prefix).
  */
+
+// Words that describe COLOUR — usually appear at the end of a product name
+// as a modifier. Stripped from the tail during series parsing so "Dolomite
+// Onyx White" and "Dolomite Onyx Grey" collapse into the same "Dolomite Onyx"
+// series bucket.
+export const SERIES_COLOR_WORDS = new Set([
+  'white','grey','gray','black','beige','cream','brown','blue','green',
+  'red','pink','yellow','orange','purple','silver','gold','ivory',
+  'charcoal','anthracite','taupe','sand','bone','pearl','light','dark',
+  'crema','bianco','grigio','nero','avorio','noce','cenere','pietra',
+  'polvere','verde','rosa','marfil',
+  'blanco','gris','perla','ceniza','grafito','hueso','arena',
+  'marengo','roble','terra','acacia','arce','nuez',
+  'decor','feature','border','listello',
+  'brilliant','bright','jet','royal','midnight','pale','deep','ultra',
+  'sky','ocean','aqua','teal','azure','cobalt','turquoise','indigo','denim','navy','jean',
+  'sage','olive','emerald','mint','forest','moss',
+  'coral','salmon','blush','rose','orchid','magenta',
+  'burgundy','maroon','garnet','bordeaux','ruby','wine','claret',
+  'rust','terracotta','copper','bronze','brass','amber','honey','caramel',
+  'walnut','chocolate','coffee','mocha','tobacco','cinnamon','chestnut',
+  'smoke','ash','graphite','slate','onyx','ice','snow','carbon',
+  'smoky','greige','platinum','titanium','pewter','lead',
+  'violet','lilac','lavender','mauve','lemon',
+  'pigment','leaf','romantic','storm','pepper','blonde','golden',
+  'warm','cool','soft','fumes','lawa','thunder',
+  'breccia','carrara','natural','stone','earth','clay',
+  'alga','invisible','sugar','brillo','antrecide',
+  'blu',
+]);
+
+// Words that describe FINISH / SURFACE / SHAPE / MATERIAL — stripped from
+// anywhere in the name during series parsing so they don't fragment groups.
+export const SERIES_ATTRIBUTE_WORDS = new Set([
+  'outdoor','indoor','external','internal','anti-slip','antislip',
+  'rectified','unrectified','honed','lappato','lapato','structured',
+  'polished','matt','matte','gloss','glossy','satin','silk','rustic',
+  'linear','plain','scored','textured','embossed','riven','tumbled',
+  'brushed','glazed','unglazed','smooth','flamed','hammered','bush-hammered',
+  'oiled','lacquered','whitewashed','smoked','unfinished','sanded',
+  'carving','high-gloss','semi','waxed','primed','brillo','mate',
+  'savage','garden','mosaic','patchwork','stripe','chevron','herringbone',
+  'hexagon','split','face','endless','deluxe','lounge','unique',
+  'square','flat','bumpy','bevelled','round',
+  'tiles','tile','wall','floor','and','slabs','slab',
+  'effect','marble','wood','concrete','ceramic','metro',
+  'quarry','travertine','terrazzo','porcelain','patterned',
+  'laminate','engineered','lvt','plank','straight',
+]);
 
 // Reject values that are clearly product names, not series labels.
 export const looksLikeCleanSeriesName = (v) => {
@@ -27,24 +80,60 @@ export const looksLikeCleanSeriesName = (v) => {
   return true;
 };
 
-// Parse a series name from a raw product name string (first word, Title Case).
-// Returns empty string when the first word looks like a dimension token so we
-// don't create noisy singleton buckets like "800x800 Series (1 product)".
-const parseFromName = (name) => {
-  if (!name) return '';
-  const s = String(name).trim();
-  if (!s) return '';
-  const rawFirst = s.split(/\s+/)[0] || '';
-  // Reject dimensions ("800x800", "60x60", "20x25"), pure numbers, and other
-  // non-word tokens so they don't become their own series bucket.
-  if (/^\d+\s*x\s*\d+/i.test(rawFirst)) return '';
-  if (/^\d+$/.test(rawFirst)) return '';
-  const first = rawFirst.replace(/[^a-zA-Z0-9]/g, '');
-  if (!first) return '';
-  // If the sanitised first word is still just digits (e.g. "60cm" → "60"),
-  // treat as no-series so the row lands in the "Individual" bucket.
-  if (/^\d+$/.test(first)) return '';
-  return first.charAt(0).toUpperCase() + first.slice(1).toLowerCase();
+// Normalise a word for lookup (lowercase + strip diacritics).
+const nw = (w) => w.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+/**
+ * Smart series-name parser from a raw product name string.
+ *
+ *   "Dolomite Onyx Grey Polished 60x60cm"        → "Dolomite Onyx"
+ *   "Ultra Tile ProClean Cleaner 1L"             → "Ultra Tile ProClean Cleaner"
+ *   "SKU12345 - Some Long Product Name"          → "SKU12345"          (dash-prefix pattern)
+ *   "Decor25x60cm"                               → "Decor"             (concatenated tokens)
+ *
+ * Behaviour: keep prefix words; break on the first dimension token; strip
+ * attribute words anywhere; strip trailing colour words. Falls back gracefully
+ * to first-word Title Case for pathological inputs.
+ */
+export const getSeriesNameFromString = (productName) => {
+  if (!productName) return '';
+  const raw = String(productName).trim();
+  if (!raw) return '';
+
+  // Dash-prefix pattern: "SKU - Longer Name" → keep the SKU portion.
+  if (raw.includes(' - ')) {
+    const prefix = raw.split(' - ')[0].trim();
+    if (prefix) return prefix;
+  }
+
+  // Pre-process: split concatenated word+dimension tokens like
+  // "Decor25x60cm" into "Decor" + "25x60cm" so the dimension gets stripped
+  // and the word survives.
+  const rawParts = raw.split(/\s+/);
+  const parts = [];
+  for (const p of rawParts) {
+    const m = p.match(/^([A-Za-z]+)(\d+(?:\.\d+)?[xX]\d+.*)$/);
+    if (m) { parts.push(m[1]); parts.push(m[2]); }
+    else parts.push(p);
+  }
+
+  // Walk left-to-right: break on the first dimension token; skip mm-only
+  // tokens; skip descriptor attribute words entirely.
+  const sp = [];
+  for (const p of parts) {
+    if (/^\d+(\.\d+)?[xX]\d+/.test(p)) break;
+    if (/^\d+mm$/i.test(p)) continue;
+    if (SERIES_ATTRIBUTE_WORDS.has(nw(p))) continue;
+    sp.push(p);
+  }
+
+  if (sp.length === 0) return raw;
+
+  // Trailing colour words don't belong in the series label.
+  while (sp.length > 0 && SERIES_COLOR_WORDS.has(nw(sp[sp.length - 1]))) sp.pop();
+
+  if (sp.length === 0) return raw.split(/\s+/).slice(0, 2).join(' ');
+  return sp.join(' ');
 };
 
 /**
@@ -55,7 +144,7 @@ const parseFromName = (name) => {
  *   3. series           (canonical field the API returns)
  *   4. series_name      (legacy alias)
  *   5. unique_name      (older Canopy-imports store the range here)
- *   6. fallback: parse first word of the product display name
+ *   6. fallback: smart parse of the display name
  */
 export const getSeriesName = (productOrName) => {
   if (productOrName && typeof productOrName === 'object') {
@@ -66,7 +155,7 @@ export const getSeriesName = (productOrName) => {
       const v = productOrName[k];
       if (looksLikeCleanSeriesName(v)) return String(v).trim();
     }
-    return parseFromName(
+    return getSeriesNameFromString(
       productOrName.our_product_name ||
       productOrName.display_name ||
       productOrName.name ||
@@ -74,7 +163,7 @@ export const getSeriesName = (productOrName) => {
       ''
     );
   }
-  return parseFromName(productOrName);
+  return getSeriesNameFromString(productOrName);
 };
 
 /**

@@ -37,6 +37,7 @@ import BulkEditHistory from './components/supplier-products/BulkEditHistory';
 import NameSanityDrawer from './components/supplier-products/NameSanityDrawer';
 import ProductImagesGridPanel from './components/managers/ProductImagesGridPanel';
 import { useBulkUndo } from './components/managers/useBulkUndo';
+import { getSeriesName, getSeriesNameFromString } from './lib/series';
 import ManagerTabsBar from './components/managers/ManagerTabsBar';
 import { bucketSelectionByManager } from './components/managers/classifyProductToManager';
 import CustomManagerBuilder from './components/managers/CustomManagerBuilder';
@@ -94,133 +95,10 @@ const CATEGORY_OPTIONS = {
   finishes: ['Matt', 'Gloss', 'Polished', 'Satin', 'Lappato', 'Natural', 'Honed', 'Textured', 'Structured', 'Anti-slip']
 };
 
-// Shared series name extraction — must match backend's extract_series_name() in tiles.py
-const SERIES_COLOR_WORDS = new Set([
-  'white','grey','gray','black','beige','cream','brown','blue','green',
-  'red','pink','yellow','orange','purple','silver','gold','ivory',
-  'charcoal','anthracite','taupe','sand','bone','pearl','light','dark',
-  'crema','bianco','grigio','nero','avorio','noce','cenere','pietra',
-  'polvere','verde','rosa','marfil',
-  'blanco','gris','perla','ceniza','grafito','hueso','arena',
-  'marengo','roble','terra','acacia','arce','nuez',
-  'decor','feature','border','listello',
-  'brilliant','bright','jet','royal','midnight','pale','deep','ultra',
-  'sky','ocean','aqua','teal','azure','cobalt','turquoise','indigo','denim','navy','jean',
-  'sage','olive','emerald','mint','forest','moss',
-  'coral','salmon','blush','rose','orchid','magenta',
-  'burgundy','maroon','garnet','bordeaux','ruby','wine','claret',
-  'rust','terracotta','copper','bronze','brass','amber','honey','caramel',
-  'walnut','chocolate','coffee','mocha','tobacco','cinnamon','chestnut',
-  'smoke','ash','graphite','slate','onyx','ice','snow','carbon',
-  'smoky','greige','platinum','titanium','pewter','lead',
-  'violet','lilac','lavender','mauve','lemon',
-  'pigment','leaf','romantic','storm','pepper','blonde','golden',
-  'warm','cool','soft','fumes','lawa','thunder',
-  'breccia','carrara','natural','stone','earth','clay',
-  'alga','invisible','sugar','brillo','antrecide',
-  'blu',
-]);
-const SERIES_ATTRIBUTE_WORDS = new Set([
-  'outdoor','indoor','external','internal','anti-slip','antislip',
-  'rectified','unrectified','honed','lappato','lapato','structured',
-  'polished','matt','matte','gloss','glossy','satin','silk','rustic',
-  'linear','plain','scored','textured','embossed','riven','tumbled',
-  'brushed','glazed','unglazed','smooth','flamed','hammered','bush-hammered',
-  'oiled','lacquered','whitewashed','smoked','unfinished','sanded',
-  'carving','high-gloss','semi','waxed','primed','brillo','mate',
-  'savage','garden','mosaic','patchwork','stripe','chevron','herringbone',
-  'hexagon','split','face','endless','deluxe','lounge','unique',
-  'square','flat','bumpy','bevelled','round',
-  'tiles','tile','wall','floor','and','slabs','slab',
-  'effect','marble','wood','concrete','ceramic','metro',
-  'quarry','travertine','terrazzo','porcelain','patterned',
-  'laminate','engineered','lvt','plank','straight',
-]);
-function getSeriesName(productOrName) {
-  // Support both raw string (legacy) and full product object. When a product
-  // object is passed we prefer any explicit admin override in this order:
-  //   1. original_series (Edit Series Names admin override — only if it passes clean check)
-  //   2. range_name      (Auto-Assign Series / Bulk Set Series audit field)
-  //   3. series          (canonical field the API surfaces on the product row)
-  //   4. series_name     (legacy alias some callers used)
-  //   5. unique_name     (older Canopy-imports store the range here)
-  //
-  // CRITICAL: Any of these fields can historically hold a FULL PRODUCT NAME
-  // (from Canopy scrapes, old CSVs, or an old Auto-Assign run that grabbed
-  // supplier_product_name verbatim). We must reject those or the row ends up
-  // in its own singleton series bucket. A value is treated as junk if it:
-  //   - is longer than 60 chars, or
-  //   - contains " - " (product-name-with-subtitle pattern), or
-  //   - contains a dimension token like `60x60cm` / `15kg` / `1L`.
-  //
-  // We apply this filter to EVERY field including `original_series`, because
-  // the Canopy scraper historically dumped full product names into it before
-  // the admin cleaned them up.
-  const looksLikeCleanSeriesName = (v) => {
-    if (!v) return false;
-    const s = String(v).trim();
-    if (!s) return false;
-    if (s.length > 60) return false;
-    if (s.includes(' - ')) return false;
-    if (/\d{2,}\s*(x|cm|mm|kg|l|g)\b/i.test(s)) return false;
-    return true;
-  };
-  if (productOrName && typeof productOrName === 'object') {
-    // Admin manual override — but only if it looks like a real series name.
-    // `original_series` historically stored raw Canopy scrape values which
-    // are often the full product name. Apply the same junk-filter so those
-    // don't dominate the priority chain and split cleanly-assigned rows.
-    if (looksLikeCleanSeriesName(productOrName.original_series)) {
-      return String(productOrName.original_series).trim();
-    }
-    // Walk every possible series-carrying field and pick the first that
-    // looks like a real series name (not junk).
-    for (const k of ['range_name', 'series', 'series_name', 'unique_name']) {
-      const v = productOrName[k];
-      if (looksLikeCleanSeriesName(v)) return String(v).trim();
-    }
-    // No usable stored value — parse from the product name. Prefer the same
-    // display-name resolution the admin table uses so grouping matches what
-    // the admin sees on the row (our_product_name → display_name → name → product_name).
-    const nameForParse = (
-      productOrName.our_product_name ||
-      productOrName.display_name ||
-      productOrName.name ||
-      productOrName.product_name ||
-      ''
-    );
-    return getSeriesNameFromString(nameForParse);
-  }
-  return getSeriesNameFromString(productOrName);
-}
-
-function getSeriesNameFromString(productName) {
-  if (!productName) return '';
-  if (productName.includes(' - ')) {
-    const prefix = productName.split(' - ')[0].trim();
-    if (prefix) return prefix;
-  }
-  const nw = (w) => w.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-  const rawParts = productName.trim().split(/\s+/);
-  // Pre-process: split concatenated word+dimension tokens (e.g., "Decor25x60cm" → "Decor" + "25x60cm")
-  const parts = [];
-  for (const p of rawParts) {
-    const m = p.match(/^([A-Za-z]+)(\d+(?:\.\d+)?[xX]\d+.*)$/);
-    if (m) { parts.push(m[1]); parts.push(m[2]); }
-    else parts.push(p);
-  }
-  const sp = [];
-  for (const p of parts) {
-    if (/^\d+(\.\d+)?[xX]\d+/.test(p)) break;
-    if (/^\d+mm$/i.test(p)) continue;
-    if (SERIES_ATTRIBUTE_WORDS.has(nw(p))) continue;
-    sp.push(p);
-  }
-  if (sp.length === 0) return productName;
-  while (sp.length > 0 && SERIES_COLOR_WORDS.has(nw(sp[sp.length - 1]))) sp.pop();
-  if (sp.length === 0) return productName.trim().split(/\s+/).slice(0, 2).join(' ');
-  return sp.join(' ');
-}
+// Series grouping helpers now live in lib/series.js (shared with every
+// Manager page). Any change to the parsing rules (colour list, attribute
+// list, dash-prefix handling, dimension breaks) MUST happen in that file
+// so /admin/supplier-products and /admin/materials never disagree.
 
 
 export default function SupplierProducts() {

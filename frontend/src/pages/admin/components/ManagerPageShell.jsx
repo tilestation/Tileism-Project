@@ -526,11 +526,54 @@ const ManagerPageShell = ({
             <p className="mt-1 text-xs text-gray-400">Products not showing up? Reassign them via the legacy Bulk Editor.</p>
           </div>
         ) : viewMode === 'images' ? (
-          <ProductImagesGridPanel
-            products={filteredProducts}
-            embedded
-            supplier={(filters.supplier || filteredProducts[0]?.supplier || '') || 'products'}
-          />
+          <>
+            {(() => {
+              // Compute distinct suppliers in the current filtered view so we
+              // can nudge the admin to filter down to one supplier at a time.
+              // Image QA is much less noisy that way and the "N products by size"
+              // sidebar stays meaningful.
+              const suppliers = Array.from(new Set(
+                (filteredProducts || []).map(p => p.supplier).filter(Boolean)
+              ));
+              if (suppliers.length > 1) {
+                return (
+                  <div
+                    className="mb-3 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800"
+                    data-testid={`${categoryKey}-images-multi-supplier-warning`}
+                  >
+                    <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                    <div className="flex-1">
+                      <div className="font-medium">
+                        Showing {suppliers.length} suppliers — image QA works best filtered to one at a time
+                      </div>
+                      <div className="mt-0.5 flex flex-wrap gap-1.5">
+                        {suppliers.slice(0, 6).map(s => (
+                          <button
+                            key={s}
+                            type="button"
+                            onClick={() => setFilters({ ...(filters || {}), supplier: s })}
+                            className="px-2 py-0.5 rounded border border-amber-300 bg-white hover:bg-amber-100 font-medium text-amber-900"
+                            data-testid={`${categoryKey}-images-filter-supplier-${s}`}
+                          >
+                            Filter to {s}
+                          </button>
+                        ))}
+                        {suppliers.length > 6 && (
+                          <span className="text-amber-700 py-0.5">+{suppliers.length - 6} more</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              }
+              return null;
+            })()}
+            <ProductImagesGridPanel
+              products={filteredProducts}
+              embedded
+              supplier={(filters.supplier || filteredProducts[0]?.supplier || '') || 'products'}
+            />
+          </>
         ) : (
           <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
             <table className="w-full text-sm">
