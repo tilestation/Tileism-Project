@@ -57,6 +57,7 @@ const QuickEditModal = ({
   moreSpecsSlot,
   saleAndDescriptionSlot,
   previewSlot,
+  variantsSlot,
 }) => {
   if (!product) return null;
 
@@ -491,6 +492,15 @@ const QuickEditModal = ({
           {moreSpecsSlot && (
             <div className="pt-2 border-t">
               {moreSpecsSlot}
+            </div>
+          )}
+
+          {/* Optional Variants slot — injected by QuickEditProductDrawer so
+              admins can group sibling SKUs (colour / finish / size swatches)
+              that appear together on the customer-facing landing page. */}
+          {variantsSlot && (
+            <div className="pt-2 border-t">
+              {variantsSlot}
             </div>
           )}
 

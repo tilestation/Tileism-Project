@@ -63,6 +63,14 @@ const QuickEditProductDrawer = ({ open, onOpenChange, product, onSaved, previewI
   const [categorySuggestions, setCategorySuggestions] = useState([]);
   const [moreSpecsOpen, setMoreSpecsOpen] = useState(false);
   const [moreSpecsValues, setMoreSpecsValues] = useState({});
+  // Variants panel state — groups sibling SKUs (colour / finish / size swatches)
+  // for the customer landing page. Backend: /api/supplier-sync/variants/*
+  const [variantsOpen, setVariantsOpen] = useState(false);
+  const [variantMembers, setVariantMembers] = useState([]);  // current group members
+  const [variantCandidates, setVariantCandidates] = useState([]);  // siblings not yet grouped
+  const [variantSelected, setVariantSelected] = useState({});  // {sku: true} for candidates
+  const [variantsLoading, setVariantsLoading] = useState(false);
+  const [variantsBusy, setVariantsBusy] = useState(false);
   const debounceRef = useRef(null);
 
   // Preview images fallback if the caller didn't supply one
@@ -112,6 +120,11 @@ const QuickEditProductDrawer = ({ open, onOpenChange, product, onSaved, previewI
     });
     setMoreSpecsValues(seed);
     setMoreSpecsOpen(false); // collapsed by default; admins expand if they need it
+    // Reset variants panel state whenever a new product is loaded.
+    setVariantsOpen(false);
+    setVariantMembers([]);
+    setVariantCandidates([]);
+    setVariantSelected({});
     fetchCategorySuggestions();
   }, [open, product]);
 
@@ -541,6 +554,402 @@ const QuickEditProductDrawer = ({ open, onOpenChange, product, onSaved, previewI
     </div>
   ) : null;
 
+  // === Variants panel ===================================================
+  // Load current group members + sibling candidates whenever the panel is
+  // opened (or a different product is loaded).
+  const fetchVariantData = useCallback(async () => {
+    if (!product) return;
+    const sku = product.sku || product.supplier_code;
+    if (!sku) return;
+    setVariantsLoading(true);
+    try {
+      // Existing group members (if this product is part of one).
+      const groupId = product.variant_group_id;
+      if (groupId) {
+        const gRes = await fetch(`${API_URL}/api/supplier-sync/variants/group/${encodeURIComponent(groupId)}`);
+        if (gRes.ok) {
+          const gData = await gRes.json();
+          setVariantMembers(gData.members || []);
+        } else {
+          setVariantMembers([]);
+        }
+      } else {
+        setVariantMembers([]);
+      }
+      // Sibling candidates in the same series that share the same base name.
+      const cRes = await fetch(`${API_URL}/api/supplier-sync/variants/candidates?sku=${encodeURIComponent(sku)}`);
+      if (cRes.ok) {
+        const cData = await cRes.json();
+        // Filter out any candidate already in the current group.
+        const groupSkus = new Set((variantMembers || []).map(m => m.sku));
+        setVariantCandidates((cData.candidates || []).filter(c => !groupSkus.has(c.sku)));
+      } else {
+        setVariantCandidates([]);
+      }
+    } catch (err) {
+      // Silent — panel just shows empty state on failure.
+      setVariantMembers([]);
+      setVariantCandidates([]);
+    } finally {
+      setVariantsLoading(false);
+    }
+  }, [product]);
+
+  useEffect(() => {
+    if (variantsOpen) fetchVariantData();
+  }, [variantsOpen, product, fetchVariantData]);
+
+  const toggleCandidate = (sku) => {
+    setVariantSelected(prev => ({ ...prev, [sku]: !prev[sku] }));
+  };
+
+  const buildItemFromProduct = (p) => ({
+    sku: p.sku,
+    color: (p.variant_axes && p.variant_axes.color) || p.color || null,
+    finish: (p.variant_axes && p.variant_axes.finish) || p.finish || null,
+    size: (p.variant_axes && p.variant_axes.size) || p.size || null,
+  });
+
+  const onCreateOrExtendGroup = async () => {
+    const selected = Object.entries(variantSelected).filter(([, v]) => v).map(([k]) => k);
+    if (selected.length === 0) {
+      toast.error('Select at least one candidate first');
+      return;
+    }
+    setVariantsBusy(true);
+    try {
+      // Include the current product plus any existing group members so we
+      // (re)create a single group with everyone in it. Backend generates a
+      // fresh group_id when none is supplied.
+      const currentSku = product.sku || product.supplier_code;
+      const items = [];
+      items.push({ sku: currentSku, color: product.color || null, finish: product.finish || null, size: product.size || null });
+      variantMembers.forEach(m => {
+        if (m.sku && m.sku !== currentSku) items.push(buildItemFromProduct(m));
+      });
+      variantCandidates.forEach(c => {
+        if (selected.includes(c.sku)) items.push({ sku: c.sku, color: c.color || null, finish: c.finish || null, size: c.size || null });
+      });
+      const res = await fetch(`${API_URL}/api/supplier-sync/variants/create-group`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items, group_id: product.variant_group_id || null }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        toast.error(err.detail || 'Failed to create variant group');
+        return;
+      }
+      const data = await res.json();
+      toast.success(`Grouped ${data.updated} product${data.updated !== 1 ? 's' : ''} as variants`);
+      setVariantSelected({});
+      // Reload group + candidates so the UI reflects the new state.
+      // Also patch product.variant_group_id so the panel treats subsequent
+      // adds as an "extend" rather than a "create".
+      if (product && data.group_id) product.variant_group_id = data.group_id;
+      await fetchVariantData();
+      onSaved && onSaved();
+    } catch (err) {
+      toast.error(`Group failed: ${err.message}`);
+    } finally {
+      setVariantsBusy(false);
+    }
+  };
+
+  const onAutoGroupFromSeries = async () => {
+    if (!product) return;
+    const seriesName = getSeriesName(product);
+    if (!seriesName) {
+      toast.error('This product has no detectable series — set the series first');
+      return;
+    }
+    setVariantsBusy(true);
+    try {
+      const res = await fetch(`${API_URL}/api/supplier-sync/variants/auto-group-from-series`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ series: seriesName, supplier: product.supplier || null, dry_run: false }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        toast.error(err.detail || 'Auto-group failed');
+        return;
+      }
+      const data = await res.json();
+      toast.success(`Auto-grouped ${data.products_grouped} product${data.products_grouped !== 1 ? 's' : ''} into ${data.clusters_found} variant group${data.clusters_found !== 1 ? 's' : ''}`);
+      // Refresh; the current product may now have a variant_group_id.
+      // We can't easily update the parent product record from here, so
+      // trigger onSaved so the parent list can reload.
+      await fetchVariantData();
+      onSaved && onSaved();
+    } catch (err) {
+      toast.error(`Auto-group failed: ${err.message}`);
+    } finally {
+      setVariantsBusy(false);
+    }
+  };
+
+  const onRemoveMember = async (sku) => {
+    if (!sku) return;
+    setVariantsBusy(true);
+    try {
+      const res = await fetch(`${API_URL}/api/supplier-sync/variants/ungroup`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ skus: [sku], clear_axes: false }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        toast.error(err.detail || 'Failed to remove variant');
+        return;
+      }
+      toast.success('Variant removed from group');
+      await fetchVariantData();
+      onSaved && onSaved();
+    } catch (err) {
+      toast.error(`Remove failed: ${err.message}`);
+    } finally {
+      setVariantsBusy(false);
+    }
+  };
+
+  const onUngroupAll = async () => {
+    if (!variantMembers.length) return;
+    setVariantsBusy(true);
+    try {
+      const res = await fetch(`${API_URL}/api/supplier-sync/variants/ungroup`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ skus: variantMembers.map(m => m.sku).filter(Boolean), clear_axes: false }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        toast.error(err.detail || 'Failed to ungroup');
+        return;
+      }
+      toast.success('Variant group dissolved');
+      if (product) product.variant_group_id = null;
+      await fetchVariantData();
+      onSaved && onSaved();
+    } catch (err) {
+      toast.error(`Ungroup failed: ${err.message}`);
+    } finally {
+      setVariantsBusy(false);
+    }
+  };
+
+  const onEditMemberAxis = async (sku, axis, value) => {
+    // Optimistic update so the input feels responsive.
+    setVariantMembers(prev => prev.map(m => m.sku === sku ? {
+      ...m,
+      variant_axes: { ...(m.variant_axes || {}), [axis]: value || null },
+    } : m));
+    try {
+      await fetch(`${API_URL}/api/supplier-sync/variants/set-axes`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sku, [axis]: value }),
+      });
+    } catch {
+      // silent — optimistic update stays; a full reload will correct any drift
+    }
+  };
+
+  const currentSku = product ? (product.sku || product.supplier_code) : null;
+  const seriesForVariants = product ? getSeriesName(product) : '';
+
+  const variantsPanel = (
+    <div className="border border-purple-100 rounded-lg overflow-hidden" data-testid="quick-edit-variants-panel">
+      <button
+        type="button"
+        onClick={() => setVariantsOpen(v => !v)}
+        className="w-full flex items-center gap-2 px-3 py-2 bg-purple-50 hover:bg-purple-100 text-left text-sm font-medium text-purple-800"
+        data-testid="variants-toggle"
+      >
+        {variantsOpen ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+        <Layers className="w-4 h-4 text-purple-600" />
+        <span>Variants (Colour / Finish / Size)</span>
+        <span className="ml-1 text-[10px] uppercase tracking-wider text-purple-500">
+          {variantMembers.length > 0
+            ? `${variantMembers.length} sibling${variantMembers.length !== 1 ? 's' : ''} grouped`
+            : product && product.variant_group_id
+              ? 'group loaded'
+              : 'not grouped'}
+        </span>
+        {product && product.variant_group_id && (
+          <span className="ml-auto text-[10px] font-mono text-purple-500 truncate max-w-[140px]">
+            {product.variant_group_id}
+          </span>
+        )}
+      </button>
+      {variantsOpen && (
+        <div className="p-3 bg-white space-y-3 text-xs">
+          <div className="text-[11px] text-purple-700 bg-purple-50 border border-purple-100 rounded px-2 py-1.5 flex items-start gap-2">
+            <Sparkles className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
+            <span>
+              Sibling SKUs grouped here become swatches on the customer landing page for series
+              <b className="mx-1">{seriesForVariants || '(no series)'}</b>.
+              Use <b>Auto-Group from Series</b> to bootstrap the whole series in one click.
+            </span>
+          </div>
+
+          {/* Toolbar */}
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={onAutoGroupFromSeries}
+              disabled={variantsBusy || !seriesForVariants}
+              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded border border-purple-300 bg-purple-600 text-white text-[11px] font-semibold hover:bg-purple-700 disabled:opacity-40"
+              data-testid="variants-auto-group-btn"
+            >
+              <Sparkles className="w-3.5 h-3.5" />
+              Auto-Group from Series
+            </button>
+            <button
+              type="button"
+              onClick={fetchVariantData}
+              disabled={variantsLoading}
+              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded border border-gray-300 text-gray-700 text-[11px] font-medium hover:bg-gray-50 disabled:opacity-40"
+              data-testid="variants-refresh-btn"
+            >
+              {variantsLoading ? 'Loading…' : 'Refresh'}
+            </button>
+            {variantMembers.length > 0 && (
+              <button
+                type="button"
+                onClick={onUngroupAll}
+                disabled={variantsBusy}
+                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded border border-rose-200 text-rose-700 text-[11px] font-medium hover:bg-rose-50 disabled:opacity-40 ml-auto"
+                data-testid="variants-ungroup-all-btn"
+              >
+                <XIcon className="w-3.5 h-3.5" />
+                Dissolve Group
+              </button>
+            )}
+          </div>
+
+          {/* Existing group members */}
+          {variantMembers.length > 0 && (
+            <div className="border border-purple-100 rounded overflow-hidden" data-testid="variants-members-list">
+              <div className="px-2 py-1 bg-purple-50 border-b border-purple-100 text-[10px] uppercase tracking-wider font-semibold text-purple-700 flex items-center gap-1">
+                <Link2 className="w-3 h-3" />
+                Current Variant Group ({variantMembers.length})
+              </div>
+              <div className="divide-y">
+                {variantMembers.map(m => (
+                  <div key={m.sku} className="px-2 py-1.5 grid grid-cols-12 gap-1 items-center" data-testid={`variant-member-${m.sku}`}>
+                    <div className="col-span-4 min-w-0">
+                      <div className="text-[11px] font-medium text-gray-800 truncate" title={m.name}>{m.name || m.sku}</div>
+                      <div className="text-[9px] text-gray-400 font-mono">{m.sku}</div>
+                    </div>
+                    <input
+                      type="text"
+                      value={(m.variant_axes && m.variant_axes.color) || ''}
+                      onChange={(e) => onEditMemberAxis(m.sku, 'color', e.target.value)}
+                      placeholder="colour"
+                      className="col-span-2 h-6 text-[10px] border border-gray-200 rounded px-1"
+                      data-testid={`variant-member-color-${m.sku}`}
+                    />
+                    <input
+                      type="text"
+                      value={(m.variant_axes && m.variant_axes.finish) || ''}
+                      onChange={(e) => onEditMemberAxis(m.sku, 'finish', e.target.value)}
+                      placeholder="finish"
+                      className="col-span-2 h-6 text-[10px] border border-gray-200 rounded px-1"
+                      data-testid={`variant-member-finish-${m.sku}`}
+                    />
+                    <input
+                      type="text"
+                      value={(m.variant_axes && m.variant_axes.size) || ''}
+                      onChange={(e) => onEditMemberAxis(m.sku, 'size', e.target.value)}
+                      placeholder="size"
+                      className="col-span-2 h-6 text-[10px] border border-gray-200 rounded px-1"
+                      data-testid={`variant-member-size-${m.sku}`}
+                    />
+                    <div className="col-span-2 flex justify-end">
+                      {m.sku !== currentSku && (
+                        <button
+                          type="button"
+                          onClick={() => onRemoveMember(m.sku)}
+                          disabled={variantsBusy}
+                          className="p-1 text-rose-600 hover:bg-rose-50 rounded disabled:opacity-40"
+                          title="Remove from group"
+                          data-testid={`variant-member-remove-${m.sku}`}
+                        >
+                          <XIcon className="w-3 h-3" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Candidate siblings not yet grouped */}
+          <div className="border border-gray-200 rounded overflow-hidden" data-testid="variants-candidates-list">
+            <div className="px-2 py-1 bg-gray-50 border-b border-gray-200 text-[10px] uppercase tracking-wider font-semibold text-gray-600 flex items-center gap-1">
+              <Palette className="w-3 h-3" />
+              Sibling Candidates
+              <span className="ml-1 normal-case tracking-normal font-normal text-gray-400">— same series, not yet grouped</span>
+              {variantCandidates.length > 0 && (
+                <button
+                  type="button"
+                  onClick={onCreateOrExtendGroup}
+                  disabled={variantsBusy || Object.values(variantSelected).filter(Boolean).length === 0}
+                  className="ml-auto inline-flex items-center gap-1 px-2 py-0.5 rounded border border-purple-300 bg-purple-600 text-white text-[10px] font-semibold hover:bg-purple-700 disabled:opacity-40"
+                  data-testid="variants-add-selected-btn"
+                >
+                  <Link2 className="w-3 h-3" />
+                  {product && product.variant_group_id ? 'Add to Group' : 'Create Group with Selected'}
+                </button>
+              )}
+            </div>
+            {variantsLoading ? (
+              <div className="px-2 py-3 text-[11px] text-gray-400">Loading candidates…</div>
+            ) : variantCandidates.length === 0 ? (
+              <div className="px-2 py-3 text-[11px] text-gray-400">
+                No sibling candidates found — try &quot;Auto-Group from Series&quot; or check the series is set correctly.
+              </div>
+            ) : (
+              <div className="divide-y max-h-52 overflow-y-auto">
+                {variantCandidates.map(c => (
+                  <label
+                    key={c.sku}
+                    className="px-2 py-1.5 flex items-center gap-2 hover:bg-purple-50 cursor-pointer text-[11px]"
+                    data-testid={`variant-candidate-${c.sku}`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={!!variantSelected[c.sku]}
+                      onChange={() => toggleCandidate(c.sku)}
+                      className="w-3 h-3"
+                      data-testid={`variant-candidate-checkbox-${c.sku}`}
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="font-medium text-gray-800 truncate" title={c.name}>{c.name || c.sku}</div>
+                      <div className="text-[9px] text-gray-400 font-mono flex items-center gap-2">
+                        <span>{c.sku}</span>
+                        {c.color && <span className="inline-flex items-center gap-1"><Palette className="w-2.5 h-2.5" />{c.color}</span>}
+                        {c.finish && <span className="inline-flex items-center gap-1"><Sparkles className="w-2.5 h-2.5" />{c.finish}</span>}
+                        {c.size && <span className="inline-flex items-center gap-1"><Ruler className="w-2.5 h-2.5" />{c.size}</span>}
+                        {c.variant_group_id && (
+                          <span className="text-amber-600" title="Already in another group">
+                            (in another group)
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </label>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+
   return (
     <QuickEditModal
       open={open}
@@ -568,6 +977,7 @@ const QuickEditProductDrawer = ({ open, onOpenChange, product, onSaved, previewI
       moreSpecsSlot={moreSpecsPanel}
       saleAndDescriptionSlot={saleAndDescriptionPanel}
       previewSlot={previewPanel}
+      variantsSlot={variantsPanel}
     />
   );
 };
