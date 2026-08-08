@@ -9,6 +9,36 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Aug 8, 2026 — Forked, session F+10, cleanup 3] 🟢 SupplierProducts → shared `lib/series.js` + Images multi-supplier warning — VERIFIED
+
+**Owner ask** (from prior Next Action Items):
+1. Migrate SupplierProducts to shared series helper so both pages have one implementation.
+2. Show a subtle Images-view warning when a Manager spans multiple suppliers.
+
+**Delivered**:
+
+1. **Series helper unified** — `/app/frontend/src/pages/admin/lib/series.js` now exports the FULL smart parser (previously only SupplierProducts had it inline). Includes `SERIES_COLOR_WORDS`, `SERIES_ATTRIBUTE_WORDS`, `looksLikeCleanSeriesName`, `getSeriesNameFromString` (dash-prefix pattern, concatenated dimension splitter, attribute-word strip anywhere, trailing colour-word strip), `getSeriesName` (5-field priority chain with junk filter), and `groupBySeries`. `SupplierProducts.js` deleted ~150 lines of inline parsing + constants and now `import { getSeriesName, getSeriesNameFromString } from './lib/series';`. Both pages produce **byte-for-byte identical output**. Materials series count jumped from ~61 to 78 because the smart parser now preserves multi-word prefixes previously collapsed to first-word.
+2. **Multi-supplier warning in Images view** — When `viewMode === 'images'` and the current filtered list has more than 1 distinct supplier, an amber card appears above the images grid:
+   `Showing N suppliers — image QA works best filtered to one at a time`
+   with inline "Filter to <supplier>" chips (up to 6, plus "+N more" for overflow). Each chip calls `setFilters({ ...filters, supplier: s })`. Warning auto-disappears once the view is scoped to a single supplier.
+
+**Verified end-to-end** (iteration 220 — **9/9 acceptance criteria PASS**):
+- Series-grouping banner regression: Dolomite Onyx (1 banner, 23 products), Laminate Premium Oak grouping intact, Ultra Tile Cleaning & Maintenance still groups the 6 SKUs from iteration 219.
+- Tiles Manager still renders 1108 products without lag (856 buckets — 88% singletons come from leftover TEST_* seed data, orthogonal to the fix).
+- Multi-supplier warning: appears on `/admin/materials` Images view with 3 supplier filter buttons (LEPORCE / Ultra Tile / Canopy); clicking any button hides the warning + re-scopes the grid to that supplier + updates the visible-count.
+- Refactor verification: 0 residual SERIES_COLOR_WORDS / SERIES_ATTRIBUTE_WORDS references in SupplierProducts.js; single source of truth achieved.
+
+**Testing agent observations (optional/informational)**:
+- 'Laminate' is in SERIES_ATTRIBUTE_WORDS so "Laminate Premium Oak" products bucket under "Premium Oak Series" (grouping works; only the label differs). If the desired label is "Laminate Premium Oak Series", remove 'laminate' from the attribute word list. Trade-off: would split "Laminate Grey Oak" and "Laminate White Oak" from sharing a bucket with each other.
+- /admin/tiles has ~750 TEST_SCOPED_SAVE_* / TEST_CAT_QUERY_* leftover seed rows creating 88% singleton buckets. Consider a cleanup script (out of scope for this iteration).
+
+**Files touched**:
+- MODIFIED: `/app/frontend/src/pages/admin/lib/series.js` — expanded to be the full smart-parser source of truth (~194 lines).
+- MODIFIED: `/app/frontend/src/pages/admin/SupplierProducts.js` — removed inline parser, added import.
+- MODIFIED: `/app/frontend/src/pages/admin/components/ManagerPageShell.jsx` — multi-supplier warning card + "Filter to <supplier>" chips in Images view.
+
+
+
 ### [Aug 8, 2026 — Forked, session F+10, cleanup 2] 🟢 Folded Supplier Images into Managers + Supplier Products — VERIFIED
 
 **Owner ask** (after image-surface audit):
