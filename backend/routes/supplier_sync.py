@@ -4099,6 +4099,7 @@ def get_all_supplier_products(
                 "name": p.get("name"),
                 "product_name": p.get("product_name"),  # Unique generated name
                 "unique_name": p.get("unique_name"),  # Series/range name
+                "range_name": p.get("range_name"),  # Admin-set series (Auto-Assign / Bulk Set Series)
                 "series": p.get("series"),  # Flooring series
                 "original_series": p.get("original_series"),  # Original Canopy series name before transformation
                 "sku": sku,

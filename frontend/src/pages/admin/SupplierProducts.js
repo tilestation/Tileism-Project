@@ -141,13 +141,29 @@ function getSeriesName(productOrName) {
   //   1. range_name  (Auto-Assign Series / Bulk Set Series audit field)
   //   2. series      (canonical field the API surfaces on the product row)
   //   3. series_name (legacy alias some callers used)
-  //   4. unique_name (older Canopy-imports store the range here)
+  //   4. unique_name (older Canopy-imports store the range here) — but ONLY
+  //      if it looks like a clean series name (short, no " - ", no dimensions).
+  //      Canopy imports historically dumped the FULL product name into
+  //      `unique_name`, so we can't trust it blindly.
   // and only fall back to the parsed-from-name default if none are set.
+  const looksLikeCleanSeriesName = (v) => {
+    if (!v) return false;
+    const s = String(v).trim();
+    if (s.length > 60) return false;              // too long → probably full product name
+    if (s.includes(' - ')) return false;          // full product-name pattern
+    if (/\d{2,}\s*(x|cm|mm|kg|l|g)/i.test(s)) return false; // has dimension tokens
+    return true;
+  };
   if (productOrName && typeof productOrName === 'object') {
-    for (const k of ['range_name', 'series', 'series_name', 'unique_name']) {
+    // Fields 1-3 — trust admin-set values verbatim.
+    for (const k of ['range_name', 'series', 'series_name']) {
       const v = productOrName[k];
       if (v && String(v).trim()) return String(v).trim();
     }
+    // Field 4 — only use unique_name if it's not obviously a full product name.
+    const un = productOrName.unique_name;
+    if (un && looksLikeCleanSeriesName(un)) return String(un).trim();
+
     return getSeriesNameFromString(productOrName.product_name || productOrName.name || '');
   }
   return getSeriesNameFromString(productOrName);

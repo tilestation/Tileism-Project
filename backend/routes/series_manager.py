@@ -183,8 +183,11 @@ async def bulk_assign_series(
         try:
             # Write to BOTH `series` (what the /supplier-sync/products list endpoint
             # returns to the frontend) AND `range_name` (kept as an admin
-            # override audit-friendly field). Also mirror to `unique_name` which
-            # some legacy code paths use.
+            # override audit-friendly field). We also OVERWRITE `unique_name`
+            # unconditionally — legacy Canopy imports dumped the full product
+            # name into that field, which would win the display priority chain
+            # and drag the row into a phantom series bucket. Setting it to the
+            # new value keeps every downstream code path in sync.
             res = await db.supplier_products.update_one(
                 q,
                 {"$set": {
