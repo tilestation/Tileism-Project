@@ -9,6 +9,41 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Aug 8, 2026 — Forked, session F+10, cleanup 5] 🟢 Supplier Products UI de-clutter — VERIFIED
+
+**Owner ask** (with annotated screenshot):
+> "I need to delete these from here as it's getting really cluttered. But I don't want no important stuff getting affected including the website products listed. You need to make sure all is secure before you delete anything."
+
+User picked 5 UI blocks that duplicated functionality already covered by the sticky bulk-action bar (or that were rarely useful). Nothing customer-facing was touched.
+
+**Delivered — pure UI removal, zero backend/data changes**:
+- Removed `Sale/Labels ({n})` button — replaced by sticky bar's `Apply Sale %` + `Mark Not For Sale` chips.
+- Removed `Rename Series ({n})` button — replaced by sticky bar's `Set Series` action.
+- Removed `Edit Categories ({n})` button — coverage lives in sticky bar's category flow.
+- Removed the big `Assign Category ({n})` dropdown button — replaced by sticky bar's `Assign Category` action.
+- Removed the full `SMART SELECT` toolbar (199 lines of chip filters) — bulk selection is now via header checkboxes + sticky bar.
+
+**Website-safety guarantees (kept as normal buttons, no dropdown hiding)**:
+- `Publish to Website ({n})` — 🌐 makes selected products live in the customer shop
+- `Unpublish ({n})` — removes selected products from the shop
+- `Fix Draft ({n})` — approves drafts
+- `Upload PDFs ({n})` — bulk attach datasheets
+- `Delete All From Database` — super-admin only, still behind its confirmation modal
+- `Delete Selected ({n})` — still available at the top-of-page
+- `Custom Mappings`, `Upload Images` — all preserved
+
+**Verified end-to-end** (screenshot-based):
+- 5 removed testids: 0 occurrences (bulk-sale-labels-btn, bulk-rename-btn, bulk-category-btn, bulk-assign-category-big-btn, SMART SELECT text).
+- 15 preserved testids: all 1 occurrence (top toolbar + critical actions).
+- Sticky bulk bar renders on selection with all 7 actions (Apply Sale %, Mark Not For Sale, Apply Description, Change Supplier, Assign Category, Archive, Set Series).
+- Series grouping banners preserved (GGI Series, INS MIXING BUCKET Series, LEVEL IT RENOVATE Series).
+- File shrunk by 256 lines (16,697 → 16,441).
+
+**Files touched**:
+- MODIFIED: `/app/frontend/src/pages/admin/SupplierProducts.js` — removed 4 clutter buttons + 199-line Smart Select toolbar, replaced with a single explanatory comment.
+
+
+
 ### [Aug 8, 2026 — Forked, session F+10, cleanup 4] 🟢 Test-seed cleanup + series-parser hardening — VERIFIED
 
 **Owner ask** (from testing-agent observation on iteration 220):
