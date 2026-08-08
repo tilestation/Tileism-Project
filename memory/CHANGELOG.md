@@ -3345,3 +3345,21 @@ The user reports "none of the fixes are working" — this is a DEPLOYMENT issue,
 3. **Amber block-reason banner** above the buttons showing exactly what's missing: *"To enable Delete Everything, please type the supplier name exactly and enter your Super Admin password."* (data-testid: `delete-supplier-block-reason`).
 
 **Deploy note**: User's screenshot was of tilestation.co.uk (production). The fix is in preview only — needs a Railway redeploy to reach live users. Preview verified via Playwright screenshot.
+
+---
+
+## Feb 8, 2026 — Per-Product Label Overrides + Custom Fields (SHIPPED)
+
+**Problem**: Materials Manager's More Specs showed the same 5 bag-oriented fields (Bag Colour, Coverage m²/bag, Suitability, Pack Size, Type) for every product — wrong for 1L cleaner bottles like "UT TILE XTREME 1L UltraTile ProClean" where "Bag Colour" makes no sense.
+
+**Fix** (`QuickEditProductDrawer.jsx`):
+1. **Click-to-rename labels** — every More Specs label is now a button with a small pencil icon. Click it → inline text input → type the label you want ("Bottle Colour", "Coverage m²/L", etc.). Underlying DB key stays the same; only the visible label changes for this product.
+2. **Reset link** — appears next to any overridden label to revert to the Manager default.
+3. **Add custom field** button below the grid — spawns a new label/value row so admins can attach ad-hoc fields (Bottle Volume, Dilution Ratio, VOC Rating…) that don't exist in the Manager config.
+4. **Persistence** — both overrides and custom fields save via the existing `bulk-update-unified` endpoint under new fields `field_label_overrides: {key: label}` and `custom_specs: [{key,label,value}]`. No schema/migration required; Mongo just stores them.
+
+**Data-test IDs added**: `more-specs-label-<key>`, `more-specs-label-input-<key>`, `more-specs-label-reset-<key>`, `add-custom-spec-btn`, `custom-spec-row-<idx>`, `custom-spec-label-<idx>`, `custom-spec-value-<idx>`, `custom-spec-remove-<idx>`.
+
+**Round-trip verified via curl** on SKU 4405:
+- Saved `{bag_colour: "Bottle Colour", coverage_m2_per_bag: "Coverage m²/L"}` + 2 custom_specs → `verification_ok: true`
+- Reopened Quick Edit → all overrides + custom specs loaded correctly and rendered

@@ -19,7 +19,7 @@
  */
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { toast } from 'sonner';
-import { ChevronDown, ChevronRight, Sliders, Tag, ExternalLink, Percent, FileText, Eye, Layers, Palette, Ruler, Sparkles, Link2, X as XIcon } from 'lucide-react';
+import { ChevronDown, ChevronRight, Sliders, Tag, ExternalLink, Percent, FileText, Eye, Layers, Palette, Ruler, Sparkles, Link2, PenLine, X as XIcon } from 'lucide-react';
 import QuickEditModal from '../supplier-products/QuickEditModal';
 import { getSeriesName } from '../../lib/series';
 
@@ -63,6 +63,15 @@ const QuickEditProductDrawer = ({ open, onOpenChange, product, onSaved, previewI
   const [categorySuggestions, setCategorySuggestions] = useState([]);
   const [moreSpecsOpen, setMoreSpecsOpen] = useState(false);
   const [moreSpecsValues, setMoreSpecsValues] = useState({});
+  // Per-product label overrides — lets admins rename e.g. "Bag Colour" to
+  // "Bottle Colour" on a 1L cleaner without changing the Manager's default
+  // config. Stored on the product doc as `field_label_overrides: {key:label}`.
+  const [labelOverrides, setLabelOverrides] = useState({});
+  const [editingLabelKey, setEditingLabelKey] = useState(null);
+  // Ad-hoc per-product spec rows (label + value pairs). Stored on the product
+  // doc as `custom_specs: [{key,label,value}]` so admins can attach fields
+  // that don't exist in the Manager config (Dilution Ratio, Bottle Volume…).
+  const [customSpecs, setCustomSpecs] = useState([]);
   // Variants panel state — groups sibling SKUs (colour / finish / size swatches)
   // for the customer landing page. Backend: /api/supplier-sync/variants/*
   const [variantsOpen, setVariantsOpen] = useState(false);
@@ -119,6 +128,11 @@ const QuickEditProductDrawer = ({ open, onOpenChange, product, onSaved, previewI
       seed[f.key] = product[f.key] ?? '';
     });
     setMoreSpecsValues(seed);
+    // Seed per-product label overrides + custom specs so admins can pick up
+    // where they left off editing.
+    setLabelOverrides({ ...(product.field_label_overrides || {}) });
+    setCustomSpecs(Array.isArray(product.custom_specs) ? product.custom_specs.map(cs => ({ ...cs })) : []);
+    setEditingLabelKey(null);
     setMoreSpecsOpen(false); // collapsed by default; admins expand if they need it
     // Reset variants panel state whenever a new product is loaded.
     setVariantsOpen(false);
@@ -478,6 +492,8 @@ const QuickEditProductDrawer = ({ open, onOpenChange, product, onSaved, previewI
 
   // Extract only the moreSpecs fields the admin actually changed. Compared
   // against the seed values from the product so we don't send unchanged fields.
+  // Also includes per-product label overrides + custom specs so both save in
+  // the same bulk-update-unified call.
   const collectMoreSpecsUpdates = () => {
     const changes = {};
     if (!product) return changes;
@@ -488,6 +504,23 @@ const QuickEditProductDrawer = ({ open, onOpenChange, product, onSaved, previewI
       if (String(current) === String(original)) continue;
       if (current === '' && (original === '' || original === null || original === undefined)) continue;
       changes[f.key] = (f.type === 'number' && current !== '') ? Number(current) : current;
+    }
+    // Persist label overrides only if the admin actually changed something.
+    const origOverrides = product.field_label_overrides || {};
+    if (JSON.stringify(labelOverrides) !== JSON.stringify(origOverrides)) {
+      changes.field_label_overrides = labelOverrides;
+    }
+    // Persist custom specs (drop rows with no label).
+    const cleanedCustom = (customSpecs || [])
+      .map(cs => ({
+        key: (cs.key || cs.label || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, ''),
+        label: (cs.label || '').trim(),
+        value: cs.value ?? '',
+      }))
+      .filter(cs => cs.label);
+    const origCustom = Array.isArray(product.custom_specs) ? product.custom_specs : [];
+    if (JSON.stringify(cleanedCustom) !== JSON.stringify(origCustom)) {
+      changes.custom_specs = cleanedCustom;
     }
     return changes;
   };
@@ -511,12 +544,49 @@ const QuickEditProductDrawer = ({ open, onOpenChange, product, onSaved, previewI
         </span>
       </button>
       {moreSpecsOpen && (
-        <div className="p-3 grid grid-cols-2 gap-3 bg-white">
-          {moreSpecsFields.map(f => (
+        <div className="p-3 bg-white space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+          {moreSpecsFields.map(f => {
+            const displayLabel = labelOverrides[f.key] ?? (f.label || f.key);
+            const isEditingLabel = editingLabelKey === f.key;
+            return (
             <div key={f.key} className={f.type === 'textarea' ? 'col-span-2' : ''}>
-              <label className="block text-[11px] font-medium text-gray-600 mb-1">
-                {f.label || f.key}
-                <span className="ml-1 text-[9px] uppercase tracking-wider text-gray-400">{f.key}</span>
+              <label className="flex items-center gap-1 text-[11px] font-medium text-gray-600 mb-1">
+                {isEditingLabel ? (
+                  <input
+                    autoFocus
+                    type="text"
+                    value={labelOverrides[f.key] ?? (f.label || f.key)}
+                    onChange={(e) => setLabelOverrides(prev => ({ ...prev, [f.key]: e.target.value }))}
+                    onBlur={() => setEditingLabelKey(null)}
+                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === 'Escape') setEditingLabelKey(null); }}
+                    className="text-[11px] font-medium border border-blue-300 rounded px-1 py-0.5 flex-1"
+                    data-testid={`more-specs-label-input-${f.key}`}
+                  />
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setEditingLabelKey(f.key)}
+                    className="text-left hover:text-blue-700 hover:underline flex items-center gap-1"
+                    title="Click to rename this field for this product"
+                    data-testid={`more-specs-label-${f.key}`}
+                  >
+                    <span>{displayLabel}</span>
+                    <PenLine className="w-2.5 h-2.5 text-gray-400" />
+                  </button>
+                )}
+                <span className="ml-auto text-[9px] uppercase tracking-wider text-gray-400">{f.key}</span>
+                {labelOverrides[f.key] && labelOverrides[f.key] !== (f.label || f.key) && (
+                  <button
+                    type="button"
+                    onClick={() => setLabelOverrides(prev => { const n = { ...prev }; delete n[f.key]; return n; })}
+                    className="text-[9px] text-blue-500 hover:text-blue-700 hover:underline"
+                    title="Reset to default label"
+                    data-testid={`more-specs-label-reset-${f.key}`}
+                  >
+                    reset
+                  </button>
+                )}
               </label>
               {f.type === 'select' && Array.isArray(f.options) ? (
                 <select
@@ -548,7 +618,65 @@ const QuickEditProductDrawer = ({ open, onOpenChange, product, onSaved, previewI
               )}
               {f.hint && <p className="text-[10px] text-gray-400 mt-0.5">{f.hint}</p>}
             </div>
-          ))}
+            );
+          })}
+          </div>
+
+          {/* Ad-hoc custom fields — per-product only. */}
+          {customSpecs.length > 0 && (
+            <div className="border-t border-dashed border-slate-200 pt-3">
+              <div className="text-[10px] uppercase tracking-wider text-slate-500 mb-2 font-semibold">
+                Custom Fields (this product only)
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                {customSpecs.map((cs, idx) => (
+                  <div key={idx} className="flex flex-col" data-testid={`custom-spec-row-${idx}`}>
+                    <div className="flex items-center gap-1 mb-1">
+                      <input
+                        type="text"
+                        value={cs.label || ''}
+                        onChange={(e) => setCustomSpecs(prev => prev.map((r, i) => i === idx ? { ...r, label: e.target.value } : r))}
+                        placeholder="Field name (e.g. Bottle Volume)"
+                        className="flex-1 h-6 text-[11px] font-medium border border-blue-200 rounded px-1.5"
+                        data-testid={`custom-spec-label-${idx}`}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setCustomSpecs(prev => prev.filter((_, i) => i !== idx))}
+                        className="p-0.5 text-rose-500 hover:bg-rose-50 rounded"
+                        title="Remove this field"
+                        data-testid={`custom-spec-remove-${idx}`}
+                      >
+                        <XIcon className="w-3 h-3" />
+                      </button>
+                    </div>
+                    <input
+                      type="text"
+                      value={cs.value ?? ''}
+                      onChange={(e) => setCustomSpecs(prev => prev.map((r, i) => i === idx ? { ...r, value: e.target.value } : r))}
+                      placeholder="Value (e.g. 1L)"
+                      className="w-full h-8 text-xs border border-gray-300 rounded px-2"
+                      data-testid={`custom-spec-value-${idx}`}
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="flex items-center gap-2 pt-1">
+            <button
+              type="button"
+              onClick={() => setCustomSpecs(prev => [...prev, { label: '', value: '', key: '' }])}
+              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded border border-blue-200 bg-blue-50 hover:bg-blue-100 text-blue-700 text-[11px] font-semibold"
+              data-testid="add-custom-spec-btn"
+            >
+              + Add custom field
+            </button>
+            <span className="text-[10px] text-slate-400">
+              Rename any label above by clicking it, or add ad-hoc fields for this product (e.g. Bottle Volume, Dilution Ratio).
+            </span>
+          </div>
         </div>
       )}
     </div>
