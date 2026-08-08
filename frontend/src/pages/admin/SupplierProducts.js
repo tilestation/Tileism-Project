@@ -35,6 +35,7 @@ import DryRunPreview from './components/supplier-products/DryRunPreview';
 import BulkEditPresets from './components/supplier-products/BulkEditPresets';
 import BulkEditHistory from './components/supplier-products/BulkEditHistory';
 import NameSanityDrawer from './components/supplier-products/NameSanityDrawer';
+import ProductImagesGridPanel from './components/managers/ProductImagesGridPanel';
 import { useBulkUndo } from './components/managers/useBulkUndo';
 import ManagerTabsBar from './components/managers/ManagerTabsBar';
 import { bucketSelectionByManager } from './components/managers/classifyProductToManager';
@@ -508,6 +509,10 @@ export default function SupplierProducts() {
 
   // Shared bulk-undo helper — single 15s Undo toast across all bulk modals.
   const { snapshotFor: snapshotForBulkUndo, showUndoToast: showBulkUndoToast } = useBulkUndo();
+
+  // Images-QA overlay state — replaces the deleted /admin/supplier-images/:supplier
+  // page. { supplier, initialSkuFilter, initialSeriesFilter } | null.
+  const [imagesPanelState, setImagesPanelState] = useState(null);
   
   // Bulk Description/SEO Settings State
   const [bulkDescriptionSettings, setBulkDescriptionSettings] = useState({
@@ -8009,23 +8014,19 @@ export default function SupplierProducts() {
               variant="default"
               className="bg-emerald-600 hover:bg-emerald-700"
               onClick={() => {
-                const params = new URLSearchParams();
-                if (seriesFilter) params.set('series', seriesFilter);
-                if (searchTerm) params.set('search', searchTerm);
-                // If the user has manually selected specific products
-                // (via Smart Select / checkboxes), carry those product
-                // IDs through too — they're the most specific filter.
+                // Carry current series + manual-selection state INTO the
+                // in-place images panel instead of navigating away.
                 const selectedKeys = Array.from(selectedProducts);
-                if (selectedKeys.length > 0) {
-                  // SKUs only, supplier is in the URL path already
-                  const skus = selectedKeys
+                const skuSet = new Set(
+                  selectedKeys
                     .map(k => k.split('|||').pop())
                     .filter(Boolean)
-                    .join(',');
-                  if (skus) params.set('skus', skus);
-                }
-                const qs = params.toString();
-                navigate(`/admin/supplier-images/${encodeURIComponent(selectedSupplier)}${qs ? '?' + qs : ''}`);
+                );
+                setImagesPanelState({
+                  supplier: selectedSupplier,
+                  initialSeriesFilter: seriesFilter || '',
+                  initialSkuFilter: skuSet.size > 0 ? skuSet : null,
+                });
               }}
               data-testid="supplier-images-btn"
               title={
@@ -15656,6 +15657,18 @@ export default function SupplierProducts() {
         api={api}
         fetchProducts={fetchProducts}
       />
+
+      {/* Product Images QA panel — replaces the deleted
+          /admin/supplier-images/:supplier page. Opens as a full-screen
+          overlay in-place so admins never leave Supplier Products. */}
+      {imagesPanelState && (
+        <ProductImagesGridPanel
+          supplier={imagesPanelState.supplier}
+          initialSeriesFilter={imagesPanelState.initialSeriesFilter}
+          initialSkuFilter={imagesPanelState.initialSkuFilter}
+          onClose={() => { setImagesPanelState(null); fetchProducts(); }}
+        />
+      )}
 
       {/* Name Sanity Drawer — merged from the standalone /admin/product-name-sanity page.
           If products are selected on the parent list, we send those SKUs so the drawer

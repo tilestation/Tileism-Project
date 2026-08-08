@@ -9,6 +9,39 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Aug 8, 2026 — Forked, session F+10, cleanup 2] 🟢 Folded Supplier Images into Managers + Supplier Products — VERIFIED
+
+**Owner ask** (after image-surface audit):
+> "b. Also fold Supplier Images (/admin/supplier-images/:supplier) into the main Managers as a per-supplier tab and delete it too"
+
+Previously `/admin/supplier-images/:supplier` was a full standalone page (1,146 lines) — grid-of-products image QA for one supplier at a time. Reachable only via a `navigate()` from Supplier Products' "Upload Images" button. This meant admins had to leave the page they were on to fix images.
+
+**Delivered**:
+
+1. **NEW `/app/frontend/src/pages/admin/components/managers/ProductImagesGridPanel.jsx`** — surgical refactor of the standalone page into a self-contained panel that accepts props (`supplier`, `products`, `initialSeriesFilter`, `initialSkuFilter`, `embedded`, `onClose`). URL persistence removed; standalone-page chrome removed. When `embedded=true` renders inline as a bordered card; otherwise renders as a fixed overlay with close button.
+2. **`ManagerPageShell.jsx`** — new `Table | Images` view-mode toggle at the top-right of every Manager (next to the "N visible · N series" badges). Selected mode persists per-Manager in localStorage. When Images is selected, the shell renders `<ProductImagesGridPanel embedded products={filteredProducts} ... />` in place of the grouped table. Toggling back preserves the same series-grouped table state.
+3. **`SupplierProducts.js`** — the "Upload Images" button no longer navigates. It opens the same panel as a fixed overlay (`imagesPanelState` React state → `<ProductImagesGridPanel supplier=... initialSeriesFilter=... initialSkuFilter=... onClose=... />`). Admins never leave Supplier Products.
+4. **Deleted `/app/frontend/src/pages/admin/SupplierImages.js`** (1,146 lines) + its lazy import + its `/admin/supplier-images/:supplier` route in `App.js`.
+
+**Verified**:
+- Materials Manager `Images` toggle → renders inline product grid with Products-by-Size sidebar, series dropdown filter, Bulk Delete button, Bulk Upload drop zone, and per-product "+ Add Images" cards. Toggle back to Table shows the grouped list intact.
+- Supplier Products → select Ultra Tile supplier pill → "Upload Images" button → overlay opens IN-PLACE with 81 products, full-screen QA experience, close button top-left. No page navigation.
+- Old `/admin/supplier-images/Canopy` URL no longer resolves (route deleted).
+- Grep confirms 0 remaining component references (only 3 explanatory comments retained).
+
+**Cumulative image-surface cleanup this session**:
+- **Session start**: 7 image UI surfaces, 2 duplicated code paths, 1,146+843+500 = **2,489 lines of orphaned/legacy code**.
+- **Session end**: 4 active surfaces — Quick Edit modal (per-product), Bulk Image Upload modal (per-Manager), Product Images Grid panel (embedded in Managers + Supplier Products), Collection Manager hero. All R2-backed. All reachable from where admins already are.
+
+**Files touched**:
+- NEW: `/app/frontend/src/pages/admin/components/managers/ProductImagesGridPanel.jsx` (extracted from SupplierImages.js with prop-based API).
+- MODIFIED: `/app/frontend/src/pages/admin/components/ManagerPageShell.jsx` — view-mode toggle + Images render path.
+- MODIFIED: `/app/frontend/src/pages/admin/SupplierProducts.js` — imagesPanelState, "Upload Images" onClick swapped from navigate() to setImagesPanelState, overlay render at bottom near other modals.
+- MODIFIED: `/app/frontend/src/App.js` — removed SupplierImages lazy import + route.
+- DELETED: `/app/frontend/src/pages/admin/SupplierImages.js`.
+
+
+
 ### [Aug 8, 2026 — Forked, session F+10, cleanup] 🟢 Removed orphaned Plus39Images + LeporceImages surfaces — VERIFIED
 
 **Owner ask** (after image-surface audit):

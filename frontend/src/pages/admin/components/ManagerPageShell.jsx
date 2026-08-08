@@ -44,8 +44,9 @@ import QuickEditProductDrawer from './managers/QuickEditProductDrawer';
 import BulkAIDescriptionsModal from './managers/BulkAIDescriptionsModal';
 import BulkImageUploadModal from './managers/BulkImageUploadModal';
 import CsvImportModal from './managers/CsvImportModal';
+import ProductImagesGridPanel from './managers/ProductImagesGridPanel';
 import { groupBySeries } from '../lib/series';
-import { Layers } from 'lucide-react';
+import { Layers, LayoutGrid, List } from 'lucide-react';
 import ManagerConfigModal from './managers/ManagerConfigModal';
 import AssignColoursModal from './managers/AssignColoursModal';
 import TierPricingModal from './supplier-products/TierPricingModal';
@@ -224,6 +225,17 @@ const ManagerPageShell = ({
 
   useEffect(() => { fetchProducts(); }, [fetchProducts]);
   const bulk = useManagerBulk({ products, onRefresh: fetchProducts, storageKey: categoryKey });
+
+  // View-mode toggle: 'table' (default grouped list) vs 'images' (visual QA
+  // grid — replaces the deleted standalone /admin/supplier-images/:supplier
+  // page). Persist per-manager so admins don't need to switch every visit.
+  const [viewMode, setViewMode] = useState(() => {
+    try { return localStorage.getItem(`manager-view-mode-${categoryKey}`) || 'table'; }
+    catch { return 'table'; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem(`manager-view-mode-${categoryKey}`, viewMode); } catch { /* ignore */ }
+  }, [viewMode, categoryKey]);
 
   // Auto-open edit on ?edit=SKU
   useEffect(() => {
@@ -454,6 +466,26 @@ const ManagerPageShell = ({
               {seriesCount} series
             </Badge>
           )}
+          {/* View-mode toggle: Table vs Images (replaces the deleted
+              /admin/supplier-images/:supplier page). */}
+          <div className="ml-auto inline-flex items-center rounded-lg border border-gray-200 overflow-hidden text-xs" data-testid={`${categoryKey}-view-mode-toggle`}>
+            <button
+              type="button"
+              onClick={() => setViewMode('table')}
+              className={`px-2 py-1 flex items-center gap-1 ${viewMode === 'table' ? 'bg-slate-100 text-slate-800 font-semibold' : 'text-slate-500 hover:bg-slate-50'}`}
+              data-testid={`${categoryKey}-view-mode-table`}
+            >
+              <List className="w-3.5 h-3.5" /> Table
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode('images')}
+              className={`px-2 py-1 flex items-center gap-1 border-l border-gray-200 ${viewMode === 'images' ? 'bg-slate-100 text-slate-800 font-semibold' : 'text-slate-500 hover:bg-slate-50'}`}
+              data-testid={`${categoryKey}-view-mode-images`}
+            >
+              <LayoutGrid className="w-3.5 h-3.5" /> Images
+            </button>
+          </div>
         </div>
 
         <ManagerFiltersPanel
@@ -493,6 +525,12 @@ const ManagerPageShell = ({
             <p className="mt-2 text-sm text-gray-500">No {categoryKey} products match your filter.</p>
             <p className="mt-1 text-xs text-gray-400">Products not showing up? Reassign them via the legacy Bulk Editor.</p>
           </div>
+        ) : viewMode === 'images' ? (
+          <ProductImagesGridPanel
+            products={filteredProducts}
+            embedded
+            supplier={(filters.supplier || filteredProducts[0]?.supplier || '') || 'products'}
+          />
         ) : (
           <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
             <table className="w-full text-sm">

@@ -1,22 +1,39 @@
+/**
+ * ProductImagesGridPanel — extracted from the (now-deleted)
+ * /admin/supplier-images/:supplier page so admins can access the same
+ * supplier-wide image QA grid from anywhere:
+ *   - As an "Images" view mode on any Manager (Materials, Tiles, …).
+ *   - As a Sheet drawer opened by the "Upload Images" button on
+ *     /admin/supplier-products.
+ *
+ * Props:
+ *   supplier              — supplier name to load products for (required if
+ *                           no `products` prop is passed).
+ *   products              — optional pre-filtered product list to skip the
+ *                           network fetch (Manager already has this in memory).
+ *   initialSeriesFilter   — pre-selects a series filter.
+ *   initialSkuFilter      — Set<string> of SKUs to lock the view to.
+ *   embedded              — hide the standalone-page chrome (back button,
+ *                           URL persistence) when true.
+ *   onClose               — optional close callback for the embedded case.
+ */
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { X, Upload, Image, Trash2, RefreshCw, Plus, Check, ZoomIn, Package, CheckSquare, Square, Star, GripVertical, ArrowLeft, Search } from 'lucide-react';
 import { toast } from 'sonner';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
 
-export default function SupplierImages() {
-  const { supplier } = useParams();
-  const navigate = useNavigate();
-  // Pre-fill filters from the URL query string when arriving from the
-  // SupplierProducts "Upload Images" button. Without this the page
-  // ignored the user's series + search filter and dumped the entire
-  // 250-product catalogue, even when they came in with 20 specific
-  // products selected.
-  const [searchParams, setSearchParams] = useSearchParams();
+export default function ProductImagesGridPanel({
+  supplier,
+  products: productsProp,
+  initialSeriesFilter,
+  initialSkuFilter,
+  embedded = false,
+  onClose,
+}) {
   const supplierName = supplier || 'Unknown';
-  
-  const [products, setProducts] = useState([]);
+
+  const [products, setProducts] = useState(productsProp || []);
   const [loading, setLoading] = useState(false);
   const [stats, setStats] = useState({ total: 0, withImages: 0, totalImages: 0 });
   const [productsBySize, setProductsBySize] = useState({});
@@ -26,36 +43,21 @@ export default function SupplierImages() {
   const [uploadingFor, setUploadingFor] = useState(null);
   const [deletingImages, setDeletingImages] = useState(new Set());
   
-  // Search and filter state — initialise from URL query (?series=…&search=…&skus=…)
-  // so the page lands on the same view the user had on SupplierProducts.
-  const [searchQuery, setSearchQuery] = useState(() => searchParams.get('search') || '');
-  const [seriesFilter, setSeriesFilter] = useState(() => searchParams.get('series') || '');
-  // Manual selection from SupplierProducts Smart Select. Comma-separated
-  // SKUs in the URL → Set<string> here. Cleared via the active-filter pill.
+  // Search and filter state — either from URL query (standalone mode, for
+  // backwards compat) or from props (embedded mode inside a Manager / Sheet).
+  const [searchQuery, setSearchQuery] = useState('');
+  const [seriesFilter, setSeriesFilter] = useState(initialSeriesFilter || '');
+  // Manual selection carry-over. Set<string> of SKUs.
   const [selectedSkusFilter, setSelectedSkusFilter] = useState(() => {
-    const raw = searchParams.get('skus');
-    if (!raw) return null;
-    const set = new Set(raw.split(',').map(s => s.trim()).filter(Boolean));
-    return set.size > 0 ? set : null;
+    if (initialSkuFilter && typeof initialSkuFilter[Symbol.iterator] === 'function') {
+      const set = new Set(initialSkuFilter);
+      return set.size > 0 ? set : null;
+    }
+    return null;
   });
 
-  // Mirror the active filters back into the URL so:
-  //  - F5 / hard refresh keeps the same view
-  //  - Browser back button returns to the same view
-  //  - The page can be deep-linked / bookmarked
-  // Using `replace` to avoid cluttering the browser history.
-  useEffect(() => {
-    const next = new URLSearchParams();
-    if (searchQuery) next.set('search', searchQuery);
-    if (seriesFilter) next.set('series', seriesFilter);
-    if (selectedSkusFilter && selectedSkusFilter.size > 0) {
-      next.set('skus', Array.from(selectedSkusFilter).join(','));
-    }
-    const nextStr = next.toString();
-    const currentStr = searchParams.toString();
-    if (nextStr !== currentStr) setSearchParams(next, { replace: true });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchQuery, seriesFilter, selectedSkusFilter]);
+  // (URL persistence removed — the standalone page is gone; embedded callers
+  //  are responsible for their own URL state if they want it.)
   
   // Bulk delete state for images
   const [selectedImages, setSelectedImages] = useState({}); // { productId: [imageUrl, imageUrl] }
@@ -68,6 +70,12 @@ export default function SupplierImages() {
   const scrollContainerRef = useRef(null);
 
   const fetchProducts = useCallback(async (preserveScroll = false) => {
+    // In embedded mode with pre-supplied products, "Refresh" is a no-op
+    // because the caller (Manager / SupplierProducts) owns the data.
+    if (productsProp && productsProp.length > 0) {
+      recomputeBuckets(productsProp);
+      return;
+    }
     const scrollPosition = scrollContainerRef.current?.scrollTop || 0;
     setLoading(true);
     try {
@@ -83,27 +91,7 @@ export default function SupplierImages() {
         const data = await response.json();
         const productList = data.products || [];
         setProducts(productList);
-        
-        // Calculate stats
-        const withImages = productList.filter(p => p.images && p.images.length > 0).length;
-        const totalImages = productList.reduce((sum, p) => sum + (p.images?.length || 0), 0);
-        setStats({ total: productList.length, withImages, totalImages });
-        
-        // Group by size
-        const bySize = {};
-        productList.forEach(p => {
-          const size = extractSize(p.name || p.product_name || '') || 'Other';
-          if (!bySize[size]) {
-            bySize[size] = { products: [], withImages: 0, totalImages: 0 };
-          }
-          bySize[size].products.push(p);
-          if (p.images && p.images.length > 0) {
-            bySize[size].withImages++;
-            bySize[size].totalImages += p.images.length;
-          }
-        });
-        setProductsBySize(bySize);
-        
+        recomputeBuckets(productList);
         // Restore scroll position
         if (preserveScroll && scrollContainerRef.current) {
           setTimeout(() => {
@@ -117,11 +105,41 @@ export default function SupplierImages() {
     } finally {
       setLoading(false);
     }
-  }, [supplierName]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [supplierName, productsProp]);
+
+  // Extract the stats + productsBySize computation so both the fetch path
+  // and the embedded (productsProp) path share the same logic.
+  const recomputeBuckets = (productList) => {
+    const withImages = productList.filter(p => p.images && p.images.length > 0).length;
+    const totalImages = productList.reduce((sum, p) => sum + (p.images?.length || 0), 0);
+    setStats({ total: productList.length, withImages, totalImages });
+    const bySize = {};
+    productList.forEach(p => {
+      const size = extractSize(p.name || p.product_name || '') || 'Other';
+      if (!bySize[size]) bySize[size] = { products: [], withImages: 0, totalImages: 0 };
+      bySize[size].products.push(p);
+      if (p.images && p.images.length > 0) {
+        bySize[size].withImages++;
+        bySize[size].totalImages += p.images.length;
+      }
+    });
+    setProductsBySize(bySize);
+  };
+
+  // Re-seed stats + size buckets whenever the embedded caller updates props.
+  useEffect(() => {
+    if (productsProp) {
+      setProducts(productsProp);
+      recomputeBuckets(productsProp);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [productsProp]);
 
   useEffect(() => {
-    fetchProducts();
-  }, [fetchProducts, supplierName]);
+    // Only fetch when we don't already have a product list from the parent.
+    if (!productsProp) fetchProducts();
+  }, [fetchProducts, supplierName, productsProp]);
 
   const extractSize = (name) => {
     const sizeMatch = name.match(/(\d+)\s*x\s*(\d+)\s*(cm)?/i);
@@ -648,18 +666,27 @@ export default function SupplierImages() {
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-6xl h-[90vh] flex flex-col">
+    <div className={embedded
+      ? 'w-full h-[75vh] flex flex-col bg-white border border-gray-200 rounded-xl shadow-sm'
+      : 'fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4'
+    }>
+      <div className={embedded
+        ? 'w-full h-full flex flex-col'
+        : 'bg-white rounded-xl shadow-2xl w-full max-w-6xl h-[90vh] flex flex-col'
+      }>
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b">
           <div className="flex items-center gap-3">
-            <button
-              onClick={() => navigate('/admin/supplier-products?supplier=' + encodeURIComponent(supplierName))}
-              className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-              title="Back to products"
-            >
-              <ArrowLeft className="w-5 h-5 text-gray-500" />
-            </button>
+            {onClose ? (
+              <button
+                onClick={onClose}
+                className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                title="Close"
+                data-testid="images-panel-close"
+              >
+                <X className="w-5 h-5 text-gray-500" />
+              </button>
+            ) : null}
             <Package className="w-6 h-6 text-emerald-600" />
             <div>
               <h1 className="text-xl font-bold text-gray-900">{supplierName} Images</h1>

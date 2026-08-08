@@ -94,7 +94,6 @@ const Trash = React.lazy(() => import('./pages/admin/Trash'));
 const StockCostReport = React.lazy(() => import('./pages/admin/StockCostReport').then(m => ({ default: m.StockCostReport })));
 const CashCounter = React.lazy(() => import('./pages/admin/CashCounter'));
 const ImageScraper = React.lazy(() => import('./pages/admin/ImageScraper'));
-const SupplierImages = React.lazy(() => import('./pages/admin/SupplierImages'));
 const ToOrderReport = React.lazy(() => import('./pages/admin/ToOrderReport'));
 const StockImport = React.lazy(() => import('./pages/admin/StockImport'));
 const BulkStockEdit = React.lazy(() => import('./pages/admin/BulkStockEdit'));
@@ -579,7 +578,6 @@ function App() {
             <Route path="notifications/telegram" element={<TelegramNotifications />} />
             <Route path="cash-counter" element={<CashCounter />} />
             <Route path="image-scraper" element={<ImageScraper />} />
-            <Route path="supplier-images/:supplier" element={<SupplierImages />} />
             <Route path="to-order" element={<ToOrderReport />} />
             <Route path="stock-import" element={<StockImport />} />
             <Route path="bulk-stock" element={<BulkStockEdit />} />
