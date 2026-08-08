@@ -24,8 +24,9 @@ import {
 import { Button } from '../../../../components/ui/button';
 import { Input } from '../../../../components/ui/input';
 import {
-  PoundSterling, Package, Percent, Save, RefreshCw, AlertTriangle, Plus, Minus, Equal, Edit3, TrendingUp,
+  PoundSterling, Package, Percent, Save, RefreshCw, AlertTriangle, Plus, Minus, Equal, Edit3, TrendingUp, Undo2,
 } from 'lucide-react';
+import { useBulkUndo } from './useBulkUndo';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
 
@@ -257,6 +258,11 @@ const BulkFieldsModal = ({ open, onOpenChange, selectedList = [], onSuccess, the
   // Edit each state — { [sku]: { list_price, cost_price, warehouse_stock, sale_pct } }
   const [edits, setEdits] = useState({});
   const [saving, setSaving] = useState(false);
+  const { snapshotFor, showUndoToast } = useBulkUndo();
+
+  // Fields this modal ever touches — used to snapshot the pre-state so a
+  // single Undo click can revert every mutation regardless of mode.
+  const TOUCHED_FIELDS = ['list_price', 'retail_price', 'cost_price', 'warehouse_stock', 'sale_pct'];
 
   const themeBtn = {
     orange: 'bg-orange-600 hover:bg-orange-700 text-white',
@@ -323,6 +329,11 @@ const BulkFieldsModal = ({ open, onOpenChange, selectedList = [], onSuccess, the
   const handleSave = async () => {
     if (selectedList.length === 0) return;
     setSaving(true);
+    // Snapshot the pre-state of every SKU across the fields this modal touches.
+    // Called BEFORE any DB write so Undo restores exactly what was there.
+    const snapshot = snapshotFor(selectedList, TOUCHED_FIELDS);
+    let successMsg = '';
+    let hadFailures = false;
     try {
       if (mode === 'set') {
         const updates = {};
@@ -348,10 +359,11 @@ const BulkFieldsModal = ({ open, onOpenChange, selectedList = [], onSuccess, the
           if (Array.isArray(data.verification_failures)) allFails.push(...data.verification_failures);
         }
         if (allFails.length > 0) {
+          hadFailures = true;
           toast.warning(`Updated ${total}, but ${allFails.length} verification failure(s) — see console`, { duration: 12000 });
           console.warn('[Bulk Fields] Verification failures:', allFails);
         } else {
-          toast.success(`Updated ${total} product(s)`);
+          successMsg = `Updated ${total} product${total !== 1 ? 's' : ''}`;
         }
       }
       else if (mode === 'adjust') {
@@ -379,8 +391,8 @@ const BulkFieldsModal = ({ open, onOpenChange, selectedList = [], onSuccess, the
         });
         if (perSku.every(x => Object.keys(x.updates).length === 0)) throw new Error('Tick at least one field and enter an amount');
         const { successCount, failures } = await saveOnePerSku(perSku);
-        if (failures.length === 0) toast.success(`Adjusted ${successCount} product(s)`);
-        else toast.warning(`${successCount} adjusted, ${failures.length} failed — see console`, { duration: 12000 });
+        if (failures.length === 0) successMsg = `Adjusted ${successCount} product${successCount !== 1 ? 's' : ''}`;
+        else { hadFailures = true; toast.warning(`${successCount} adjusted, ${failures.length} failed — see console`, { duration: 12000 }); }
         if (failures.length > 0) console.warn('[Bulk Adjust] Failures:', failures);
       }
       else if (mode === 'edit') {
@@ -405,9 +417,13 @@ const BulkFieldsModal = ({ open, onOpenChange, selectedList = [], onSuccess, the
         }).filter(x => Object.keys(x.updates).length > 0);
         if (perSku.length === 0) throw new Error('Fill in at least one cell to save');
         const { successCount, failures } = await saveOnePerSku(perSku);
-        if (failures.length === 0) toast.success(`Saved ${successCount} product(s)`);
-        else toast.warning(`${successCount} saved, ${failures.length} failed — see console`, { duration: 12000 });
+        if (failures.length === 0) successMsg = `Saved ${successCount} product${successCount !== 1 ? 's' : ''}`;
+        else { hadFailures = true; toast.warning(`${successCount} saved, ${failures.length} failed — see console`, { duration: 12000 }); }
         if (failures.length > 0) console.warn('[Bulk Edit-each] Failures:', failures);
+      }
+      // Fire the shared 15s Undo toast when the save was fully successful.
+      if (!hadFailures && successMsg) {
+        showUndoToast({ snapshot, labelSummary: successMsg, onRestored: onSuccess });
       }
       onOpenChange(false);
       resetState();
@@ -472,9 +488,13 @@ const BulkFieldsModal = ({ open, onOpenChange, selectedList = [], onSuccess, the
         </div>
 
         <DialogFooter>
-          <span className="text-[11px] text-gray-500 mr-auto">
+          <span className="text-[11px] text-gray-500 mr-auto inline-flex items-center gap-1">
             Mode: <b>{modeLabel[mode]}</b>
             {mode === 'edit' && changeCounts.rows > 0 && <> · <b>{changeCounts.rows}</b> row(s) to save</>}
+            <span className="ml-2 inline-flex items-center gap-1 text-slate-500">
+              <Undo2 className="w-3 h-3" />
+              <span>Undo available for 15s after Save</span>
+            </span>
           </span>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>Cancel</Button>
           <Button onClick={handleSave} disabled={saving} className={themeBtn} data-testid="bulk-fields-save">

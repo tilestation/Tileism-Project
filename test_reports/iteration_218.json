@@ -1,0 +1,53 @@
+{
+  "summary": "Iteration 218 — Verified two P1 enhancements: (P1a) Collapsible More Specs in Quick Edit modal on Manager pages, and (P1b) shared 15-second Undo pattern via new useBulkUndo hook across BulkFieldsModal, saveBulkSaleSettings, and saveTierPricingConfig. P1a UI + save round-trip fully validated. P1b UI hint + code wiring validated; deep Undo-click revert flow verified at code level only due to Playwright checkbox interaction limitations inside the modal.",
+  "p1a_more_specs": {
+    "materials_ui": "PASS — [data-testid=quick-edit-more-specs] visible under Featured row. Header text: 'More Specs  5 FIELDS FROM THIS CATEGORY'. Toggle [data-testid=more-specs-toggle] expands. All 5 expected inputs present: more-specs-input-bag_colour, more-specs-input-suitability, more-specs-input-coverage_m2_per_bag, more-specs-input-pack_size, more-specs-input-supplier.",
+    "materials_save_roundtrip": "PASS — On SKU 355POL6060: display_name changed to 'TestQE-BackToOriginal' + bag_colour set to 'TestMoreSpec-Red'. Primary quick-update save succeeded. Second bulk-update-unified fired and persisted bag_colour='TestMoreSpec-Red' to BOTH supplier_products AND tiles collections (verified via direct Mongo query). Original values restored after test.",
+    "tiles_regression": "PASS — /admin/tiles Edit shows tile-category fields: size, material, slip_rating, suitability, supplier (different set from Materials).",
+    "supplier_products_regression": "NOT-APPLICABLE — Pencil-icon Quick Edit on /admin/supplier-products navigates to the corresponding Manager page (materials/tiles) rather than opening the raw modal in place ('Opening materials Manager…' toast). This is pre-existing behaviour, not caused by this iteration. The 'More Specs section should NOT appear' assertion cannot be exercised in the current UI because the click always lands on a Manager page which DOES render More Specs by design."
+  },
+  "p1b_undo": {
+    "bulk_fields_modal_ui": "PASS — Modal opens on Materials Manager via [data-testid=bar-bulk-fields]. Footer shows 'Undo available for 15s after Save' hint text (verified in screenshot). Modal wired to useBulkUndo — snapshotFor called BEFORE API write across TOUCHED_FIELDS (list_price/retail_price/cost_price/warehouse_stock/sale_pct) in all 3 modes (set / adjust / edit-each). showUndoToast called on success with labelSummary + onRestored=onSuccess.",
+    "bulk_fields_undo_click_revert": "NOT-FULLY-EXERCISED-IN-UI — In-modal checkbox interaction (List Price checkbox) did not respond to programmatic click via evaluate(), so the Save flow did not fire a toast. Code review confirms the wiring is correct: snapshot happens BEFORE any DB write and showUndoToast is invoked after full success. Manual verification recommended by main agent.",
+    "sale_labels_undo": "CODE-VERIFIED — /app/frontend/src/pages/admin/SupplierProducts.js:2664 snapshots ['sale_active','was_price','was_markup_percent','labels','sale_price'] BEFORE PUT /api/supplier-sync/products/bulk-sale-pricing, then calls showBulkUndoToast({snapshot, labelSummary, onRestored:fetchProducts}) on 2xx. Wiring is correct.",
+    "tier_pricing_undo": "CODE-VERIFIED — /app/frontend/src/pages/admin/SupplierProducts.js:2480 snapshots ['tier_thresholds','tier_discounts','trade_discount','trade_discount_type','credit_back_rate','tier_disabled','pallet_enabled','pallet_price','half_pallet_price','m2_per_pallet','m2_per_half_pallet'] BEFORE PUT /api/supplier-sync/products/bulk-tier-update, then showBulkUndoToast on 2xx. Wiring is correct."
+  },
+  "regressions": {
+    "series_grouping": "PASS — /api/supplier-sync/products?search=Dolomite returns 23 products with series='Dolomite Onyx' (grouping banner data intact).",
+    "bulk_specs_filters_undo_shared_hook": "CODE-VERIFIED — useBulkUndo hook is now the single source of truth; BulkSpecsFiltersModal (iteration 216) continues to use the same primitives (buildBulkSnapshot / showUndoToast). No API contract change."
+  },
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET /api/supplier-sync/products", "issue": "Response body does NOT include the `bag_colour` field even after it is persisted via bulk-update-unified. Direct Mongo query confirms the field IS stored in both supplier_products and tiles collections. This is a pre-existing serialiser gap that will mask successful More-Specs saves from any admin verification that relies on the search API. Recommend adding bag_colour (and any other More-Specs keys the Manager config surfaces) to the search-product serialiser so Quick Edit re-opens with the saved value pre-filled."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "QuickEditProductDrawer.onSaveWrapped", "issue": "The 'Also saved N extra spec' toast can flash after the modal closes (modal closes on primary save success), so it is only visible for the sonner default duration and may not be caught by test scripts. Consider firing both toasts BEFORE onOpenChange(false) or increasing the extra-specs toast duration.", "selector": "n/a", "priority": "LOW"}
+    ],
+    "integration_issues": [
+      {"flow": "Re-open Quick Edit after More Specs save", "issue": "Because GET /api/supplier-sync/products omits bag_colour, re-opening the modal will show an empty Bag Colour input even though it was persisted. Admin may believe the save failed and re-enter the value. Server serializer fix will resolve this.", "affected_selectors": ["more-specs-input-bag_colour"]}
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [],
+  "action_items": [
+    "Extend the /api/supplier-sync/products search serialiser to include every More-Specs key defined in the Manager config (bag_colour, coverage_m2_per_bag, pack_size, voc_rating, setting_time, suitability, etc.) so Quick Edit re-opens with saved values.",
+    "OPTIONAL: Fire the 'Also saved N extra spec' toast BEFORE onOpenChange(false) in QuickEditProductDrawer.onSaveWrapped so it can't be missed."
+  ],
+  "critical_code_review_comments": [
+    "useBulkUndo hook is well isolated (~100 lines) with clear buildBulkSnapshot / restoreBulkSnapshot / showUndoToast contract — good reuse across 4+ modals.",
+    "QuickEditProductDrawer.onSaveWrapped correctly awaits the primary onSave then fires the second bulk-update-unified — closure captures product & moreSpecsValues so unmount does not break the second call.",
+    "Serialiser gap on GET /api/supplier-sync/products for extended spec fields (bag_colour, coverage_m2_per_bag, etc.) is the ONE production risk: field DOES persist to DB but admin cannot see it on re-open — silent-looking success.",
+    "BulkFieldsModal snapshots ALL TOUCHED_FIELDS on every save regardless of which fields were ticked — Undo will restore fields that were never changed. Harmless but wasteful; could be trimmed to only the ticked field-keys."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A (no pytest run; backend endpoint bulk-update-unified verified via curl+mongo)", "frontend": "P1a UI + save 100% verified. P1b UI hint 100%; Undo revert click covered via code review only."},
+  "test_credentials": "admin@test.com / admin123",
+  "seed_data_creation": "None. SKU 355POL6060 modified (display_name + bag_colour) then restored to original values (display_name='Premium Polished Porcelain 60x60', bag_colour=null) — verified via GET + Mongo.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Testids: quick-edit-more-specs (container), more-specs-toggle (button), more-specs-input-<key> for each field, bar-bulk-fields (opens BulkFieldsModal on Manager pages). Login via Playwright form submit is flaky in this env — inject token via localStorage using context.add_init_script BEFORE navigating (token obtained via curl POST /api/auth/login). Product 355POL6060 sits in BOTH supplier_products (main_category=Materials) and tiles (main_category=Tiles) collections — bulk-update-unified writes to both. GET /api/supplier-sync/products does not expose bag_colour so DB-level assertions must query Mongo directly.",
+  "rca of the issue": "Not a bug in this iteration, but a latent UX gap: GET /api/supplier-sync/products serializer does not include the extended spec keys the new More Specs panel writes. Persistence works, retrieval doesn't. Fix = add the keys to the serializer projection."
+}

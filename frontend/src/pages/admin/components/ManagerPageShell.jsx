@@ -544,6 +544,7 @@ const ManagerPageShell = ({
         onOpenChange={(o) => !o && closeEdit()}
         product={editingProduct}
         onSaved={() => { closeEdit(); fetchProducts(); }}
+        moreSpecsConfig={config}
       />
 
       {/* Wizard */}

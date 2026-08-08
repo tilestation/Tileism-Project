@@ -35,6 +35,7 @@ import DryRunPreview from './components/supplier-products/DryRunPreview';
 import BulkEditPresets from './components/supplier-products/BulkEditPresets';
 import BulkEditHistory from './components/supplier-products/BulkEditHistory';
 import NameSanityDrawer from './components/supplier-products/NameSanityDrawer';
+import { useBulkUndo } from './components/managers/useBulkUndo';
 import ManagerTabsBar from './components/managers/ManagerTabsBar';
 import { bucketSelectionByManager } from './components/managers/classifyProductToManager';
 import CustomManagerBuilder from './components/managers/CustomManagerBuilder';
@@ -504,6 +505,9 @@ export default function SupplierProducts() {
   });
   const [bulkSaleSaving, setBulkSaleSaving] = useState(false);
   const [saleTargetProducts, setSaleTargetProducts] = useState(new Set()); // Which products to apply sale to
+
+  // Shared bulk-undo helper — single 15s Undo toast across all bulk modals.
+  const { snapshotFor: snapshotForBulkUndo, showUndoToast: showBulkUndoToast } = useBulkUndo();
   
   // Bulk Description/SEO Settings State
   const [bulkDescriptionSettings, setBulkDescriptionSettings] = useState({
@@ -2470,7 +2474,15 @@ export default function SupplierProducts() {
           supplier: p.supplier,
           sku: p.sku || p.supplier_code
         }));
-        
+
+        // Snapshot tier pricing fields BEFORE the write so a single Undo click
+        // can revert every mutation on every SKU.
+        const undoSnapshot = snapshotForBulkUndo(productsToUpdate, [
+          'tier_thresholds', 'tier_discounts', 'trade_discount', 'trade_discount_type',
+          'credit_back_rate', 'tier_disabled', 'pallet_enabled', 'pallet_price',
+          'half_pallet_price', 'm2_per_pallet', 'm2_per_half_pallet',
+        ]);
+
         const response = await fetch(`${API_URL}/api/supplier-sync/products/bulk-tier-update`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
@@ -2494,20 +2506,16 @@ export default function SupplierProducts() {
         if (response.ok) {
           const result = await response.json();
           const sizeInfo = pricingSizeFilter !== 'all' ? ` (${getFilterDisplayLabel(pricingSizeFilter)})` : '';
-          
-          if (tierPricingConfig.disabled) {
-            toast.success(`✓ Tier discounts DISABLED for ${result.updated_count} products${sizeInfo}`, {
-              duration: 5000,
-              description: 'No quantity discounts — trade discount & credit back still apply'
-            });
-          } else {
-            const discountsSummary = tierPricingConfig.discounts?.join('%, ') + '%';
-            toast.success(`✓ Saved: ${discountsSummary} discounts for ${result.updated_count} products${sizeInfo}`, {
-              duration: 5000,
-              description: 'Tier pricing has been updated'
-            });
-          }
-          
+
+          const labelSummary = tierPricingConfig.disabled
+            ? `Tier discounts DISABLED for ${result.updated_count} products${sizeInfo}`
+            : `Saved: ${(tierPricingConfig.discounts || []).join('%, ')}% discounts for ${result.updated_count} products${sizeInfo}`;
+          showBulkUndoToast({
+            snapshot: undoSnapshot,
+            labelSummary,
+            onRestored: fetchProducts,
+          });
+
           setShowTierPricingModal(false);
           // Reset disabled state and scope after save
           setTierPricingConfig(prev => ({ ...prev, disabled: false }));
@@ -2650,7 +2658,11 @@ export default function SupplierProducts() {
       }
       
       const skus = selectedProds.map(p => ({ supplier: p.supplier, sku: p.sku || p.supplier_code || p._id }));
-      
+
+      // Snapshot the pre-state of every product's sale fields so a single
+      // Undo click can revert every mutation. Called BEFORE the API request.
+      const undoSnapshot = snapshotForBulkUndo(selectedProds, ['sale_active', 'was_price', 'was_markup_percent', 'labels', 'sale_price']);
+
       const response = await fetch(`${API_URL}/api/supplier-sync/products/bulk-sale-pricing`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -2665,7 +2677,11 @@ export default function SupplierProducts() {
       
       if (response.ok) {
         const result = await response.json();
-        toast.success(`Sale settings updated for ${result.updated_count} products!`);
+        showBulkUndoToast({
+          snapshot: undoSnapshot,
+          labelSummary: `Sale settings updated for ${result.updated_count} product${result.updated_count !== 1 ? 's' : ''}`,
+          onRestored: fetchProducts,
+        });
         setBulkSaleSettings({ sale_active: false, was_markup_percent: '', was_price: '', labels: [] });
         setSaleTargetProducts(new Set());
         fetchProducts();

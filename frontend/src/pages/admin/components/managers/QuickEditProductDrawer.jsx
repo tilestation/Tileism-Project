@@ -8,13 +8,18 @@
  *   - Internal block (Supplier Product Name + Supplier Product Code)
  *   - List Price / Cost Price / Stock / Featured toggle
  *   - Category suggestions autocomplete
+ *   - OPTIONAL collapsible "More Specs" panel (below Featured) — pulled from
+ *     the Manager's config (spec_fields + filter_facets) so admins can edit
+ *     category-specific fields (Bag Colour, Coverage m²/bag, VOC Rating…)
+ *     without leaving the Quick Edit modal.
  *
  * All state + handlers live here so the parent only passes `product` +
  * `open` + `onOpenChange` + `onSaved` and doesn't need to reproduce the
  * 20+ props the raw modal takes.
  */
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { toast } from 'sonner';
+import { ChevronDown, ChevronRight, Sliders } from 'lucide-react';
 import QuickEditModal from '../supplier-products/QuickEditModal';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
@@ -39,7 +44,7 @@ const emptyForm = () => ({
   images: [],
 });
 
-const QuickEditProductDrawer = ({ open, onOpenChange, product, onSaved, previewImages, setPreviewImages }) => {
+const QuickEditProductDrawer = ({ open, onOpenChange, product, onSaved, previewImages, setPreviewImages, moreSpecsConfig }) => {
   const [form, setForm] = useState(emptyForm());
   const [loading, setLoading] = useState(false);
   const [imageUploading, setImageUploading] = useState(false);
@@ -47,6 +52,8 @@ const QuickEditProductDrawer = ({ open, onOpenChange, product, onSaved, previewI
   const [displayCodePreview, setDisplayCodePreview] = useState('');
   const [showCategorySuggestions, setShowCategorySuggestions] = useState(false);
   const [categorySuggestions, setCategorySuggestions] = useState([]);
+  const [moreSpecsOpen, setMoreSpecsOpen] = useState(false);
+  const [moreSpecsValues, setMoreSpecsValues] = useState({});
   const debounceRef = useRef(null);
 
   // Preview images fallback if the caller didn't supply one
@@ -83,6 +90,13 @@ const QuickEditProductDrawer = ({ open, onOpenChange, product, onSaved, previewI
     });
     setDisplayCodePreview(displayCode);
     setShowCategorySuggestions(false);
+    // Seed the moreSpecs form from the product so admin can edit existing values.
+    const seed = {};
+    (moreSpecsConfig?.spec_fields || []).concat(moreSpecsConfig?.filter_facets || []).forEach(f => {
+      seed[f.key] = product[f.key] ?? '';
+    });
+    setMoreSpecsValues(seed);
+    setMoreSpecsOpen(false); // collapsed by default; admins expand if they need it
     fetchCategorySuggestions();
   }, [open, product]);
 
@@ -240,6 +254,139 @@ const QuickEditProductDrawer = ({ open, onOpenChange, product, onSaved, previewI
     toast.success('Image order updated');
   };
 
+  // Build the flat field list the More Specs collapsible will render. We
+  // drop any field the main modal already covers (color/finish/price/stock…)
+  // so admins don't see duplicate inputs.
+  const RESERVED_KEYS = new Set([
+    'color', 'finish', 'price', 'cost_price', 'stock_quantity', 'stock_m2',
+    'display_name', 'display_code', 'supplier_product_name', 'supplier_product_code',
+    'is_featured', 'always_in_stock', 'in_stock', 'category', 'images', 'image',
+  ]);
+  const moreSpecsFields = useMemo(() => {
+    if (!moreSpecsConfig) return [];
+    const specs = (moreSpecsConfig.spec_fields || []).map(f => ({ ...f, _kind: 'spec' }));
+    const filters = (moreSpecsConfig.filter_facets || []).map(f => ({ ...f, _kind: 'filter' }));
+    const seen = new Set();
+    return [...specs, ...filters].filter(f => {
+      if (!f.key || RESERVED_KEYS.has(f.key)) return false;
+      if (seen.has(f.key)) return false;
+      seen.add(f.key);
+      return true;
+    });
+  }, [moreSpecsConfig]);
+
+  const setMoreSpecVal = (key, v) => setMoreSpecsValues(prev => ({ ...prev, [key]: v }));
+
+  // Extract only the moreSpecs fields the admin actually changed. Compared
+  // against the seed values from the product so we don't send unchanged fields.
+  const collectMoreSpecsUpdates = () => {
+    const changes = {};
+    if (!product) return changes;
+    for (const f of moreSpecsFields) {
+      const current = moreSpecsValues[f.key];
+      const original = product[f.key] ?? '';
+      if (current === undefined) continue;
+      if (String(current) === String(original)) continue;
+      if (current === '' && (original === '' || original === null || original === undefined)) continue;
+      changes[f.key] = (f.type === 'number' && current !== '') ? Number(current) : current;
+    }
+    return changes;
+  };
+
+  // Wrap onSave so that More Specs updates get written as a second call.
+  const onSaveWrapped = async () => {
+    if (!product) return;
+    await onSave();
+    // If the primary save closed the modal, `open` becomes false. We still
+    // want the More Specs write to fire. Use a fresh reference to the SKU.
+    const moreSpecsUpdates = collectMoreSpecsUpdates();
+    if (Object.keys(moreSpecsUpdates).length === 0) return;
+    try {
+      const sku = product.sku || product.supplier_code;
+      const token = localStorage.getItem('token');
+      const res = await fetch(`${API_URL}/api/supplier-sync/products/bulk-update-unified`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          product_ids: [sku],
+          id_field: product.sku ? 'sku' : 'supplier_code',
+          updates: moreSpecsUpdates,
+          mode: 'replace',
+          update_mode: 'replace',
+        }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      toast.success(`Also saved ${Object.keys(moreSpecsUpdates).length} extra spec${Object.keys(moreSpecsUpdates).length !== 1 ? 's' : ''}`);
+    } catch (err) {
+      toast.error(`Extra specs save failed: ${err.message}`);
+    }
+  };
+
+  // The collapsible JSX rendered inside the QuickEditModal via the
+  // `moreSpecsSlot` render prop. Kept as a local variable so the parent
+  // modal remains a pure presentational component.
+  const moreSpecsPanel = moreSpecsFields.length > 0 ? (
+    <div className="border border-slate-200 rounded-lg overflow-hidden" data-testid="quick-edit-more-specs">
+      <button
+        type="button"
+        onClick={() => setMoreSpecsOpen(v => !v)}
+        className="w-full flex items-center gap-2 px-3 py-2 bg-slate-50 hover:bg-slate-100 text-left text-sm font-medium text-slate-700"
+        data-testid="more-specs-toggle"
+      >
+        {moreSpecsOpen ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+        <Sliders className="w-4 h-4 text-slate-500" />
+        <span>More Specs</span>
+        <span className="ml-1 text-[10px] uppercase tracking-wider text-slate-400">
+          {moreSpecsFields.length} field{moreSpecsFields.length !== 1 ? 's' : ''} from this category
+        </span>
+      </button>
+      {moreSpecsOpen && (
+        <div className="p-3 grid grid-cols-2 gap-3 bg-white">
+          {moreSpecsFields.map(f => (
+            <div key={f.key} className={f.type === 'textarea' ? 'col-span-2' : ''}>
+              <label className="block text-[11px] font-medium text-gray-600 mb-1">
+                {f.label || f.key}
+                <span className="ml-1 text-[9px] uppercase tracking-wider text-gray-400">{f.key}</span>
+              </label>
+              {f.type === 'select' && Array.isArray(f.options) ? (
+                <select
+                  value={moreSpecsValues[f.key] ?? ''}
+                  onChange={(e) => setMoreSpecVal(f.key, e.target.value)}
+                  className="w-full h-8 text-xs border border-gray-300 rounded px-2 bg-white"
+                  data-testid={`more-specs-input-${f.key}`}
+                >
+                  <option value="">— select —</option>
+                  {f.options.map(o => <option key={o} value={o}>{o}</option>)}
+                </select>
+              ) : f.type === 'textarea' ? (
+                <textarea
+                  value={moreSpecsValues[f.key] ?? ''}
+                  onChange={(e) => setMoreSpecVal(f.key, e.target.value)}
+                  rows={2}
+                  className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs"
+                  data-testid={`more-specs-input-${f.key}`}
+                />
+              ) : (
+                <input
+                  type={f.type === 'number' ? 'number' : 'text'}
+                  value={moreSpecsValues[f.key] ?? ''}
+                  onChange={(e) => setMoreSpecVal(f.key, e.target.value)}
+                  placeholder={f.hint || (f.type === 'number' ? '0' : '')}
+                  className="w-full h-8 text-xs border border-gray-300 rounded px-2"
+                  data-testid={`more-specs-input-${f.key}`}
+                />
+              )}
+              {f.hint && <p className="text-[10px] text-gray-400 mt-0.5">{f.hint}</p>}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  ) : null;
+
   return (
     <QuickEditModal
       open={open}
@@ -254,7 +401,7 @@ const QuickEditProductDrawer = ({ open, onOpenChange, product, onSaved, previewI
       showCategorySuggestions={showCategorySuggestions}
       setShowCategorySuggestions={setShowCategorySuggestions}
       categorySuggestions={categorySuggestions}
-      onSave={onSave}
+      onSave={onSaveWrapped}
       onImageUpload={onImageUpload}
       onDeleteImage={onDeleteImage}
       onSetPrimaryImage={onSetPrimaryImage}
@@ -264,6 +411,7 @@ const QuickEditProductDrawer = ({ open, onOpenChange, product, onSaved, previewI
       onImageDrop={onImageDrop}
       onDisplayNameChange={onDisplayNameChange}
       setPreviewImages={effectiveSetPreviewImages}
+      moreSpecsSlot={moreSpecsPanel}
     />
   );
 };

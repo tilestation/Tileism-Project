@@ -54,6 +54,7 @@ const QuickEditModal = ({
   onImageDrop,
   onDisplayNameChange,
   setPreviewImages,
+  moreSpecsSlot,
 }) => {
   if (!product) return null;
 
@@ -470,6 +471,16 @@ const QuickEditModal = ({
               </label>
             </div>
           </div>
+
+          {/* Optional More Specs slot — injected by QuickEditProductDrawer
+              when opened from a Manager page so admins can edit
+              category-specific fields (Bag Colour, Coverage m²/bag, VOC Rating,
+              etc.) without leaving the Quick Edit flow. */}
+          {moreSpecsSlot && (
+            <div className="pt-2 border-t">
+              {moreSpecsSlot}
+            </div>
+          )}
 
           {/* Open Full Editor Link — hidden when no handler is supplied
               (e.g. when opened from a Manager page via QuickEditProductDrawer). */}
