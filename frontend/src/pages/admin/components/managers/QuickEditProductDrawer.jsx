@@ -17,9 +17,9 @@
  * `open` + `onOpenChange` + `onSaved` and doesn't need to reproduce the
  * 20+ props the raw modal takes.
  */
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { toast } from 'sonner';
-import { ChevronDown, ChevronRight, Sliders, Tag, ExternalLink, Percent, FileText, Eye } from 'lucide-react';
+import { ChevronDown, ChevronRight, Sliders, Tag, ExternalLink, Percent, FileText, Eye, Layers, Palette, Ruler, Sparkles, Link2, X as XIcon } from 'lucide-react';
 import QuickEditModal from '../supplier-products/QuickEditModal';
 import { getSeriesName } from '../../lib/series';
 
