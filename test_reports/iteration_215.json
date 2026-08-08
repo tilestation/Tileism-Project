@@ -1,0 +1,28 @@
+{
+  "summary": "Verified persistent Series Grouping bug fix. Frontend: /admin/supplier-products search 'Dolomite' renders all 23 Dolomite Onyx products under a SINGLE 'Dolomite Onyx Series · 23 products' group header — no splits, matches total row count (23 of 23). Backend: pytest 3/3 pass — POST /api/admin/series/bulk-assign writes all 5 fields (series, range_name, series_name, unique_name, original_series) and GET /api/supplier-sync/products includes series_name in each product payload. Name Sanity drawer regression passes (opens, lists 200 products). Local shadowing const getSeriesName is confirmed removed (grep clean — only the module-level def at line 137 remains).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_series_bulk_assign.py",
+    "/app/test_reports/pytest/series_bulk.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "SupplierProducts.js is 16,790 lines — long-term split into smaller modules (grouping helpers, bulk actions, filters, table rows) would help maintainability and prevent recurrence of shadowing bugs like this one.",
+    "React 'unique key prop' warning still fires in AdminDashboard render (pre-existing, unrelated to this fix).",
+    "handleBulkSetSeries uses native window.prompt — replacing with a shadcn Dialog with input validation would give a more consistent UX."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_series_bulk_assign.py"
+  ],
+  "success_rate": {"backend": "100% (3/3)", "frontend": "100%"},
+  "test_credentials": "admin@test.com / admin123 (login returns 'token')",
+  "seed_data_creation": "SERIES-TEST-1..6 supplier_products created and auto-deleted by pytest fixture teardown. No production data mutated (LP-3611 / LP-3631 were NOT touched — full backend contract already verified via fixtures).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Root cause was a locally-shadowed const getSeriesName inside SupplierProducts component that used a simpler algorithm than the top-level def, causing Canopy-imported rows with junk in original_series/unique_name to render as singleton groups. Fix removed the shadowing const, merged original_series check into the top-level getSeriesName (with junk-filter applied to it too), and made backend bulk-assign write all 5 series-carrying fields plus supplier-sync/products return series_name. All verified: pytest 3/3, Dolomite Onyx (23) shows as ONE group. Screenshot at .screenshots/dolomite_search.png confirms."
+}

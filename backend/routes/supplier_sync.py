@@ -4101,6 +4101,7 @@ def get_all_supplier_products(
                 "unique_name": p.get("unique_name"),  # Series/range name
                 "range_name": p.get("range_name"),  # Admin-set series (Auto-Assign / Bulk Set Series)
                 "series": p.get("series"),  # Flooring series
+                "series_name": p.get("series_name"),  # Legacy alias — kept for frontend grouping fallback
                 "original_series": p.get("original_series"),  # Original Canopy series name before transformation
                 "sku": sku,
                 "supplier_code": p.get("supplier_code"),  # Spreadsheet supplier code (e.g., P14461)

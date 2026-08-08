@@ -137,10 +137,11 @@ const SERIES_ATTRIBUTE_WORDS = new Set([
 function getSeriesName(productOrName) {
   // Support both raw string (legacy) and full product object. When a product
   // object is passed we prefer any explicit admin override in this order:
-  //   1. range_name  (Auto-Assign Series / Bulk Set Series audit field)
-  //   2. series      (canonical field the API surfaces on the product row)
-  //   3. series_name (legacy alias some callers used)
-  //   4. unique_name (older Canopy-imports store the range here)
+  //   1. original_series (Edit Series Names admin override — only if it passes clean check)
+  //   2. range_name      (Auto-Assign Series / Bulk Set Series audit field)
+  //   3. series          (canonical field the API surfaces on the product row)
+  //   4. series_name     (legacy alias some callers used)
+  //   5. unique_name     (older Canopy-imports store the range here)
   //
   // CRITICAL: Any of these fields can historically hold a FULL PRODUCT NAME
   // (from Canopy scrapes, old CSVs, or an old Auto-Assign run that grabbed
@@ -149,6 +150,10 @@ function getSeriesName(productOrName) {
   //   - is longer than 60 chars, or
   //   - contains " - " (product-name-with-subtitle pattern), or
   //   - contains a dimension token like `60x60cm` / `15kg` / `1L`.
+  //
+  // We apply this filter to EVERY field including `original_series`, because
+  // the Canopy scraper historically dumped full product names into it before
+  // the admin cleaned them up.
   const looksLikeCleanSeriesName = (v) => {
     if (!v) return false;
     const s = String(v).trim();
@@ -159,14 +164,30 @@ function getSeriesName(productOrName) {
     return true;
   };
   if (productOrName && typeof productOrName === 'object') {
+    // Admin manual override — but only if it looks like a real series name.
+    // `original_series` historically stored raw Canopy scrape values which
+    // are often the full product name. Apply the same junk-filter so those
+    // don't dominate the priority chain and split cleanly-assigned rows.
+    if (looksLikeCleanSeriesName(productOrName.original_series)) {
+      return String(productOrName.original_series).trim();
+    }
     // Walk every possible series-carrying field and pick the first that
     // looks like a real series name (not junk).
     for (const k of ['range_name', 'series', 'series_name', 'unique_name']) {
       const v = productOrName[k];
       if (looksLikeCleanSeriesName(v)) return String(v).trim();
     }
-    // No usable stored value — parse from the product name.
-    return getSeriesNameFromString(productOrName.product_name || productOrName.name || '');
+    // No usable stored value — parse from the product name. Prefer the same
+    // display-name resolution the admin table uses so grouping matches what
+    // the admin sees on the row (our_product_name → display_name → name → product_name).
+    const nameForParse = (
+      productOrName.our_product_name ||
+      productOrName.display_name ||
+      productOrName.name ||
+      productOrName.product_name ||
+      ''
+    );
+    return getSeriesNameFromString(nameForParse);
   }
   return getSeriesNameFromString(productOrName);
 }
@@ -6700,21 +6721,10 @@ export default function SupplierProducts() {
     return selectedCount > 0 && selectedCount < seriesProducts.length;
   };
 
-  // Helper function to extract series name (first word) from product name
-  const getSeriesName = (product) => {
-    // Use admin-set series name if available (from Edit Series Names)
-    if (product.original_series && product.original_series.trim()) {
-      return product.original_series.trim();
-    }
-    if (product.series && product.series.trim()) {
-      return product.series.trim();
-    }
-    // Fallback: extract from product name (first word)
-    const name = (product.our_product_name || product.display_name || product.name || product.product_name || '').trim();
-    const firstWord = (name.split(/\s+/)[0] || '').trim().replace(/[^a-zA-Z0-9]/g, '');
-    if (!firstWord) return '';
-    return firstWord.charAt(0).toUpperCase() + firstWord.slice(1).toLowerCase();
-  };
+  // Helper function to extract series name — uses the module-level `getSeriesName`
+  // (defined at the top of this file). Do NOT re-declare it here or it will
+  // shadow the module-level version and silently strip out the aggressive
+  // junk-field filtering (bug fix, Aug 2026).
 
   // Get unique series with counts, sorted by count descending
   // Use allSeriesOptions from backend if available, otherwise fall back to local calculation

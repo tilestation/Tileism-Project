@@ -64,13 +64,12 @@ def test_bulk_assign_updates_all_six(admin_token, fixtures, db):
     assert data.get("ok") is True
     assert data.get("updated") == 6, f"expected 6 updated, got {data.get('updated')} failed={data.get('failed')}"
 
-    # DB verify — all three fields overwritten
+    # DB verify — all FIVE series-carrying fields overwritten
     for sku in fixtures:
         doc = db.supplier_products.find_one({"sku": sku})
         assert doc is not None
-        assert doc.get("series") == TARGET_SERIES, f"{sku} series mismatch: {doc.get('series')}"
-        assert doc.get("range_name") == TARGET_SERIES, f"{sku} range_name mismatch"
-        assert doc.get("unique_name") == TARGET_SERIES, f"{sku} unique_name mismatch: {doc.get('unique_name')}"
+        for field in ("series", "range_name", "series_name", "unique_name", "original_series"):
+            assert doc.get(field) == TARGET_SERIES, f"{sku} {field} mismatch: {doc.get(field)}"
 
 
 def test_supplier_sync_list_returns_series_and_range(admin_token, fixtures):
@@ -89,3 +88,26 @@ def test_supplier_sync_list_returns_series_and_range(admin_token, fixtures):
         assert p.get("series") == TARGET_SERIES, f"{p.get('sku')} series={p.get('series')}"
         assert p.get("range_name") == TARGET_SERIES, f"{p.get('sku')} range_name={p.get('range_name')}"
         assert p.get("unique_name") == TARGET_SERIES, f"{p.get('sku')} unique_name={p.get('unique_name')}"
+        # New: /api/supplier-sync/products must include series_name in payload
+        assert "series_name" in p, f"{p.get('sku')} missing series_name key in response"
+        assert p.get("series_name") == TARGET_SERIES, f"{p.get('sku')} series_name={p.get('series_name')}"
+
+
+def test_dolomite_onyx_group_returns_series_name(admin_token):
+    """Regression check for the reported bug — 23 Dolomite Onyx products must
+    surface with a consistent series_name field so the frontend groups them
+    under a single header."""
+    headers = {"Authorization": f"Bearer {admin_token}"}
+    r = requests.get(
+        f"{BASE_URL}/api/supplier-sync/products",
+        params={"search": "Dolomite", "limit": 200},
+        headers=headers,
+    )
+    assert r.status_code == 200, f"{r.status_code}: {r.text[:400]}"
+    body = r.json()
+    products = body.get("products") or body.get("items") or (body if isinstance(body, list) else [])
+    # Every product returned must have the series_name key present (may be None
+    # for unassigned rows but the KEY must exist so the FE fallback chain works)
+    for p in products:
+        assert "series_name" in p, f"Product {p.get('sku')} missing series_name key"
+
