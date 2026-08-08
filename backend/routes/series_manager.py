@@ -240,3 +240,88 @@ async def apply_series_suggestions(
 
     req = BulkAssignRequest(items=items, supplier=supplier)
     return await bulk_assign_series(payload=req, current_user=current_user)  # type: ignore[arg-type]
+
+
+@router.post("/heal-drift")
+async def heal_series_drift(
+    supplier: Optional[str] = Query(None, description="Optional supplier scope"),
+    current_user: dict = Depends(get_current_user),
+):
+    """One-click sweep that scrubs stale series values across the whole DB.
+
+    For every supplier product we look at `unique_name`; if it looks like a
+    FULL product name (contains ` - `, is longer than 60 chars, or has
+    dimension tokens like `60x60cm` / `15kg` / `1L`) it's obviously not a
+    series name — most likely leftover Canopy-import junk. We overwrite it
+    with a best-effort series parsed from `product_name`, and mirror the same
+    value to `series` and `range_name` so every downstream code path stays
+    consistent.
+
+    Idempotent — running it twice produces the same result.
+    """
+    if not has_permission(current_user, "supplier_products"):
+        raise HTTPException(403, "You need the Supplier Products permission")
+
+    db = get_db()
+    now = datetime.now(timezone.utc)
+
+    def looks_like_full_product_name(v: str) -> bool:
+        s = (v or "").strip()
+        if len(s) > 60:
+            return True
+        if " - " in s:
+            return True
+        # crude dimension detection — matches "60x60", "15kg", "1L" etc.
+        import re
+        if re.search(r"\d{2,}\s*(x|cm|mm|kg|l|g)\b", s, re.IGNORECASE):
+            return True
+        return False
+
+    filt: dict = {"$or": [{"deleted_at": {"$exists": False}}, {"deleted_at": None}]}
+    if supplier:
+        filt["supplier"] = supplier
+
+    scanned = 0
+    healed = 0
+    per_supplier: dict[str, int] = {}
+    async for doc in db.supplier_products.find(filt).limit(20000):
+        scanned += 1
+        unique_val = str(doc.get("unique_name") or "").strip()
+        series_val = str(doc.get("series") or "").strip()
+        range_val = str(doc.get("range_name") or "").strip()
+        parsed = _extract_series(doc.get("product_name") or doc.get("name") or "")
+
+        # Only heal if the current stored series looks like junk AND a cleaner
+        # parsed alternative exists.
+        needs_heal = (
+            looks_like_full_product_name(unique_val) or looks_like_full_product_name(series_val) or looks_like_full_product_name(range_val)
+        )
+        if not needs_heal or not parsed:
+            continue
+
+        try:
+            await db.supplier_products.update_one(
+                {"_id": doc["_id"]},
+                {"$set": {
+                    "series": parsed,
+                    "range_name": parsed,
+                    "unique_name": parsed,
+                    "updated_at": now,
+                    "series_healed_by": current_user.get("email"),
+                }},
+            )
+            healed += 1
+            sup = doc.get("supplier") or "unknown"
+            per_supplier[sup] = per_supplier.get(sup, 0) + 1
+        except Exception:
+            pass
+
+    await log_audit(
+        action="SERIES_HEAL_DRIFT",
+        entity_type="supplier_product",
+        user=current_user,
+        entity_id="bulk-heal",
+        entity_name=f"Healed {healed} drifted series values",
+        after_data={"scanned": scanned, "healed": healed, "per_supplier": per_supplier, "supplier_filter": supplier},
+    )
+    return {"ok": True, "scanned": scanned, "healed": healed, "per_supplier": per_supplier}

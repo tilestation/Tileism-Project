@@ -11,7 +11,7 @@
  */
 import React, { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
-import { RefreshCw, X, Save, Layers, Sparkles } from 'lucide-react';
+import { RefreshCw, X, Save, Layers, Sparkles, Wrench } from 'lucide-react';
 import { Button } from '../../../../components/ui/button';
 import { Input } from '../../../../components/ui/input';
 
@@ -24,6 +24,7 @@ const SeriesAutoAssignModal = ({ open, onClose, supplier = '', onApplied }) => {
   const [scanned, setScanned] = useState(0);
   const [loading, setLoading] = useState(false);
   const [applying, setApplying] = useState(false);
+  const [healing, setHealing] = useState(false);
   const [onlyMissing, setOnlyMissing] = useState(true);
 
   const authHeaders = () => {
@@ -101,6 +102,29 @@ const SeriesAutoAssignModal = ({ open, onClose, supplier = '', onApplied }) => {
     }
   };
 
+  const healDrift = async () => {
+    const scope = supplier ? `in ${supplier}` : 'across every supplier';
+    if (!window.confirm(`Scan the DB for legacy junk in the "unique_name" field ${scope} — anything that looks like a full product name (has " - ", is > 60 chars, or has dimension tokens like 60x60cm / 15kg / 1L) gets replaced with a clean parsed series name.\n\nThis is idempotent and safe to re-run.`)) return;
+    setHealing(true);
+    try {
+      const params = new URLSearchParams();
+      if (supplier) params.set('supplier', supplier);
+      const res = await fetch(`${API_URL}/api/admin/series/heal-drift?${params}`, {
+        method: 'POST',
+        headers: authHeaders(),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      toast.success(`Healed ${data.healed} product${data.healed === 1 ? '' : 's'} across ${Object.keys(data.per_supplier || {}).length} supplier${Object.keys(data.per_supplier || {}).length === 1 ? '' : 's'} (scanned ${data.scanned})`, { duration: 6000 });
+      onApplied?.();
+      runSuggest();
+    } catch (err) {
+      toast.error(`Heal failed: ${err.message}`);
+    } finally {
+      setHealing(false);
+    }
+  };
+
   if (!open) return null;
 
   const totalPicked = buckets.filter((b) => checked.has(b.series)).reduce((s, b) => s + b.product_count, 0);
@@ -135,6 +159,18 @@ const SeriesAutoAssignModal = ({ open, onClose, supplier = '', onApplied }) => {
           </label>
           <Button variant="outline" size="sm" onClick={runSuggest} disabled={loading} data-testid="series-rescan">
             <RefreshCw className={`w-4 h-4 mr-1 ${loading ? 'animate-spin' : ''}`} /> Rescan
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={healDrift}
+            disabled={healing || loading}
+            className="border-amber-500 text-amber-700 hover:bg-amber-50"
+            data-testid="series-heal-btn"
+            title="Scrub legacy junk in unique_name fields — replaces any value that looks like a full product name with a clean parsed series across every product"
+          >
+            {healing ? <RefreshCw className="w-4 h-4 mr-1 animate-spin" /> : <Wrench className="w-4 h-4 mr-1" />}
+            Heal drift
           </Button>
           <Button variant="ghost" size="sm" onClick={onClose}><X className="w-4 h-4" /></Button>
         </div>
