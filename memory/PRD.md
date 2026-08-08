@@ -8923,3 +8923,12 @@ See `/app/memory/test_credentials.md`
 - **Express Proxy**: Frontend production runs `node server.js` (not `serve -s build`) so it can proxy `/sitemap.xml` and `/robots.txt` to the backend. Local supervisor still uses `craco start`. Do NOT break this
 - **React 19 metadata**: SEO meta tags are emitted via React 19's native hoisting (NOT react-helmet). If adding new pages, mount `<SeoHead canonical="/path" />` in the page component's return; do NOT install Helmet
 - **SEO Dependency**: Auto-drainer settings (`/admin/seo` → City Landing Pages) currently set to drain 20/day with auto-approve at score≥90
+
+## Feb 8, 2026 Session Delta — Variants Panel Complete
+- Phase 2 Landing Page UI Parity ✅ SHIPPED (Variants (Colour/Finish/Size) panel in Quick Edit + backend `display_name` alignment).
+- Next P0/P1 backlog:
+  - Phase 3 Landing Page Parity — Related-products manual pinning ("Customers Also Liked" / "You May Also Need") inside Quick Edit.
+  - Prod→Preview DB sync script (safer testing on real showroom/product data).
+  - Google Ads API integration (blocked on Google Ads Developer Token approval).
+  - Google Business Profile integration (blocked on Google allowlist approval).
+- Ownership file mapping: `QuickEditProductDrawer.jsx` (~989 lines) is now the single source for Variants UI. `variants.py` backend router unchanged in signatures; only clustering source field improved.

@@ -3306,3 +3306,29 @@ The user reports "none of the fixes are working" — this is a DEPLOYMENT issue,
 - [ ] Verify collections page loads (no logger crash)
 - [ ] Verify 70x350 herringbone shows 3 variants
 - [ ] Verify flooring filters sidebar appears
+
+---
+
+## Feb 8, 2026 — Landing Page UI Parity Phase 2: Variants Panel (SHIPPED)
+
+**What shipped**
+- Frontend Variants (Colour / Finish / Size) panel inside the shared Quick Edit Product drawer (`QuickEditProductDrawer.jsx`) — was NOT injected by previous agent's failed search_replace; built from scratch.
+- New `variantsSlot` prop wired through `QuickEditModal.jsx` (rendered between More Specs and Preview slots).
+- End-to-end flow verified: Admin opens Edit on a product row → Variants panel → "Auto-Group from Series" → toast "Auto-grouped N products into M variant groups".
+
+**Endpoints (backend already existed, no change to signatures)**
+- `GET /api/supplier-sync/variants/candidates?sku=<sku>`
+- `POST /api/supplier-sync/variants/auto-group-from-series` `{series, supplier?, dry_run}`
+- `POST /api/supplier-sync/variants/create-group` `{items:[{sku,color,finish,size}], group_id?}`
+- `GET /api/supplier-sync/variants/group/{group_id}`
+- `POST /api/supplier-sync/variants/ungroup` `{skus:[], clear_axes?}`
+- `PUT /api/supplier-sync/variants/set-axes` `{sku, color?, finish?, size?, display_order?}`
+
+**Backend polish (aligned with frontend series banner)**
+- `variants.py` now prefers `display_name` over internal `name` when computing base-name clusters, so backend Auto-Group agrees with `lib/series.js` on the frontend.
+- Verified: preview DB "Premium Oak" 3-SKU series now correctly clusters (was returning 0 candidates before, now returns 2 real siblings).
+
+**Data-test IDs added**
+- `quick-edit-variants-panel`, `variants-toggle`, `variants-auto-group-btn`, `variants-refresh-btn`, `variants-ungroup-all-btn`, `variants-members-list`, `variants-candidates-list`, `variants-add-selected-btn`, plus per-SKU `variant-member-{color,finish,size,remove}-<sku>` and `variant-candidate-checkbox-<sku>`.
+
+**Test report**: `/app/test_reports/iteration_221.json` — backend 9/9 pass, frontend 6/6 pass, zero regressions.

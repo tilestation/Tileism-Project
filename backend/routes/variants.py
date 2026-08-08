@@ -217,14 +217,18 @@ def auto_group_from_series(data: AutoGroupRequest):
                 target in (p.get("series") or "").lower() or
                 target in (p.get("range_name") or "").lower() or
                 target in (p.get("original_series") or "").lower() or
-                target in (_base_name(p.get("name") or "").lower())
+                target in (p.get("display_name") or "").lower() or
+                target in (_base_name(p.get("display_name") or p.get("name") or "").lower())
             )
         ]
 
     # Cluster by (base_name, supplier)
+    # Prefer display_name (customer-facing name used by lib/series.js on the
+    # frontend) so backend clusters agree with the "Premium Oak Series" banner
+    # rendered on the Manager page. Fall back to internal name/product_name.
     clusters: Dict[str, List[Dict[str, Any]]] = {}
     for p in products:
-        name = p.get("name") or p.get("product_name") or ""
+        name = p.get("display_name") or p.get("name") or p.get("product_name") or ""
         base = _base_name(name)
         if not base:
             continue
@@ -241,15 +245,15 @@ def auto_group_from_series(data: AutoGroupRequest):
         group_id = str(uuid.uuid4())
         member_details = []
         # Determine axis values for each member.
-        for i, p in enumerate(sorted(members, key=lambda x: x.get("name") or "")):
-            axes = _extract_axes(p.get("name") or "")
+        for i, p in enumerate(sorted(members, key=lambda x: x.get("display_name") or x.get("name") or "")):
+            axes = _extract_axes(p.get("display_name") or p.get("name") or "")
             # Prefer any explicit fields on the product row over parsed values.
             axes["color"] = p.get("color") or axes["color"]
             axes["finish"] = p.get("finish") or axes["finish"]
             axes["size"] = p.get("size") or axes["size"]
             member_details.append({
                 "sku": p.get("sku"),
-                "name": p.get("name"),
+                "name": p.get("display_name") or p.get("name"),
                 **axes,
             })
             if not data.dry_run:
@@ -310,7 +314,9 @@ def find_candidates(sku: str):
     if not src:
         raise HTTPException(status_code=404, detail=f"SKU '{sku}' not found")
     supplier = src.get("supplier")
-    src_base = _base_name(src.get("name") or "").lower()
+    # Prefer display_name (customer-facing) — aligned with lib/series.js on the
+    # frontend so backend candidate matching agrees with the visible series banner.
+    src_base = _base_name(src.get("display_name") or src.get("name") or "").lower()
     if not src_base:
         return {"sku": sku, "candidates": []}
 
@@ -319,14 +325,15 @@ def find_candidates(sku: str):
         q["supplier"] = supplier
     candidates: List[Dict[str, Any]] = []
     for p in db.supplier_products.find(q).limit(500):
-        base = _base_name(p.get("name") or "").lower()
+        pname = p.get("display_name") or p.get("name") or ""
+        base = _base_name(pname).lower()
         if not base:
             continue
         if base == src_base:
-            axes = _extract_axes(p.get("name") or "")
+            axes = _extract_axes(pname)
             candidates.append({
                 "sku": p.get("sku"),
-                "name": p.get("name"),
+                "name": p.get("display_name") or p.get("name"),
                 "supplier": p.get("supplier"),
                 "variant_group_id": p.get("variant_group_id"),
                 **axes,
