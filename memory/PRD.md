@@ -9,6 +9,59 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Aug 8, 2026 — Forked, session F+10, feature block 7 — Phase 1] 🟢 Landing-Page Preview + Per-Product Sale Panel + Rich Description — SHIPPED
+
+**Owner ask** (with 3 live-site screenshots of tilestation.co.uk/shop/collection/Moonstone):
+> "Help me to redecorate the page as it was before making sure all the features are included. I need all the features to be on Managers for me to implement the changes."
+
+After a full audit mapping each Moonstone landing-page element to admin-editable fields, we identified 10 gaps. This iteration ships the 3 quick-win Phase 1 features:
+
+**Delivered (Phase 1)**:
+
+1. **Live Landing-Page Preview button** in Quick Edit — footer link `Preview on site — {series name}` opens `https://www.tilestation.co.uk/shop/collection/{series-slug}` in a new tab. Uses the shared `getSeriesName` helper so the slug matches what the customer landing page expects. Storefront URL overridable via `REACT_APP_STOREFRONT_URL` env.
+
+2. **Per-product Sale Panel editor** in Quick Edit — dedicated card (with the customer-facing rose colour palette) containing:
+   - Sale-active toggle (shows red Sale ribbon on landing page)
+   - WAS Price (£) input
+   - NOW Price (£) input
+   - Live computed "Save £X · N% OFF" chip in the header + Computed column (updates as you type)
+   - All 3 price inputs disabled unless Sale-active is checked
+   - Save flow: single quick-update round-trip includes `sale_active`, `was_price`, `sale_price` (mirrored to `now_price` on the backend for downstream consumers)
+
+3. **Rich "About This Product" description editor** in Quick Edit — full-height textarea with helpful placeholder showing the landing-page format (paragraphs, key points), live char count, admin can override the auto-generated description with hand-crafted marketing copy that renders on the customer landing page.
+
+4. **Backend API changes**:
+   - `QuickUpdateRequest`: added `sale_price` (alias for `now_price` used by newer clients) and `description` fields.
+   - Update logic: when `sale_price` provided, mirrored to both `sale_price` and `now_price` in DB so old + new consumers stay in sync. `description` accepts empty string to allow admin to clear it.
+
+**Verified end-to-end** (curl round-trip on SKU 4405):
+- PUT quick-update with `sale_active=true, was_price=58.99, sale_price=44.99, description="Beautiful matte porcelain. Made in Italy."` → `updated_fields: [was_price, sale_price, now_price, sale_active, description]` → DB confirms all values persisted.
+- Frontend screenshot: Sale panel renders with live "SAVE £14.00 · 24% OFF" chip. Description panel + Preview button all rendered under the Featured toggle, above More Specs.
+
+**Roadmap (Phase 2, next session)**:
+
+5. **Variants system — Colour / Finish / Size linking** (biggest missing feature). Enables the Moonstone-style swatch grid (Ivory / Sand / Carbon / Oxide / Pearl), Finish chip (Matt / Polished / Rustic), and Size chips with per-size pricing (30x60cm £44.99 / 60x60cm £47.99 / 60x120cm £49.99 / 120x120cm £64.99). Requires DB schema:
+   - `variant_group_id` on `supplier_products` (or similar shared collection).
+   - `variant_axis` field ('colour' | 'finish' | 'size').
+   - `variant_display_order` to control chip ordering.
+   - Frontend UI: a "Variants" collapsible in Quick Edit letting admin see + link sibling SKUs. Optional: a "Auto-Group from Series" button that finds candidate variants via series+dimension similarity.
+
+6. **Related products manual pinning** — "Customers Also Liked" (typically another product) and "You May Also Need" (adhesive/tools cross-sells). Requires:
+   - `related_products` array field on `supplier_products` with `{sku, kind}` entries.
+   - Frontend UI: a "Related Products" collapsible in Quick Edit with a search-and-add picker.
+   - Backend: sync into the landing-page rendering pipeline.
+
+7. **Country flag preview** — auto-map `country_of_origin` value → 🇮🇹 unicode flag in the Quick Edit More Specs. Trivial; small polish.
+
+8. **Per-product delivery override** — override the hardcoded "FREE over £499 / 3-5 days" strings per product. Data model additions needed.
+
+**Files touched this iteration**:
+- MODIFIED: `/app/frontend/src/pages/admin/components/managers/QuickEditProductDrawer.jsx` — added `saleMath` useMemo, `saleAndDescriptionPanel` JSX (Sale + Description cards), `previewPanel` (footer preview link), extended emptyForm + form seeding + save payload with sale + description fields.
+- MODIFIED: `/app/frontend/src/pages/admin/components/supplier-products/QuickEditModal.jsx` — added `saleAndDescriptionSlot` and `previewSlot` render-props.
+- MODIFIED: `/app/backend/routes/supplier_sync.py` — extended `QuickUpdateRequest` with `sale_price` + `description`, added mirror-to-now_price + description write handling.
+
+
+
 ### [Aug 8, 2026 — Forked, session F+10, feature block 6] 🟢 Delete Supplier Entirely (Super Admin) — VERIFIED
 
 **Owner ask**:

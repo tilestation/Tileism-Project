@@ -19,8 +19,9 @@
  */
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { toast } from 'sonner';
-import { ChevronDown, ChevronRight, Sliders } from 'lucide-react';
+import { ChevronDown, ChevronRight, Sliders, Tag, ExternalLink, Percent, FileText, Eye } from 'lucide-react';
 import QuickEditModal from '../supplier-products/QuickEditModal';
+import { getSeriesName } from '../../lib/series';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
 
@@ -42,6 +43,14 @@ const emptyForm = () => ({
   always_in_stock: false,
   is_featured: false,
   images: [],
+  // Sale panel fields — surface the customer-facing "SALE PRICE, WAS X, NOW Y,
+  // SAVE Z, N% OFF" ribbon controls directly in Quick Edit.
+  sale_active: false,
+  was_price: '',
+  sale_price: '',
+  // Rich long description that renders on the customer /shop/collection page
+  // under "About This Product". Stored as a plain string (markdown-lite).
+  description: '',
 });
 
 const QuickEditProductDrawer = ({ open, onOpenChange, product, onSaved, previewImages, setPreviewImages, moreSpecsConfig }) => {
@@ -87,6 +96,12 @@ const QuickEditProductDrawer = ({ open, onOpenChange, product, onSaved, previewI
       always_in_stock: !!product.always_in_stock,
       is_featured: !!product.is_featured,
       images: productImages,
+      // Sale + Description fields — surface for per-product editing so admins
+      // don't have to open a separate bulk modal for a single product.
+      sale_active: !!product.sale_active,
+      was_price: product.was_price ?? '',
+      sale_price: product.sale_price ?? '',
+      description: product.description || product.short_description || '',
     });
     setDisplayCodePreview(displayCode);
     setShowCategorySuggestions(false);
@@ -161,6 +176,12 @@ const QuickEditProductDrawer = ({ open, onOpenChange, product, onSaved, previewI
         is_featured: form.is_featured,
         images: form.images,
         image: form.images.length > 0 ? form.images[0] : null,
+        // Sale + description — persist directly via quick-update so admins
+        // don't need the bulk modal for a single product.
+        sale_active: form.sale_active,
+        was_price: form.was_price === '' ? null : parseFloat(form.was_price),
+        sale_price: form.sale_price === '' ? null : parseFloat(form.sale_price),
+        description: form.description,
       };
       const res = await fetch(`${API_URL}/api/supplier-sync/products/quick-update`, {
         method: 'PUT',
@@ -310,6 +331,138 @@ const QuickEditProductDrawer = ({ open, onOpenChange, product, onSaved, previewI
 
   const setMoreSpecVal = (key, v) => setMoreSpecsValues(prev => ({ ...prev, [key]: v }));
 
+  const setFormField = (key, v) => setForm(prev => ({ ...prev, [key]: v }));
+
+  // Sale panel — derive live "Save £X · N% OFF" from the two prices so admins
+  // see the customer-facing chip preview as they type.
+  const saleMath = useMemo(() => {
+    const was = parseFloat(form.was_price);
+    const now = parseFloat(form.sale_price);
+    if (!Number.isFinite(was) || !Number.isFinite(now) || was <= 0 || now <= 0 || now >= was) return null;
+    const save = was - now;
+    const pct = Math.round((save / was) * 100);
+    return { save: save.toFixed(2), pct };
+  }, [form.was_price, form.sale_price]);
+
+  // Sale + Description panel JSX — rendered in the QuickEditModal below the
+  // Featured toggle, above the More Specs collapsible.
+  const saleAndDescriptionPanel = (
+    <div className="space-y-3">
+      {/* Sale ribbon controls */}
+      <div className="border border-rose-100 rounded-lg overflow-hidden">
+        <div className="px-3 py-2 bg-rose-50 border-b border-rose-100 flex items-center gap-2 text-sm font-medium text-rose-800">
+          <Tag className="w-4 h-4" />
+          <span>Sale Panel</span>
+          <span className="ml-1 text-[10px] uppercase tracking-wider text-rose-500">
+            Controls the customer WAS/NOW/SAVE ribbon
+          </span>
+          {form.sale_active && saleMath && (
+            <div className="ml-auto flex items-center gap-1.5 text-[11px] font-semibold">
+              <span className="px-1.5 py-0.5 rounded bg-white text-rose-700 border border-rose-200">SAVE £{saleMath.save}</span>
+              <span className="px-1.5 py-0.5 rounded bg-rose-600 text-white">{saleMath.pct}% OFF</span>
+            </div>
+          )}
+        </div>
+        <div className="p-3 bg-white grid grid-cols-3 gap-3">
+          <label className="col-span-3 flex items-center gap-2 text-sm cursor-pointer" data-testid="quick-edit-sale-active-toggle">
+            <input
+              type="checkbox"
+              checked={!!form.sale_active}
+              onChange={(e) => setFormField('sale_active', e.target.checked)}
+              className="w-4 h-4"
+            />
+            <span className="font-medium">Sale is active for this product</span>
+            <span className="text-[11px] text-gray-500">— shows the red Sale ribbon + WAS/NOW panel on the landing page</span>
+          </label>
+          <div>
+            <label className="block text-[11px] font-medium text-gray-600 mb-1">WAS Price (£)</label>
+            <input
+              type="number"
+              step="0.01"
+              value={form.was_price ?? ''}
+              onChange={(e) => setFormField('was_price', e.target.value)}
+              placeholder="58.99"
+              className="w-full h-8 text-xs border border-gray-300 rounded px-2"
+              data-testid="quick-edit-was-price"
+              disabled={!form.sale_active}
+            />
+          </div>
+          <div>
+            <label className="block text-[11px] font-medium text-gray-600 mb-1">NOW Price (£)</label>
+            <input
+              type="number"
+              step="0.01"
+              value={form.sale_price ?? ''}
+              onChange={(e) => setFormField('sale_price', e.target.value)}
+              placeholder="44.99"
+              className="w-full h-8 text-xs border border-gray-300 rounded px-2"
+              data-testid="quick-edit-sale-price"
+              disabled={!form.sale_active}
+            />
+          </div>
+          <div>
+            <label className="block text-[11px] font-medium text-gray-600 mb-1">Computed</label>
+            <div className="h-8 text-xs border border-gray-200 rounded px-2 bg-gray-50 flex items-center gap-1.5 text-gray-500">
+              <Percent className="w-3 h-3" />
+              {saleMath ? <span className="text-emerald-700 font-semibold">£{saleMath.save} · {saleMath.pct}%</span> : <span>set both prices</span>}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* About This Product — long description editor. */}
+      <div className="border border-slate-200 rounded-lg overflow-hidden" data-testid="quick-edit-description-panel">
+        <div className="px-3 py-2 bg-slate-50 border-b border-slate-200 flex items-center gap-2 text-sm font-medium text-slate-700">
+          <FileText className="w-4 h-4" />
+          <span>About This Product</span>
+          <span className="ml-1 text-[10px] uppercase tracking-wider text-slate-400">
+            Long description shown on the customer landing page
+          </span>
+          <span className="ml-auto text-[10px] text-gray-400">
+            {String(form.description || '').length} chars
+          </span>
+        </div>
+        <textarea
+          value={form.description || ''}
+          onChange={(e) => setFormField('description', e.target.value)}
+          rows={5}
+          placeholder={"Describe the product for shoppers — origin, aesthetic, key selling points. Line breaks become paragraphs on the landing page.\n\nExample:\nMoonstone is our finest porcelain range, hand-picked from Italian kilns. Its matte finish and gentle veining bring warmth to any space.\n\nSuits kitchens, bathrooms, and modern living areas. Slip-rated R10 — safe for shoe traffic even when wet."}
+          className="w-full p-3 text-sm border-0 focus:outline-none focus:ring-0 resize-y"
+          data-testid="quick-edit-description-textarea"
+        />
+      </div>
+    </div>
+  );
+
+  // Landing-page preview button — opens the customer /shop/collection/{series}
+  // URL in a new tab. Uses tilestation.co.uk (production storefront) by
+  // default because the preview environment doesn't host the /shop route.
+  // Admins can override via REACT_APP_STOREFRONT_URL.
+  const previewPanel = product ? (() => {
+    const storefront = process.env.REACT_APP_STOREFRONT_URL || 'https://www.tilestation.co.uk';
+    const seriesName = getSeriesName(product);
+    const slug = (seriesName || product.product_name || product.name || '').trim().replace(/\s+/g, '-');
+    const href = slug ? `${storefront}/shop/collection/${encodeURIComponent(slug)}` : `${storefront}/shop`;
+    return (
+      <div className="flex items-center justify-between text-xs">
+        <div className="flex items-center gap-2 text-slate-500">
+          <Eye className="w-3.5 h-3.5" />
+          <span>Preview how customers will see this product</span>
+        </div>
+        <a
+          href={href}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md border border-blue-200 text-blue-700 bg-blue-50 hover:bg-blue-100 font-medium"
+          data-testid="quick-edit-preview-on-site"
+        >
+          <ExternalLink className="w-3.5 h-3.5" />
+          Preview on site — {seriesName || 'landing page'}
+        </a>
+      </div>
+    );
+  })() : null;
+
   // Extract only the moreSpecs fields the admin actually changed. Compared
   // against the seed values from the product so we don't send unchanged fields.
   const collectMoreSpecsUpdates = () => {
@@ -413,6 +566,8 @@ const QuickEditProductDrawer = ({ open, onOpenChange, product, onSaved, previewI
       onDisplayNameChange={onDisplayNameChange}
       setPreviewImages={effectiveSetPreviewImages}
       moreSpecsSlot={moreSpecsPanel}
+      saleAndDescriptionSlot={saleAndDescriptionPanel}
+      previewSlot={previewPanel}
     />
   );
 };

@@ -5293,8 +5293,11 @@ class QuickUpdateRequest(BaseModel):
     custom_labels: Optional[List[str]] = None  # Custom labels defined by user
     was_price: Optional[float] = None  # Original display price for showing discount
     now_price: Optional[float] = None  # Sale/discounted price
+    sale_price: Optional[float] = None  # Alias for now_price used by newer clients
     discount_percentage: Optional[float] = None  # Discount percentage
     sale_active: Optional[bool] = None  # Whether sale pricing is active
+    # Long product description ("About This Product" on the customer landing page).
+    description: Optional[str] = None
     # Images
     images: Optional[List[str]] = None  # Array of image URLs
     image: Optional[str] = None  # Primary image URL
@@ -5600,10 +5603,19 @@ def quick_update_supplier_product(data: QuickUpdateRequest):
             update_fields["was_price"] = data.was_price
         if data.now_price is not None:
             update_fields["now_price"] = data.now_price
+        # Accept sale_price too — newer frontends use this alias. Store into
+        # both fields so downstream consumers reading either see the change.
+        if data.sale_price is not None:
+            update_fields["sale_price"] = data.sale_price
+            update_fields["now_price"] = data.sale_price
         if data.discount_percentage is not None:
             update_fields["discount_percentage"] = data.discount_percentage
         if data.sale_active is not None:
             update_fields["sale_active"] = data.sale_active
+        # Long product description — surfaces as "About This Product" on the
+        # customer landing page. Allow empty string to clear it.
+        if data.description is not None:
+            update_fields["description"] = data.description
         
         # Handle images
         if data.images is not None:

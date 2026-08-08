@@ -55,6 +55,8 @@ const QuickEditModal = ({
   onDisplayNameChange,
   setPreviewImages,
   moreSpecsSlot,
+  saleAndDescriptionSlot,
+  previewSlot,
 }) => {
   if (!product) return null;
 
@@ -472,6 +474,16 @@ const QuickEditModal = ({
             </div>
           </div>
 
+          {/* Optional Sale Panel + Description slot — injected by
+              QuickEditProductDrawer so admins can control the customer-facing
+              Sale ribbon (WAS/NOW/SAVE/%OFF) and the long "About This
+              Product" description directly per-product. */}
+          {saleAndDescriptionSlot && (
+            <div className="pt-2 border-t">
+              {saleAndDescriptionSlot}
+            </div>
+          )}
+
           {/* Optional More Specs slot — injected by QuickEditProductDrawer
               when opened from a Manager page so admins can edit
               category-specific fields (Bag Colour, Coverage m²/bag, VOC Rating,
@@ -479,6 +491,14 @@ const QuickEditModal = ({
           {moreSpecsSlot && (
             <div className="pt-2 border-t">
               {moreSpecsSlot}
+            </div>
+          )}
+
+          {/* Optional Preview slot — a small footer strip letting the admin
+              open the actual customer landing page for this product. */}
+          {previewSlot && (
+            <div className="pt-2 border-t">
+              {previewSlot}
             </div>
           )}
 
