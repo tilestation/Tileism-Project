@@ -9,6 +9,51 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Aug 8, 2026 — Forked, session F+10, feature block 5] 🟢 Series grouping banner on every Manager page — VERIFIED
+
+**Owner ask** (with 2 screenshots):
+> "Series selected in Supplier products shows all scattered in Managers, it should all show as series in one group in Manager same as Supplier Products show"
+
+User showed the exact scenario: 6 UltraTile SKUs (ULT-TX1L, ULT-EC, ULT-GH1L, ULT-GA1L, ULT-TC1L, ULT-TGS) grouped under a single "Ultra Tile Cleaning & Maintenance Series · 6 products" banner on `/admin/supplier-products` — but scattered alphabetically on `/admin/materials`. Root cause: `ManagerPageShell` rendered a flat `filteredProducts.map(...)` with no grouping.
+
+**Delivered**:
+
+1. **NEW `/app/frontend/src/pages/admin/lib/series.js`** (~110 lines) — a single shared source of truth for series resolution + grouping:
+   - `looksLikeCleanSeriesName(v)` — rejects junk values (>60 chars, contains " - ", dimension tokens anywhere, starts with a `NNxNN` dimension pattern, 6+ real word tokens after ignoring single-char connectors).
+   - `getSeriesName(productOrName)` — walks `original_series → range_name → series → series_name → unique_name`, then falls back to first-word parsing.
+   - `parseFromName` (private) — rejects dimension tokens and pure numbers as first-word, so a product called "800x800 Invisible Brushed Oiled Versailles" doesn't create a noisy singleton "800x800 Series (1 product)" bucket. Instead it goes to the "Individual" fallback bucket at the bottom.
+   - `groupBySeries(products)` — returns stable-ordered `[{ series, products }]` buckets, with an "Individual" bucket appended last for rows with no clean series.
+
+2. **`ManagerPageShell.jsx`** — imports `groupBySeries`, computes `groupedProducts = useMemo(() => groupBySeries(filteredProducts))`, replaces the flat `.map()` with grouped rendering:
+   - Each non-individual bucket gets a highlighted banner row: `<Layers icon> <Series Name> Series · <N> products` + a "N selected" chip if any bulk-selection overlaps the bucket.
+   - Header row has its own **group-select checkbox** — one click toggles every product in that bucket.
+   - Individual bucket rendered as a subtle italic separator so admins can see the un-tagged rows are together (but not visually treated as a "series").
+   - New header badge next to `<N> visible`: `<Layers icon> <N> series` so admins see the total series count at a glance.
+
+3. **Everything is testids-first** for future automation:
+   - `<categoryKey>-series-header-<seriesName>` on each banner row
+   - `<categoryKey>-series-check-<seriesName>` on each group-select checkbox
+   - `<categoryKey>-series-count` on the header badge
+   - `<categoryKey>-series-header-individual` for the fallback separator
+
+**Verified end-to-end** (iteration 219 — 100% pass on user scenario + every Manager page + regressions):
+- User scenario reproduced: `/admin/materials` + search "UT " → 3 buckets, all 6 target SKUs in the "Ultra Tile Cleaning & Maintenance Series" bucket (contiguous, not scattered).
+- Tiles Manager (1108 products) renders 64 banners without lag.
+- Flooring, Bathroom, and Grout Sealants custom manager all render banners correctly.
+- Group-select checkbox: clicking the Ultra Tile Cleaning & Maintenance header selected all 6 → bulk bar showed "6 selected"; unchecking cleared them.
+- Regression: `/admin/supplier-products?search=Dolomite` still shows the single Dolomite Onyx banner (iteration 215 fix preserved).
+- Regression: Quick Edit modal, More Specs, all 4 Undo flows unaffected.
+
+**Files touched**:
+- NEW: `/app/frontend/src/pages/admin/lib/series.js` (~110 lines).
+- MODIFIED: `/app/frontend/src/pages/admin/components/ManagerPageShell.jsx` — imports helpers, renders grouped buckets with banner rows + group-select checkboxes + series-count badge.
+
+**Follow-up (out of scope for this iteration)**:
+- SupplierProducts.js still has its own inline module-level `getSeriesName`. Migrating it to the shared `lib/series.js` helper is a separate P3 refactor; both places currently agree on behaviour byte-for-byte so grouping is consistent.
+- Testing agent flagged one Tiles bucket labelled "Test Series (52 products)" — leftover test seed data, not a bug in the fix.
+
+
+
 ### [Aug 8, 2026 — Forked, session F+10, feature block 4] 🟢 More Specs collapsible + shared Undo across ALL bulk modals — VERIFIED
 
 **Owner ask** (from prior Next Action Items):

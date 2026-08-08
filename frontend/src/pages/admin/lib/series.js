@@ -18,17 +18,32 @@ export const looksLikeCleanSeriesName = (v) => {
   if (!s) return false;
   if (s.length > 60) return false;                       // too long — likely a product name
   if (s.includes(' - ')) return false;                   // subtitled — e.g. "SKU - Name"
-  if (/\d{2,}\s*(x|cm|mm|kg|l|g)\b/i.test(s)) return false; // dimension token
+  if (/\d{2,}\s*(x|cm|mm|kg|l|g)\b/i.test(s)) return false; // dimension token anywhere
+  if (/^\s*\d+\s*x\s*\d+/i.test(s)) return false;        // starts with dimension like "800x800 …"
+  // Count real word tokens (ignore single-char connectors like "&"). A series
+  // label is usually 1–4 words; more than that is almost always a product name.
+  const wordTokens = s.split(/\s+/).filter(t => t.length > 1);
+  if (wordTokens.length >= 6) return false;
   return true;
 };
 
 // Parse a series name from a raw product name string (first word, Title Case).
+// Returns empty string when the first word looks like a dimension token so we
+// don't create noisy singleton buckets like "800x800 Series (1 product)".
 const parseFromName = (name) => {
   if (!name) return '';
   const s = String(name).trim();
   if (!s) return '';
-  const first = (s.split(/\s+/)[0] || '').replace(/[^a-zA-Z0-9]/g, '');
+  const rawFirst = s.split(/\s+/)[0] || '';
+  // Reject dimensions ("800x800", "60x60", "20x25"), pure numbers, and other
+  // non-word tokens so they don't become their own series bucket.
+  if (/^\d+\s*x\s*\d+/i.test(rawFirst)) return '';
+  if (/^\d+$/.test(rawFirst)) return '';
+  const first = rawFirst.replace(/[^a-zA-Z0-9]/g, '');
   if (!first) return '';
+  // If the sanitised first word is still just digits (e.g. "60cm" → "60"),
+  // treat as no-series so the row lands in the "Individual" bucket.
+  if (/^\d+$/.test(first)) return '';
   return first.charAt(0).toUpperCase() + first.slice(1).toLowerCase();
 };
 
