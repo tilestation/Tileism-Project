@@ -119,7 +119,11 @@ async def auto_suggest_series(
     if supplier:
         filt["supplier"] = supplier
     if only_missing:
-        filt["$and"] = [{"$or": [{"range_name": {"$exists": False}}, {"range_name": None}, {"range_name": ""}]}]
+        # Consider a product "already assigned" if EITHER `series` or `range_name` is set.
+        filt["$and"] = [
+            {"$or": [{"series": {"$exists": False}}, {"series": None}, {"series": ""}]},
+            {"$or": [{"range_name": {"$exists": False}}, {"range_name": None}, {"range_name": ""}]},
+        ]
 
     buckets: dict[str, dict] = {}
     total_scanned = 0
@@ -177,7 +181,20 @@ async def bulk_assign_series(
         if payload.supplier:
             q["supplier"] = payload.supplier
         try:
-            res = await db.supplier_products.update_one(q, {"$set": {"range_name": it.series.strip(), "updated_at": now, "range_assigned_by": current_user.get("email")}})
+            # Write to BOTH `series` (what the /supplier-sync/products list endpoint
+            # returns to the frontend) AND `range_name` (kept as an admin
+            # override audit-friendly field). Also mirror to `unique_name` which
+            # some legacy code paths use.
+            res = await db.supplier_products.update_one(
+                q,
+                {"$set": {
+                    "series": it.series.strip(),
+                    "range_name": it.series.strip(),
+                    "unique_name": it.series.strip(),
+                    "updated_at": now,
+                    "range_assigned_by": current_user.get("email"),
+                }},
+            )
             if res.matched_count == 0:
                 failed.append({"sku": it.sku, "reason": "not_found"})
                 continue

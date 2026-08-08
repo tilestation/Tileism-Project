@@ -137,15 +137,16 @@ const SERIES_ATTRIBUTE_WORDS = new Set([
 ]);
 function getSeriesName(productOrName) {
   // Support both raw string (legacy) and full product object. When a product
-  // object is passed we prefer any explicit admin override (`range_name` /
-  // `series_name`) so Auto-Assign / Bulk Assign takes precedence over the
-  // parsed-from-name default.
+  // object is passed we prefer any explicit admin override in this order:
+  //   1. range_name  (Auto-Assign Series / Bulk Set Series audit field)
+  //   2. series      (canonical field the API surfaces on the product row)
+  //   3. series_name (legacy alias some callers used)
+  //   4. unique_name (older Canopy-imports store the range here)
+  // and only fall back to the parsed-from-name default if none are set.
   if (productOrName && typeof productOrName === 'object') {
-    if (productOrName.range_name && String(productOrName.range_name).trim()) {
-      return String(productOrName.range_name).trim();
-    }
-    if (productOrName.series_name && String(productOrName.series_name).trim()) {
-      return String(productOrName.series_name).trim();
+    for (const k of ['range_name', 'series', 'series_name', 'unique_name']) {
+      const v = productOrName[k];
+      if (v && String(v).trim()) return String(v).trim();
     }
     return getSeriesNameFromString(productOrName.product_name || productOrName.name || '');
   }
