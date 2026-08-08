@@ -81,20 +81,30 @@ const BulkSpecsFiltersModal = ({ open, onOpenChange, config, selectedProducts, c
   const toggle = (key) => setChecked(prev => ({ ...prev, [key]: !prev[key] }));
   const setVal = (key, v) => setValues(prev => ({ ...prev, [key]: v }));
 
-  const checkedCount = Object.keys(checked).filter(k => checked[k] && values[k] !== undefined && values[k] !== '').length;
+  // Sub-category rows count as "ready to apply" the moment they're ticked
+  // (the tick itself is the intent — no value needed). Filter/spec rows
+  // still need a typed value.
+  const isReadyToApply = (r) => {
+    if (!checked[r.key]) return false;
+    if (r.source === 'sub_tabs') return true;
+    const v = values[r.key];
+    return v !== undefined && v !== '';
+  };
+  const checkedCount = rows.filter(isReadyToApply).length;
 
   const handleSave = async () => {
     const updates = {};
     for (const r of rows) {
       if (!checked[r.key]) continue;
-      const v = values[r.key];
-      if (v === undefined || v === '') continue;
-      // Sub-category rows write into the `sub_categories` array; use "append" semantic
+      // Sub-category rows: the tick itself IS the intent. Use the row's key
+      // (e.g. "cleaning") as the tag we append into `sub_categories`.
       if (r.source === 'sub_tabs') {
         updates.__sub_category_tag = updates.__sub_category_tag || [];
-        updates.__sub_category_tag.push(v);
+        updates.__sub_category_tag.push(r.key);
         continue;
       }
+      const v = values[r.key];
+      if (v === undefined || v === '') continue;
       // Filter facet with array_field writes into an array (e.g. colors[])
       if (r.array_field) {
         updates[r.array_field] = updates[r.array_field] || [];
@@ -109,7 +119,7 @@ const BulkSpecsFiltersModal = ({ open, onOpenChange, config, selectedProducts, c
     delete updates.__sub_category_tag;
 
     if (Object.keys(updates).length === 0 && (!subCategoryTags || subCategoryTags.length === 0)) {
-      toast.error('Nothing to save — tick a field and enter a value first');
+      toast.error('Nothing to save — tick a Sub-Category, or tick a Filter/Spec row and type a value');
       return;
     }
     if (!selectedProducts || selectedProducts.length === 0) {
@@ -180,7 +190,13 @@ const BulkSpecsFiltersModal = ({ open, onOpenChange, config, selectedProducts, c
             Bulk edit Categories, Specs &amp; Filters — {categoryLabel}
           </DialogTitle>
           <DialogDescription className="text-xs text-gray-500">
-            Tick a field and enter a value. Blank rows are ignored. Applied to <b>{selectedProducts?.length || 0}</b> selected product{selectedProducts?.length !== 1 ? 's' : ''}. All fields here come from your <b>Configure</b> setup — add a new filter/spec/sub-tab and it appears here next time.
+            Applied to <b>{selectedProducts?.length || 0}</b> selected product{selectedProducts?.length !== 1 ? 's' : ''}.
+            {' '}
+            <b className="text-blue-700">Filters</b> &amp; <b className="text-orange-700">Spec Fields</b>: tick + type a value (e.g. Colour → &quot;Grey&quot;).
+            {' '}
+            <b className="text-emerald-700">Sub-Categories</b>: just tick to add that tag — no typing needed.
+            {' '}
+            All fields come from your <b>Configure</b> setup — anything you add there appears here next time.
           </DialogDescription>
         </DialogHeader>
 
@@ -219,7 +235,14 @@ const BulkSpecsFiltersModal = ({ open, onOpenChange, config, selectedProducts, c
                           {r.hint && <div className="text-[10px] text-gray-400">{r.hint}</div>}
                         </div>
                         <div className="w-56 flex-shrink-0">
-                          {r.type === 'select' && r.options ? (
+                          {r.source === 'sub_tabs' ? (
+                            <div className="text-[10px] text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-2 py-1.5 leading-tight">
+                              {checked[r.key]
+                                ? <span>Will add <code className="font-mono">{r.key}</code> tag to each product</span>
+                                : <span className="text-gray-400">Tick to add this sub-category tag</span>
+                              }
+                            </div>
+                          ) : r.type === 'select' && r.options ? (
                             <select
                               value={values[r.key] ?? ''}
                               onChange={(e) => { setVal(r.key, e.target.value); if (!checked[r.key]) toggle(r.key); }}
@@ -234,7 +257,7 @@ const BulkSpecsFiltersModal = ({ open, onOpenChange, config, selectedProducts, c
                               type={r.type === 'number' ? 'number' : 'text'}
                               value={values[r.key] ?? ''}
                               onChange={(e) => { setVal(r.key, e.target.value); if (!checked[r.key] && e.target.value !== '') toggle(r.key); }}
-                              placeholder={r.hint || '—'}
+                              placeholder={r.hint || 'e.g. Grey, 60x60, Matt'}
                               className="h-8 text-xs"
                               data-testid={`bulk-field-input-${r.key}`}
                             />
