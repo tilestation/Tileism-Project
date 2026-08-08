@@ -4197,6 +4197,32 @@ def get_all_supplier_products(
                 "pricing_unit": p.get("pricing_unit"),
                 "product_group": p.get("product_group"),
             }
+
+            # Pass-through of any additional category-specific spec fields the
+            # Manager config surfaces (Bag Colour, Coverage m²/bag, VOC Rating,
+            # Setting Time, Pack Size, Bag Weight, Pot Life, Application
+            # Thickness, Made In, etc.). Anything not already in the projection
+            # above OR in the internal-only denylist gets echoed back so the
+            # Quick Edit "More Specs" panel can round-trip its values.
+            _INTERNAL_KEYS = {
+                "_id", "password_hash", "raw", "raw_row", "canopy_raw",
+                "images_meta", "sync_history", "audit", "index_meta",
+            }
+            for _k, _v in p.items():
+                if _k in product or _k in _INTERNAL_KEYS:
+                    continue
+                if _k.startswith("_"):
+                    continue
+                # Skip datetime objects (fragile to serialize); the ones we care
+                # about (created_at/updated_at/last_synced) are already handled.
+                try:
+                    from datetime import datetime as _dt
+                    if isinstance(_v, _dt):
+                        continue
+                except Exception:
+                    pass
+                product[_k] = _v
+
             products.append(product)
         
         # Batch update any mismatched in_products_db flags

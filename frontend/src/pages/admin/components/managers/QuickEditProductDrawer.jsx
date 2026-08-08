@@ -172,7 +172,40 @@ const QuickEditProductDrawer = ({ open, onOpenChange, product, onSaved, previewI
         toast.error(err.detail || 'Failed to update product');
         return;
       }
-      toast.success('Product updated successfully');
+      // Also write any More Specs edits in the SAME await window so the
+      // success toast reflects the full save AND the modal doesn't close
+      // before the second write finishes.
+      const moreSpecsUpdates = collectMoreSpecsUpdates();
+      if (Object.keys(moreSpecsUpdates).length > 0) {
+        try {
+          const sku2 = product.sku || product.supplier_code;
+          const token = localStorage.getItem('token');
+          const res2 = await fetch(`${API_URL}/api/supplier-sync/products/bulk-update-unified`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            },
+            body: JSON.stringify({
+              product_ids: [sku2],
+              id_field: product.sku ? 'sku' : 'supplier_code',
+              updates: moreSpecsUpdates,
+              mode: 'replace',
+              update_mode: 'replace',
+            }),
+          });
+          if (!res2.ok) throw new Error(`HTTP ${res2.status}`);
+        } catch (err) {
+          toast.error(`Extra specs save failed: ${err.message}`);
+          // Don't rethrow — the primary save still succeeded.
+        }
+      }
+      const extraCount = Object.keys(moreSpecsUpdates).length;
+      toast.success(
+        extraCount > 0
+          ? `Product updated (+ ${extraCount} extra spec${extraCount !== 1 ? 's' : ''})`
+          : 'Product updated successfully'
+      );
       onOpenChange(false);
       onSaved && onSaved();
     } catch (err) {
@@ -293,38 +326,6 @@ const QuickEditProductDrawer = ({ open, onOpenChange, product, onSaved, previewI
     return changes;
   };
 
-  // Wrap onSave so that More Specs updates get written as a second call.
-  const onSaveWrapped = async () => {
-    if (!product) return;
-    await onSave();
-    // If the primary save closed the modal, `open` becomes false. We still
-    // want the More Specs write to fire. Use a fresh reference to the SKU.
-    const moreSpecsUpdates = collectMoreSpecsUpdates();
-    if (Object.keys(moreSpecsUpdates).length === 0) return;
-    try {
-      const sku = product.sku || product.supplier_code;
-      const token = localStorage.getItem('token');
-      const res = await fetch(`${API_URL}/api/supplier-sync/products/bulk-update-unified`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify({
-          product_ids: [sku],
-          id_field: product.sku ? 'sku' : 'supplier_code',
-          updates: moreSpecsUpdates,
-          mode: 'replace',
-          update_mode: 'replace',
-        }),
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      toast.success(`Also saved ${Object.keys(moreSpecsUpdates).length} extra spec${Object.keys(moreSpecsUpdates).length !== 1 ? 's' : ''}`);
-    } catch (err) {
-      toast.error(`Extra specs save failed: ${err.message}`);
-    }
-  };
-
   // The collapsible JSX rendered inside the QuickEditModal via the
   // `moreSpecsSlot` render prop. Kept as a local variable so the parent
   // modal remains a pure presentational component.
@@ -401,7 +402,7 @@ const QuickEditProductDrawer = ({ open, onOpenChange, product, onSaved, previewI
       showCategorySuggestions={showCategorySuggestions}
       setShowCategorySuggestions={setShowCategorySuggestions}
       categorySuggestions={categorySuggestions}
-      onSave={onSaveWrapped}
+      onSave={onSave}
       onImageUpload={onImageUpload}
       onDeleteImage={onDeleteImage}
       onSetPrimaryImage={onSetPrimaryImage}

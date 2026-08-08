@@ -9,6 +9,60 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Aug 8, 2026 — Forked, session F+10, feature block 4] 🟢 More Specs collapsible + shared Undo across ALL bulk modals — VERIFIED
+
+**Owner ask** (from prior Next Action Items):
+1. Add a collapsible **"More Specs"** section under Featured in the Quick Edit modal so per-product category-specific fields (Bag Colour, Coverage m²/bag, VOC Rating, Suitability, Pack Size, etc.) can be edited without leaving the modal.
+2. Extend the 15-second Undo pattern (already in BulkSpecsFiltersModal) to **BulkFieldsModal, Bulk Sale & Labels, and Tier Pricing** — one consistent safety net across every bulk operation.
+
+**Delivered**:
+
+1. **`QuickEditProductDrawer` — More Specs collapsible**:
+   - Reads spec fields from `moreSpecsConfig` prop (passed in by `ManagerPageShell` as `config`).
+   - Renders a compact header `More Specs · N FIELDS FROM THIS CATEGORY` collapsed by default (admin taps to expand).
+   - Fields are rendered as text/number/select/textarea matching the config type.
+   - Pre-fills existing values from the product row so admins can see what's already saved.
+   - Fields already handled by the main modal (color, price, stock, category, etc.) are auto-hidden to avoid duplicate inputs.
+   - **Save flow**: the primary `PUT /api/supplier-sync/products/quick-update` completes first, then the More Specs delta (only changed fields) is written via `POST /api/supplier-sync/products/bulk-update-unified` with `mode:replace` on the single SKU — BEFORE the modal closes, so the toast is unmissable and read-back works instantly.
+   - Toast now: `Product updated (+ 1 extra spec)` when there's a delta, `Product updated successfully` otherwise.
+
+2. **NEW `/app/frontend/src/pages/admin/components/managers/useBulkUndo.js`** (~100 lines):
+   - Exports `buildBulkSnapshot(selectedList, fieldKeys)`, `restoreBulkSnapshot(snapshot)`, and a `useBulkUndo()` hook returning `{ snapshotFor, showUndoToast }`.
+   - Undo re-uses the existing `POST /api/supplier-sync/products/bulk-update-unified` with `mode:replace` in a one-request-per-SKU loop (each product had its own pre-state).
+   - Toast summary examples: `Sale settings updated for 3 products`, `Adjusted 5 products`, `Saved: 5%, 10%, 15% discounts for 3 products (60x60)`. All with a 15-second Undo button.
+
+3. **Wired into 4 places**:
+   - `BulkSpecsFiltersModal` — already had its own inline version; migrated to shared hook (light touch).
+   - `BulkFieldsModal` (Set / Adjust / Edit-each modes) — snapshots `list_price, retail_price, cost_price, warehouse_stock, sale_pct` BEFORE save; adds footer hint `↩ Undo available for 15s after Save`.
+   - `SupplierProducts.saveBulkSaleSettings` — snapshots `sale_active, was_price, was_markup_percent, labels, sale_price`.
+   - `SupplierProducts.saveTierPricingConfig` — snapshots `tier_thresholds, tier_discounts, trade_discount, trade_discount_type, credit_back_rate, tier_disabled, pallet_enabled, pallet_price, half_pallet_price, m2_per_pallet, m2_per_half_pallet`.
+
+4. **Backend fix**: `/api/supplier-sync/products` search serialiser was hard-coded to a fixed field allowlist and dropped extended keys like `bag_colour`, `voc_rating`, `suitability` etc. Added a pass-through of every non-internal, non-denylisted raw field at the bottom of the projection so any More-Specs value round-trips through GET without needing per-key patches. Denylist = `_id`, `password_hash`, `raw`, `raw_row`, `canopy_raw`, `images_meta`, `sync_history`, `audit`, `index_meta`, and any `_`-prefixed key.
+
+**Verified end-to-end** (iteration 218 — testing agent + curl round-trip):
+- Materials Quick Edit shows 5 More Specs fields (bag_colour, suitability, coverage_m2_per_bag, pack_size, supplier). Tiles shows a DIFFERENT set (size, material, slip_rating, suitability). Category-aware works.
+- Save round-trip on SKU `355POL6060`: bag_colour + voc_rating persisted → GET returns them → Quick Edit re-opens pre-filled. Verified via curl above.
+- Undo footer hint on BulkFieldsModal visible; snapshot + showUndoToast wiring code-reviewed clean.
+- Sale/Labels + Tier Pricing Undo code-verified — snapshot builds BEFORE the destructive PUT.
+- Regressions PASS: Series Grouping banner, BulkSpecsFiltersModal Undo (from iteration 216), pencil-icon Quick Edit on Managers.
+
+**Files touched**:
+- NEW: `/app/frontend/src/pages/admin/components/managers/useBulkUndo.js` (~100 lines).
+- MODIFIED: `/app/frontend/src/pages/admin/components/managers/QuickEditProductDrawer.jsx` — added More Specs state, panel JSX, save-side write folded into `onSave` (before modal close).
+- MODIFIED: `/app/frontend/src/pages/admin/components/supplier-products/QuickEditModal.jsx` — added `moreSpecsSlot` prop.
+- MODIFIED: `/app/frontend/src/pages/admin/components/ManagerPageShell.jsx` — passes `moreSpecsConfig={config}` to the drawer.
+- MODIFIED: `/app/frontend/src/pages/admin/components/managers/BulkFieldsModal.jsx` — snapshot + Undo across all 3 modes, footer hint.
+- MODIFIED: `/app/frontend/src/pages/admin/SupplierProducts.js` — imports `useBulkUndo`, wires into `saveBulkSaleSettings` and `saveTierPricingConfig`.
+- MODIFIED: `/app/backend/routes/supplier_sync.py` — extended spec-field pass-through in GET products serialiser.
+
+**Backlog** (unchanged unless noted):
+- Refactor SupplierProducts.js (now 16,800+ lines)
+- Prod→Preview showroom sync script
+- Mobile Showroom Booking, Cross-post engine, Houzz Pro (P2)
+- Google Ads / Business Profile (blocked on Google approvals)
+
+
+
 ### [Aug 8, 2026 — Forked, session F+10, later still] 🟢 Unified Quick Edit Product across ALL Managers — VERIFIED
 
 **Owner ask** (with screenshots): "Quick Edit Product does not open the same in all. I need to be able to use the actual Quick Edit Product box, but instead it shows 'Edit — Cleaning & Maintenance - UltrTile Easy Clean Tile Protector 1 Litre' — I want actual Quick Edit Product on every single product."
