@@ -9,6 +9,38 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Aug 8, 2026 — Forked, session F+10, cleanup] 🟢 Removed orphaned Plus39Images + LeporceImages surfaces — VERIFIED
+
+**Owner ask** (after image-surface audit):
+> "From Frontend UI, Hard remove number 4 and 5"
+
+Referring to the audit surfaces where Plus39Images (`/admin/plus39-images`, 843 lines) and LeporceImages (`/admin/leporce-images`, 500 lines) were identified as **orphaned copies** of the generic `/admin/supplier-images/:supplier` page — hardcoded to one supplier each, with no navigation link anywhere in the UI.
+
+**Delivered**:
+- Deleted `/app/frontend/src/pages/admin/Plus39Images.js` (843 lines)
+- Deleted `/app/frontend/src/pages/admin/LeporceImages.js` (500 lines)
+- Removed 2 lazy-import lines + 2 `<Route>` entries from `/app/frontend/src/App.js`
+- **1,343 lines of dead code eliminated**
+
+**Verified**:
+- Grep across `/app/frontend/src` confirms 0 remaining references to Plus39Images / LeporceImages / plus39-images / leporce-images.
+- Materials Manager still loads with 199 product rows.
+- Navigating to old `/admin/plus39-images` URL no longer resolves — falls through to homepage as expected for an undefined route.
+- No lint regressions from the change.
+
+**Surface count after cleanup** (5 remaining, all active + R2-backed):
+1. **Quick Edit Product modal** — primary path used on every Manager + Supplier Products (via `POST /api/supplier-sync/upload-product-image` → R2)
+2. **Bulk Image Upload modal** (Managers) — batch upload via `POST /api/products/upload-image` → R2
+3. **Supplier Images page** (`/admin/supplier-images/:supplier`) — supplier-wide QA grid, replaces the two deleted per-supplier copies
+4. **Collection Manager per-series image** — sets a single hero image per collection
+5. **SupplierProducts inline camera icon** — same code path as #1 (Quick Edit)
+
+**Files touched**:
+- DELETED: `/app/frontend/src/pages/admin/Plus39Images.js`, `/app/frontend/src/pages/admin/LeporceImages.js`.
+- MODIFIED: `/app/frontend/src/App.js` — removed 2 lazy imports (lines 97–98) + 2 routes (lines 584–585).
+
+
+
 ### [Aug 8, 2026 — Forked, session F+10, feature block 5] 🟢 Series grouping banner on every Manager page — VERIFIED
 
 **Owner ask** (with 2 screenshots):
