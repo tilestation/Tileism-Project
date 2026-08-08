@@ -1,0 +1,24 @@
+{
+  "summary": "Verified BulkSpecsFiltersModal — Preview card + Undo (15s toast) — end-to-end. Backend regression on bulk-update-unified (replace+replace, single-SKU array) passes. Series-grouping search endpoint responds cleanly.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "AdminDashboard", "issues": ["Console: React 'unique key' warning in AdminDashboard render (pre-existing, non-blocking)"]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_bulk_specs_undo.py"],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Preview useMemo dependencies include `checked` and `values` object refs but computePendingWrites is redefined per render — harmless but could be extracted. Not a bug.",
+    "Only one product could be selected in the E2E because the search filter narrowed results to 1 SKU. Test still validates the full Preview + Apply + Undo cycle including per-SKU restore call."
+  ],
+  "updated_files": ["/app/backend/tests/test_bulk_specs_undo.py"],
+  "success_rate": {"backend": "100% (3/3)", "frontend": "100% (all assertions passed)"},
+  "seed_data_creation": "None (used existing TEST fixture SKUs 355POL6060 / 4405; restored after tests).",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Preview data-testid `bulk-specs-preview` and `preview-row-{key}` verified. Undo toast has role=button 'Undo' from sonner action prop with duration=15000. runUndo POSTs per-SKU bulk-update-unified with mode=replace/update_mode=replace. Verified DB state reverted for 355POL6060 (color=Grey, sub_categories=['TEST_CAT_3'] restored). Materials manager 'color' key appears twice (filter_facets + spec_fields) — target 2nd occurrence for Spec Fields writes; both write to same column so undo still works correctly.",
+  "rca of the issue": "N/A — no bug found. Feature works as spec'd."
+}

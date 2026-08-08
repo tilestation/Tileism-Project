@@ -18,7 +18,7 @@ import {
 import { Button } from '../../../../components/ui/button';
 import { Input } from '../../../../components/ui/input';
 import { Badge } from '../../../../components/ui/badge';
-import { Sliders, Filter, Layers, Save, RefreshCw, X, Sparkles } from 'lucide-react';
+import { Sliders, Filter, Layers, Save, RefreshCw, X, Sparkles, Eye, Undo2 } from 'lucide-react';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
 
@@ -92,20 +92,19 @@ const BulkSpecsFiltersModal = ({ open, onOpenChange, config, selectedProducts, c
   };
   const checkedCount = rows.filter(isReadyToApply).length;
 
-  const handleSave = async () => {
+  // Compute the intended writes as a plain object so both the preview row
+  // and the save handler share one truth. Returns { updates, subCategoryTags }.
+  const computePendingWrites = () => {
     const updates = {};
+    const subCategoryTags = [];
     for (const r of rows) {
       if (!checked[r.key]) continue;
-      // Sub-category rows: the tick itself IS the intent. Use the row's key
-      // (e.g. "cleaning") as the tag we append into `sub_categories`.
       if (r.source === 'sub_tabs') {
-        updates.__sub_category_tag = updates.__sub_category_tag || [];
-        updates.__sub_category_tag.push(r.key);
+        subCategoryTags.push(r.key);
         continue;
       }
       const v = values[r.key];
       if (v === undefined || v === '') continue;
-      // Filter facet with array_field writes into an array (e.g. colors[])
       if (r.array_field) {
         updates[r.array_field] = updates[r.array_field] || [];
         updates[r.array_field].push(v);
@@ -113,10 +112,60 @@ const BulkSpecsFiltersModal = ({ open, onOpenChange, config, selectedProducts, c
       }
       updates[r.key] = r.type === 'number' ? Number(v) : v;
     }
+    return { updates, subCategoryTags };
+  };
 
-    // Move sub-tab tags into `sub_categories` under an append mode
-    const subCategoryTags = updates.__sub_category_tag;
-    delete updates.__sub_category_tag;
+  // Build a per-SKU snapshot of the fields we are about to change so Undo
+  // can restore each product exactly. Called BEFORE the API request fires.
+  const buildSnapshot = (skus, writes) => {
+    const perSku = {};
+    const bySku = {};
+    (selectedProducts || []).forEach(p => { const k = p.sku || p.supplier_code; if (k) bySku[k] = p; });
+    for (const sku of skus) {
+      const p = bySku[sku] || {};
+      const before = {};
+      for (const k of Object.keys(writes.updates)) {
+        before[k] = p[k] ?? (Array.isArray(p[k]) ? [] : null);
+      }
+      // Sub-category tags: snapshot the whole current array so undo can restore it verbatim
+      if (writes.subCategoryTags.length > 0) {
+        before.sub_categories = Array.isArray(p.sub_categories) ? [...p.sub_categories] : [];
+      }
+      perSku[sku] = before;
+    }
+    return perSku;
+  };
+
+  // Rewind a completed bulk-apply by pushing each SKU's snapshot back through
+  // bulk-update-unified with mode:replace. One request per SKU because each
+  // row's target values are different.
+  const runUndo = async (snapshot) => {
+    if (!snapshot || Object.keys(snapshot).length === 0) return;
+    const skus = Object.keys(snapshot);
+    let ok = 0; let failed = 0;
+    for (const sku of skus) {
+      try {
+        const res = await fetch(`${API_URL}/api/supplier-sync/products/bulk-update-unified`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            product_ids: [sku],
+            updates: snapshot[sku],
+            mode: 'replace',
+            update_mode: 'replace',
+            id_field: 'sku',
+          }),
+        });
+        if (res.ok) ok++; else failed++;
+      } catch { failed++; }
+    }
+    if (failed === 0) toast.success(`Undo complete — ${ok} product${ok !== 1 ? 's' : ''} reverted`);
+    else toast.warning(`Undo finished with ${failed} failure${failed !== 1 ? 's' : ''} (${ok} reverted)`);
+    onSuccess && onSuccess();
+  };
+
+  const handleSave = async () => {
+    const { updates, subCategoryTags } = computePendingWrites();
 
     if (Object.keys(updates).length === 0 && (!subCategoryTags || subCategoryTags.length === 0)) {
       toast.error('Nothing to save — tick a Sub-Category, or tick a Filter/Spec row and type a value');
@@ -130,6 +179,8 @@ const BulkSpecsFiltersModal = ({ open, onOpenChange, config, selectedProducts, c
     setSaving(true);
     try {
       const skus = selectedProducts.map(p => p.sku || p.supplier_code).filter(Boolean);
+      // Build snapshot BEFORE we mutate anything so Undo can rewind cleanly.
+      const snapshot = buildSnapshot(skus, { updates, subCategoryTags });
       // Main updates
       if (Object.keys(updates).length > 0) {
         const res = await fetch(`${API_URL}/api/supplier-sync/products/bulk-update-unified`, {
@@ -160,7 +211,17 @@ const BulkSpecsFiltersModal = ({ open, onOpenChange, config, selectedProducts, c
         });
         if (!res.ok) throw new Error(`Sub-category tag HTTP ${res.status}`);
       }
-      toast.success(`Applied ${checkedCount} field${checkedCount !== 1 ? 's' : ''} to ${selectedProducts.length} product${selectedProducts.length !== 1 ? 's' : ''}`);
+      // Success — show a 15-second undo toast so a mistyped change can be reversed.
+      toast.success(
+        `Applied ${checkedCount} field${checkedCount !== 1 ? 's' : ''} to ${selectedProducts.length} product${selectedProducts.length !== 1 ? 's' : ''}`,
+        {
+          duration: 15000,
+          action: {
+            label: 'Undo',
+            onClick: () => runUndo(snapshot),
+          },
+        }
+      );
       onSuccess && onSuccess();
       setChecked({});
       setValues({});
@@ -180,6 +241,54 @@ const BulkSpecsFiltersModal = ({ open, onOpenChange, config, selectedProducts, c
     }
     return groups;
   }, [rows]);
+
+  // Build a lightweight preview of what ONE selected product will look like
+  // after Apply. Uses the first selected product as the demo row and folds
+  // in the ticked fields so the admin can eyeball the change before commit.
+  const previewLines = useMemo(() => {
+    if (checkedCount === 0) return [];
+    const demo = (selectedProducts && selectedProducts[0]) || null;
+    if (!demo) return [];
+    const { updates, subCategoryTags } = computePendingWrites();
+    const lines = [];
+    const fmt = (v) => {
+      if (v === undefined || v === null || v === '') return <span className="text-gray-400">—</span>;
+      if (Array.isArray(v)) return v.length === 0 ? <span className="text-gray-400">— (empty)</span> : v.join(', ');
+      return String(v);
+    };
+    // Scalar / array_field writes
+    for (const [k, v] of Object.entries(updates)) {
+      lines.push({
+        key: k,
+        before: fmt(demo[k]),
+        after: fmt(v),
+        isTag: false,
+      });
+    }
+    // Sub-category tag appends: show current + newly added tags together
+    if (subCategoryTags.length > 0) {
+      const current = Array.isArray(demo.sub_categories) ? demo.sub_categories : [];
+      const merged = Array.from(new Set([...current, ...subCategoryTags]));
+      lines.push({
+        key: 'sub_categories',
+        before: fmt(current),
+        after: (
+          <span>
+            {merged.map((t, i) => (
+              <span
+                key={t}
+                className={`inline-block px-1.5 py-0.5 rounded mr-1 text-[10px] ${subCategoryTags.includes(t) && !current.includes(t) ? 'bg-emerald-100 text-emerald-800 font-semibold' : 'bg-gray-100 text-gray-700'}`}
+              >
+                {t}{subCategoryTags.includes(t) && !current.includes(t) ? ' ✚' : ''}
+              </span>
+            ))}
+          </span>
+        ),
+        isTag: true,
+      });
+    }
+    return lines;
+  }, [checked, values, selectedProducts, checkedCount]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -272,10 +381,46 @@ const BulkSpecsFiltersModal = ({ open, onOpenChange, config, selectedProducts, c
           </div>
         )}
 
+        {previewLines.length > 0 && selectedProducts && selectedProducts[0] && (
+          <div className="mt-3 border-2 border-dashed border-slate-300 rounded-lg overflow-hidden" data-testid="bulk-specs-preview">
+            <div className="px-3 py-2 bg-slate-50 border-b border-slate-200 flex items-center gap-2 text-xs font-semibold text-slate-700">
+              <Eye className="w-3.5 h-3.5" />
+              Preview — how <b className="text-slate-900">{selectedProducts[0].product_name || selectedProducts[0].our_product_name || selectedProducts[0].name || selectedProducts[0].sku}</b> will look after Apply
+              <Badge variant="outline" className="ml-auto text-[10px]">
+                +{selectedProducts.length - 1} more product{selectedProducts.length - 1 !== 1 ? 's' : ''} will change the same way
+              </Badge>
+            </div>
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="bg-white border-b border-gray-100 text-[10px] uppercase tracking-wider text-gray-500">
+                  <th className="text-left px-3 py-1.5 font-medium w-1/4">Field</th>
+                  <th className="text-left px-3 py-1.5 font-medium w-1/3">Before</th>
+                  <th className="text-left px-3 py-1.5 font-medium">After</th>
+                </tr>
+              </thead>
+              <tbody>
+                {previewLines.map((line) => (
+                  <tr key={line.key} className="border-b border-gray-100 last:border-0" data-testid={`preview-row-${line.key}`}>
+                    <td className="px-3 py-1.5 font-mono text-[10px] text-gray-500">{line.key}</td>
+                    <td className="px-3 py-1.5 text-gray-600">{line.before}</td>
+                    <td className={`px-3 py-1.5 ${line.isTag ? '' : 'text-emerald-700 font-medium'}`}>{line.after}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
         <DialogFooter className="flex items-center justify-between border-t border-gray-100 pt-3 mt-2">
           <div className="text-xs text-gray-500 flex items-center gap-1">
             <Sparkles className="w-3.5 h-3.5" />
             {checkedCount} field{checkedCount !== 1 ? 's' : ''} to apply
+            {checkedCount > 0 && (
+              <span className="ml-2 text-slate-500 inline-flex items-center gap-1">
+                <Undo2 className="w-3 h-3" />
+                <span>Undo available for 15s after Apply</span>
+              </span>
+            )}
           </div>
           <div className="flex gap-2">
             <Button variant="outline" size="sm" onClick={() => onOpenChange(false)} disabled={saving}>
