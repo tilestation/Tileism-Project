@@ -9272,6 +9272,102 @@ class ClearSupplierProductsRequest(BaseModel):
     password: str
 
 
+class DeleteSupplierEntireRequest(BaseModel):
+    """Completely remove a supplier — all products across every collection,
+    the supplier row itself, and any sync / staging / progress data."""
+    supplier: str
+    password: str
+    confirm_name: str = ""  # user must retype the supplier name
+
+
+@router.get("/suppliers/{supplier}/impact")
+def supplier_delete_impact(supplier: str):
+    """Return counts of records that would be deleted if this supplier is
+    fully removed. Used by the frontend confirmation modal so admins can see
+    the blast-radius before typing the password."""
+    try:
+        db = get_db()
+        return {
+            "supplier": supplier,
+            "supplier_products": db.supplier_products.count_documents({"supplier": supplier}),
+            "tiles": db.tiles.count_documents({"$or": [{"supplier": supplier}, {"source_supplier": supplier}]}),
+            "products": db.products.count_documents({"$or": [{"supplier": supplier}, {"source_supplier": supplier}]}),
+            "sync_staging": db.sync_staging.count_documents({"supplier": supplier}),
+            "sync_progress": db.sync_progress.count_documents({"supplier": supplier}) if "sync_progress" in db.list_collection_names() else 0,
+            "scrape_progress": db.scrape_progress.count_documents({"supplier": supplier}) if "scrape_progress" in db.list_collection_names() else 0,
+            "custom_mappings": db.custom_mappings.count_documents({"supplier": supplier}) if "custom_mappings" in db.list_collection_names() else 0,
+            "supplier_row": db.suppliers.count_documents({"$or": [{"name": supplier}, {"slug": supplier}]}),
+        }
+    except Exception as e:
+        logger.error(f"supplier_delete_impact error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/suppliers/delete-entirely")
+def delete_supplier_entirely(data: DeleteSupplierEntireRequest):
+    """Hard-delete a supplier and every artefact it produced across the DB.
+    Guarded by:
+      1. Super Admin password verification.
+      2. Explicit name-confirmation match (user must retype the supplier name).
+    Returns a per-collection deletion breakdown so the admin can audit."""
+    try:
+        from services import verify_password
+        db = get_db()
+        supplier = (data.supplier or "").strip()
+        password = data.password or ""
+        confirm = (data.confirm_name or "").strip()
+
+        if not supplier:
+            raise HTTPException(status_code=400, detail="Supplier is required")
+        if not password:
+            raise HTTPException(status_code=400, detail="Super Admin password is required")
+        if confirm != supplier:
+            raise HTTPException(status_code=400, detail=f"Name confirmation mismatch — you typed '{confirm}', expected '{supplier}'")
+
+        # Verify password against any Super Admin user in the system.
+        super_admins = list(db.users.find({"role": {"$in": ["super_admin", "SUPER_ADMIN"]}}))
+        if not super_admins:
+            raise HTTPException(status_code=403, detail="No super admin found in system")
+        if not any(a.get("password") and verify_password(password, a["password"]) for a in super_admins):
+            raise HTTPException(status_code=401, detail="Invalid Super Admin password")
+
+        # Perform the deletions. Each collection uses the query that matches
+        # its schema (supplier vs source_supplier vs name/slug for suppliers).
+        deleted = {}
+        deleted["supplier_products"] = db.supplier_products.delete_many({"supplier": supplier}).deleted_count
+        deleted["tiles"] = db.tiles.delete_many({"$or": [{"supplier": supplier}, {"source_supplier": supplier}]}).deleted_count
+        deleted["products"] = db.products.delete_many({"$or": [{"supplier": supplier}, {"source_supplier": supplier}]}).deleted_count
+        deleted["sync_staging"] = db.sync_staging.delete_many({"supplier": supplier}).deleted_count
+        # Progress / mapping / config collections may not exist in every env.
+        for coll_name in ("sync_progress", "scrape_progress", "custom_mappings"):
+            try:
+                if coll_name in db.list_collection_names():
+                    deleted[coll_name] = db[coll_name].delete_many({"supplier": supplier}).deleted_count
+                else:
+                    deleted[coll_name] = 0
+            except Exception:
+                deleted[coll_name] = 0
+        # Finally remove the supplier row itself (by name OR by slug so we
+        # catch both the "Ultra Tile" and "ultra_tile" shapes admins might
+        # have used historically).
+        deleted["supplier_row"] = db.suppliers.delete_many({"$or": [{"name": supplier}, {"slug": supplier}]}).deleted_count
+
+        total = sum(v for v in deleted.values() if isinstance(v, int))
+        logger.warning(f"[SUPPLIER-HARD-DELETE] {supplier} — total_removed={total} breakdown={deleted}")
+        return {
+            "success": True,
+            "supplier": supplier,
+            "total_deleted": total,
+            "breakdown": deleted,
+            "message": f"Removed '{supplier}' entirely — {total} records across {len(deleted)} collections",
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"delete_supplier_entirely error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post("/products/clear-supplier-products")
 def clear_supplier_products(data: ClearSupplierProductsRequest):
     """

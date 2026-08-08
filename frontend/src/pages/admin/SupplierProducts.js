@@ -504,6 +504,9 @@ export default function SupplierProducts() {
   const [deleteAllDbLoading, setDeleteAllDbLoading] = useState(false);
   const [deleteAllDbCount, setDeleteAllDbCount] = useState(null);
   const [deleteAllDbCountLoading, setDeleteAllDbCountLoading] = useState(false);
+
+  // Delete-Supplier-Entirely modal (per-pill Super Admin action).
+  const [deleteSupplierState, setDeleteSupplierState] = useState(null); // { name, impact, password, confirmName, loading, result }
   
   // Fix Product Names state
   const [fixingProductNames, setFixingProductNames] = useState(false);
@@ -1972,6 +1975,56 @@ export default function SupplierProducts() {
     } catch (error) {
       console.error('Bulk add error:', error);
       toast.error(`Bulk add failed: ${error.message || 'Network error - request may have timed out'}`);
+    }
+  };
+
+  // Open the "Delete Supplier Entirely" modal for one supplier. Fetches
+  // a live impact-count from the backend so the admin sees exactly what
+  // will be removed before typing anything.
+  const openDeleteSupplierEntirely = async (supplierName) => {
+    setDeleteSupplierState({
+      name: supplierName,
+      impact: null,
+      password: '',
+      confirmName: '',
+      loading: true,
+      result: null,
+    });
+    try {
+      const res = await fetch(`${API_URL}/api/supplier-sync/suppliers/${encodeURIComponent(supplierName)}/impact`);
+      if (res.ok) {
+        const impact = await res.json();
+        setDeleteSupplierState(prev => prev && prev.name === supplierName ? { ...prev, impact, loading: false } : prev);
+      } else {
+        setDeleteSupplierState(prev => prev && prev.name === supplierName ? { ...prev, loading: false } : prev);
+      }
+    } catch {
+      setDeleteSupplierState(prev => prev && prev.name === supplierName ? { ...prev, loading: false } : prev);
+    }
+  };
+
+  const confirmDeleteSupplierEntirely = async () => {
+    if (!deleteSupplierState) return;
+    const { name, password, confirmName } = deleteSupplierState;
+    if (!password) { toast.error('Super Admin password required'); return; }
+    if (confirmName !== name) { toast.error(`Type the supplier name exactly: '${name}'`); return; }
+    setDeleteSupplierState(prev => ({ ...prev, loading: true }));
+    try {
+      const res = await fetch(`${API_URL}/api/supplier-sync/suppliers/delete-entirely`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ supplier: name, password, confirm_name: confirmName }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
+      setDeleteSupplierState(prev => ({ ...prev, loading: false, result: data }));
+      toast.success(data.message);
+      // If we just deleted the currently-selected supplier, drop back to 'all'.
+      if (selectedSupplier === name) setSelectedSupplier('all');
+      fetchProducts();
+    } catch (err) {
+      toast.error(`Delete failed: ${err.message}`);
+      setDeleteSupplierState(prev => ({ ...prev, loading: false }));
     }
   };
 
@@ -8071,6 +8124,32 @@ export default function SupplierProducts() {
               `}>
                 {count}
               </span>
+              {/* Delete-supplier trash icon — Super Admin only. Opens a
+                  password-gated confirmation modal. Rendered as a div to
+                  avoid nested <button>; onClick + role='button' cover click
+                  and keyboard access. */}
+              {isSuperAdmin && supplier.id !== 'all' && (
+                <div
+                  role="button"
+                  tabIndex={0}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    openDeleteSupplierEntirely(supplier.name);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      openDeleteSupplierEntirely(supplier.name);
+                    }
+                  }}
+                  className={`ml-1 p-0.5 rounded cursor-pointer transition-colors ${isActive ? 'text-white/70 hover:text-white hover:bg-red-500/40' : 'text-gray-400 hover:text-red-600 hover:bg-red-50'}`}
+                  title={`Delete ${supplier.name} entirely (Super Admin)`}
+                  data-testid={`supplier-delete-${supplier.id}`}
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </div>
+              )}
             </button>
           );
         })}
@@ -15272,6 +15351,121 @@ export default function SupplierProducts() {
         api={api}
         fetchProducts={fetchProducts}
       />
+
+      {/* Delete-Supplier-Entirely modal — Super Admin only. Removes a
+          supplier's rows from every collection (supplier_products, tiles,
+          products, sync_staging, sync_progress, scrape_progress, custom_mappings,
+          suppliers) via /api/supplier-sync/suppliers/delete-entirely.
+          Requires typing the supplier name AND a Super Admin password. */}
+      {deleteSupplierState && (
+        <div className="fixed inset-0 z-[100] bg-black/50 flex items-center justify-center p-4" data-testid="delete-supplier-modal">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg p-6">
+            {deleteSupplierState.result ? (
+              <>
+                <div className="flex items-center gap-2 text-emerald-600 font-semibold text-lg">
+                  <CheckCircle className="w-5 h-5" />
+                  Supplier removed
+                </div>
+                <p className="text-sm text-gray-700 mt-2">{deleteSupplierState.result.message}</p>
+                <div className="mt-3 rounded-lg bg-gray-50 p-3 text-xs text-gray-700 space-y-0.5">
+                  {Object.entries(deleteSupplierState.result.breakdown || {}).map(([k, v]) => (
+                    <div key={k} className="flex justify-between">
+                      <span className="text-gray-500">{k}</span>
+                      <span className={`font-mono ${v > 0 ? 'text-red-600 font-semibold' : 'text-gray-400'}`}>{v}</span>
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-4 flex justify-end">
+                  <Button onClick={() => setDeleteSupplierState(null)} data-testid="delete-supplier-close">
+                    Close
+                  </Button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="flex items-center gap-2 text-red-600 font-semibold text-lg">
+                  <AlertTriangle className="w-5 h-5" />
+                  Delete supplier &quot;{deleteSupplierState.name}&quot; entirely
+                </div>
+                <p className="text-xs text-red-600 mt-1">
+                  This removes every row across products, supplier_products, tiles, sync data, mappings, and the supplier itself. <b>Cannot be undone.</b>
+                </p>
+
+                {/* Blast-radius preview */}
+                <div className="mt-3 rounded-lg bg-red-50 border border-red-200 p-3 text-xs text-red-900 space-y-0.5" data-testid="delete-supplier-impact">
+                  {deleteSupplierState.loading && !deleteSupplierState.impact ? (
+                    <div className="text-red-500 italic">Counting impact…</div>
+                  ) : deleteSupplierState.impact ? (
+                    <>
+                      <div className="font-semibold mb-1">Records that will be removed:</div>
+                      {Object.entries(deleteSupplierState.impact).filter(([k]) => k !== 'supplier').map(([k, v]) => (
+                        <div key={k} className="flex justify-between">
+                          <span>{k}</span>
+                          <span className={`font-mono ${v > 0 ? 'text-red-700 font-semibold' : 'text-red-400'}`}>{v}</span>
+                        </div>
+                      ))}
+                    </>
+                  ) : (
+                    <div className="text-red-500 italic">Failed to load impact preview.</div>
+                  )}
+                </div>
+
+                {/* Name-confirmation */}
+                <label className="block text-xs font-semibold text-gray-700 mt-4">
+                  Type the supplier name to confirm
+                </label>
+                <Input
+                  value={deleteSupplierState.confirmName}
+                  onChange={(e) => setDeleteSupplierState(prev => ({ ...prev, confirmName: e.target.value }))}
+                  placeholder={deleteSupplierState.name}
+                  className="mt-1"
+                  data-testid="delete-supplier-name-input"
+                />
+
+                {/* Password */}
+                <label className="block text-xs font-semibold text-gray-700 mt-3">
+                  Super Admin password
+                </label>
+                <Input
+                  type="password"
+                  value={deleteSupplierState.password}
+                  onChange={(e) => setDeleteSupplierState(prev => ({ ...prev, password: e.target.value }))}
+                  placeholder="Enter your Super Admin password"
+                  className="mt-1"
+                  data-testid="delete-supplier-password-input"
+                />
+
+                <div className="mt-5 flex items-center justify-end gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => setDeleteSupplierState(null)}
+                    disabled={deleteSupplierState.loading}
+                    data-testid="delete-supplier-cancel"
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    className="bg-red-600 hover:bg-red-700 text-white"
+                    onClick={confirmDeleteSupplierEntirely}
+                    disabled={
+                      deleteSupplierState.loading
+                      || !deleteSupplierState.password
+                      || deleteSupplierState.confirmName !== deleteSupplierState.name
+                    }
+                    data-testid="delete-supplier-confirm"
+                  >
+                    {deleteSupplierState.loading ? (
+                      <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Deleting…</>
+                    ) : (
+                      <><Trash2 className="w-4 h-4 mr-2" />Delete Everything</>
+                    )}
+                  </Button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Product Images QA panel — replaces the deleted
           /admin/supplier-images/:supplier page. Opens as a full-screen

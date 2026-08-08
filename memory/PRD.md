@@ -9,6 +9,39 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Aug 8, 2026 — Forked, session F+10, feature block 6] 🟢 Delete Supplier Entirely (Super Admin) — VERIFIED
+
+**Owner ask**:
+> "Give me an option to delete supplier itself but only with Super Admin Password"
+
+**Delivered**:
+
+1. **NEW backend endpoints**:
+   - `GET /api/supplier-sync/suppliers/{supplier}/impact` — returns per-collection counts (supplier_products / tiles / products / sync_staging / sync_progress / scrape_progress / custom_mappings / supplier_row) so the frontend can render a blast-radius preview before the admin types anything.
+   - `POST /api/supplier-sync/suppliers/delete-entirely` — hard-deletes every trace of a supplier across 8 collections. Three guards, ALL required to succeed: (a) explicit `supplier` param, (b) `password` verified against any Super Admin user's password hash via `services.verify_password`, (c) `confirm_name` string that must exactly equal `supplier`. Returns a per-collection deletion breakdown for audit.
+   - Both are logged with `logger.warning("[SUPPLIER-HARD-DELETE] …")` for post-hoc trace.
+
+2. **NEW frontend UI**:
+   - Small trash icon added to every supplier pill except "All Suppliers". Rendered as a keyboard-accessible `role='button' tabIndex=0` element (avoids nested `<button>` a11y issue). **Super Admin only** — hidden entirely for other roles via `{isSuperAdmin && …}`.
+   - Clicking the trash opens a modal (`data-testid="delete-supplier-modal"`) that immediately calls the impact endpoint and shows a real-time blast-radius panel (`data-testid="delete-supplier-impact"`).
+   - Two inputs — supplier-name confirmation (`delete-supplier-name-input`) and Super Admin password (`delete-supplier-password-input`). The "Delete Everything" button is disabled until both are valid.
+   - Success state shows the per-collection breakdown so the admin can eyeball what was removed. If the currently-selected supplier is the one deleted, the tab drops back to "All".
+
+**Verified**:
+- Curl round-trip: missing password → 400, wrong password → 401, name mismatch → 400 with correct-vs-expected error text. All 3 guards work.
+- Screenshot: 19 trash icons rendered as Super Admin; modal opens with impact preview for "Verona" (1 product across each of supplier_products/tiles/products, 0 in sync/mapping collections); Delete Everything disabled until both inputs are valid.
+
+**Safety**:
+- Nothing is deleted on GET — the impact endpoint is read-only.
+- Deletion requires ALL of: (a) valid Super Admin password (bcrypt-verified), (b) exact-match name-retype, (c) POST request. No accidental clicks can nuke a supplier.
+- Every deletion is logged at WARNING level with the full per-collection breakdown.
+
+**Files touched**:
+- MODIFIED: `/app/backend/routes/supplier_sync.py` — added `DeleteSupplierEntireRequest` model + `supplier_delete_impact` + `delete_supplier_entirely` handlers (~90 lines added).
+- MODIFIED: `/app/frontend/src/pages/admin/SupplierProducts.js` — added `deleteSupplierState`, `openDeleteSupplierEntirely`, `confirmDeleteSupplierEntirely`; trash icon on each supplier pill; full confirmation modal with success state (~180 lines added).
+
+
+
 ### [Aug 8, 2026 — Forked, session F+10, cleanup 6] 🟢 Supplier Products toolbar slim (safe subset) — VERIFIED
 
 **Owner ask** (with annotated screenshot):
