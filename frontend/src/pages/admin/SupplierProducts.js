@@ -140,29 +140,32 @@ function getSeriesName(productOrName) {
   //   1. range_name  (Auto-Assign Series / Bulk Set Series audit field)
   //   2. series      (canonical field the API surfaces on the product row)
   //   3. series_name (legacy alias some callers used)
-  //   4. unique_name (older Canopy-imports store the range here) — but ONLY
-  //      if it looks like a clean series name (short, no " - ", no dimensions).
-  //      Canopy imports historically dumped the FULL product name into
-  //      `unique_name`, so we can't trust it blindly.
-  // and only fall back to the parsed-from-name default if none are set.
+  //   4. unique_name (older Canopy-imports store the range here)
+  //
+  // CRITICAL: Any of these fields can historically hold a FULL PRODUCT NAME
+  // (from Canopy scrapes, old CSVs, or an old Auto-Assign run that grabbed
+  // supplier_product_name verbatim). We must reject those or the row ends up
+  // in its own singleton series bucket. A value is treated as junk if it:
+  //   - is longer than 60 chars, or
+  //   - contains " - " (product-name-with-subtitle pattern), or
+  //   - contains a dimension token like `60x60cm` / `15kg` / `1L`.
   const looksLikeCleanSeriesName = (v) => {
     if (!v) return false;
     const s = String(v).trim();
-    if (s.length > 60) return false;              // too long → probably full product name
-    if (s.includes(' - ')) return false;          // full product-name pattern
-    if (/\d{2,}\s*(x|cm|mm|kg|l|g)/i.test(s)) return false; // has dimension tokens
+    if (!s) return false;
+    if (s.length > 60) return false;
+    if (s.includes(' - ')) return false;
+    if (/\d{2,}\s*(x|cm|mm|kg|l|g)\b/i.test(s)) return false;
     return true;
   };
   if (productOrName && typeof productOrName === 'object') {
-    // Fields 1-3 — trust admin-set values verbatim.
-    for (const k of ['range_name', 'series', 'series_name']) {
+    // Walk every possible series-carrying field and pick the first that
+    // looks like a real series name (not junk).
+    for (const k of ['range_name', 'series', 'series_name', 'unique_name']) {
       const v = productOrName[k];
-      if (v && String(v).trim()) return String(v).trim();
+      if (looksLikeCleanSeriesName(v)) return String(v).trim();
     }
-    // Field 4 — only use unique_name if it's not obviously a full product name.
-    const un = productOrName.unique_name;
-    if (un && looksLikeCleanSeriesName(un)) return String(un).trim();
-
+    // No usable stored value — parse from the product name.
     return getSeriesNameFromString(productOrName.product_name || productOrName.name || '');
   }
   return getSeriesNameFromString(productOrName);
