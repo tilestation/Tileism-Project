@@ -69,7 +69,7 @@ const BathroomManager = () => (
     tierPricingDefaults={{ default_unit: 'unit' }}
     bannerBullets={[
       'Search or filter to find a bathroom product (toilet, basin, bath, shower, tap, accessory).',
-      'Click Edit on a row — only bathroom-relevant fields show (brand, model, dimensions, material, finish).',
+      'Click Edit on a row to open the shared Quick Edit Product modal — Display Name, Supplier Name, Prices, Stock & Product Images all in one place.',
       'Use + Add New for a brand-new bathroom item (opens the Wizard).',
       'Bulk price, images and AI descriptions all work from the shared bar at the bottom.',
     ]}

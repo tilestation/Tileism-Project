@@ -66,7 +66,7 @@ const UnderfloorHeatingManager = () => (
     tierPricingDefaults={{ default_unit: 'unit' }}
     bannerBullets={[
       'Search or filter for UFH products (mats, cables, thermostats, insulation).',
-      'Click Edit — only UFH-relevant fields show (coverage m², voltage, W/m², thermostat).',
+      'Click Edit on a row to open the shared Quick Edit Product modal — Display Name, Supplier Name, Prices, Stock & Product Images all in one place.',
       'Use + Add New for a brand-new UFH kit (opens the Wizard).',
       'Publish complete kits + track warranty via the bulk actions.',
     ]}

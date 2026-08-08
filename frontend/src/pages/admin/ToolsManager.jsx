@@ -67,7 +67,7 @@ const ToolsManager = () => (
     tierPricingDefaults={{ default_unit: 'unit' }}
     bannerBullets={[
       'Search or filter for tools (cutters, trowels, spacers, mixers, cleaning).',
-      'Click Edit — only tools-relevant fields show (brand, size, capacity, use with).',
+      'Click Edit on a row to open the shared Quick Edit Product modal — Display Name, Supplier Name, Prices, Stock & Product Images all in one place.',
       'Use + Add New for a brand-new tool (opens the Wizard).',
       'Sub-tabs auto-group by purpose so pricing is quicker across a batch.',
     ]}

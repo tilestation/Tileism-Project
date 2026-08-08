@@ -70,7 +70,7 @@ const FlooringManager = () => (
     tierPricingDefaults={{ default_unit: 'm2', trade_discount_default: 5, trade_discount_type: 'percent' }}
     bannerBullets={[
       'Search or filter to find a floor (LVT, Laminate, Wood, Vinyl).',
-      'Click Edit on a row to change fields — only flooring-relevant ones show.',
+      'Click Edit on a row to open the shared Quick Edit Product modal — Display Name, Supplier Name, Prices, Stock & Product Images all in one place.',
       'Use + Add New Flooring for a brand-new product (opens the Wizard).',
       'Tier pricing, publish, stock & refund flows still work through the shared backend.',
     ]}

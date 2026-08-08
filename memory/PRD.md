@@ -9,6 +9,38 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Aug 8, 2026 — Forked, session F+10, later still] 🟢 Unified Quick Edit Product across ALL Managers — VERIFIED
+
+**Owner ask** (with screenshots): "Quick Edit Product does not open the same in all. I need to be able to use the actual Quick Edit Product box, but instead it shows 'Edit — Cleaning & Maintenance - UltrTile Easy Clean Tile Protector 1 Litre' — I want actual Quick Edit Product on every single product."
+
+Previously every Manager page (Materials / Tiles / Flooring / Bathroom / UFH / Tools / Custom) rendered its OWN stripped-down category-specific edit dialog via `ManagerPageShell`, with fields like Bag Colour, Coverage m²/bag, Setting Time for Materials. Meanwhile `/admin/supplier-products` opened the rich `QuickEditModal` (Product Images upload/reorder, Customer-Facing Display Name + auto-generated Display Code, Internal Supplier Product Name + Code, List/Cost Price, Stock, Featured, Category suggestions). Two totally different UX flows for the same task.
+
+**Delivered** — one modal, one code path, everywhere:
+
+1. **NEW `/app/frontend/src/pages/admin/components/managers/QuickEditProductDrawer.jsx`** (~250 lines) — a self-contained wrapper that owns its own state (form, imageUploading, draggedImageIndex, displayCodePreview, categorySuggestions) and internally renders the same presentational `<QuickEditModal>` used by `/admin/supplier-products`. Parent only needs to pass `{ open, onOpenChange, product, onSaved }`.
+2. **`ManagerPageShell.jsx`** — the built-in `<Dialog>` edit modal (200 lines of category-field JSX) was replaced with `<QuickEditProductDrawer>`. Now every Manager page opens the exact same "Quick Edit Product" experience.
+3. **`QuickEditModal.jsx`** — "Need more options? Open full editor" link is now hidden when the modal is opened from a Manager (drawer doesn't supply `onEditFullPage`) — prevents the latent TypeError the testing agent flagged. Also added `<DialogDescription className="sr-only">` for a11y compliance.
+4. **Updated stale hint copy** on all 6 Managers + ProductsHub cards — no longer promise "only material/tile/UFH/bathroom-relevant fields" (they now open the same unified modal, so that copy was actively misleading).
+
+**Verified end-to-end** (iteration 217 — 100% pass, frontend regression across 6 Manager pages + Supplier Products):
+- Modal title = "Quick Edit Product" on Materials, Tiles (1108 products), Flooring, Bathroom, UFH, Custom Grout-Sealants.
+- Save round-trip: SKU `355POL6060` display_name changed → toast → modal closes → list refreshes → persisted → restored after test.
+- Removed material-specific fields (Bag Colour, Coverage m²/bag, Setting Time) do NOT appear in the modal on any page — confirmed by test.
+- Regression: `/admin/supplier-products` pencil-icon Quick Edit still opens the same modal. Series Grouping banner still works.
+- "Open full editor" link no longer visible inside Manager-page drawer.
+
+**Files touched**:
+- NEW: `/app/frontend/src/pages/admin/components/managers/QuickEditProductDrawer.jsx` (~250 lines).
+- MODIFIED: `/app/frontend/src/pages/admin/components/ManagerPageShell.jsx` — imported drawer, deleted 100+ lines of category-specific edit dialog JSX.
+- MODIFIED: `/app/frontend/src/pages/admin/components/supplier-products/QuickEditModal.jsx` — added DialogDescription for a11y, gated "Open full editor" link on `onEditFullPage` callback presence.
+- MODIFIED: `TilesManager.jsx`, `MaterialsManager.jsx`, `FlooringManager.jsx`, `BathroomManager.jsx`, `UnderfloorHeatingManager.jsx`, `ToolsManager.jsx`, `ProductsHub.js` — hint copy updated to match reality.
+
+**Backlog / follow-ups**:
+- Category-specific specs (Bag Colour, Coverage m²/bag, VOC Rating, etc.) are still writable via the "Specs / Filters" bulk modal or the Configure page — no data lost.
+- If admins need per-product category specs from the Edit modal, we can add a "More specs" collapsible below the Featured toggle later; user hasn't asked for it.
+
+
+
 ### [Aug 8, 2026 — Forked, session F+10, later] 🟢 BulkSpecsFiltersModal: Preview Row + 15s Undo — VERIFIED
 
 **Owner ask**: Add two safety features to the "Specs / Filters" bulk modal so admins can commit changes with more confidence:

@@ -82,7 +82,7 @@ export default function ProductsHub() {
     },
     {
       title: 'Materials Manager',
-      description: 'Focused editor for adhesives, grouts, sealants & cleaning — only material-relevant fields',
+      description: 'Adhesives, grouts, sealants & cleaning — uses the shared Quick Edit Product modal',
       icon: Package,
       link: '/admin/materials',
       color: 'bg-orange-500',
@@ -94,7 +94,7 @@ export default function ProductsHub() {
     },
     {
       title: 'Tiles Manager',
-      description: 'Focused editor for wall &amp; floor tiles, mosaics, borders — only tile-relevant fields',
+      description: 'Wall &amp; floor tiles, mosaics, borders — uses the shared Quick Edit Product modal',
       icon: Square,
       link: '/admin/tiles',
       color: 'bg-blue-500',

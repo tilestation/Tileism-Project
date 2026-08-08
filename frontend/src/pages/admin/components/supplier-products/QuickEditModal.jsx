@@ -9,6 +9,7 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
   DialogFooter,
 } from '../../../../components/ui/dialog';
 import { Button } from '../../../../components/ui/button';
@@ -64,6 +65,9 @@ const QuickEditModal = ({
             <PenLine className="w-5 h-5 text-amber-600" />
             Quick Edit Product
           </DialogTitle>
+          <DialogDescription className="sr-only">
+            Edit customer-facing details, internal supplier fields, pricing, stock and product images for this product.
+          </DialogDescription>
         </DialogHeader>
         
         <div className="space-y-4 py-4">
@@ -467,20 +471,23 @@ const QuickEditModal = ({
             </div>
           </div>
 
-          {/* Open Full Editor Link */}
-          <div className="pt-2 border-t">
-            <button
-              type="button"
-              onClick={() => {
-                onOpenChange(false);
-                onEditFullPage(product);
-              }}
-              className="text-sm text-blue-600 hover:text-blue-800 flex items-center gap-1"
-            >
-              <ExternalLink className="w-4 h-4" />
-              Need more options? Open full editor
-            </button>
-          </div>
+          {/* Open Full Editor Link — hidden when no handler is supplied
+              (e.g. when opened from a Manager page via QuickEditProductDrawer). */}
+          {typeof onEditFullPage === 'function' && (
+            <div className="pt-2 border-t">
+              <button
+                type="button"
+                onClick={() => {
+                  onOpenChange(false);
+                  onEditFullPage(product);
+                }}
+                className="text-sm text-blue-600 hover:text-blue-800 flex items-center gap-1"
+              >
+                <ExternalLink className="w-4 h-4" />
+                Need more options? Open full editor
+              </button>
+            </div>
+          )}
         </div>
         
         <DialogFooter className="gap-2">
