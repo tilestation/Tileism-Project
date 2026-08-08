@@ -35,6 +35,7 @@ import DryRunPreview from './components/supplier-products/DryRunPreview';
 import BulkEditPresets from './components/supplier-products/BulkEditPresets';
 import BulkEditHistory from './components/supplier-products/BulkEditHistory';
 import NameSanityDrawer from './components/supplier-products/NameSanityDrawer';
+import SeriesAutoAssignModal from './components/supplier-products/SeriesAutoAssignModal';
 import ManagerTabsBar from './components/managers/ManagerTabsBar';
 import { bucketSelectionByManager } from './components/managers/classifyProductToManager';
 import CustomManagerBuilder from './components/managers/CustomManagerBuilder';
@@ -134,7 +135,24 @@ const SERIES_ATTRIBUTE_WORDS = new Set([
   'quarry','travertine','terrazzo','porcelain','patterned',
   'laminate','engineered','lvt','plank','straight',
 ]);
-function getSeriesName(productName) {
+function getSeriesName(productOrName) {
+  // Support both raw string (legacy) and full product object. When a product
+  // object is passed we prefer any explicit admin override (`range_name` /
+  // `series_name`) so Auto-Assign / Bulk Assign takes precedence over the
+  // parsed-from-name default.
+  if (productOrName && typeof productOrName === 'object') {
+    if (productOrName.range_name && String(productOrName.range_name).trim()) {
+      return String(productOrName.range_name).trim();
+    }
+    if (productOrName.series_name && String(productOrName.series_name).trim()) {
+      return String(productOrName.series_name).trim();
+    }
+    return getSeriesNameFromString(productOrName.product_name || productOrName.name || '');
+  }
+  return getSeriesNameFromString(productOrName);
+}
+
+function getSeriesNameFromString(productName) {
   if (!productName) return '';
   if (productName.includes(' - ')) {
     const prefix = productName.split(' - ')[0].trim();
@@ -324,6 +342,7 @@ export default function SupplierProducts() {
   
   const [showSyncDialog, setShowSyncDialog] = useState(false);
   const [showNameSanity, setShowNameSanity] = useState(false);
+  const [showSeriesAssign, setShowSeriesAssign] = useState(false);
   const [syncLoading, setSyncLoading] = useState(false);
   const [userRole, setUserRole] = useState(null);
   const [previewImage, setPreviewImage] = useState(null);
@@ -6005,6 +6024,35 @@ export default function SupplierProducts() {
   };
 
 
+  // Bulk Set Series — writes the same range_name to every ticked product.
+  // Uses the shared /api/admin/series/bulk-assign endpoint so it survives
+  // future backend renames.
+  const handleBulkSetSeries = async () => {
+    if (selectedProducts.size === 0) { toast.error('No products selected'); return; }
+    const seriesName = window.prompt(`Assign a Series / Collection name to ${selectedProducts.size} product(s):`);
+    if (!seriesName || !seriesName.trim()) return;
+    try {
+      const items = Array.from(selectedProducts).map((key) => {
+        const sku = key.includes('|||') ? key.split('|||')[1] : key;
+        return { sku, series: seriesName.trim() };
+      }).filter((it) => it.sku);
+      const token = localStorage.getItem('token');
+      const res = await fetch(`${process.env.REACT_APP_BACKEND_URL}/api/admin/series/bulk-assign`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ items, supplier: selectedSupplier !== 'all' ? selectedSupplier : null }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      toast.success(`Set series "${seriesName.trim()}" on ${data.updated} product${data.updated === 1 ? '' : 's'}${data.failed?.length ? ` (${data.failed.length} skipped)` : ''}`);
+      fetchProducts();
+      fetchStats();
+    } catch (err) {
+      toast.error(`Failed to set series: ${err.message}`);
+    }
+  };
+
+
   // Handle bulk archive (set inactive)
   const handleBulkArchive = async () => {
     if (selectedProducts.size === 0) {
@@ -7849,6 +7897,18 @@ export default function SupplierProducts() {
           >
             <ShieldCheck className="w-4 h-4 mr-2" />
             Name Sanity{selectedProducts.size > 0 ? ` (${selectedProducts.size})` : ''}
+          </Button>
+          {/* Auto-Assign Series — parses product_name into buckets so the admin
+              can group products into proper series/collections in one click. */}
+          <Button
+            variant="outline"
+            className="border-purple-500 text-purple-700 hover:bg-purple-50"
+            onClick={() => setShowSeriesAssign(true)}
+            data-testid="open-series-assign-btn"
+            title="Detect series/collections from product names and bulk-assign them in one click"
+          >
+            <Layers className="w-4 h-4 mr-2" />
+            Auto-Assign Series
           </Button>
           {/* Import New Suppliers (RSA Tiles + ThermoSphere) */}
           {isSuperAdmin && (selectedSupplier === 'RSA Tiles' || selectedSupplier === 'ThermoSphere' || selectedSupplier === 'all') && (
@@ -15574,6 +15634,14 @@ export default function SupplierProducts() {
         onRenamed={() => { fetchProducts(); fetchStats(); }}
       />
 
+      {/* Auto-Assign Series Modal — parses product_name buckets + writes range_name. */}
+      <SeriesAutoAssignModal
+        open={showSeriesAssign}
+        onClose={() => setShowSeriesAssign(false)}
+        supplier={selectedSupplier && selectedSupplier !== 'all' ? selectedSupplier : ''}
+        onApplied={() => { fetchProducts(); fetchStats(); }}
+      />
+
       {/* Custom Mappings Modal - Extracted Component */}
       <CustomMappingsModal
         open={showCustomMappingsModal}
@@ -16671,6 +16739,20 @@ export default function SupplierProducts() {
             >
               <Archive className="w-3.5 h-3.5" />
               Archive
+            </button>
+
+            {/* Bulk Set Series — assigns the same range_name to every ticked
+                product. Prompts for a series name and posts to
+                /api/admin/series/bulk-assign. */}
+            <button
+              type="button"
+              data-testid="qa-set-series"
+              onClick={handleBulkSetSeries}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-purple-500/90 hover:bg-purple-500 transition-all text-[13px] font-medium shadow-md shadow-purple-500/20"
+              title="Assign a Series/Collection name to every ticked product (writes range_name)"
+            >
+              <Layers className="w-3.5 h-3.5" />
+              Set Series
             </button>
 
             {/* Divider + Close */}
