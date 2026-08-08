@@ -9,6 +9,43 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Aug 8, 2026 — Forked, session F+10] 🟢 Series Grouping bug FIXED — root cause was function shadowing — VERIFIED
+
+**Owner ask (repeated 4+ times, user increasingly frustrated)**: Products bulk-assigned to a series were STILL rendering as separate/individual rows instead of grouping under a single "Series — N products" banner in `/admin/supplier-products`. Previous agents (F+9 sessions) kept aggressively patching the top-level `getSeriesName` helper in `SupplierProducts.js` to reject dirty legacy values from `unique_name`, `series_name`, etc. — no change to the UI.
+
+**Root cause discovered this session**: `SupplierProducts.js` had TWO `getSeriesName` functions:
+1. Module-level (line 137) — the "clean" one the previous agent kept patching (walks range_name/series/series_name/unique_name with an aggressive junk filter).
+2. `const getSeriesName = ...` INSIDE the component (line 6704) — a simpler older version using `original_series` → `series` → first word of product name. NO junk filter.
+
+Because `const` is block-scoped and declared inside the component, JS resolved every call site inside the component to the local shadowing const. **The previous agent's patches had zero effect.** Products with empty `series` fell back to "first word of product name" — producing a unique series key per SKU → every product bucketed as a singleton.
+
+**Fix shipped**:
+1. **Deleted the shadowing `const getSeriesName` inside the component** (was at line 6704). Now the entire component uses the module-level function.
+2. **Merged `original_series` (admin manual override) into the module-level function** — same junk-filter applies (Canopy scrapes historically dumped full product names into it, so admin's "manual override" is not always trustable).
+3. **Backend `/api/admin/series/bulk-assign` now writes ALL 5 series-carrying fields** (`series`, `range_name`, `series_name`, `unique_name`, `original_series`) so future assignments never split due to a leftover dirty field.
+4. **Backend `/api/supplier-sync/products` now returns `series_name`** in the product payload (was missing; frontend fallback chain needs it).
+
+**Verification (testing_agent_v3 iteration 215 — 100% pass)**:
+- Frontend: `/admin/supplier-products?search=Dolomite` renders all 23 Dolomite Onyx products under a SINGLE "Dolomite Onyx Series — 23 products" banner. No splits.
+- Backend pytest 3/3: bulk-assign writes 5 fields; supplier-sync/products returns `series_name`; verification round-trip.
+- Manual DB test: `POST /api/admin/series/bulk-assign` with 2 SKUs → confirmed all 5 fields set to same value.
+- Regression: Name Sanity drawer opens and lists products; EPOS search unaffected.
+
+**Files touched**:
+- MODIFIED: `/app/frontend/src/pages/admin/SupplierProducts.js` — merged `original_series` (junk-filtered) into module-level `getSeriesName`; deleted shadowing const at line 6704.
+- MODIFIED: `/app/backend/routes/series_manager.py` — bulk-assign now writes 5 fields.
+- MODIFIED: `/app/backend/routes/supplier_sync.py` — GET products now returns `series_name`.
+- NEW: `/app/backend/tests/test_series_bulk_assign.py` — 3 pytest cases (added by testing agent).
+
+**Remaining P1/P2 backlog** (unchanged):
+- Prod→Preview showroom sync script
+- **P3 refactor**: SupplierProducts.js is now 16,790 lines — testing agent flagged this as a recurring risk surface (this exact shadowing bug persisted for 4+ sessions). Split into smaller modules (grouping helpers / bulk actions / table rows / filter panels).
+- Mobile Showroom Booking, Cross-post engine, Houzz Pro (P2)
+- Google Ads dashboard (blocked on Developer Token approval)
+- Google Business Profile (blocked on allowlist)
+
+
+
 ### [Aug 7, 2026 — Forked, session F+9] 🟢 Bulk Ghost Sweep (final layer) — VERIFIED
 
 **Owner ask**: "One-click scanner that lists every row in products/tiles/sync_staging with NO matching Supplier Product, so I can purge them all in one go."
