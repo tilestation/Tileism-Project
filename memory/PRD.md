@@ -9,6 +9,34 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Aug 8, 2026 — Forked, session F+10, later] 🟢 BulkSpecsFiltersModal: Preview Row + 15s Undo — VERIFIED
+
+**Owner ask**: Add two safety features to the "Specs / Filters" bulk modal so admins can commit changes with more confidence:
+1. **Bulk Preview Row** — show a one-row preview of what a product will look like after Apply, before commit.
+2. **Undo Last Bulk** — 15-second "Undo" toast after every bulk apply so a wrong tick can be reversed instantly.
+
+**Delivered**:
+
+1. **Live Preview card** — appears above the footer the moment at least one field is ticked. Uses the first selected product as the demo row and shows a compact 3-column table (Field / Before / After). New sub-category tags are highlighted in emerald with a "✚" badge so the delta is unmissable. A "+N more products will change the same way" pill sits in the header so admins know the preview is representative.
+
+2. **Snapshot + Undo** — `handleSave` now:
+   - Builds a per-SKU snapshot of the exact fields it's about to touch BEFORE hitting the API (so array-fields like `sub_categories` are captured verbatim).
+   - Fires the sonner success toast with `duration:15000` and an `action:{label:'Undo', onClick: runUndo}`.
+   - `runUndo` loops through the snapshot and calls `POST /api/supplier-sync/products/bulk-update-unified` once per SKU with `mode:'replace'` + the SKU's original values. Toast after: "Undo complete — N reverted" (or a warning if any failed).
+
+3. **Footer hint** — an inline "↩ Undo available for 15s after Apply" line appears alongside the "N fields to apply" count so the safety net is discoverable BEFORE the click.
+
+**Verified end-to-end** (iteration 216 — 100% pass on both backend & frontend):
+- Preview card renders with `data-testid=bulk-specs-preview`; rows carry `data-testid=preview-row-{fieldKey}`.
+- Live reactivity: ticking a field adds a row, untick removes it, no lag.
+- Backend round-trip: Apply `color='TestUndoColor' + sub_categories append 'cleaning'` → 2 SKUs mutated → Undo restores both to `color='Grey' + sub_categories=['TEST_CAT_3']` with `verification_ok:true`.
+
+**Files touched**:
+- MODIFIED: `/app/frontend/src/pages/admin/components/managers/BulkSpecsFiltersModal.jsx` (~370 lines total) — added `computePendingWrites`, `buildSnapshot`, `runUndo`, `previewLines` useMemo, preview card JSX, footer undo hint, action-toast wiring.
+- NEW: `/app/backend/tests/test_bulk_specs_undo.py` (3 pytest cases added by testing agent).
+
+
+
 ### [Aug 8, 2026 — Forked, session F+10] 🟢 Series Grouping bug FIXED — root cause was function shadowing — VERIFIED
 
 **Owner ask (repeated 4+ times, user increasingly frustrated)**: Products bulk-assigned to a series were STILL rendering as separate/individual rows instead of grouping under a single "Series — N products" banner in `/admin/supplier-products`. Previous agents (F+9 sessions) kept aggressively patching the top-level `getSeriesName` helper in `SupplierProducts.js` to reject dirty legacy values from `unique_name`, `series_name`, etc. — no change to the UI.
