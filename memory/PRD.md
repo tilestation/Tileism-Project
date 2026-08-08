@@ -9,6 +9,39 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Aug 8, 2026 — Forked, session F+10, cleanup 6] 🟢 Supplier Products toolbar slim (safe subset) — VERIFIED
+
+**Owner ask** (with annotated screenshot):
+> "Delete highlighted if they are secured to do so."
+
+7 buttons circled. My safety-first policy: only delete when the functionality has a clear alternative OR is a duplicate. If deletion would leave admins with no way to trigger the action, or if it touches customer-facing website products, it stays.
+
+**Delivered — deleted (2 out of 7)**:
+- 🟢 **Refresh** — deleted. Any filter/search/supplier-tab change already refetches; F5 works; auto-refresh happens on interaction.
+- 🟢 **Export PDF** — deleted. Same underlying data as Export Excel; admins export to Excel then print/PDF from there.
+
+**Preserved (5 out of 7) — with reasoning**:
+- 🔴 **Export Excel** — kept. Only .xlsx export path on the page.
+- 🔴 **Import Excel** — kept. Accepts multi-category .xlsx across all suppliers; the per-Manager CSV Import is category-scoped and CSV-only.
+- 🔴 **Sync from Products** — kept. One-of-a-kind DB sync (products→supplier_products) with no other recovery UI.
+- 🔴 **Custom Mappings** — kept. SKU alias management for supplier↔internal SKU mapping with no other UI entry point.
+- 🔴 **Fix Draft ({n})** — kept. 🌐 **Customer-facing** — publishes drafts to the shop; violates the "don't affect website products" rule.
+
+**Verified**:
+- 2 removed buttons: 0 occurrences after deletion.
+- 5 preserved buttons: all present + functional.
+- No underlying handlers, endpoints, or backend logic changed. Purely JSX removal.
+
+**Files touched**:
+- MODIFIED: `/app/frontend/src/pages/admin/SupplierProducts.js` — 8 lines removed (Refresh + Export PDF button blocks).
+
+**Session tally — Supplier Products page UI slim**:
+- Cleanup 5 removed **5 clutter blocks** (Sale/Labels, Rename Series, Edit Categories, Assign Category-big, Smart Select strip — 256 lines).
+- Cleanup 6 removed **2 more toolbar buttons** (Refresh, Export PDF — 8 lines).
+- Total: **7 UI blocks, ~264 lines removed** from `SupplierProducts.js`. Zero backend or DB changes. Zero loss of critical/customer-facing functionality.
+
+
+
 ### [Aug 8, 2026 — Forked, session F+10, cleanup 5] 🟢 Supplier Products UI de-clutter — VERIFIED
 
 **Owner ask** (with annotated screenshot):

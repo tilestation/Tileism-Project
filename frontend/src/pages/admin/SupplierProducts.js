@@ -7778,17 +7778,9 @@ export default function SupplierProducts() {
               </span>
             )}
           </Button>
-          <Button variant="outline" onClick={() => { fetchProducts(); fetchStats(); }}>
-            <RefreshCw className="w-4 h-4 mr-2" />
-            Refresh
-          </Button>
           <Button variant="outline" onClick={exportToExcel}>
             <FileSpreadsheet className="w-4 h-4 mr-2" />
             Export Excel
-          </Button>
-          <Button variant="outline" onClick={exportToPDF}>
-            <FileText className="w-4 h-4 mr-2" />
-            Export PDF
           </Button>
           <label className="cursor-pointer">
             <input
