@@ -40,6 +40,7 @@ import ManagerFiltersPanel, { applyManagerFilters } from './managers/ManagerFilt
 import CustomManagerBuilder from './managers/CustomManagerBuilder';
 import BulkFieldsModal from './managers/BulkFieldsModal';
 import BulkSpecsFiltersModal from './managers/BulkSpecsFiltersModal';
+import QuickEditProductDrawer from './managers/QuickEditProductDrawer';
 import BulkAIDescriptionsModal from './managers/BulkAIDescriptionsModal';
 import BulkImageUploadModal from './managers/BulkImageUploadModal';
 import CsvImportModal from './managers/CsvImportModal';
@@ -538,103 +539,12 @@ const ManagerPageShell = ({
       </div>
 
       {/* Edit modal */}
-      <Dialog open={!!editingProduct} onOpenChange={(o) => !o && closeEdit()}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Edit — {editingProduct?.our_product_name || editingProduct?.product_name || editingProduct?.name}</DialogTitle>
-            <p className="text-xs text-gray-500">{editingProduct?.supplier} · {editingProduct?.sku || editingProduct?.supplier_code}</p>
-          </DialogHeader>
-          {draft.showRestore && (
-            <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 text-amber-800 text-xs p-2 rounded" data-testid={`${categoryKey}-draft-restore-banner`}>
-              <AlertCircle className="w-3.5 h-3.5" />
-              <span>You have an unsaved draft for this product from {draft.draftTimeLabel}.</span>
-              <Button size="sm" variant="outline" onClick={draft.restore} className="ml-auto" data-testid={`${categoryKey}-draft-restore-btn`}>Restore</Button>
-              <Button size="sm" variant="ghost" onClick={draft.dismiss} data-testid={`${categoryKey}-draft-dismiss-btn`}>Dismiss</Button>
-            </div>
-          )}
-          <div className="grid grid-cols-2 gap-4 py-2">
-            {effectiveEditFields.map(f => (
-              <div key={f.key} className={f.type === 'textarea' ? 'col-span-2' : ''}>
-                <label className="block text-xs font-medium text-gray-700 mb-1">{f.label}</label>
-                {f.type === 'textarea' ? (
-                  <textarea
-                    value={editForm[f.key] || ''}
-                    onChange={(e) => setEditForm(prev => ({ ...prev, [f.key]: e.target.value }))}
-                    rows={3}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
-                    data-testid={`${categoryKey}-edit-${f.key}`}
-                  />
-                ) : f.type === 'select' && Array.isArray(f.options) ? (
-                  <select
-                    value={editForm[f.key] || ''}
-                    onChange={(e) => setEditForm(prev => ({ ...prev, [f.key]: e.target.value }))}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white"
-                    data-testid={`${categoryKey}-edit-${f.key}`}
-                  >
-                    <option value="">— select —</option>
-                    {f.options.map(o => <option key={o} value={o}>{o}</option>)}
-                  </select>
-                ) : (
-                  <Input
-                    value={editForm[f.key] || ''}
-                    onChange={(e) => setEditForm(prev => ({ ...prev, [f.key]: e.target.value }))}
-                    type={f.type === 'number' ? 'number' : 'text'}
-                    data-testid={`${categoryKey}-edit-${f.key}`}
-                  />
-                )}
-                {f.hint && <p className="text-[11px] text-gray-400 mt-0.5">{f.hint}</p>}
-              </div>
-            ))}
-            <div className="col-span-2">
-              <label className="block text-xs font-medium text-gray-700 mb-1">Short Description</label>
-              <textarea
-                value={editForm.description || ''}
-                onChange={(e) => setEditForm(prev => ({ ...prev, description: e.target.value }))}
-                rows={3}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
-                data-testid={`${categoryKey}-edit-description`}
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <div className="text-[11px] text-gray-400 mr-auto flex items-center gap-1" data-testid={`${categoryKey}-draft-status`}>
-              {draft.status === 'saved' && <><CheckCircle className="w-3 h-3 text-emerald-500" /> Draft saved</>}
-              {draft.status === 'saving' && <><RefreshCw className="w-3 h-3 animate-spin" /> Auto-saving…</>}
-            </div>
-            <Button
-              variant="outline"
-              onClick={async () => {
-                if (!editingProduct) return;
-                const name = window.prompt(`Save "${editingProduct.our_product_name || editingProduct.product_name}" as a template. Template name:`,
-                  `${editingProduct.our_product_name || editingProduct.product_name || 'Product'} template`);
-                if (!name) return;
-                try {
-                  const token = localStorage.getItem('token');
-                  const res = await fetch(`${API_URL}/api/product-templates/from-product`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-                    body: JSON.stringify({ sku: editingProduct.sku || editingProduct.supplier_code, name, product_group: categoryKey }),
-                  });
-                  if (!res.ok) { const err = await res.json().catch(() => ({})); throw new Error(err.detail || `HTTP ${res.status}`); }
-                  const tpl = await res.json();
-                  toast.success(`Saved template "${tpl.name}" — pick it in the Wizard next time`);
-                } catch (err) {
-                  toast.error(`Failed to save template: ${err.message}`);
-                }
-              }}
-              disabled={saving}
-              data-testid={`${categoryKey}-save-as-template`}
-            >
-              Save as Template
-            </Button>
-            <Button variant="outline" onClick={closeEdit} disabled={saving}>Cancel</Button>
-            <Button onClick={saveEdit} disabled={saving} className={`text-white ${themeCls.ctaBtn}`} data-testid={`${categoryKey}-edit-save`}>
-              {saving ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
-              Save
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <QuickEditProductDrawer
+        open={!!editingProduct}
+        onOpenChange={(o) => !o && closeEdit()}
+        product={editingProduct}
+        onSaved={() => { closeEdit(); fetchProducts(); }}
+      />
 
       {/* Wizard */}
       <AddProductWizard open={wizardOpen} onOpenChange={setWizardOpen} presetCategory={presetCategory || categoryKey} onSuccess={() => { setWizardOpen(false); fetchProducts(); }} />
