@@ -3332,3 +3332,16 @@ The user reports "none of the fixes are working" — this is a DEPLOYMENT issue,
 - `quick-edit-variants-panel`, `variants-toggle`, `variants-auto-group-btn`, `variants-refresh-btn`, `variants-ungroup-all-btn`, `variants-members-list`, `variants-candidates-list`, `variants-add-selected-btn`, plus per-SKU `variant-member-{color,finish,size,remove}-<sku>` and `variant-candidate-checkbox-<sku>`.
 
 **Test report**: `/app/test_reports/iteration_221.json` — backend 9/9 pass, frontend 6/6 pass, zero regressions.
+
+---
+
+## Feb 8, 2026 — Delete Supplier Modal Fix (SHIPPED)
+
+**Bug**: In "Delete supplier X entirely" modal, the "Delete Everything" button stayed disabled even after the user typed both fields, with no visible reason why. Root cause: strict `!==` comparison against the supplier name field silently failed on casing/whitespace mismatches; users often didn't realise the greyed placeholder text was NOT a pre-filled value.
+
+**Fix** (`SupplierProducts.js` + `supplier_sync.py`):
+1. **Loosened name compare** to case-insensitive + trim, so "verona" or "Verona " (trailing space) still validates. Same normalization applied to backend `clear_supplier_products` endpoint for parity.
+2. **Inline red hint** under the confirm-name field when it's non-empty but doesn't match: *"Doesn't match — expected exactly Verona"* (data-testid: `delete-supplier-name-mismatch`).
+3. **Amber block-reason banner** above the buttons showing exactly what's missing: *"To enable Delete Everything, please type the supplier name exactly and enter your Super Admin password."* (data-testid: `delete-supplier-block-reason`).
+
+**Deploy note**: User's screenshot was of tilestation.co.uk (production). The fix is in preview only — needs a Railway redeploy to reach live users. Preview verified via Playwright screenshot.

@@ -9333,7 +9333,7 @@ def delete_supplier_entirely(data: DeleteSupplierEntireRequest):
             raise HTTPException(status_code=400, detail="Supplier is required")
         if not password:
             raise HTTPException(status_code=400, detail="Super Admin password is required")
-        if confirm != supplier:
+        if confirm.lower() != supplier.lower():
             raise HTTPException(status_code=400, detail=f"Name confirmation mismatch — you typed '{confirm}', expected '{supplier}'")
 
         # Verify password against any Super Admin user in the system.

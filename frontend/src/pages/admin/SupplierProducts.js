@@ -2006,8 +2006,8 @@ export default function SupplierProducts() {
   const confirmDeleteSupplierEntirely = async () => {
     if (!deleteSupplierState) return;
     const { name, password, confirmName } = deleteSupplierState;
-    if (!password) { toast.error('Super Admin password required'); return; }
-    if (confirmName !== name) { toast.error(`Type the supplier name exactly: '${name}'`); return; }
+    if (!(password || '').trim()) { toast.error('Super Admin password required'); return; }
+    if ((confirmName || '').trim().toLowerCase() !== (name || '').trim().toLowerCase()) { toast.error(`Type the supplier name exactly: '${name}'`); return; }
     setDeleteSupplierState(prev => ({ ...prev, loading: true }));
     try {
       const res = await fetch(`${API_URL}/api/supplier-sync/suppliers/delete-entirely`, {
@@ -15421,6 +15421,11 @@ export default function SupplierProducts() {
                   className="mt-1"
                   data-testid="delete-supplier-name-input"
                 />
+                {deleteSupplierState.confirmName && deleteSupplierState.confirmName.trim().toLowerCase() !== (deleteSupplierState.name || '').trim().toLowerCase() && (
+                  <p className="mt-1 text-[11px] text-red-600" data-testid="delete-supplier-name-mismatch">
+                    Doesn&apos;t match — expected exactly <b>{deleteSupplierState.name}</b>
+                  </p>
+                )}
 
                 {/* Password */}
                 <label className="block text-xs font-semibold text-gray-700 mt-3">
@@ -15434,6 +15439,20 @@ export default function SupplierProducts() {
                   className="mt-1"
                   data-testid="delete-supplier-password-input"
                 />
+
+                {(() => {
+                  const nameOk = (deleteSupplierState.confirmName || '').trim().toLowerCase() === (deleteSupplierState.name || '').trim().toLowerCase();
+                  const passwordOk = !!(deleteSupplierState.password || '').trim();
+                  const missing = [];
+                  if (!nameOk) missing.push('type the supplier name exactly');
+                  if (!passwordOk) missing.push('enter your Super Admin password');
+                  if (missing.length === 0) return null;
+                  return (
+                    <p className="mt-3 text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1" data-testid="delete-supplier-block-reason">
+                      To enable <b>Delete Everything</b>, please {missing.join(' and ')}.
+                    </p>
+                  );
+                })()}
 
                 <div className="mt-5 flex items-center justify-end gap-2">
                   <Button
@@ -15449,8 +15468,8 @@ export default function SupplierProducts() {
                     onClick={confirmDeleteSupplierEntirely}
                     disabled={
                       deleteSupplierState.loading
-                      || !deleteSupplierState.password
-                      || deleteSupplierState.confirmName !== deleteSupplierState.name
+                      || !(deleteSupplierState.password || '').trim()
+                      || (deleteSupplierState.confirmName || '').trim().toLowerCase() !== (deleteSupplierState.name || '').trim().toLowerCase()
                     }
                     data-testid="delete-supplier-confirm"
                   >
