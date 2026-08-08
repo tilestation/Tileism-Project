@@ -1,0 +1,54 @@
+{
+  "summary": "Iteration 219 — Verified the series-grouping fix on every hardcoded Manager (Materials / Tiles / Flooring / Bathroom / UFH / Tools) and one Custom Manager (grout-sealants). The user's original scenario (6 ULT- SKUs scattered on /admin/materials) is FIXED: after searching 'UT ' in Materials, all 6 target SKUs render as a contiguous block under the 'Ultra Tile Cleaning & Maintenance Series' banner. Series count badge, group-select checkbox and regressions all PASS.",
+  "core_user_scenario_ULT_grouping": {
+    "status": "PASS",
+    "detail": "/admin/materials search='UT ' → 3 series buckets rendered in this exact order: 'Ultra Tile Cleaning & Maintenance' (6 products), 'Ut' (5 products), 'Utf' (18 products). All 6 target SKUs [ULT-EC, ULT-GA1L, ULT-GH1L, ULT-TGS, ULT-TC1L, ULT-TX1L] are inside the 'Ultra Tile Cleaning & Maintenance' bucket — no longer scattered. Header data-testid materials-series-header-Ultra Tile Cleaning & Maintenance present, sample header text renders as '<Name> Series' with '<N> products' badge."
+  },
+  "banner_and_badges": {
+    "materials_no_search": "PASS — header_count=61, visible='138 visible', series-badge='61 series' (matches design brief exactly). First bucket text: 'Laminate Series 3 products'.",
+    "materials_visible_count_testid": "materials-visible-count present",
+    "materials_series_count_testid": "materials-series-count present with Layers icon",
+    "tiles_no_crash": "PASS — /admin/tiles renders 64 series-header banners across 1108 products without lag or crash.",
+    "flooring": "PASS — 3 series banners rendered (Marwood/Samphire/Sandwell Oak).",
+    "bathroom": "PASS — 7 series banners (incl. 'Dolomite Onyx').",
+    "grout_sealants_custom_manager": "PASS — /admin/custom-manager/grout-sealants renders 'Ultra Tile Cleaning & Maintenance Series (3 products)' banner + series-count badge. Screenshot confirms banner layout matches /admin/supplier-products styling.",
+    "underfloor_heating_and_tools": "OBSERVATION-ONLY — visible=0 on both; category has no products in this preview dataset so no banner assertion possible. Not a regression."
+  },
+  "group_select_checkbox": {
+    "status": "PASS",
+    "detail": "Clicked [data-testid=materials-series-check-Ultra Tile Cleaning & Maintenance] → bulk-bar showed '6 selected'. Unchecked → 0 selected. Fully functional bidirectional select/deselect."
+  },
+  "regressions": {
+    "supplier_products_dolomite_banner": "PASS — /admin/supplier-products?search=Dolomite still shows body text 'Dolomite Onyx Series' banner. (SupplierProducts.js uses a different testid pattern than Managers so the [data-testid*=series-header] selector on that page returns 0, but the 'Dolomite Onyx Series' banner text IS present in DOM — verified via document.body.innerText regex match.)",
+    "tiles_manager_scale": "PASS — 1108 products rendered with 64 series banners, no lag or console crash.",
+    "tiles_dolomite_search": "OBSERVATION-ONLY — /admin/tiles search='Dolomite' returned 0 visible products (headers=0). This is NOT a series-grouping regression — the tile products with 'Dolomite' in their name are classified as Bathroom (confirmed by /admin/bathroom showing 'Dolomite Onyx' bucket), so the Tiles Manager's isMatch predicate excludes them. The task-brief's Dolomite→tiles expectation appears to be inconsistent with the current classification data; report as observation only."
+  },
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "/admin/tiles series buckets", "issues": ["First bucket 'Test' at top of table looks like leftover test data — not a fix bug but worth flagging."]},
+      {"screen": "/admin/tiles series buckets", "issues": ["Series label '800x800 Invisible Brushed Oiled Versailles' (46 chars, under the 60-char filter) is a full product name leaking through looksLikeCleanSeriesName. Consider tightening the filter (e.g. also reject values containing 4+ words, or containing dimension prefixes like '800x800') so these ex-Canopy product-name-as-series rows don't create noisy 1-product buckets."]}
+    ]
+  },
+  "test_report_links": [],
+  "action_items": [
+    "OPTIONAL: Tighten looksLikeCleanSeriesName in /app/frontend/src/pages/admin/lib/series.js — reject values whose first token is a dimension pattern like '\\d+x\\d+' (would eliminate the noisy '800x800 Invisible Brushed Oiled Versailles' bucket on /admin/tiles).",
+    "OPTIONAL: The task brief expected 'Dolomite Onyx Series · 23 products' on /admin/tiles when searching 'Dolomite' — those products live under /admin/bathroom in the current classification. Confirm with product owner whether Dolomite Onyx should re-classify to tiles."
+  ],
+  "critical_code_review_comments": [
+    "series.js is well-scoped (~90 lines) with a clear single-responsibility export surface — a good reuse pattern.",
+    "groupBySeries uses insertion-ordered Map so bucket order is stable/predictable (first-seen). Individual bucket appended last is a nice UX touch.",
+    "The group-select handler in ManagerPageShell reconstructs the entire selection set via selectAll(staying) for uncheck — O(N*M) but harmless at N=138 products. If Managers ever hit 10k+ this becomes a hot path; consider a Set-based diff.",
+    "looksLikeCleanSeriesName's >60 char + ' - ' + dimension-token heuristic still lets pure product-name imports like '800x800 Invisible Brushed Oiled Versailles' through — see design_issues above."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A (frontend-only test)", "frontend": "100% of user scenario + banner/badge/checkbox + all 4 non-empty Manager pages + custom manager + supplier-products regression"},
+  "test_credentials": "admin@test.com / admin123",
+  "seed_data_creation": "None. The 6 ULT- SKUs were pre-seeded with series='Ultra Tile Cleaning & Maintenance' by main agent — left assigned as instructed.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Manager series-grouping testids: <categoryKey>-series-header-<seriesName>, <categoryKey>-series-check-<seriesName>, <categoryKey>-series-count, <categoryKey>-visible-count. Login via fetch('/api/auth/login') → set localStorage keys auth_token/admin_token/token/user. Products with 'Dolomite' in name live under /admin/bathroom (main_category=Bathroom), NOT /admin/tiles. UFH and Tools Managers are empty in current dataset — expect visible=0.",
+  "rca of the issue": "N/A — fix works. Original user scattering bug is fully resolved because ManagerPageShell now groups filteredProducts through the same getSeriesName resolver as SupplierProducts.js. The 6 ULT- SKUs share series='Ultra Tile Cleaning & Maintenance', so they land in a single bucket in both places."
+}

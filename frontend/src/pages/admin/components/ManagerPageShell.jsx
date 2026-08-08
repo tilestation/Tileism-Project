@@ -44,6 +44,8 @@ import QuickEditProductDrawer from './managers/QuickEditProductDrawer';
 import BulkAIDescriptionsModal from './managers/BulkAIDescriptionsModal';
 import BulkImageUploadModal from './managers/BulkImageUploadModal';
 import CsvImportModal from './managers/CsvImportModal';
+import { groupBySeries } from '../lib/series';
+import { Layers } from 'lucide-react';
 import ManagerConfigModal from './managers/ManagerConfigModal';
 import AssignColoursModal from './managers/AssignColoursModal';
 import TierPricingModal from './supplier-products/TierPricingModal';
@@ -283,6 +285,14 @@ const ManagerPageShell = ({
     return list;
   }, [products, subTab, filters, search, effectiveSubTabs, effectiveFilterFacets, facetCategory]);
 
+  // Group the filtered list by series (Ultra Tile Cleaning & Maintenance,
+  // Dolomite Onyx, etc.) so each Manager renders the same "Series — N products"
+  // banner as /admin/supplier-products. Products with no clean series fall into
+  // a final "Individual" bucket. Toggle-able via the workspace tab bar preference
+  // in future — for now, always on so admins see grouping everywhere.
+  const groupedProducts = useMemo(() => groupBySeries(filteredProducts), [filteredProducts]);
+  const seriesCount = groupedProducts.filter(g => g.series !== 'Individual').length;
+
   // Sub-tab counts (used to badge each tab)
   const groupCounts = useMemo(() => {
     const counts = { all: products.length };
@@ -438,6 +448,12 @@ const ManagerPageShell = ({
           <Badge variant="outline" className="text-xs" data-testid={`${categoryKey}-visible-count`}>
             {filteredProducts.length} visible
           </Badge>
+          {seriesCount > 0 && (
+            <Badge variant="outline" className="text-xs bg-slate-50" data-testid={`${categoryKey}-series-count`}>
+              <Layers className="w-3 h-3 mr-1" />
+              {seriesCount} series
+            </Badge>
+          )}
         </div>
 
         <ManagerFiltersPanel
@@ -499,39 +515,93 @@ const ManagerPageShell = ({
                 </tr>
               </thead>
               <tbody>
-                {filteredProducts.map((p) => {
-                  const key = `${p.supplier || 'unk'}|||${p.sku || p.supplier_code || p._id}`;
-                  const name = p.our_product_name || p.product_name || p.name || '(no name)';
-                  return (
-                    <tr key={key} className={`border-b border-gray-100 hover:bg-gray-50 ${bulk.isSelected(p) ? themeCls.rowHi : ''}`} data-testid={`${categoryKey}-row-${p.sku || p.supplier_code}`}>
-                      <td className="px-3 py-2 text-center">
-                        <input
-                          type="checkbox"
-                          checked={bulk.isSelected(p)}
-                          onChange={() => bulk.toggleProduct(p)}
-                          className="w-4 h-4"
-                        />
-                      </td>
-                      <td className="px-3 py-2">
-                        <div className="font-medium text-gray-900 line-clamp-1">{name}</div>
-                        <div className="text-xs text-gray-500">
-                          {p.supplier} · {p.sku || p.supplier_code}
-                          {p.published && <CheckCircle className="w-3 h-3 inline ml-1 text-green-500" />}
-                        </div>
-                      </td>
-                      {columns.map(c => (
-                        <td key={c.key} className="px-3 py-2 text-gray-700">
-                          {c.render ? c.render(p) : (p[c.key] ?? '—')}
+                {groupedProducts.map((group) => (
+                  <React.Fragment key={`grp-${group.series}`}>
+                    {/* Series header banner — matches the styling of the equivalent
+                        banner on /admin/supplier-products so admins get identical
+                        grouping across both places. Ticking the header selects/deselects
+                        every product in the group in one click. */}
+                    {group.series !== 'Individual' ? (
+                      <tr
+                        className={`${themeCls.rowHi} border-y-2 border-dashed`}
+                        data-testid={`${categoryKey}-series-header-${group.series}`}
+                      >
+                        <td className="px-3 py-2 text-center">
+                          <input
+                            type="checkbox"
+                            checked={group.products.every(p => bulk.isSelected(p))}
+                            onChange={(e) => {
+                              const shouldSelect = e.target.checked;
+                              if (shouldSelect) {
+                                const notYet = group.products.filter(p => !bulk.isSelected(p));
+                                if (notYet.length > 0) bulk.selectAll([...bulk.getSelectedList(), ...notYet]);
+                              } else {
+                                const staying = bulk.getSelectedList().filter(p => !group.products.find(g => (g.sku || g.supplier_code) === (p.sku || p.supplier_code)));
+                                bulk.selectAll(staying);
+                              }
+                            }}
+                            className="w-4 h-4"
+                            data-testid={`${categoryKey}-series-check-${group.series}`}
+                          />
                         </td>
-                      ))}
-                      <td className="px-3 py-2 text-right">
-                        <Button size="sm" variant="outline" onClick={() => openEdit(p)} data-testid={`${categoryKey}-edit-${p.sku || p.supplier_code}`}>
-                          <Edit2 className="w-3 h-3 mr-1" /> Edit
-                        </Button>
-                      </td>
-                    </tr>
-                  );
-                })}
+                        <td colSpan={columns.length + 2} className="px-3 py-2">
+                          <div className="flex items-center gap-2 text-sm font-semibold text-gray-800">
+                            <Layers className="w-4 h-4 text-slate-500" />
+                            <span>{group.series} Series</span>
+                            <Badge variant="outline" className="ml-1 text-[10px] font-normal">
+                              {group.products.length} product{group.products.length !== 1 ? 's' : ''}
+                            </Badge>
+                            {group.products.some(p => bulk.isSelected(p)) && (
+                              <Badge className="ml-1 text-[10px] font-normal bg-emerald-100 text-emerald-800 border-0">
+                                {group.products.filter(p => bulk.isSelected(p)).length} selected
+                              </Badge>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ) : (
+                      <tr className="border-y border-dashed border-gray-200" data-testid={`${categoryKey}-series-header-individual`}>
+                        <td className="px-3 py-2" />
+                        <td colSpan={columns.length + 2} className="px-3 py-1 text-[11px] text-gray-500 italic">
+                          Individual — {group.products.length} product{group.products.length !== 1 ? 's' : ''} (no series assigned)
+                        </td>
+                      </tr>
+                    )}
+                    {group.products.map((p) => {
+                      const key = `${p.supplier || 'unk'}|||${p.sku || p.supplier_code || p._id}`;
+                      const name = p.our_product_name || p.product_name || p.name || '(no name)';
+                      return (
+                        <tr key={key} className={`border-b border-gray-100 hover:bg-gray-50 ${bulk.isSelected(p) ? themeCls.rowHi : ''}`} data-testid={`${categoryKey}-row-${p.sku || p.supplier_code}`}>
+                          <td className="px-3 py-2 text-center">
+                            <input
+                              type="checkbox"
+                              checked={bulk.isSelected(p)}
+                              onChange={() => bulk.toggleProduct(p)}
+                              className="w-4 h-4"
+                            />
+                          </td>
+                          <td className="px-3 py-2">
+                            <div className="font-medium text-gray-900 line-clamp-1">{name}</div>
+                            <div className="text-xs text-gray-500">
+                              {p.supplier} · {p.sku || p.supplier_code}
+                              {p.published && <CheckCircle className="w-3 h-3 inline ml-1 text-green-500" />}
+                            </div>
+                          </td>
+                          {columns.map(c => (
+                            <td key={c.key} className="px-3 py-2 text-gray-700">
+                              {c.render ? c.render(p) : (p[c.key] ?? '—')}
+                            </td>
+                          ))}
+                          <td className="px-3 py-2 text-right">
+                            <Button size="sm" variant="outline" onClick={() => openEdit(p)} data-testid={`${categoryKey}-edit-${p.sku || p.supplier_code}`}>
+                              <Edit2 className="w-3 h-3 mr-1" /> Edit
+                            </Button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </React.Fragment>
+                ))}
               </tbody>
             </table>
           </div>
