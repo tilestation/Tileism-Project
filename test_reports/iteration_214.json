@@ -1,0 +1,25 @@
+{
+  "summary": "Verified bulk series-assign bug fix: 6 fixture products under 'Ultra Tile' (including SERIES-TEST-6 with legacy Canopy-style long unique_name) all merge under a single 'Ultra Tile Cleaning & Maintenance Series' group after clicking the 'Set Series' floating pill. Backend pytest passes 2/2. Frontend E2E confirms all 6 rows in one group. Old 'Auto-Assign Series' toolbar button and SeriesAutoAssignModal.jsx are removed as intended.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_series_bulk_assign.py",
+    "/app/test_reports/pytest/series_bulk.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "SupplierProducts.js is 16777 lines — should be broken down into focused sub-modules (grouping, bulk-actions, filters, table row) for maintainability. Not a regression, but relevant for long-term health.",
+    "handleBulkSetSeries uses window.prompt (native browser dialog). Works, but a shadcn Dialog with validation (empty/whitespace/max length) would be a nicer UX consistent with the rest of admin.",
+    "React warning 'Each child in a list should have a unique key prop' fires in AdminDashboard render — pre-existing, unrelated to this fix, but worth flagging."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_series_bulk_assign.py"
+  ],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "admin@test.com / admin123 (login returns 'token', not 'access_token')",
+  "seed_data_creation": "Created 6 supplier_products SERIES-TEST-1..6 under supplier 'Ultra Tile' (SERIES-TEST-6 got Canopy-style long unique_name). All 6 deleted post-test.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Bug fix validated end-to-end. Backend POST /api/admin/series/bulk-assign unconditionally overwrites series+range_name+unique_name (verified via DB read). GET /api/supplier-sync/products?supplier=Ultra%20Tile returns series, range_name and unique_name all matching the assigned value for all 6 SKUs. Frontend refresh after set-series merges all 6 into one 'Ultra Tile Cleaning & Maintenance Series' group header — screenshot confirms single group. `data-testid=open-series-assign-btn` does not exist in DOM. `data-testid=qa-set-series` pill is the sole entry point.",
+  "rca of the issue": "Legacy Canopy imports stored full product name into supplier_products.unique_name. Frontend getSeriesName() previously preferred unique_name over series/range_name, so a bulk-set-series that only wrote 'series' left the Canopy row rendering under its own long-name group. Fix: (a) backend bulk-assign now overwrites unique_name too, (b) supplier-sync payload returns range_name, (c) frontend getSeriesName ignores unique_name when it looks like a full product name (>60 chars, contains ' - ', or has dimension tokens). Verified 6/6 rows collapsed into one group in UI."
+}

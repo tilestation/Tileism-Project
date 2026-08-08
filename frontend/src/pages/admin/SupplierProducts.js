@@ -35,7 +35,6 @@ import DryRunPreview from './components/supplier-products/DryRunPreview';
 import BulkEditPresets from './components/supplier-products/BulkEditPresets';
 import BulkEditHistory from './components/supplier-products/BulkEditHistory';
 import NameSanityDrawer from './components/supplier-products/NameSanityDrawer';
-import SeriesAutoAssignModal from './components/supplier-products/SeriesAutoAssignModal';
 import ManagerTabsBar from './components/managers/ManagerTabsBar';
 import { bucketSelectionByManager } from './components/managers/classifyProductToManager';
 import CustomManagerBuilder from './components/managers/CustomManagerBuilder';
@@ -359,7 +358,6 @@ export default function SupplierProducts() {
   
   const [showSyncDialog, setShowSyncDialog] = useState(false);
   const [showNameSanity, setShowNameSanity] = useState(false);
-  const [showSeriesAssign, setShowSeriesAssign] = useState(false);
   const [syncLoading, setSyncLoading] = useState(false);
   const [userRole, setUserRole] = useState(null);
   const [previewImage, setPreviewImage] = useState(null);
@@ -7920,18 +7918,6 @@ export default function SupplierProducts() {
           >
             <ShieldCheck className="w-4 h-4 mr-2" />
             Name Sanity{selectedProducts.size > 0 ? ` (${selectedProducts.size})` : ''}
-          </Button>
-          {/* Auto-Assign Series — parses product_name into buckets so the admin
-              can group products into proper series/collections in one click. */}
-          <Button
-            variant="outline"
-            className="border-purple-500 text-purple-700 hover:bg-purple-50"
-            onClick={() => setShowSeriesAssign(true)}
-            data-testid="open-series-assign-btn"
-            title="Detect series/collections from product names and bulk-assign them in one click"
-          >
-            <Layers className="w-4 h-4 mr-2" />
-            Auto-Assign Series
           </Button>
           {/* Import New Suppliers (RSA Tiles + ThermoSphere) */}
           {isSuperAdmin && (selectedSupplier === 'RSA Tiles' || selectedSupplier === 'ThermoSphere' || selectedSupplier === 'all') && (
@@ -15656,14 +15642,6 @@ export default function SupplierProducts() {
             : null
         }
         onRenamed={() => { fetchProducts(); fetchStats(); }}
-      />
-
-      {/* Auto-Assign Series Modal — parses product_name buckets + writes range_name. */}
-      <SeriesAutoAssignModal
-        open={showSeriesAssign}
-        onClose={() => setShowSeriesAssign(false)}
-        supplier={selectedSupplier && selectedSupplier !== 'all' ? selectedSupplier : ''}
-        onApplied={() => { fetchProducts(); fetchStats(); }}
       />
 
       {/* Custom Mappings Modal - Extracted Component */}
