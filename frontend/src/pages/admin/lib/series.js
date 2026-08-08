@@ -127,13 +127,15 @@ export const getSeriesNameFromString = (productName) => {
     sp.push(p);
   }
 
-  if (sp.length === 0) return raw;
-
+  if (sp.length === 0) return '';  // Everything stripped — send to Individual bucket, not a garbage series.
   // Trailing colour words don't belong in the series label.
   while (sp.length > 0 && SERIES_COLOR_WORDS.has(nw(sp[sp.length - 1]))) sp.pop();
 
-  if (sp.length === 0) return raw.split(/\s+/).slice(0, 2).join(' ');
-  return sp.join(' ');
+  if (sp.length === 0) return '';  // Colour-only labels → Individual bucket.
+  // Final safety: if the resulting label doesn't look clean itself, drop it.
+  const candidate = sp.join(' ');
+  if (!looksLikeCleanSeriesName(candidate)) return '';
+  return candidate;
 };
 
 /**

@@ -1,0 +1,1809 @@
+{
+  "timestamp": "2026-08-08T13:55:45.134909+00:00",
+  "deleted_skus": [
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_SKU_1775766471",
+      "name": "Test Auto Publish Product TEST_SKU_1775766471",
+      "product_group": "tiles",
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_NO_CAT_1775766472",
+      "name": "Test No Category Product",
+      "product_group": null,
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_FIELDS_1775766473",
+      "name": "Test Fields Product TEST_FIELDS_1775766473",
+      "product_group": "tiles",
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_CAT_QUERY_1775766474",
+      "name": "Test Category Query TEST_CAT_QUERY_1775766474",
+      "product_group": "tiles",
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_SKU_1775766483",
+      "name": "Test Auto Publish Product TEST_SKU_1775766483",
+      "product_group": "tiles",
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_NO_CAT_1775766485",
+      "name": "Test No Category Product",
+      "product_group": "tiles",
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_FIELDS_1775766485",
+      "name": "Test Fields Product TEST_FIELDS_1775766485",
+      "product_group": "tiles",
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_CAT_QUERY_1775766487",
+      "name": "Test Category Query TEST_CAT_QUERY_1775766487",
+      "product_group": "tiles",
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_DEBUG_1775940320",
+      "name": "Debug Test Product",
+      "product_group": null,
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_SCOPED_SAVE_f5909cee",
+      "name": "Test Product TEST_SCOPED_SAVE_f5909cee",
+      "product_group": "tiles",
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_SCOPED_SAVE_72d41b12",
+      "name": "Test Product TEST_SCOPED_SAVE_72d41b12",
+      "product_group": "tiles",
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_SCOPED_SAVE_916033c4",
+      "name": "Test Product TEST_SCOPED_SAVE_916033c4",
+      "product_group": "tiles",
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_SCOPED_SAVE_f8ee3b15",
+      "name": "Test Product TEST_SCOPED_SAVE_f8ee3b15",
+      "product_group": "tiles",
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_SCOPED_SAVE_838d79c7",
+      "name": "Test Product TEST_SCOPED_SAVE_838d79c7",
+      "product_group": "tiles",
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_SCOPED_SAVE_a6248c2b",
+      "name": "Test Product TEST_SCOPED_SAVE_a6248c2b",
+      "product_group": "tiles",
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_SCOPED_SAVE_4ef05734",
+      "name": "Test Product TEST_SCOPED_SAVE_4ef05734",
+      "product_group": "tiles",
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_SCOPED_SAVE_615b00e7",
+      "name": "Test Product TEST_SCOPED_SAVE_615b00e7",
+      "product_group": "tiles",
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_SCOPED_SAVE_5744739c",
+      "name": "Test Product TEST_SCOPED_SAVE_5744739c",
+      "product_group": "tiles",
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_SCOPED_SAVE_a1b3c42c",
+      "name": "Test Product TEST_SCOPED_SAVE_a1b3c42c",
+      "product_group": "tiles",
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_SCOPED_SAVE_5f2def81",
+      "name": "Test Product TEST_SCOPED_SAVE_5f2def81",
+      "product_group": "tiles",
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_SCOPED_SAVE_f79cec56",
+      "name": "Test Product TEST_SCOPED_SAVE_f79cec56",
+      "product_group": "tiles",
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_SCOPED_SAVE_03eb28b0",
+      "name": "Test Product TEST_SCOPED_SAVE_03eb28b0",
+      "product_group": "tiles",
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_SCOPED_SAVE_aab8a84c",
+      "name": "Test Product TEST_SCOPED_SAVE_aab8a84c",
+      "product_group": "tiles",
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_TILES_SYNC_1af06da4",
+      "name": "Test Tiles Sync TEST_TILES_SYNC_1af06da4",
+      "product_group": "tiles",
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_SKU_1776944328",
+      "name": "Test Auto Publish Product TEST_SKU_1776944328",
+      "product_group": "tiles",
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_NO_CAT_1776944329",
+      "name": "Test No Category Product",
+      "product_group": null,
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_FIELDS_1776944330",
+      "name": "Test Fields Product TEST_FIELDS_1776944330",
+      "product_group": "tiles",
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_CAT_QUERY_1776944331",
+      "name": "Test Category Query TEST_CAT_QUERY_1776944331",
+      "product_group": "tiles",
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_SCOPED_SAVE_65d737cf",
+      "name": "Test Product TEST_SCOPED_SAVE_65d737cf",
+      "product_group": null,
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_SCOPED_SAVE_b9e3b983",
+      "name": "Test Product TEST_SCOPED_SAVE_b9e3b983",
+      "product_group": null,
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_SCOPED_SAVE_0513791e",
+      "name": "Test Product TEST_SCOPED_SAVE_0513791e",
+      "product_group": null,
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_SCOPED_SAVE_cbf5dced",
+      "name": "Test Product TEST_SCOPED_SAVE_cbf5dced",
+      "product_group": null,
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_SCOPED_SAVE_036f2076",
+      "name": "Test Product TEST_SCOPED_SAVE_036f2076",
+      "product_group": null,
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_SCOPED_SAVE_719db361",
+      "name": "Test Product TEST_SCOPED_SAVE_719db361",
+      "product_group": null,
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_SCOPED_SAVE_cdaa156c",
+      "name": "Test Product TEST_SCOPED_SAVE_cdaa156c",
+      "product_group": "floor-tiles",
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_SCOPED_SAVE_cb3165d0",
+      "name": "Test Product TEST_SCOPED_SAVE_cb3165d0",
+      "product_group": null,
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_SCOPED_SAVE_fa5270e4",
+      "name": "Test Product TEST_SCOPED_SAVE_fa5270e4",
+      "product_group": null,
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_SCOPED_SAVE_7800d625",
+      "name": "Test Product TEST_SCOPED_SAVE_7800d625",
+      "product_group": "wall-tiles",
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_SCOPED_SAVE_f3f62203",
+      "name": "Test Product TEST_SCOPED_SAVE_f3f62203",
+      "product_group": null,
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_SCOPED_SAVE_76c6934a",
+      "name": "Test Product TEST_SCOPED_SAVE_76c6934a",
+      "product_group": null,
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_SCOPED_SAVE_f8e29d9a",
+      "name": "Test Product TEST_SCOPED_SAVE_f8e29d9a",
+      "product_group": null,
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_SCOPED_SAVE_6f48a82c",
+      "name": "Test Product TEST_SCOPED_SAVE_6f48a82c",
+      "product_group": null,
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_TILES_SYNC_17666568",
+      "name": "Test Tiles Sync TEST_TILES_SYNC_17666568",
+      "product_group": "floor-tiles",
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_SKU_1776944541",
+      "name": "Test Auto Publish Product TEST_SKU_1776944541",
+      "product_group": "tiles",
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_NO_CAT_1776944543",
+      "name": "Test No Category Product",
+      "product_group": null,
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_FIELDS_1776944580",
+      "name": "Test Fields Product TEST_FIELDS_1776944580",
+      "product_group": "tiles",
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_CAT_QUERY_1776944582",
+      "name": "Test Category Query TEST_CAT_QUERY_1776944582",
+      "product_group": "tiles",
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_SCOPED_SAVE_f6692486",
+      "name": "Test Product TEST_SCOPED_SAVE_f6692486",
+      "product_group": null,
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_SCOPED_SAVE_0339cfa9",
+      "name": "Test Product TEST_SCOPED_SAVE_0339cfa9",
+      "product_group": null,
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_SCOPED_SAVE_35d8d6a6",
+      "name": "Test Product TEST_SCOPED_SAVE_35d8d6a6",
+      "product_group": null,
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_SCOPED_SAVE_6f058863",
+      "name": "Test Product TEST_SCOPED_SAVE_6f058863",
+      "product_group": null,
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_SCOPED_SAVE_1b41908a",
+      "name": "Test Product TEST_SCOPED_SAVE_1b41908a",
+      "product_group": null,
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_SCOPED_SAVE_59177168",
+      "name": "Test Product TEST_SCOPED_SAVE_59177168",
+      "product_group": null,
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_SCOPED_SAVE_28574cb5",
+      "name": "Test Product TEST_SCOPED_SAVE_28574cb5",
+      "product_group": "floor-tiles",
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_SCOPED_SAVE_7503e8c9",
+      "name": "Test Product TEST_SCOPED_SAVE_7503e8c9",
+      "product_group": null,
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_SCOPED_SAVE_f772c0ef",
+      "name": "Test Product TEST_SCOPED_SAVE_f772c0ef",
+      "product_group": null,
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_SCOPED_SAVE_afa3eeae",
+      "name": "Test Product TEST_SCOPED_SAVE_afa3eeae",
+      "product_group": "wall-tiles",
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_SCOPED_SAVE_f30493a7",
+      "name": "Test Product TEST_SCOPED_SAVE_f30493a7",
+      "product_group": null,
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_SCOPED_SAVE_13debfc2",
+      "name": "Test Product TEST_SCOPED_SAVE_13debfc2",
+      "product_group": null,
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_SCOPED_SAVE_fd3445b1",
+      "name": "Test Product TEST_SCOPED_SAVE_fd3445b1",
+      "product_group": null,
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_SCOPED_SAVE_6007e8f7",
+      "name": "Test Product TEST_SCOPED_SAVE_6007e8f7",
+      "product_group": null,
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_TILES_SYNC_0422c9bb",
+      "name": "Test Tiles Sync TEST_TILES_SYNC_0422c9bb",
+      "product_group": "floor-tiles",
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_SKU_1776975028",
+      "name": "Test Auto Publish Product TEST_SKU_1776975028",
+      "product_group": "tiles",
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_NO_CAT_1776975029",
+      "name": "Test No Category Product",
+      "product_group": null,
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_FIELDS_1776975030",
+      "name": "Test Fields Product TEST_FIELDS_1776975030",
+      "product_group": "tiles",
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_CAT_QUERY_1776975031",
+      "name": "Test Category Query TEST_CAT_QUERY_1776975031",
+      "product_group": "tiles",
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_SCOPED_SAVE_5438caf5",
+      "name": "Test Product TEST_SCOPED_SAVE_5438caf5",
+      "product_group": null,
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_SCOPED_SAVE_600a803c",
+      "name": "Test Product TEST_SCOPED_SAVE_600a803c",
+      "product_group": null,
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_SCOPED_SAVE_06c3699f",
+      "name": "Test Product TEST_SCOPED_SAVE_06c3699f",
+      "product_group": null,
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_SCOPED_SAVE_0b9c9f2f",
+      "name": "Test Product TEST_SCOPED_SAVE_0b9c9f2f",
+      "product_group": null,
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_SCOPED_SAVE_5a51ce9a",
+      "name": "Test Product TEST_SCOPED_SAVE_5a51ce9a",
+      "product_group": null,
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_SCOPED_SAVE_d050b9f4",
+      "name": "Test Product TEST_SCOPED_SAVE_d050b9f4",
+      "product_group": null,
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_SCOPED_SAVE_3b917f06",
+      "name": "Test Product TEST_SCOPED_SAVE_3b917f06",
+      "product_group": "floor-tiles",
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_SCOPED_SAVE_701f271c",
+      "name": "Test Product TEST_SCOPED_SAVE_701f271c",
+      "product_group": null,
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_SCOPED_SAVE_da4dfe7e",
+      "name": "Test Product TEST_SCOPED_SAVE_da4dfe7e",
+      "product_group": null,
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_SCOPED_SAVE_6e7502b5",
+      "name": "Test Product TEST_SCOPED_SAVE_6e7502b5",
+      "product_group": "wall-tiles",
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_SCOPED_SAVE_9d5c8d96",
+      "name": "Test Product TEST_SCOPED_SAVE_9d5c8d96",
+      "product_group": null,
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_SCOPED_SAVE_50de3608",
+      "name": "Test Product TEST_SCOPED_SAVE_50de3608",
+      "product_group": null,
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_SCOPED_SAVE_be195aa6",
+      "name": "Test Product TEST_SCOPED_SAVE_be195aa6",
+      "product_group": null,
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_SCOPED_SAVE_266b332d",
+      "name": "Test Product TEST_SCOPED_SAVE_266b332d",
+      "product_group": null,
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_TILES_SYNC_148cae62",
+      "name": "Test Tiles Sync TEST_TILES_SYNC_148cae62",
+      "product_group": "floor-tiles",
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_SKU_1776975332",
+      "name": "Test Auto Publish Product TEST_SKU_1776975332",
+      "product_group": "tiles",
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_NO_CAT_1776975334",
+      "name": "Test No Category Product",
+      "product_group": null,
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_FIELDS_1776975335",
+      "name": "Test Fields Product TEST_FIELDS_1776975335",
+      "product_group": "tiles",
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_CAT_QUERY_1776975336",
+      "name": "Test Category Query TEST_CAT_QUERY_1776975336",
+      "product_group": "tiles",
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_SKU_1777888688",
+      "name": "Test Auto Publish Product TEST_SKU_1777888688",
+      "product_group": "tiles",
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_NO_CAT_1777888690",
+      "name": "Test No Category Product",
+      "product_group": null,
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_FIELDS_1777888690",
+      "name": "Test Fields Product TEST_FIELDS_1777888690",
+      "product_group": "tiles",
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_CAT_QUERY_1777888691",
+      "name": "Test Category Query TEST_CAT_QUERY_1777888691",
+      "product_group": "tiles",
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_SCOPED_SAVE_1bf8d8b2",
+      "name": "Test Product TEST_SCOPED_SAVE_1bf8d8b2",
+      "product_group": null,
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_SCOPED_SAVE_4a8e19bf",
+      "name": "Test Product TEST_SCOPED_SAVE_4a8e19bf",
+      "product_group": null,
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_SCOPED_SAVE_163d6e67",
+      "name": "Test Product TEST_SCOPED_SAVE_163d6e67",
+      "product_group": null,
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_SCOPED_SAVE_64ba9b2b",
+      "name": "Test Product TEST_SCOPED_SAVE_64ba9b2b",
+      "product_group": null,
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_SCOPED_SAVE_f7d0a0e3",
+      "name": "Test Product TEST_SCOPED_SAVE_f7d0a0e3",
+      "product_group": null,
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_SCOPED_SAVE_c6f7cd6c",
+      "name": "Test Product TEST_SCOPED_SAVE_c6f7cd6c",
+      "product_group": null,
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_SCOPED_SAVE_c9526a95",
+      "name": "Test Product TEST_SCOPED_SAVE_c9526a95",
+      "product_group": "floor-tiles",
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_SCOPED_SAVE_2f923241",
+      "name": "Test Product TEST_SCOPED_SAVE_2f923241",
+      "product_group": null,
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_SCOPED_SAVE_15b94e85",
+      "name": "Test Product TEST_SCOPED_SAVE_15b94e85",
+      "product_group": null,
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_SCOPED_SAVE_255727e3",
+      "name": "Test Product TEST_SCOPED_SAVE_255727e3",
+      "product_group": "wall-tiles",
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_SCOPED_SAVE_aeb5177f",
+      "name": "Test Product TEST_SCOPED_SAVE_aeb5177f",
+      "product_group": null,
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_SCOPED_SAVE_5eed6d5f",
+      "name": "Test Product TEST_SCOPED_SAVE_5eed6d5f",
+      "product_group": null,
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_SCOPED_SAVE_aba4d71e",
+      "name": "Test Product TEST_SCOPED_SAVE_aba4d71e",
+      "product_group": null,
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_SCOPED_SAVE_6a2505c3",
+      "name": "Test Product TEST_SCOPED_SAVE_6a2505c3",
+      "product_group": null,
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_TILES_SYNC_3deb56e5",
+      "name": "Test Tiles Sync TEST_TILES_SYNC_3deb56e5",
+      "product_group": "floor-tiles",
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_SKU_1778109186",
+      "name": "Test Auto Publish Product TEST_SKU_1778109186",
+      "product_group": "tiles",
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_NO_CAT_1778109256",
+      "name": "Test No Category Product",
+      "product_group": null,
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_FIELDS_1778109257",
+      "name": "Test Fields Product TEST_FIELDS_1778109257",
+      "product_group": "tiles",
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_CAT_QUERY_1778109258",
+      "name": "Test Category Query TEST_CAT_QUERY_1778109258",
+      "product_group": "tiles",
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_SCOPED_SAVE_aee6c239",
+      "name": "Test Product TEST_SCOPED_SAVE_aee6c239",
+      "product_group": null,
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_SCOPED_SAVE_526ae895",
+      "name": "Test Product TEST_SCOPED_SAVE_526ae895",
+      "product_group": null,
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_SCOPED_SAVE_e5469cad",
+      "name": "Test Product TEST_SCOPED_SAVE_e5469cad",
+      "product_group": null,
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_SCOPED_SAVE_d32afc23",
+      "name": "Test Product TEST_SCOPED_SAVE_d32afc23",
+      "product_group": null,
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_SCOPED_SAVE_1909bc04",
+      "name": "Test Product TEST_SCOPED_SAVE_1909bc04",
+      "product_group": null,
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_SCOPED_SAVE_978d0caa",
+      "name": "Test Product TEST_SCOPED_SAVE_978d0caa",
+      "product_group": null,
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_SCOPED_SAVE_dde363cc",
+      "name": "Test Product TEST_SCOPED_SAVE_dde363cc",
+      "product_group": "floor-tiles",
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_SCOPED_SAVE_c6b70fdd",
+      "name": "Test Product TEST_SCOPED_SAVE_c6b70fdd",
+      "product_group": null,
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_SCOPED_SAVE_986cc91b",
+      "name": "Test Product TEST_SCOPED_SAVE_986cc91b",
+      "product_group": null,
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_SCOPED_SAVE_1302a3d2",
+      "name": "Test Product TEST_SCOPED_SAVE_1302a3d2",
+      "product_group": "wall-tiles",
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_SCOPED_SAVE_c23d35fe",
+      "name": "Test Product TEST_SCOPED_SAVE_c23d35fe",
+      "product_group": null,
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_SCOPED_SAVE_1e779d8a",
+      "name": "Test Product TEST_SCOPED_SAVE_1e779d8a",
+      "product_group": null,
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_SCOPED_SAVE_80f34efc",
+      "name": "Test Product TEST_SCOPED_SAVE_80f34efc",
+      "product_group": null,
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_SCOPED_SAVE_01117936",
+      "name": "Test Product TEST_SCOPED_SAVE_01117936",
+      "product_group": null,
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "supplier_products",
+      "sku": "TEST_TILES_SYNC_fec5cfa1",
+      "name": "Test Tiles Sync TEST_TILES_SYNC_fec5cfa1",
+      "product_group": "floor-tiles",
+      "supplier": "TestSupplier"
+    },
+    {
+      "collection": "tiles",
+      "sku": "TEST_SCOPED_SAVE_4ef05734",
+      "name": "Test Product TEST_SCOPED_SAVE_4ef05734"
+    },
+    {
+      "collection": "tiles",
+      "sku": "TEST_SCOPED_SAVE_a1b3c42c",
+      "name": "Test Product TEST_SCOPED_SAVE_a1b3c42c 30x60cm"
+    },
+    {
+      "collection": "tiles",
+      "sku": "TEST_TILES_SYNC_1af06da4",
+      "name": "Test Tiles Sync TEST_TILES_SYNC_1af06da4"
+    },
+    {
+      "collection": "tiles",
+      "sku": "TEST_SCOPED_SAVE_03eb28b0",
+      "name": "Test Product TEST_SCOPED_SAVE_03eb28b0"
+    },
+    {
+      "collection": "tiles",
+      "sku": "TEST_NO_CAT_1775766485",
+      "name": "Test No Category Product"
+    },
+    {
+      "collection": "tiles",
+      "sku": "TEST_SCOPED_SAVE_f8ee3b15",
+      "name": "Test Product TEST_SCOPED_SAVE_f8ee3b15"
+    },
+    {
+      "collection": "tiles",
+      "sku": "TEST_SCOPED_SAVE_615b00e7",
+      "name": "Test Product TEST_SCOPED_SAVE_615b00e7"
+    },
+    {
+      "collection": "tiles",
+      "sku": "TEST_SCOPED_SAVE_f79cec56",
+      "name": "Test Product TEST_SCOPED_SAVE_f79cec56"
+    },
+    {
+      "collection": "tiles",
+      "sku": "TEST_SCOPED_SAVE_916033c4",
+      "name": "Test Product TEST_SCOPED_SAVE_916033c4 60x60cm"
+    },
+    {
+      "collection": "tiles",
+      "sku": "TEST_SCOPED_SAVE_72d41b12",
+      "name": "Test Product TEST_SCOPED_SAVE_72d41b12"
+    },
+    {
+      "collection": "tiles",
+      "sku": "TEST_SCOPED_SAVE_a6248c2b",
+      "name": "Test Product TEST_SCOPED_SAVE_a6248c2b"
+    },
+    {
+      "collection": "tiles",
+      "sku": "TEST_SCOPED_SAVE_5744739c",
+      "name": "Test Product TEST_SCOPED_SAVE_5744739c"
+    },
+    {
+      "collection": "tiles",
+      "sku": "TEST_SCOPED_SAVE_f5909cee",
+      "name": "Test Product TEST_SCOPED_SAVE_f5909cee"
+    },
+    {
+      "collection": "tiles",
+      "sku": "TEST_CAT_QUERY_1775766487",
+      "name": "Test Category Query TEST_CAT_QUERY_1775766487 60x120cm"
+    },
+    {
+      "collection": "tiles",
+      "sku": "TEST_CAT_QUERY_1775766474",
+      "name": "Test Category Query TEST_CAT_QUERY_1775766474 60x120cm"
+    },
+    {
+      "collection": "tiles",
+      "sku": "TEST_SCOPED_SAVE_5f2def81",
+      "name": "Test Product TEST_SCOPED_SAVE_5f2def81 60x60cm"
+    },
+    {
+      "collection": "tiles",
+      "sku": "TEST_SCOPED_SAVE_838d79c7",
+      "name": "Test Product TEST_SCOPED_SAVE_838d79c7"
+    },
+    {
+      "collection": "tiles",
+      "sku": "TEST_SCOPED_SAVE_aab8a84c",
+      "name": "Test Product TEST_SCOPED_SAVE_aab8a84c"
+    },
+    {
+      "collection": "tiles",
+      "sku": "TEST_NO_CAT_1775766472",
+      "name": "Test No Category Product"
+    },
+    {
+      "collection": "tiles",
+      "sku": "TEST_SCOPED_SAVE_cdaa156c",
+      "name": "Test Product TEST_SCOPED_SAVE_cdaa156c"
+    },
+    {
+      "collection": "tiles",
+      "sku": "TEST_SCOPED_SAVE_7800d625",
+      "name": "Test Product TEST_SCOPED_SAVE_7800d625 30x60cm"
+    },
+    {
+      "collection": "tiles",
+      "sku": "TEST_TILES_SYNC_17666568",
+      "name": "Test Tiles Sync TEST_TILES_SYNC_17666568"
+    },
+    {
+      "collection": "tiles",
+      "sku": "TEST_SKU_1775766471",
+      "name": "Test Auto Publish Product TEST_SKU_1775766471"
+    },
+    {
+      "collection": "tiles",
+      "sku": "TEST_FIELDS_1775766473",
+      "name": "Test Fields Product TEST_FIELDS_1775766473"
+    },
+    {
+      "collection": "tiles",
+      "sku": "TEST_SKU_1775766483",
+      "name": "Test Auto Publish Product TEST_SKU_1775766483"
+    },
+    {
+      "collection": "tiles",
+      "sku": "TEST_FIELDS_1775766485",
+      "name": "Test Fields Product TEST_FIELDS_1775766485"
+    },
+    {
+      "collection": "tiles",
+      "sku": "TEST_SKU_1776944328",
+      "name": "Test Auto Publish Product TEST_SKU_1776944328"
+    },
+    {
+      "collection": "tiles",
+      "sku": "TEST_NO_CAT_1776944329",
+      "name": "Test No Category Product"
+    },
+    {
+      "collection": "tiles",
+      "sku": "TEST_FIELDS_1776944330",
+      "name": "Test Fields Product TEST_FIELDS_1776944330"
+    },
+    {
+      "collection": "tiles",
+      "sku": "TEST_CAT_QUERY_1776944331",
+      "name": "Test Category Query TEST_CAT_QUERY_1776944331 60x120cm"
+    },
+    {
+      "collection": "tiles",
+      "sku": "TEST_SKU_1776944541",
+      "name": "Test Auto Publish Product TEST_SKU_1776944541"
+    },
+    {
+      "collection": "tiles",
+      "sku": "TEST_NO_CAT_1776944543",
+      "name": "Test No Category Product"
+    },
+    {
+      "collection": "tiles",
+      "sku": "TEST_FIELDS_1776944580",
+      "name": "Test Fields Product TEST_FIELDS_1776944580"
+    },
+    {
+      "collection": "tiles",
+      "sku": "TEST_SCOPED_SAVE_28574cb5",
+      "name": "Test Product TEST_SCOPED_SAVE_28574cb5"
+    },
+    {
+      "collection": "tiles",
+      "sku": "TEST_SCOPED_SAVE_afa3eeae",
+      "name": "Test Product TEST_SCOPED_SAVE_afa3eeae 30x60cm"
+    },
+    {
+      "collection": "tiles",
+      "sku": "TEST_TILES_SYNC_0422c9bb",
+      "name": "Test Tiles Sync TEST_TILES_SYNC_0422c9bb"
+    },
+    {
+      "collection": "tiles",
+      "sku": "TEST_CAT_QUERY_1776944582",
+      "name": "Test Category Query TEST_CAT_QUERY_1776944582 60x120cm"
+    },
+    {
+      "collection": "tiles",
+      "sku": "TEST_SCOPED_SAVE_3b917f06",
+      "name": "Test Product TEST_SCOPED_SAVE_3b917f06"
+    },
+    {
+      "collection": "tiles",
+      "sku": "TEST_SCOPED_SAVE_6e7502b5",
+      "name": "Test Product TEST_SCOPED_SAVE_6e7502b5 30x60cm"
+    },
+    {
+      "collection": "tiles",
+      "sku": "TEST_TILES_SYNC_148cae62",
+      "name": "Test Tiles Sync TEST_TILES_SYNC_148cae62"
+    },
+    {
+      "collection": "tiles",
+      "sku": "TEST_SKU_1776975028",
+      "name": "Test Auto Publish Product TEST_SKU_1776975028"
+    },
+    {
+      "collection": "tiles",
+      "sku": "TEST_NO_CAT_1776975029",
+      "name": "Test No Category Product"
+    },
+    {
+      "collection": "tiles",
+      "sku": "TEST_FIELDS_1776975030",
+      "name": "Test Fields Product TEST_FIELDS_1776975030"
+    },
+    {
+      "collection": "tiles",
+      "sku": "TEST_CAT_QUERY_1776975031",
+      "name": "Test Category Query TEST_CAT_QUERY_1776975031 60x120cm"
+    },
+    {
+      "collection": "tiles",
+      "sku": "TEST_SCOPED_SAVE_c9526a95",
+      "name": "Test Product TEST_SCOPED_SAVE_c9526a95"
+    },
+    {
+      "collection": "tiles",
+      "sku": "TEST_SCOPED_SAVE_255727e3",
+      "name": "Test Product TEST_SCOPED_SAVE_255727e3 30x60cm"
+    },
+    {
+      "collection": "tiles",
+      "sku": "TEST_TILES_SYNC_3deb56e5",
+      "name": "Test Tiles Sync TEST_TILES_SYNC_3deb56e5"
+    },
+    {
+      "collection": "tiles",
+      "sku": "TEST_SKU_1776975332",
+      "name": "Test Auto Publish Product TEST_SKU_1776975332"
+    },
+    {
+      "collection": "tiles",
+      "sku": "TEST_NO_CAT_1776975334",
+      "name": "Test No Category Product"
+    },
+    {
+      "collection": "tiles",
+      "sku": "TEST_FIELDS_1776975335",
+      "name": "Test Fields Product TEST_FIELDS_1776975335"
+    },
+    {
+      "collection": "tiles",
+      "sku": "TEST_CAT_QUERY_1776975336",
+      "name": "Test Category Query TEST_CAT_QUERY_1776975336 60x120cm"
+    },
+    {
+      "collection": "tiles",
+      "sku": "TEST_SKU_1777888688",
+      "name": "Test Auto Publish Product TEST_SKU_1777888688"
+    },
+    {
+      "collection": "tiles",
+      "sku": "TEST_NO_CAT_1777888690",
+      "name": "Test No Category Product"
+    },
+    {
+      "collection": "tiles",
+      "sku": "TEST_FIELDS_1777888690",
+      "name": "Test Fields Product TEST_FIELDS_1777888690"
+    },
+    {
+      "collection": "tiles",
+      "sku": "TEST_CAT_QUERY_1777888691",
+      "name": "Test Category Query TEST_CAT_QUERY_1777888691 60x120cm"
+    },
+    {
+      "collection": "tiles",
+      "sku": "TEST_SCOPED_SAVE_dde363cc",
+      "name": "Test Product TEST_SCOPED_SAVE_dde363cc"
+    },
+    {
+      "collection": "tiles",
+      "sku": "TEST_SCOPED_SAVE_1302a3d2",
+      "name": "Test Product TEST_SCOPED_SAVE_1302a3d2 30x60cm"
+    },
+    {
+      "collection": "tiles",
+      "sku": "TEST_TILES_SYNC_fec5cfa1",
+      "name": "Test Tiles Sync TEST_TILES_SYNC_fec5cfa1"
+    },
+    {
+      "collection": "tiles",
+      "sku": "TEST_SKU_1778109186",
+      "name": "Test Auto Publish Product TEST_SKU_1778109186"
+    },
+    {
+      "collection": "tiles",
+      "sku": "TEST_NO_CAT_1778109256",
+      "name": "Test No Category Product"
+    },
+    {
+      "collection": "tiles",
+      "sku": "TEST_FIELDS_1778109257",
+      "name": "Test Fields Product TEST_FIELDS_1778109257"
+    },
+    {
+      "collection": "tiles",
+      "sku": "TEST_CAT_QUERY_1778109258",
+      "name": "Test Category Query TEST_CAT_QUERY_1778109258 60x120cm"
+    },
+    {
+      "collection": "products",
+      "sku": "TEST-001",
+      "name": "Carrara White Marble Effect 60x60"
+    },
+    {
+      "collection": "products",
+      "sku": "TEST-CRAFT-001",
+      "name": "Crafted Grey 75x300mm Matt"
+    },
+    {
+      "collection": "products",
+      "sku": "TEST-DEL-7f49e199",
+      "name": "TEST Delete Product TEST-DEL-7f49e199"
+    },
+    {
+      "collection": "products",
+      "sku": "TEST-DEL-8f19c750",
+      "name": "TEST Delete Product TEST-DEL-8f19c750"
+    },
+    {
+      "collection": "products",
+      "sku": "TEST-M2-29b6b9c0",
+      "name": "TEST M2 Product TEST-M2-29b6b9c0"
+    },
+    {
+      "collection": "products",
+      "sku": "TEST-M2-2e4f5545",
+      "name": "TEST M2 Product TEST-M2-2e4f5545"
+    },
+    {
+      "collection": "products",
+      "sku": "TEST-M2-2f533203",
+      "name": "TEST M2 Product TEST-M2-2f533203"
+    },
+    {
+      "collection": "products",
+      "sku": "TEST-M2-3795b9cb",
+      "name": "TEST M2 Product TEST-M2-3795b9cb"
+    },
+    {
+      "collection": "products",
+      "sku": "TEST-M2-4b9c76c6",
+      "name": "TEST M2 Product TEST-M2-4b9c76c6"
+    },
+    {
+      "collection": "products",
+      "sku": "TEST-M2-5527b038",
+      "name": "TEST M2 Product TEST-M2-5527b038"
+    },
+    {
+      "collection": "products",
+      "sku": "TEST-M2-5efbf7f3",
+      "name": "TEST M2 Product TEST-M2-5efbf7f3"
+    },
+    {
+      "collection": "products",
+      "sku": "TEST-M2-920e45d1",
+      "name": "TEST M2 Product TEST-M2-920e45d1"
+    },
+    {
+      "collection": "products",
+      "sku": "TEST-M2-92f46cbd",
+      "name": "TEST M2 Product TEST-M2-92f46cbd"
+    },
+    {
+      "collection": "products",
+      "sku": "TEST-M2-9efe77e6",
+      "name": "TEST M2 Product TEST-M2-9efe77e6"
+    },
+    {
+      "collection": "products",
+      "sku": "TEST-M2-FE-0c0564",
+      "name": "TEST FE M2 TEST-M2-FE-0c0564"
+    },
+    {
+      "collection": "products",
+      "sku": "TEST-M2-FE-57fa68",
+      "name": "TEST FE M2 TEST-M2-FE-57fa68"
+    },
+    {
+      "collection": "products",
+      "sku": "TEST-M2-FE-d60ad3",
+      "name": "TEST FE M2 TEST-M2-FE-d60ad3"
+    },
+    {
+      "collection": "products",
+      "sku": "TEST-M2-b5c81159",
+      "name": "TEST M2 Product TEST-M2-b5c81159"
+    },
+    {
+      "collection": "products",
+      "sku": "TEST-M2-eadff835",
+      "name": "TEST M2 Product TEST-M2-eadff835"
+    },
+    {
+      "collection": "products",
+      "sku": "TEST-M2-ff19a0d6",
+      "name": "TEST M2 Product TEST-M2-ff19a0d6"
+    },
+    {
+      "collection": "products",
+      "sku": "TEST-PINGATE-109707f0",
+      "name": "TEST pingate TEST-PINGATE-109707f0"
+    },
+    {
+      "collection": "products",
+      "sku": "TEST-PINGATE-2091990e",
+      "name": "TEST pingate TEST-PINGATE-2091990e"
+    },
+    {
+      "collection": "products",
+      "sku": "TEST-PINGATE-3a146242",
+      "name": "TEST pingate TEST-PINGATE-3a146242"
+    },
+    {
+      "collection": "products",
+      "sku": "TEST-PINGATE-5869cc67",
+      "name": "TEST pingate TEST-PINGATE-5869cc67"
+    },
+    {
+      "collection": "products",
+      "sku": "TEST-PINGATE-5f58d8b8",
+      "name": "TEST pingate TEST-PINGATE-5f58d8b8"
+    },
+    {
+      "collection": "products",
+      "sku": "TEST-PINGATE-7387f736",
+      "name": "TEST pingate TEST-PINGATE-7387f736"
+    },
+    {
+      "collection": "products",
+      "sku": "TEST-PINGATE-7a1f2ceb",
+      "name": "TEST pingate TEST-PINGATE-7a1f2ceb"
+    },
+    {
+      "collection": "products",
+      "sku": "TEST-PINGATE-acb97dcb",
+      "name": "TEST pingate TEST-PINGATE-acb97dcb"
+    },
+    {
+      "collection": "products",
+      "sku": "TEST-PINGATE-d85e9f88",
+      "name": "TEST pingate TEST-PINGATE-d85e9f88"
+    },
+    {
+      "collection": "products",
+      "sku": "TEST-PINGATE-ee3876ec",
+      "name": "TEST pingate TEST-PINGATE-ee3876ec"
+    },
+    {
+      "collection": "products",
+      "sku": "TEST-PINGATE-efab1b42",
+      "name": "TEST pingate TEST-PINGATE-efab1b42"
+    },
+    {
+      "collection": "products",
+      "sku": "TEST-PINGATE-f026f1a4",
+      "name": "TEST pingate TEST-PINGATE-f026f1a4"
+    },
+    {
+      "collection": "products",
+      "sku": "TEST-STAFF-QA-14279e48",
+      "name": "TEST staff qa TEST-STAFF-QA-14279e48"
+    },
+    {
+      "collection": "products",
+      "sku": "TEST-STAFF-QA-59f25317",
+      "name": "TEST staff qa TEST-STAFF-QA-59f25317"
+    },
+    {
+      "collection": "products",
+      "sku": "TEST-STAFF-QA-763fc205",
+      "name": "TEST staff qa TEST-STAFF-QA-763fc205"
+    },
+    {
+      "collection": "products",
+      "sku": "TEST-STAFF-QA-9337c29c",
+      "name": "TEST staff qa TEST-STAFF-QA-9337c29c"
+    },
+    {
+      "collection": "products",
+      "sku": "TEST-STAFF-QA-aa3fb7fd",
+      "name": "TEST staff qa TEST-STAFF-QA-aa3fb7fd"
+    },
+    {
+      "collection": "products",
+      "sku": "TEST-WH-LOC-153b9db5",
+      "name": "TEST Warehouse Location Product 153b9db5"
+    },
+    {
+      "collection": "products",
+      "sku": "TEST-WH-LOC-79cfd867",
+      "name": "TEST Warehouse Location Product 79cfd867"
+    },
+    {
+      "collection": "products",
+      "sku": "TEST-WH-LOC-ae51c2c6",
+      "name": "TEST Warehouse Location Product ae51c2c6"
+    },
+    {
+      "collection": "products",
+      "sku": "TEST-WH-LOC-b18a6f57",
+      "name": "TEST Warehouse Location Product b18a6f57"
+    },
+    {
+      "collection": "products",
+      "sku": "TEST-WH-QA-24e75e87",
+      "name": "TEST Warehouse Batch Product 24e75e87"
+    },
+    {
+      "collection": "products",
+      "sku": "TEST-WH-QA-6a67c4c1",
+      "name": "TEST Warehouse Batch Product 6a67c4c1"
+    },
+    {
+      "collection": "products",
+      "sku": "TEST-WH-QA-88862bd2",
+      "name": "TEST Warehouse Batch Product 88862bd2"
+    },
+    {
+      "collection": "products",
+      "sku": "TEST-WH-QA-a7c0d4c7",
+      "name": "TEST Warehouse Batch Product a7c0d4c7"
+    },
+    {
+      "collection": "products",
+      "sku": "TEST-WH-QA-cb3b069a",
+      "name": "TEST Warehouse Batch Product cb3b069a"
+    },
+    {
+      "collection": "products",
+      "sku": "TEST-WH-QA-d037f44a",
+      "name": "TEST Warehouse Batch Product d037f44a"
+    }
+  ],
+  "deleted_invoices": [
+    {
+      "_id": "698dce336ad64f20607d01d0",
+      "invoice_number": null,
+      "customer_name": "Test Customer",
+      "created_at": "2026-02-12 12:57:23.682000"
+    },
+    {
+      "_id": "6a0c92b81a8241a334c4bcd0",
+      "invoice_number": null,
+      "customer_name": "Audit Test Customer",
+      "created_at": "2026-05-19T16:41:28.923219+00:00"
+    },
+    {
+      "_id": "6a0c92b91a8241a334c4bcd2",
+      "invoice_number": null,
+      "customer_name": "Audit Test Customer",
+      "created_at": "2026-05-19T16:41:29.147861+00:00"
+    },
+    {
+      "_id": "6a0c92b91a8241a334c4bcd4",
+      "invoice_number": null,
+      "customer_name": "Audit Test Customer",
+      "created_at": "2026-05-19T16:41:29.404270+00:00"
+    },
+    {
+      "_id": "6a0c92b91a8241a334c4bcd6",
+      "invoice_number": null,
+      "customer_name": "Audit Test Customer",
+      "created_at": "2026-05-19T16:41:29.585184+00:00"
+    },
+    {
+      "_id": "6a0c92b91a8241a334c4bcd8",
+      "invoice_number": null,
+      "customer_name": "Audit Test Customer",
+      "created_at": "2026-05-19T16:41:29.805800+00:00"
+    },
+    {
+      "_id": "6a0c92d6eda49e452b1312d7",
+      "invoice_number": null,
+      "customer_name": "Audit Test Customer",
+      "created_at": "2026-05-19T16:41:58.428266+00:00"
+    },
+    {
+      "_id": "6a0c92d6eda49e452b1312da",
+      "invoice_number": null,
+      "customer_name": "Audit Test Customer",
+      "created_at": "2026-05-19T16:41:58.753145+00:00"
+    },
+    {
+      "_id": "6a0c92d6eda49e452b1312dd",
+      "invoice_number": null,
+      "customer_name": "Audit Test Customer",
+      "created_at": "2026-05-19T16:41:58.970772+00:00"
+    },
+    {
+      "_id": "6a0c92d7eda49e452b1312e0",
+      "invoice_number": null,
+      "customer_name": "Audit Test Customer",
+      "created_at": "2026-05-19T16:41:59.246165+00:00"
+    },
+    {
+      "_id": "6a0c92d7eda49e452b1312e3",
+      "invoice_number": null,
+      "customer_name": "Audit Test Customer",
+      "created_at": "2026-05-19T16:41:59.464727+00:00"
+    },
+    {
+      "_id": "6a0c952f406b012bb4acf313",
+      "invoice_number": null,
+      "customer_name": "Audit Test Customer",
+      "created_at": "2026-05-19T16:51:59.234888+00:00"
+    },
+    {
+      "_id": "6a0c952f406b012bb4acf316",
+      "invoice_number": null,
+      "customer_name": "Audit Test Customer",
+      "created_at": "2026-05-19T16:51:59.489022+00:00"
+    },
+    {
+      "_id": "6a0c9530406b012bb4acf319",
+      "invoice_number": null,
+      "customer_name": "Audit Test Customer",
+      "created_at": "2026-05-19T16:52:00.912431+00:00"
+    },
+    {
+      "_id": "6a0c9531406b012bb4acf31c",
+      "invoice_number": null,
+      "customer_name": "Audit Test Customer",
+      "created_at": "2026-05-19T16:52:01.146803+00:00"
+    },
+    {
+      "_id": "6a0c9531406b012bb4acf31f",
+      "invoice_number": null,
+      "customer_name": "Audit Test Customer",
+      "created_at": "2026-05-19T16:52:01.431036+00:00"
+    },
+    {
+      "_id": "6a0c9a35511885280bcae7e2",
+      "invoice_number": null,
+      "customer_name": "Audit Test Customer",
+      "created_at": "2026-05-19T17:13:25.859656+00:00"
+    },
+    {
+      "_id": "6a0c9a36511885280bcae7e5",
+      "invoice_number": null,
+      "customer_name": "Audit Test Customer",
+      "created_at": "2026-05-19T17:13:26.214124+00:00"
+    },
+    {
+      "_id": "6a0c9a36511885280bcae7e8",
+      "invoice_number": null,
+      "customer_name": "Audit Test Customer",
+      "created_at": "2026-05-19T17:13:26.460818+00:00"
+    },
+    {
+      "_id": "6a0c9a36511885280bcae7eb",
+      "invoice_number": null,
+      "customer_name": "Audit Test Customer",
+      "created_at": "2026-05-19T17:13:26.702065+00:00"
+    },
+    {
+      "_id": "6a0c9a36511885280bcae7ee",
+      "invoice_number": null,
+      "customer_name": "Audit Test Customer",
+      "created_at": "2026-05-19T17:13:26.979118+00:00"
+    },
+    {
+      "_id": "6a0ca290f0dff3ab5431f506",
+      "invoice_number": null,
+      "customer_name": "Audit Test Customer",
+      "created_at": "2026-05-19T17:49:04.934751+00:00"
+    },
+    {
+      "_id": "6a0ca291f0dff3ab5431f509",
+      "invoice_number": null,
+      "customer_name": "Audit Test Customer",
+      "created_at": "2026-05-19T17:49:05.169425+00:00"
+    },
+    {
+      "_id": "6a0ca291f0dff3ab5431f50c",
+      "invoice_number": null,
+      "customer_name": "Audit Test Customer",
+      "created_at": "2026-05-19T17:49:05.387627+00:00"
+    },
+    {
+      "_id": "6a0ca291f0dff3ab5431f50f",
+      "invoice_number": null,
+      "customer_name": "Audit Test Customer",
+      "created_at": "2026-05-19T17:49:05.638068+00:00"
+    },
+    {
+      "_id": "6a0ca291f0dff3ab5431f512",
+      "invoice_number": null,
+      "customer_name": "Audit Test Customer",
+      "created_at": "2026-05-19T17:49:05.943042+00:00"
+    },
+    {
+      "_id": "6a0ca6a821e804676d144e92",
+      "invoice_number": null,
+      "customer_name": "Audit Test Customer",
+      "created_at": "2026-05-19T18:06:32.934334+00:00"
+    },
+    {
+      "_id": "6a0ca6a921e804676d144e95",
+      "invoice_number": null,
+      "customer_name": "Audit Test Customer",
+      "created_at": "2026-05-19T18:06:33.197927+00:00"
+    },
+    {
+      "_id": "6a0ca6a921e804676d144e98",
+      "invoice_number": null,
+      "customer_name": "Audit Test Customer",
+      "created_at": "2026-05-19T18:06:33.409787+00:00"
+    },
+    {
+      "_id": "6a0ca6a921e804676d144e9b",
+      "invoice_number": null,
+      "customer_name": "Audit Test Customer",
+      "created_at": "2026-05-19T18:06:33.652687+00:00"
+    },
+    {
+      "_id": "6a0ca6a921e804676d144e9e",
+      "invoice_number": null,
+      "customer_name": "Audit Test Customer",
+      "created_at": "2026-05-19T18:06:33.866852+00:00"
+    },
+    {
+      "_id": "6a0cab69d372f0b0240d6094",
+      "invoice_number": null,
+      "customer_name": "Audit Test Customer",
+      "created_at": "2026-05-19T18:26:49.711123+00:00"
+    },
+    {
+      "_id": "6a0cab69d372f0b0240d6097",
+      "invoice_number": null,
+      "customer_name": "Audit Test Customer",
+      "created_at": "2026-05-19T18:26:49.931267+00:00"
+    },
+    {
+      "_id": "6a0cab6ad372f0b0240d609a",
+      "invoice_number": null,
+      "customer_name": "Audit Test Customer",
+      "created_at": "2026-05-19T18:26:50.173758+00:00"
+    },
+    {
+      "_id": "6a0cab6ad372f0b0240d609d",
+      "invoice_number": null,
+      "customer_name": "Audit Test Customer",
+      "created_at": "2026-05-19T18:26:50.407904+00:00"
+    },
+    {
+      "_id": "6a0cab6ad372f0b0240d60a0",
+      "invoice_number": null,
+      "customer_name": "Audit Test Customer",
+      "created_at": "2026-05-19T18:26:50.654506+00:00"
+    },
+    {
+      "_id": "6a0cade4ebfd477b17cbe3e3",
+      "invoice_number": null,
+      "customer_name": "Audit Test Customer",
+      "created_at": "2026-05-19T18:37:24.746324+00:00"
+    },
+    {
+      "_id": "6a0cade5ebfd477b17cbe3e6",
+      "invoice_number": null,
+      "customer_name": "Audit Test Customer",
+      "created_at": "2026-05-19T18:37:25.039312+00:00"
+    },
+    {
+      "_id": "6a0cade5ebfd477b17cbe3e9",
+      "invoice_number": null,
+      "customer_name": "Audit Test Customer",
+      "created_at": "2026-05-19T18:37:25.289805+00:00"
+    },
+    {
+      "_id": "6a0cade5ebfd477b17cbe3ec",
+      "invoice_number": null,
+      "customer_name": "Audit Test Customer",
+      "created_at": "2026-05-19T18:37:25.522800+00:00"
+    },
+    {
+      "_id": "6a0cade5ebfd477b17cbe3ef",
+      "invoice_number": null,
+      "customer_name": "Audit Test Customer",
+      "created_at": "2026-05-19T18:37:25.758853+00:00"
+    },
+    {
+      "_id": "6a0d818426670f13b6310d4d",
+      "invoice_number": null,
+      "customer_name": "Audit Test Customer",
+      "created_at": "2026-05-20T09:40:20.011097+00:00"
+    },
+    {
+      "_id": "6a0d818426670f13b6310d50",
+      "invoice_number": null,
+      "customer_name": "Audit Test Customer",
+      "created_at": "2026-05-20T09:40:20.223062+00:00"
+    },
+    {
+      "_id": "6a0d818426670f13b6310d53",
+      "invoice_number": null,
+      "customer_name": "Audit Test Customer",
+      "created_at": "2026-05-20T09:40:20.432766+00:00"
+    },
+    {
+      "_id": "6a0d818426670f13b6310d56",
+      "invoice_number": null,
+      "customer_name": "Audit Test Customer",
+      "created_at": "2026-05-20T09:40:20.633508+00:00"
+    },
+    {
+      "_id": "6a0d818426670f13b6310d59",
+      "invoice_number": null,
+      "customer_name": "Audit Test Customer",
+      "created_at": "2026-05-20T09:40:20.841386+00:00"
+    },
+    {
+      "_id": "6a0da259a3e14c8f707d5802",
+      "invoice_number": null,
+      "customer_name": "Audit Test Customer",
+      "created_at": "2026-05-20T12:00:25.518936+00:00"
+    },
+    {
+      "_id": "6a0da259a3e14c8f707d5805",
+      "invoice_number": null,
+      "customer_name": "Audit Test Customer",
+      "created_at": "2026-05-20T12:00:25.732317+00:00"
+    },
+    {
+      "_id": "6a0da259a3e14c8f707d5808",
+      "invoice_number": null,
+      "customer_name": "Audit Test Customer",
+      "created_at": "2026-05-20T12:00:25.945809+00:00"
+    },
+    {
+      "_id": "6a0da25aa3e14c8f707d580b",
+      "invoice_number": null,
+      "customer_name": "Audit Test Customer",
+      "created_at": "2026-05-20T12:00:26.167020+00:00"
+    },
+    {
+      "_id": "6a0da25aa3e14c8f707d580e",
+      "invoice_number": null,
+      "customer_name": "Audit Test Customer",
+      "created_at": "2026-05-20T12:00:26.407742+00:00"
+    },
+    {
+      "_id": "6a0e14f0ff73e8f785d407d7",
+      "invoice_number": null,
+      "customer_name": "Audit Test Customer",
+      "created_at": "2026-05-20T20:09:20.229482+00:00"
+    },
+    {
+      "_id": "6a0e14f0ff73e8f785d407da",
+      "invoice_number": null,
+      "customer_name": "Audit Test Customer",
+      "created_at": "2026-05-20T20:09:20.497308+00:00"
+    },
+    {
+      "_id": "6a0e14f0ff73e8f785d407dd",
+      "invoice_number": null,
+      "customer_name": "Audit Test Customer",
+      "created_at": "2026-05-20T20:09:20.787267+00:00"
+    },
+    {
+      "_id": "6a0e14f1ff73e8f785d407e0",
+      "invoice_number": null,
+      "customer_name": "Audit Test Customer",
+      "created_at": "2026-05-20T20:09:21.059993+00:00"
+    },
+    {
+      "_id": "6a0e14f1ff73e8f785d407e3",
+      "invoice_number": null,
+      "customer_name": "Audit Test Customer",
+      "created_at": "2026-05-20T20:09:21.328809+00:00"
+    },
+    {
+      "_id": "6a0e1562ff73e8f785d4082f",
+      "invoice_number": null,
+      "customer_name": "Audit Test Customer",
+      "created_at": "2026-05-20T20:11:14.284258+00:00"
+    },
+    {
+      "_id": "6a0e1562ff73e8f785d40832",
+      "invoice_number": null,
+      "customer_name": "Audit Test Customer",
+      "created_at": "2026-05-20T20:11:14.549687+00:00"
+    },
+    {
+      "_id": "6a0e1562ff73e8f785d40835",
+      "invoice_number": null,
+      "customer_name": "Audit Test Customer",
+      "created_at": "2026-05-20T20:11:14.813324+00:00"
+    },
+    {
+      "_id": "6a0e1563ff73e8f785d40838",
+      "invoice_number": null,
+      "customer_name": "Audit Test Customer",
+      "created_at": "2026-05-20T20:11:15.108458+00:00"
+    },
+    {
+      "_id": "6a0e1563ff73e8f785d4083b",
+      "invoice_number": null,
+      "customer_name": "Audit Test Customer",
+      "created_at": "2026-05-20T20:11:15.396758+00:00"
+    },
+    {
+      "_id": "6a0e4e1b955b0e9f347b51ed",
+      "invoice_number": null,
+      "customer_name": "Audit Test Customer",
+      "created_at": "2026-05-21T00:13:15.960706+00:00"
+    },
+    {
+      "_id": "6a0e4e1c955b0e9f347b51f0",
+      "invoice_number": null,
+      "customer_name": "Audit Test Customer",
+      "created_at": "2026-05-21T00:13:16.218104+00:00"
+    },
+    {
+      "_id": "6a0e4e1c955b0e9f347b51f3",
+      "invoice_number": null,
+      "customer_name": "Audit Test Customer",
+      "created_at": "2026-05-21T00:13:16.469055+00:00"
+    },
+    {
+      "_id": "6a0e4e1c955b0e9f347b51f6",
+      "invoice_number": null,
+      "customer_name": "Audit Test Customer",
+      "created_at": "2026-05-21T00:13:16.712082+00:00"
+    },
+    {
+      "_id": "6a0e4e1c955b0e9f347b51f9",
+      "invoice_number": null,
+      "customer_name": "Audit Test Customer",
+      "created_at": "2026-05-21T00:13:16.960803+00:00"
+    }
+  ]
+}

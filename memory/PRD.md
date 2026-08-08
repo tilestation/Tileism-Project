@@ -9,6 +9,38 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Aug 8, 2026 — Forked, session F+10, cleanup 4] 🟢 Test-seed cleanup + series-parser hardening — VERIFIED
+
+**Owner ask** (from testing-agent observation on iteration 220):
+> "Remove ~750 TEST_SCOPED_SAVE_* / TEST_CAT_QUERY_* rows from the tiles collection — they create 88% singleton series buckets"
+
+**Delivered**:
+
+1. **Audit** — inventoried every `TEST_*` / `TEST-*` SKU across `supplier_products`, `tiles`, `products`. Real count was smaller than the estimate: **232 total** SKU rows across 3 collections.
+2. **FK safety check** — verified no active invoice/order/cart/wishlist/PO referenced any TEST_ SKU. The 1 invoice that DID (test invoice #None, "Test Customer", total=None) was itself test data.
+3. **Backup written** — full snapshot of every row about to be deleted at `/app/memory/tiles_cleanup_backup_20260808_135545.json` (232 SKUs + 66 invoices logged with sku/name/collection/created_at for potential restore).
+4. **Two-pass deletion**:
+   - Pass 1 (regex `^TEST_`): supplier_products 123, tiles 62, products 47, invoices 66 (all test invoices with matching line-items)
+   - Pass 2 (regex `^TEST-`): supplier_products 6 (TEST-UNIFIED-*, TEST-CRAFT-*, TEST-CSV-*_real), tiles 2 (TEST-HIM-*, TEST-CRAFT-*)
+   - **Total: 240 SKU rows + 66 invoices deleted**. 0 remaining after verification.
+5. **Parser hardening** — while cleaning up, spotted that a few real-catalogue products with pathological names (dimension-first, all-descriptor-words) were still creating singleton series buckets. Updated `lib/series.js` `getSeriesNameFromString`:
+   - If everything gets stripped as attribute-words / dimensions → return `''` (routes to Individual bucket) instead of falling back to the full raw product name.
+   - After joining candidate words, run `looksLikeCleanSeriesName` on the result as a final safety net — if the smart-parsed label itself would fail the junk filter, drop it too.
+
+**Verified end-to-end**:
+- Tiles Manager: `1108 visible · 856 series` → `1057 visible · 793 series` (51 test rows gone, 63 noisy singleton buckets gone).
+- Dolomite Onyx Series banner: preserved (23 products).
+- Ultra Tile Cleaning & Maintenance Series banner: preserved (6 products).
+- Zero `Test Product` banners remain.
+- Materials Manager series count refined from 78 → 75 with the parser hardening (fewer pathological one-off buckets).
+
+**Files touched**:
+- MODIFIED: `/app/frontend/src/pages/admin/lib/series.js` — `getSeriesNameFromString` now returns `''` for pathological inputs; final `looksLikeCleanSeriesName` guard on the candidate label.
+- DB: 240 SKU rows + 66 test invoices deleted across `supplier_products`, `tiles`, `products`, `invoices`.
+- NEW: `/app/memory/tiles_cleanup_backup_20260808_135545.json` — backup snapshot.
+
+
+
 ### [Aug 8, 2026 — Forked, session F+10, cleanup 3] 🟢 SupplierProducts → shared `lib/series.js` + Images multi-supplier warning — VERIFIED
 
 **Owner ask** (from prior Next Action Items):
