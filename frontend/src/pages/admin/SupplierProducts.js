@@ -6821,16 +6821,22 @@ export default function SupplierProducts() {
       group.sort((a, b) => extractSize(a) - extractSize(b));
     });
 
-    // Separate multi-product series from single products
+    // Separate multi-product series from single products.
+    // Rule change: any NAMED series keeps its own group (with its own header row),
+    // even when only one product currently sits in it. This lets admins assign
+    // a fresh series to one product and still see it grouped under that series
+    // name rather than being dumped into "Individual Products".
+    // The "Individual Products" bucket is now reserved for products with an
+    // empty/unresolved series name.
     const multiProductSeries = [];
     const singleProducts = [];
 
     Object.entries(seriesGroups).forEach(([seriesName, group]) => {
-      if (group.length > 1) {
-        // Multi-product series - add all products
+      if (seriesName && seriesName.trim()) {
+        // Named series — always render as its own group.
         multiProductSeries.push(...group);
       } else {
-        // Single product
+        // Truly nameless — treat as individual so it sinks to the bottom.
         singleProducts.push(...group);
       }
     });
@@ -8749,7 +8755,9 @@ export default function SupplierProducts() {
                     const prevSeries = idx > 0 ? getSeriesName(filteredProducts[idx - 1]) : null;
                     const isNewSeries = idx === 0 || currentSeries !== prevSeries;
                     const seriesCount = filteredProducts.filter(p => getSeriesName(p) === currentSeries).length;
-                    const isMultiProductSeries = seriesCount > 1;
+                    // A "named series" gets its own header even if it's a singleton.
+                    // Only truly nameless products fall into the "Individual Products" bucket.
+                    const isMultiProductSeries = Boolean(currentSeries && currentSeries.trim());
                     
                     return (
                       <React.Fragment key={`${product.sku}-${idx}`}>
@@ -8790,14 +8798,13 @@ export default function SupplierProducts() {
                             </td>
                           </tr>
                         )}
-                        {/* Single Products Section Header */}
-                        {isNewSeries && !isMultiProductSeries && idx > 0 && filteredProducts.slice(0, idx).some(p => {
-                          const pSeries = getSeriesName(p);
-                          return filteredProducts.filter(fp => getSeriesName(fp) === pSeries).length > 1;
-                        }) && filteredProducts.slice(idx).every(p => {
-                          const pSeries = getSeriesName(p);
-                          return filteredProducts.filter(fp => getSeriesName(fp) === pSeries).length === 1;
-                        }) && (
+                        {/* Individual Products separator — shows once when we cross
+                            from named series into the truly nameless bucket. */}
+                        {isNewSeries && !isMultiProductSeries && idx > 0 && (() => {
+                          const prev = filteredProducts[idx - 1];
+                          const prevName = getSeriesName(prev);
+                          return prevName && prevName.trim();
+                        })() && (
                           <tr className="bg-gradient-to-r from-amber-50 to-orange-50 border-t-2 border-amber-300">
                             <td colSpan={isSuperAdmin ? 13 : 12} className="py-2 px-4">
                               <div className="flex items-center gap-3">
