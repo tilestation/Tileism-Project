@@ -49,6 +49,7 @@ import { groupBySeries } from '../lib/series';
 import { Layers, LayoutGrid, List } from 'lucide-react';
 import ManagerConfigModal from './managers/ManagerConfigModal';
 import StorefrontPanel from './managers/StorefrontPanel';
+import ShopTabsAssignModal from './managers/ShopTabsAssignModal';
 import AssignColoursModal from './managers/AssignColoursModal';
 import TierPricingModal from './supplier-products/TierPricingModal';
 import BulkSaleModal from './supplier-products/BulkSaleModal';
@@ -124,6 +125,7 @@ const ManagerPageShell = ({
   const [showCsvImport, setShowCsvImport] = useState(false);
   const [showConfig, setShowConfig] = useState(false);
   const [showStorefront, setShowStorefront] = useState(false);
+  const [showShopTabs, setShowShopTabs] = useState(false);
 
   // Per-product overrides for the Tier Pricing modal.
   // Shape: { 'supplier|||sku': { trade_discount?, credit_back_rate?, disabled? } }
@@ -723,6 +725,7 @@ const ManagerPageShell = ({
         onOpenSaleLabels={() => setShowBulkSaleLabels(true)}
         onOpenBulkSpecs={() => setShowBulkSpecs(true)}
         onOpenReassignCategory={bulk.bulkAssignCategory}
+        onOpenShopTabs={() => setShowShopTabs(true)}
         saving={bulk.bulkSaving}
         themeColor={bulkBarTheme || theme}
         hideActions={['category']}
@@ -837,6 +840,13 @@ const ManagerPageShell = ({
         onOpenChange={setShowStorefront}
         managerTitle={title}
         defaultGroupSlug={({ tiles: 'tiles', materials: 'materials', flooring: 'flooring', tools: 'tools', underfloor_heating: 'underfloor-heating' })[categoryKey] || null}
+      />
+
+      <ShopTabsAssignModal
+        open={showShopTabs}
+        onOpenChange={setShowShopTabs}
+        selectedProducts={bulk.getSelectedList()}
+        onSaved={fetchProducts}
       />
 
       <TierPricingModal

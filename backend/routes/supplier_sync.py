@@ -5842,6 +5842,94 @@ def related_picker_search(q: str = "", limit: int = 12, exclude_sku: str = ""):
     return {"results": results}
 
 
+@router.get("/shop-tab-destinations")
+def get_shop_tab_destinations():
+    """All shop pages + their tabs, each resolved to the website category it
+    filters by — powers the 'Shop Tabs' bulk assignment modal in Managers."""
+    from urllib.parse import urlparse, parse_qs
+    db = get_db()
+    groups = list(db.category_groups.find(
+        {}, {"_id": 0, "slug": 1, "name": 1, "display_order": 1}
+    ).sort("display_order", 1))
+    cats = {c["slug"]: c.get("name") for c in db.website_categories.find({}, {"_id": 0, "slug": 1, "name": 1})}
+    pages = []
+    for g in groups:
+        menu_type = "shop" if g["slug"] == "tiles" else f"shop_{g['slug']}"
+        menu = db.navigation_menus.find_one({"menu_type": menu_type}, {"_id": 0})
+        items = (menu or {}).get("items", [])
+        if not items and menu_type == "shop":
+            # Mirror the default tiles shop menu served by /website-admin/navigation/shop
+            items = [
+                {"label": "ALL TILES", "link_url": "/shop/tiles", "display_order": 0, "is_active": True},
+                {"label": "WALL TILES", "link_url": "/shop/tiles?category=wall-tiles", "display_order": 1, "is_active": True},
+                {"label": "FLOOR TILES", "link_url": "/shop/tiles?category=floor-tiles", "display_order": 2, "is_active": True},
+                {"label": "PORCELAIN", "link_url": "/shop/tiles?category=porcelain", "display_order": 3, "is_active": True},
+                {"label": "POLISHED", "link_url": "/shop/tiles?filter=finish:polished", "display_order": 4, "is_active": True},
+                {"label": "MATT", "link_url": "/shop/tiles?filter=finish:matt", "display_order": 5, "is_active": True},
+                {"label": "SALE", "link_url": "/shop/tiles?filter=sale:true", "display_order": 6, "is_active": True},
+            ]
+        tabs = []
+        for it in sorted(items, key=lambda x: x.get("display_order", 0)):
+            if it.get("is_active") is False:
+                continue
+            url = it.get("link_url") or ""
+            qs = parse_qs(urlparse(url).query)
+            cat_slug = (qs.get("category") or [None])[0]
+            cat_name = None
+            if cat_slug:
+                cat_name = cats.get(cat_slug) or cat_slug.replace("-", " ").title()
+            tabs.append({
+                "label": it.get("label"),
+                "url": url,
+                "category_slug": cat_slug,
+                "category_name": cat_name,
+                "assignable": bool(cat_slug),
+            })
+        if tabs:
+            pages.append({"group_slug": g["slug"], "group_name": g.get("name"), "tabs": tabs})
+    return {"pages": pages}
+
+
+class AssignShopTabsRequest(BaseModel):
+    skus: List[str] = []
+    supplier_codes: List[str] = []
+    add_categories: List[str] = []
+    remove_categories: List[str] = []
+
+
+@router.post("/products/assign-shop-tabs")
+def assign_shop_tabs(data: AssignShopTabsRequest):
+    """Add/remove shop-tab destinations (sub_categories) for a set of products.
+    Writes to supplier_products AND published tiles so the storefront updates."""
+    if not data.skus and not data.supplier_codes:
+        raise HTTPException(status_code=400, detail="No products supplied")
+    if not data.add_categories and not data.remove_categories:
+        raise HTTPException(status_code=400, detail="Nothing to change")
+    db = get_db()
+    id_or = []
+    if data.skus:
+        id_or.append({"sku": {"$in": data.skus}})
+    if data.supplier_codes:
+        id_or.append({"supplier_code": {"$in": data.supplier_codes}})
+    query = {"$or": id_or}
+    matched = 0
+    for coll in (db.supplier_products, db.tiles):
+        coll_matched = 0
+        if data.add_categories:
+            r = coll.update_many(query, {"$addToSet": {"sub_categories": {"$each": data.add_categories}}})
+            coll_matched = r.matched_count
+        if data.remove_categories:
+            r = coll.update_many(query, {"$pull": {"sub_categories": {"$in": data.remove_categories}}})
+            coll_matched = max(coll_matched, r.matched_count)
+        matched = max(matched, coll_matched)
+    return {
+        "success": True,
+        "updated": matched,
+        "added": data.add_categories,
+        "removed": data.remove_categories,
+    }
+
+
 # ============================================================
 # BULK TIER PRICING UPDATE ENDPOINT
 # ============================================================

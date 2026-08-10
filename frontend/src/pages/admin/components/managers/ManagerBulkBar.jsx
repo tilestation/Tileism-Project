@@ -9,7 +9,7 @@
 import React, { useState } from 'react';
 import { Button } from '../../../../components/ui/button';
 import {
-  X, CheckSquare, Trash2, Archive, Globe, EyeOff, Percent, Palette, Layers, Grid3X3, Package, PoundSterling, Sparkles, Image as ImageIcon, Tag, Sliders,
+  X, CheckSquare, Trash2, Archive, Globe, EyeOff, Percent, Palette, Layers, Grid3X3, Package, PoundSterling, Sparkles, Image as ImageIcon, Tag, Sliders, LayoutGrid,
 } from 'lucide-react';
 
 const ManagerBulkBar = ({
@@ -28,6 +28,7 @@ const ManagerBulkBar = ({
   onOpenAIDescriptions,
   onOpenBulkImages,
   onOpenReassignCategory,
+  onOpenShopTabs,
   onOpenSaleLabels,
   saving = false,
   themeColor = 'orange',
@@ -198,6 +199,21 @@ const ManagerBulkBar = ({
         >
           <EyeOff className="w-3.5 h-3.5" />
           Unpublish
+        </button>
+      )}
+
+      {/* Shop Tabs assignment — where selected products appear on the website */}
+      {!hidden.has('shopTabs') && onOpenShopTabs && (
+        <button
+          type="button"
+          onClick={onOpenShopTabs}
+          disabled={saving}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/15 hover:bg-white/25 transition text-[13px] font-medium"
+          data-testid="bar-shop-tabs"
+          title="Choose which shop tabs the selected products appear under (multiple allowed)"
+        >
+          <LayoutGrid className="w-3.5 h-3.5" />
+          Shop Tabs
         </button>
       )}
 

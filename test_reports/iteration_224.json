@@ -1,0 +1,29 @@
+{
+  "summary": "Shop Tabs bulk assignment feature (Managers workspace) — backend 5/5 pytest passed and full UI round-trip verified on /admin/materials. GET /api/supplier-sync/shop-tab-destinations returns Tiles page with exactly 7 tabs / 3 assignable (WALL/FLOOR/PORCELAIN mapped to Wall Tiles/Floor Tiles/Porcelain) and Flooring page with VINYL+LAMINATE assignable. Non-assignable tabs (ALL TILES, POLISHED, MATT, SALE, ALL FLOORING) correctly dimmed with 'automatic — shows everything in this Manager'. POST /api/supplier-sync/products/assign-shop-tabs add/remove round-trip on LP-6611 confirmed to mutate sub_categories in supplier_products (verified via /supplier-sync/products) and 400 validation on empty skus + no-changes. Storefront /api/tiles/collections?category=porcelain reflects new assignment (TestSeries appears after add). UI: bulk bar shows bar-shop-tabs button between Unpublish and Reassign as required; modal renders both pages with correct tri-state (green tick / amber minus / empty), summary '+1 destination' works, Apply button gates on changes, success toast 'N product(s) updated — live on the website now' fires and modal closes. Re-opening after apply shows PORCELAIN as green (all) confirming persistence. Untick+Apply successfully restores. LP-6611 sub_categories restored to baseline ['Large Format','Floor Tiles','Matt'].",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Shop Tabs modal", "issues": ["Minor: when clicking a currently-green (pre-existing 'all') tab to untick it, the change-summary occasionally still reads '+1 destination' instead of the expected '−1 removed' text during the same-session tri-state cycle. The Apply itself works correctly (backend removes the category) and the reopen shows the tab as empty — the numerical summary label is just misleading. Non-blocking."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_shop_tabs_assignment.py", "/app/test_reports/pytest/shop_tabs_results.xml"],
+  "action_items": [
+    "OPTIONAL: Verify ShopTabsAssignModal change-summary text reflects a green→empty transition as '−1 removed' rather than '+1 destination' when the pre-existing state was 'all'. Likely a sign/count in the summary useMemo."
+  ],
+  "critical_code_review_comments": [
+    "assign_shop_tabs: 'updated' count is taken from supplier_products.matched_count only; when the same SKU exists in the tiles collection but not in supplier_products, the response reports updated:0 despite a real tiles write. Consider Math.max of both matched_counts.",
+    "assign_shop_tabs writes to BOTH supplier_products and tiles unconditionally — good for storefront freshness, but there is no transactional rollback if the second write fails. Non-critical for MVP.",
+    "get_shop_tab_destinations falls back to hard-coded default tiles menu when navigation_menus doc missing — kept in sync with website_admin.py; if that default drifts they will diverge. Consider extracting the default into a shared constant.",
+    "supplier_sync.py is very large (>14k lines) — Shop Tabs endpoints would be cleaner in a dedicated router module."
+  ],
+  "updated_files": ["/app/backend/tests/test_shop_tabs_assignment.py"],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "Admin: admin@test.com / admin123 at /admin/login (from review request)",
+  "seed_data_creation": "None — all mutations restored. LP-6611 sub_categories confirmed back to ['Large Format','Floor Tiles','Matt']. During UI run, Porcelain was added to 3 sample rows in Materials Manager (Premium Oak Series children) and then removed via the same modal; final DB state matches pre-test baseline for LP-6611.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Feature is stable. Endpoints: GET /api/supplier-sync/shop-tab-destinations, POST /api/supplier-sync/products/assign-shop-tabs. UI entry: /admin/materials → tick rows → orange bulk bar → data-testid='bar-shop-tabs' → modal data-testid='shop-tabs-assign-modal' with options data-testid='shop-tab-option-{group_slug}-{category_slug}' (e.g. shop-tab-option-tiles-porcelain), apply btn data-testid='shop-tabs-apply-btn', summary data-testid='shop-tabs-change-summary'. Only nit is a summary label transition text; no functional bug.",
+  "rca of the issue": "N/A — feature works. Minor UI copy nit on summary during green→empty cycle described in design_issues."
+}

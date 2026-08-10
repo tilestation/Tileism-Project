@@ -3460,3 +3460,32 @@ The endpoint that powers the frontend `useNewOrderNotifier` hook (polls every 10
 - P1 (after user verification): retire /admin/navigation-structure entirely + remove sidebar link. Checklist: page is read/write UI only; nav/banners/labels/categories data untouched by deletion; keep NavigationMenuEditor route? (check usage), remove lazy import + route + sidebar entry.
 - Pre-existing junk found: two 'TEST LINK → /test' rows at top of the LIVE main navigation (positions 0-1) — user can now delete them from Website tab → Main Menu.
 - Testing agent suggestion: BannerEditorCard could toast on non-200 load failures (currently silent).
+
+
+---
+
+## 10 Aug 2026 — Shop Tabs Bulk Assignment (publish destinations picker)
+
+### Owner ask
+"If I am adding a series/product to publish on website, it needs to navigate through Shop Tabs to assign to selected products. There can be multiple shop tabs to assign to one product/series." Approved: 1a (destinations picker) + 2b (bulk bar only for now; Quick Edit version deferred).
+
+### Mechanics discovered
+Shop tab URLs (/tiles?category={slug}) filter the storefront primarily by product `sub_categories` containing the category NAME (resolved from website_categories by slug; regex fallbacks). Main Navigation links use the same mechanic → one assignment covers both.
+
+### Delivered
+**Backend** (`routes/supplier_sync.py`):
+- `GET /api/supplier-sync/shop-tab-destinations` — every shop page + tabs, each resolved to {category_slug, category_name, assignable}. Mirrors website_admin's hardcoded default 'shop' (tiles) menu when no navigation_menus doc exists (keep in sync if defaults ever change!).
+- `POST /api/supplier-sync/products/assign-shop-tabs` — {skus, supplier_codes, add_categories, remove_categories} → $addToSet/$pull on sub_categories in BOTH supplier_products and tiles. Idempotent; updated count = max matched across collections; 400s on empty input.
+
+**Frontend**:
+- `ShopTabsAssignModal.jsx` — tri-state tick-boxes per tab (green=all selected have it, amber=some, empty=none), grouped by shop page, dimmed 'automatic' rows for group-only tabs, live '+N / −N' summary, Apply sends EXACTLY what user toggled (not diffed against possibly-stale initial state — post-test fix).
+- `ManagerBulkBar.jsx` — 'Shop Tabs' button (bar-shop-tabs) between Unpublish and Reassign.
+- `ManagerPageShell.jsx` — modal wired to bulk.getSelectedList(), onSaved=fetchProducts.
+
+### Testing
+- iteration_224.json — backend 5/5 pytest + full UI round-trip 100% (apply→persist→reopen shows green→untick→restore). Storefront effect verified: assigned product's series appears under /api/tiles/collections?category=porcelain.
+- Post-test fixes applied + curl-verified: explicit adds/removes (fixes stale-state edge), updated-count max across collections.
+
+### Deferred / backlog
+- Same Shop Tabs panel inside Quick Edit (user chose bulk-bar-only for now).
+- Testing agent suggestions: extract shared default-shop-menu constant; move endpoints to dedicated router module (supplier_sync.py >14k lines).
