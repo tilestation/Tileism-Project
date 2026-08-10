@@ -3569,3 +3569,19 @@ Shop tab URLs (/tiles?category={slug}) filter the storefront primarily by produc
 
 ### Notes
 - tbody checkboxes include series-header rows (selecting one selects the whole series) — that's why few clicks can yield several series chips.
+
+---
+
+## 10 Aug 2026 (later) — Live Preview 503 Bugfix (Bulk Preview + Quick Edit)
+
+### Root cause
+`GET /api/tiles/collection/{series}?preview=1` always returned 503: the preview branch in `tiles.py` (line ~1663) called `_get_collection_products_impl(..., include_unpublished=True)` but the impl never accepted that kwarg → TypeError → caught → 503 "temporarily_unavailable". The landing page inside the Bulk Preview iframe / Quick Edit link therefore loaded empty.
+
+### Fix
+1. `/app/backend/routes/tiles.py` — removed the bogus `include_unpublished=True` kwarg (the `tiles` collection only ever holds published products; modal copy already says unpublished items appear after Publish). preview=1 still bypasses cache/LKG for fresh data.
+2. `/app/frontend/src/pages/admin/components/managers/QuickEditProductDrawer.jsx` — "Preview on site" now uses `window.location.origin` (admin + shop share one origin) instead of hardcoded `tilestation.co.uk`, whose deployed backend still has the old 503 bug until redeploy. `REACT_APP_STOREFRONT_URL` override still respected.
+
+### Testing (self-tested, curl + 2 e2e screenshots)
+- curl: `?preview=1` now 200 with products (was 503).
+- Bulk bar → Preview: iframe rendered the Premium Oak landing page (title, hero, swatches, In Stock).
+- Quick Edit → Preview on site: href points to this env, target page renders fully.

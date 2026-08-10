@@ -180,6 +180,8 @@ const CollectionDetailPage = () => {
   usePageTracking();
 
   const decodedSeriesName = decodeURIComponent(seriesName);
+  // Admin landing-page preview (?preview=1) — includes unpublished products.
+  const isAdminPreview = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('preview') === '1';
 
   // Check login status - only for SHOP customers, not admin users
   // Admin tokens (tileStationToken, token, auth_token) should NOT hide the Trade box
@@ -307,7 +309,7 @@ const CollectionDetailPage = () => {
     const fetchProducts = async () => {
       setLoading(true);
       try {
-        const res = await fetch(`${API_URL}/api/tiles/collection/${encodeURIComponent(decodedSeriesName)}?limit=100`);
+        const res = await fetch(`${API_URL}/api/tiles/collection/${encodeURIComponent(decodedSeriesName)}?limit=100${isAdminPreview ? '&preview=1' : ''}`);
         const data = await res.json();
         const fetchedProducts = data.products || [];
         setProducts(fetchedProducts);

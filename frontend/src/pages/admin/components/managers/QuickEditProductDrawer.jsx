@@ -512,14 +512,15 @@ const QuickEditProductDrawer = ({ open, onOpenChange, product, onSaved, previewI
   );
 
   // Landing-page preview button — opens the customer /shop/collection/{series}
-  // URL in a new tab. Uses tilestation.co.uk (production storefront) by
-  // default because the preview environment doesn't host the /shop route.
-  // Admins can override via REACT_APP_STOREFRONT_URL.
+  // URL in a new tab on THIS environment's storefront (admin + shop share the
+  // same origin). Admins can override via REACT_APP_STOREFRONT_URL.
   const previewPanel = product ? (() => {
-    const storefront = process.env.REACT_APP_STOREFRONT_URL || 'https://www.tilestation.co.uk';
+    const storefront = process.env.REACT_APP_STOREFRONT_URL || window.location.origin;
     const seriesName = getSeriesName(product);
-    const slug = (seriesName || product.product_name || product.name || '').trim().replace(/\s+/g, '-');
-    const href = slug ? `${storefront}/shop/collection/${encodeURIComponent(slug)}` : `${storefront}/shop`;
+    // Raw series name (spaces intact) — the storefront never uses dash-slugs.
+    // ?preview=1 lets the landing page include unpublished products.
+    const slug = (seriesName || product.product_name || product.name || '').trim();
+    const href = slug ? `${storefront}/shop/collection/${encodeURIComponent(slug)}?preview=1` : `${storefront}/shop`;
     return (
       <div className="flex items-center justify-between text-xs">
         <div className="flex items-center gap-2 text-slate-500">

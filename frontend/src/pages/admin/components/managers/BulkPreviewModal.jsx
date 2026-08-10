@@ -25,7 +25,9 @@ const BulkPreviewModal = ({ open, onOpenChange, selectedProducts = [] }) => {
     selectedProducts.forEach(p => {
       const series = (getSeriesName(p) || p.display_name || p.name || '').trim();
       if (series && !map.has(series.toLowerCase())) {
-        map.set(series.toLowerCase(), { name: series, slug: series.replace(/\s+/g, '-') });
+        // The storefront resolves collections by the RAW series name (spaces
+        // intact, URI-encoded) — never dash-slugified.
+        map.set(series.toLowerCase(), { name: series, slug: series });
       }
     });
     return [...map.values()];
@@ -45,7 +47,7 @@ const BulkPreviewModal = ({ open, onOpenChange, selectedProducts = [] }) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
-  const url = activeSlug ? `${window.location.origin}/shop/collection/${encodeURIComponent(activeSlug)}` : null;
+  const url = activeSlug ? `${window.location.origin}/shop/collection/${encodeURIComponent(activeSlug)}?preview=1` : null;
   const deviceWidth = DEVICES.find(d => d.key === device)?.width || '100%';
 
   return (

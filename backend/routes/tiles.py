@@ -1625,7 +1625,8 @@ async def get_collection_products(
     series_name: str,
     sort_by: str = "color",
     page: int = 1,
-    limit: int = 24
+    limit: int = 24,
+    preview: int = 0
 ):
     """
     Get all products within a specific collection/series.
@@ -1653,8 +1654,17 @@ async def get_collection_products(
     }
 
     _cached = endpoint_cache.get(_cache_key)
-    if _cached is not None:
+    if _cached is not None and not preview:
         return JSONResponse(content=_cached, headers=public_cache_headers)
+
+    if preview:
+        # Admin preview — always fresh data, never cache or serve LKG.
+        try:
+            result = await _get_collection_products_impl(series_name, sort_by, page, limit)
+            return JSONResponse(content=result or {"products": [], "total": 0}, headers=no_store_headers)
+        except Exception:
+            logging.error(f"Collection preview crash for '{series_name}': {traceback.format_exc()}")
+            return JSONResponse(status_code=503, content={"products": [], "total": 0, "error": "temporarily_unavailable"}, headers=no_store_headers)
 
     try:
         result = await _get_collection_products_impl(series_name, sort_by, page, limit)
