@@ -4017,21 +4017,40 @@ async def admin_recent_online_orders(
     current_user: dict = Depends(get_current_user),
 ):
     """
-    Returns orders created after `since` (ISO timestamp). Used by the
-    admin live-toast notifier — polled every ~10 seconds. Newest-first.
+    Returns orders **that have been paid** after `since` (ISO timestamp).
+    Used by the admin live-toast notifier — polled every ~10 seconds.
+    Newest-first.
+
+    Only orders with `payment_status ∈ {paid, completed}` are surfaced —
+    pending/initiated/failed orders never trigger the "🛒 New order" toast.
+    We compare `since` against the moment the payment succeeded (`paid_at`
+    with `created_at` as a fallback) so late Stripe webhooks for old
+    orders still alert immediately once they clear, but abandoned carts
+    that never pay never alert at all.
     """
     if current_user.get("role") not in ["super_admin", "admin", "manager"]:
         raise HTTPException(status_code=403, detail="Not authorized")
 
     db = get_db()
-    query: dict = {}
+    query: dict = {
+        # Only paid orders trigger the live toast — pending/initiated/failed
+        # rows created while the customer is still on the cart page must
+        # never fire the notification.
+        "payment_status": {"$in": ["paid", "completed"]},
+    }
     if since:
-        # Strict greater-than so we never re-notify the same order
-        query["created_at"] = {"$gt": since}
+        # Strict greater-than so we never re-notify the same order. Use
+        # paid_at when present (the moment Stripe confirmed payment), else
+        # fall back to created_at for legacy rows.
+        query["$or"] = [
+            {"paid_at": {"$gt": since}},
+            {"$and": [{"paid_at": {"$in": [None, ""]}}, {"created_at": {"$gt": since}}]},
+        ]
 
+    # Sort by paid_at first (newest payment), created_at as a fallback.
     cursor = (
         db.shop_orders.find(query, {"_id": 0})
-        .sort("created_at", -1)
+        .sort([("paid_at", -1), ("created_at", -1)])
         .limit(min(50, max(1, int(limit))))
     )
     orders = await cursor.to_list(length=limit)
@@ -4043,8 +4062,11 @@ async def admin_recent_online_orders(
                 "order_number": o.get("order_number"),
                 "customer_name": o.get("customer_name"),
                 "total": o.get("total"),
-                "created_at": o.get("created_at"),
+                # Return paid_at as the notification timestamp so the
+                # frontend cursor advances to actual payment time.
+                "created_at": o.get("paid_at") or o.get("created_at"),
                 "delivery_method": o.get("delivery_method"),
+                "payment_status": o.get("payment_status"),
             }
             for o in orders
         ]

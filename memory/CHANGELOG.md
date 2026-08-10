@@ -3363,3 +3363,23 @@ The user reports "none of the fixes are working" — this is a DEPLOYMENT issue,
 **Round-trip verified via curl** on SKU 4405:
 - Saved `{bag_colour: "Bottle Colour", coverage_m2_per_bag: "Coverage m²/L"}` + 2 custom_specs → `verification_ok: true`
 - Reopened Quick Edit → all overrides + custom specs loaded correctly and rendered
+
+---
+
+## Feb 8, 2026 — Phantom "New Order" Toast Fix (SHIPPED)
+
+**Bug**: Admins received live "🛒 New order #E-XXX — £YYY" toast + ding on the dashboard **before customers had paid** — sometimes as soon as they landed on `/shop/tile-cart`. Customer hadn't even clicked "Proceed to Checkout" yet.
+
+**Root cause** (`shop.py` — `GET /api/shop/admin/online-orders/recent`):
+The endpoint that powers the frontend `useNewOrderNotifier` hook (polls every 10s) had NO `payment_status` filter — it returned every `shop_orders` row including `pending`, `initiated`, and `failed`. Guest checkout creates a `pending` order **before** redirecting to Stripe, so any abandoned cart still triggered the admin ding.
+
+**Fix**:
+- Query now filters `payment_status ∈ {paid, completed}` — pending/initiated/failed rows never surface
+- `since` cursor compares against `paid_at` (moment Stripe confirmed) with `created_at` as fallback for legacy rows
+- Sort by `paid_at DESC` first so late webhooks for older orders still show at the top when they clear
+- Response `created_at` now returns `paid_at || created_at` so the frontend cursor advances by actual payment time
+- Response also includes `payment_status` field for future admin filters
+
+**Verified via curl**: All 9 orders in preview DB return `payment_status: "paid"`. `since=` filter correctly excludes older payments. 13 pending orders that existed in DB are correctly hidden from the endpoint.
+
+**Deploy note**: User's screenshot showed tilestation.co.uk production behaviour. This fix is in preview only — needs Railway redeploy to reach live.
