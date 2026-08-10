@@ -125,6 +125,7 @@ const CollectionDetailPage = () => {
   const [previewThumbIdx, setPreviewThumbIdx] = useState(null);
   const [showCalculator, setShowCalculator] = useState(false);
   const [relatedProducts, setRelatedProducts] = useState([]);
+  const [pinnedYouMayNeed, setPinnedYouMayNeed] = useState([]);
   const [relatedScrollIndex, setRelatedScrollIndex] = useState(0);
   // Frequently Bought Together — real co-purchase recs from /api/recommendations
   const [fbtItems, setFbtItems] = useState([]);
@@ -402,6 +403,7 @@ const CollectionDetailPage = () => {
         if (res.ok) {
           const data = await res.json();
           setRelatedProducts(data.related_series || []);
+          setPinnedYouMayNeed(data.pinned_you_may_need || []);
         }
       } catch (e) {
         console.error('Error fetching related products:', e);
@@ -3927,6 +3929,14 @@ const CollectionDetailPage = () => {
                     <div className="bg-white rounded-lg border border-gray-200 overflow-hidden hover:shadow-lg transition-shadow">
                       {/* Product Image */}
                       <div className="aspect-square bg-gray-100 relative overflow-hidden">
+                        {item.pinned && (
+                          <span
+                            className="absolute top-2 left-2 z-10 px-2 py-0.5 bg-amber-500 text-white text-[10px] font-bold uppercase rounded-full shadow"
+                            data-testid="staff-pick-badge"
+                          >
+                            Staff Pick
+                          </span>
+                        )}
                         {(normaliseImageUrl(item.image) || normaliseImageUrl(item.sample_product?.images?.[0])) ? (
                           <img
                             src={normaliseImageUrl(item.image) || normaliseImageUrl(item.sample_product?.images?.[0])}
@@ -3981,7 +3991,7 @@ const CollectionDetailPage = () => {
       <RecentlyViewedSection currentProductSlug={encodeURIComponent(decodedSeriesName)} maxItems={6} />
 
       {/* You May Also Need - Cross-group recommendations */}
-      <YouMayAlsoNeed currentGroup={products[0]?.product_group || 'tiles'} maxItems={6} />
+      <YouMayAlsoNeed currentGroup={products[0]?.product_group || 'tiles'} maxItems={6} pinnedItems={pinnedYouMayNeed} />
 
       <ShopFooter />
       {/* Bottom spacer for sticky mobile cart bar */}

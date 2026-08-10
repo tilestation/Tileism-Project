@@ -171,14 +171,37 @@ export const RecentlyViewedSection = ({
 export const YouMayAlsoNeed = ({
   currentGroup = 'tiles',
   maxItems = 6,
+  pinnedItems = [],
 }) => {
   const [items, setItems] = useState([]);  // [{ collection, group_label, reason }]
   const [loading, setLoading] = useState(true);
+  const pinnedKey = (pinnedItems || []).map((p) => p.series_name).join('|');
 
   useEffect(() => {
     const fetchCrossGroup = async () => {
       setLoading(true);
       try {
+        // Admin hand-picked pins render first, as full collection cards.
+        const pinnedFetches = (pinnedItems || []).slice(0, maxItems).map(async (pin) => {
+          if (!pin.series_name) return null;
+          try {
+            const res = await fetch(
+              `${API_URL}/api/tiles/collection/${encodeURIComponent(pin.series_name)}`
+            );
+            if (!res.ok) return null;
+            const data = await res.json();
+            const col = data.collection || data;
+            if (!col || !col.series_name) return null;
+            return {
+              collection: col,
+              group_label: 'Hand-Picked',
+              reason: 'Recommended for this product',
+            };
+          } catch {
+            return null;
+          }
+        });
+
         const related = CROSS_GROUP_MAP[currentGroup] || CROSS_GROUP_MAP.tiles;
         const fetches = related.slice(0, 3).map(async (group) => {
           const res = await fetch(
@@ -188,12 +211,19 @@ export const YouMayAlsoNeed = ({
           const data = await res.json();
           return { group, collections: data.collections || [] };
         });
-        const results = await Promise.all(fetches);
+        const [pinnedResolved, results] = await Promise.all([
+          Promise.all(pinnedFetches),
+          Promise.all(fetches),
+        ]);
 
-        const collected = [];
+        const collected = pinnedResolved.filter(Boolean);
+        const pinnedNames = new Set(
+          collected.map((i) => (i.collection.series_name || '').toLowerCase())
+        );
         for (const { group, collections } of results) {
           for (const col of collections) {
             if (collected.length >= maxItems) break;
+            if (pinnedNames.has((col.series_name || '').toLowerCase())) continue;
             collected.push({
               collection: col,
               group_label: group.label,
@@ -209,7 +239,8 @@ export const YouMayAlsoNeed = ({
       }
     };
     fetchCrossGroup();
-  }, [currentGroup, maxItems]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentGroup, maxItems, pinnedKey]);
 
   if (loading || items.length === 0) return null;
 

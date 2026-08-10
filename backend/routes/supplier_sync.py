@@ -5298,6 +5298,9 @@ class QuickUpdateRequest(BaseModel):
     sale_active: Optional[bool] = None  # Whether sale pricing is active
     # Long product description ("About This Product" on the customer landing page).
     description: Optional[str] = None
+    # Admin-pinned related products for the landing page carousels.
+    # Entries: {sku, kind: 'also_liked'|'you_may_need', series_name, display_name, image}
+    related_products: Optional[List[dict]] = None
     # Images
     images: Optional[List[str]] = None  # Array of image URLs
     image: Optional[str] = None  # Primary image URL
@@ -5616,6 +5619,20 @@ def quick_update_supplier_product(data: QuickUpdateRequest):
         # customer landing page. Allow empty string to clear it.
         if data.description is not None:
             update_fields["description"] = data.description
+        # Related-product pins — sanitize entries; empty list clears all pins.
+        if data.related_products is not None:
+            cleaned_pins = []
+            for entry in data.related_products:
+                if not isinstance(entry, dict) or not entry.get("sku"):
+                    continue
+                cleaned_pins.append({
+                    "sku": str(entry.get("sku")),
+                    "kind": entry.get("kind") if entry.get("kind") in ("also_liked", "you_may_need") else "also_liked",
+                    "series_name": str(entry.get("series_name") or ""),
+                    "display_name": str(entry.get("display_name") or ""),
+                    "image": entry.get("image") or None,
+                })
+            update_fields["related_products"] = cleaned_pins
         
         # Handle images
         if data.images is not None:
@@ -5748,6 +5765,8 @@ def quick_update_supplier_product(data: QuickUpdateRequest):
                 tiles_update["images"] = data.images
             if data.is_featured is not None:
                 tiles_update["is_featured"] = data.is_featured
+            if "related_products" in update_fields:
+                tiles_update["related_products"] = update_fields["related_products"]
             
             if tiles_update:
                 tiles_update["updated_at"] = datetime.now(timezone.utc)
@@ -5769,6 +5788,58 @@ def quick_update_supplier_product(data: QuickUpdateRequest):
     except Exception as e:
         logger.error(f"Error in quick update: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/products/related-picker-search")
+def related_picker_search(q: str = "", limit: int = 12, exclude_sku: str = ""):
+    """Lightweight product search powering the Quick Edit 'Related Products' pin picker."""
+    import re as _re
+    if not q or len(q.strip()) < 2:
+        return {"results": []}
+    db = get_db()
+    rx = {"$regex": _re.escape(q.strip()), "$options": "i"}
+    query = {"$or": [
+        {"display_name": rx},
+        {"product_name": rx},
+        {"name": rx},
+        {"original_series": rx},
+        {"sku": rx},
+    ]}
+    limit = max(1, min(int(limit), 30))
+    projection = {
+        "sku": 1, "display_name": 1, "product_name": 1, "name": 1,
+        "our_product_name": 1, "original_series": 1, "range_name": 1,
+        "series": 1, "series_name": 1, "unique_name": 1,
+        "images": 1, "image": 1, "price": 1, "room_lot_price": 1, "supplier": 1,
+    }
+    # Search published tiles first (live on the storefront), then supplier_products.
+    docs = list(db.tiles.find(query, projection).limit(limit * 3)) + \
+           list(db.supplier_products.find(query, projection).limit(limit * 3))
+    results, seen = [], set()
+    for d in docs:
+        sku = d.get("sku") or ""
+        if not sku or sku in seen or (exclude_sku and sku == exclude_sku):
+            continue
+        seen.add(sku)
+        images = d.get("images") or []
+        results.append({
+            "sku": sku,
+            "display_name": d.get("display_name") or d.get("product_name") or d.get("name") or "",
+            "name": d.get("name") or "",
+            "product_name": d.get("product_name") or "",
+            "our_product_name": d.get("our_product_name") or "",
+            "original_series": d.get("original_series") or "",
+            "range_name": d.get("range_name") or "",
+            "series": d.get("series") or "",
+            "series_name": d.get("series_name") or "",
+            "unique_name": d.get("unique_name") or "",
+            "image": (images[0] if images else None) or d.get("image"),
+            "price": d.get("room_lot_price") or d.get("price") or 0,
+            "supplier": d.get("supplier") or "",
+        })
+        if len(results) >= limit:
+            break
+    return {"results": results}
 
 
 # ============================================================

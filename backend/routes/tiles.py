@@ -1922,11 +1922,36 @@ async def _get_collection_products_impl(
     })
 
 
+def _resolve_pin_card(db, entry):
+    """Resolve an admin-pinned related product entry into a landing-page card."""
+    sku = entry.get("sku")
+    if not sku:
+        return None
+    doc = db.tiles.find_one({"sku": sku}) or db.supplier_products.find_one({"sku": sku})
+    p_series = (entry.get("series_name") or "").strip()
+    if not p_series and doc:
+        nm = doc.get("display_name") or doc.get("name") or doc.get("product_name") or ""
+        p_series = nm.split()[0] if nm.split() else ""
+    if not p_series:
+        return None
+    images = (doc.get("images") or []) if doc else []
+    attrs = (doc.get("attributes") or {}) if doc else {}
+    return {
+        "series_name": p_series,
+        "image": entry.get("image") or (images[0] if images else (doc.get("image") if doc else None)),
+        "price": (doc.get("room_lot_price") or doc.get("price") or 0) if doc else 0,
+        "finish": (doc.get("finish") or attrs.get("finish") or "") if doc else "",
+        "material": (doc.get("material") or attrs.get("material") or "") if doc else "",
+        "pinned": True,
+        "pin_kind": entry.get("kind", "also_liked"),
+    }
+
+
 @router.get("/related/{series_name:path}")
 @bulletproof_endpoint(
     cache_namespace="tiles_related",
-    empty_check=lambda r: not (isinstance(r, dict) and (r.get("related_products") or r.get("related_series"))),
-    empty_fallback={"related_products": [], "related_series": []},
+    empty_check=lambda r: not (isinstance(r, dict) and (r.get("related_products") or r.get("related_series") or r.get("pinned_you_may_need"))),
+    empty_fallback={"related_products": [], "related_series": [], "pinned_you_may_need": []},
 )
 async def get_related_products(
     series_name: str,
@@ -1947,8 +1972,55 @@ async def get_related_products(
         ]
     }).limit(10))
     
+    # Admin-pinned related products (Quick Edit → Related Products) — gathered
+    # from supplier_products across every SKU in this series.
+    pin_entries = []
+    _seen_pins = set()
+    try:
+        pin_docs = db.supplier_products.find({
+            "$or": [
+                {"display_name": {"$regex": f"^{re.escape(series_name)}", "$options": "i"}},
+                {"product_name": {"$regex": f"^{re.escape(series_name)}", "$options": "i"}},
+                {"name": {"$regex": f"^{re.escape(series_name)}", "$options": "i"}},
+                {"original_series": {"$regex": f"^{re.escape(series_name)}$", "$options": "i"}},
+            ],
+            "related_products.0": {"$exists": True},
+        }, {"related_products": 1}).limit(25)
+        for pd in pin_docs:
+            for entry in (pd.get("related_products") or []):
+                key = (entry.get("sku"), entry.get("kind", "also_liked"))
+                if not entry.get("sku") or key in _seen_pins:
+                    continue
+                _seen_pins.add(key)
+                pin_entries.append(entry)
+        # Also honour pins synced onto the tiles docs themselves.
+        for pd in current_products:
+            for entry in (pd.get("related_products") or []):
+                key = (entry.get("sku"), entry.get("kind", "also_liked"))
+                if not isinstance(entry, dict) or not entry.get("sku") or key in _seen_pins:
+                    continue
+                _seen_pins.add(key)
+                pin_entries.append(entry)
+    except Exception:
+        pin_entries = []
+
+    pinned_also_liked = []
+    pinned_you_may_need = []
+    for entry in pin_entries:
+        card = _resolve_pin_card(db, entry)
+        if not card or card["series_name"].lower() == series_name.lower():
+            continue
+        bucket = pinned_you_may_need if card["pin_kind"] == "you_may_need" else pinned_also_liked
+        if not any(c["series_name"].lower() == card["series_name"].lower() for c in bucket):
+            bucket.append(card)
+
     if not current_products:
-        return {"related_products": [], "related_series": []}
+        return {
+            "related_products": [],
+            "related_series": pinned_also_liked,
+            "pinned_you_may_need": pinned_you_may_need,
+            "current_series": series_name,
+        }
     
     # Collect attributes from current products
     materials = set()
@@ -2062,11 +2134,14 @@ async def get_related_products(
                 "material": p.get('material') or p.get('attributes', {}).get('material', '')
             }
     
-    # Return limited unique series
-    related_series = list(series_map.values())[:limit]
+    # Return limited unique series — admin pins first, auto-matches fill the rest.
+    pinned_names = {c["series_name"].lower() for c in pinned_also_liked}
+    auto_series = [s for s in series_map.values() if s["series_name"].lower() not in pinned_names]
+    related_series = (pinned_also_liked + auto_series)[:max(limit, len(pinned_also_liked))]
     
     return {
         "related_series": related_series,
+        "pinned_you_may_need": pinned_you_may_need,
         "current_series": series_name,
         "matching_criteria": {
             "materials": list(materials),

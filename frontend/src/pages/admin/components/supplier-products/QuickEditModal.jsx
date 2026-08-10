@@ -58,6 +58,7 @@ const QuickEditModal = ({
   saleAndDescriptionSlot,
   previewSlot,
   variantsSlot,
+  relatedSlot,
 }) => {
   if (!product) return null;
 
@@ -501,6 +502,15 @@ const QuickEditModal = ({
           {variantsSlot && (
             <div className="pt-2 border-t">
               {variantsSlot}
+            </div>
+          )}
+
+          {/* Optional Related Products slot — injected by QuickEditProductDrawer
+              so admins can hand-pick the "Customers Also Liked" and "You May
+              Also Need" carousels on the customer landing page. */}
+          {relatedSlot && (
+            <div className="pt-2 border-t">
+              {relatedSlot}
             </div>
           )}
 

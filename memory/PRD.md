@@ -46,10 +46,7 @@ After a full audit mapping each Moonstone landing-page element to admin-editable
    - `variant_display_order` to control chip ordering.
    - Frontend UI: a "Variants" collapsible in Quick Edit letting admin see + link sibling SKUs. Optional: a "Auto-Group from Series" button that finds candidate variants via series+dimension similarity.
 
-6. **Related products manual pinning** — "Customers Also Liked" (typically another product) and "You May Also Need" (adhesive/tools cross-sells). Requires:
-   - `related_products` array field on `supplier_products` with `{sku, kind}` entries.
-   - Frontend UI: a "Related Products" collapsible in Quick Edit with a search-and-add picker.
-   - Backend: sync into the landing-page rendering pipeline.
+6. **Related products manual pinning** — ✅ SHIPPED 10 Aug 2026 (see CHANGELOG.md). "Customers Also Liked" and "You May Also Need" pin picker inside Quick Edit ("Related Products" amber panel). Backend: `related_products` array on `supplier_products` + `/api/supplier-sync/products/related-picker-search` + pins-first merge in `/api/tiles/related/{series}` (`pinned:true` + `pinned_you_may_need`). Storefront renders Staff Pick badge / Hand-Picked pill.
 
 7. **Country flag preview** — auto-map `country_of_origin` value → 🇮🇹 unicode flag in the Quick Edit More Specs. Trivial; small polish.
 

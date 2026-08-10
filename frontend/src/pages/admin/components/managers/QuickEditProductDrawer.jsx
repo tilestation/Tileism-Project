@@ -19,7 +19,7 @@
  */
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { toast } from 'sonner';
-import { ChevronDown, ChevronRight, Sliders, Tag, ExternalLink, Percent, FileText, Eye, Layers, Palette, Ruler, Sparkles, Link2, PenLine, X as XIcon } from 'lucide-react';
+import { ChevronDown, ChevronRight, Sliders, Tag, ExternalLink, Percent, FileText, Eye, Layers, Palette, Ruler, Sparkles, Link2, PenLine, X as XIcon, Pin, Search, Heart, PackagePlus } from 'lucide-react';
 import QuickEditModal from '../supplier-products/QuickEditModal';
 import { getSeriesName } from '../../lib/series';
 
@@ -80,6 +80,14 @@ const QuickEditProductDrawer = ({ open, onOpenChange, product, onSaved, previewI
   const [variantSelected, setVariantSelected] = useState({});  // {sku: true} for candidates
   const [variantsLoading, setVariantsLoading] = useState(false);
   const [variantsBusy, setVariantsBusy] = useState(false);
+  // Related Products panel — admin-pinned "Customers Also Liked" and
+  // "You May Also Need" entries. Stored on the doc as `related_products`.
+  const [relatedOpen, setRelatedOpen] = useState(false);
+  const [relatedPins, setRelatedPins] = useState([]);
+  const [relatedQuery, setRelatedQuery] = useState('');
+  const [relatedResults, setRelatedResults] = useState([]);
+  const [relatedSearching, setRelatedSearching] = useState(false);
+  const relatedDebounceRef = useRef(null);
   const debounceRef = useRef(null);
 
   // Preview images fallback if the caller didn't supply one
@@ -139,6 +147,11 @@ const QuickEditProductDrawer = ({ open, onOpenChange, product, onSaved, previewI
     setVariantMembers([]);
     setVariantCandidates([]);
     setVariantSelected({});
+    // Reset the Related Products panel + seed pins from the product doc.
+    setRelatedOpen(false);
+    setRelatedPins(Array.isArray(product.related_products) ? product.related_products.map(p => ({ ...p })) : []);
+    setRelatedQuery('');
+    setRelatedResults([]);
     fetchCategorySuggestions();
   }, [open, product]);
 
@@ -209,6 +222,13 @@ const QuickEditProductDrawer = ({ open, onOpenChange, product, onSaved, previewI
         was_price: form.was_price === '' ? null : parseFloat(form.was_price),
         sale_price: form.sale_price === '' ? null : parseFloat(form.sale_price),
         description: form.description,
+        related_products: relatedPins.map(p => ({
+          sku: p.sku,
+          kind: p.kind,
+          series_name: p.series_name || '',
+          display_name: p.display_name || '',
+          image: p.image || null,
+        })),
       };
       const res = await fetch(`${API_URL}/api/supplier-sync/products/quick-update`, {
         method: 'PUT',
@@ -1078,6 +1098,187 @@ const QuickEditProductDrawer = ({ open, onOpenChange, product, onSaved, previewI
     </div>
   );
 
+  // === Related Products panel ===========================================
+  const onRelatedQueryChange = (q) => {
+    setRelatedQuery(q);
+    if (relatedDebounceRef.current) clearTimeout(relatedDebounceRef.current);
+    if (!q || q.trim().length < 2) { setRelatedResults([]); return; }
+    relatedDebounceRef.current = setTimeout(async () => {
+      setRelatedSearching(true);
+      try {
+        const sku = product ? (product.sku || product.supplier_code || '') : '';
+        const res = await fetch(`${API_URL}/api/supplier-sync/products/related-picker-search?q=${encodeURIComponent(q.trim())}&limit=12&exclude_sku=${encodeURIComponent(sku)}`);
+        if (res.ok) {
+          const data = await res.json();
+          setRelatedResults(data.results || []);
+        } else {
+          setRelatedResults([]);
+        }
+      } catch {
+        setRelatedResults([]);
+      } finally {
+        setRelatedSearching(false);
+      }
+    }, 300);
+  };
+
+  const addRelatedPin = (r, kind) => {
+    const series = getSeriesName(r) || r.series_name || '';
+    if (!series) { toast.error('Could not detect a series for this product'); return; }
+    const currentSeries = product ? getSeriesName(product) : '';
+    if (currentSeries && series.toLowerCase() === currentSeries.toLowerCase()) {
+      toast.error("That's this product's own series — pick a different one");
+      return;
+    }
+    const exists = relatedPins.some(p => p.kind === kind && (p.sku === r.sku || (p.series_name || '').toLowerCase() === series.toLowerCase()));
+    if (exists) { toast.info('Already pinned in that section'); return; }
+    setRelatedPins(prev => [...prev, {
+      sku: r.sku,
+      kind,
+      series_name: series,
+      display_name: r.display_name || r.name || '',
+      image: r.image || null,
+    }]);
+    toast.success(`Pinned to ${kind === 'also_liked' ? 'Customers Also Liked' : 'You May Also Need'}`);
+  };
+
+  const removeRelatedPin = (sku, kind) => {
+    setRelatedPins(prev => prev.filter(p => !(p.sku === sku && p.kind === kind)));
+  };
+
+  const PIN_KINDS = [
+    { kind: 'also_liked', label: 'Customers Also Liked', Icon: Heart, hint: 'similar-products carousel' },
+    { kind: 'you_may_need', label: 'You May Also Need', Icon: PackagePlus, hint: 'adhesives / tools cross-sells' },
+  ];
+
+  const relatedPanel = (
+    <div className="border border-amber-100 rounded-lg overflow-hidden" data-testid="quick-edit-related-panel">
+      <button
+        type="button"
+        onClick={() => setRelatedOpen(v => !v)}
+        className="w-full flex items-center gap-2 px-3 py-2 bg-amber-50 hover:bg-amber-100 text-left text-sm font-medium text-amber-800"
+        data-testid="related-toggle"
+      >
+        {relatedOpen ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+        <Pin className="w-4 h-4 text-amber-600" />
+        <span>Related Products</span>
+        <span className="ml-1 text-[10px] uppercase tracking-wider text-amber-500">
+          {relatedPins.filter(p => p.kind === 'also_liked').length} liked · {relatedPins.filter(p => p.kind === 'you_may_need').length} need
+        </span>
+      </button>
+      {relatedOpen && (
+        <div className="p-3 bg-white space-y-3 text-xs">
+          <div className="text-[11px] text-amber-700 bg-amber-50 border border-amber-100 rounded px-2 py-1.5">
+            Hand-pick what appears in <b>Customers Also Liked</b> and <b>You May Also Need</b> on the landing page.
+            Pins always show first; auto-suggestions fill the remaining slots.
+          </div>
+
+          {/* Search picker */}
+          <div className="relative">
+            <Search className="w-3.5 h-3.5 absolute left-2 top-1/2 -translate-y-1/2 text-gray-400" />
+            <input
+              type="text"
+              value={relatedQuery}
+              onChange={(e) => onRelatedQueryChange(e.target.value)}
+              placeholder="Search products to pin (name, series or SKU)…"
+              className="w-full h-8 text-xs border border-gray-300 rounded pl-7 pr-2"
+              data-testid="related-search-input"
+            />
+          </div>
+          {relatedSearching && <div className="text-[11px] text-gray-400">Searching…</div>}
+          {!relatedSearching && relatedQuery.trim().length >= 2 && relatedResults.length === 0 && (
+            <div className="text-[11px] text-gray-400" data-testid="related-search-empty">No products found for &quot;{relatedQuery}&quot;.</div>
+          )}
+          {relatedResults.length > 0 && (
+            <div className="border border-gray-200 rounded divide-y max-h-52 overflow-y-auto" data-testid="related-search-results">
+              {relatedResults.map(r => {
+                const rSeries = getSeriesName(r) || r.series_name || '';
+                return (
+                  <div key={r.sku} className="px-2 py-1.5 flex items-center gap-2" data-testid={`related-result-${r.sku}`}>
+                    {r.image ? (
+                      <img src={r.image} alt="" className="w-8 h-8 rounded object-cover border flex-shrink-0" />
+                    ) : (
+                      <div className="w-8 h-8 rounded bg-gray-100 border flex-shrink-0" />
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <div className="text-[11px] font-medium text-gray-800 truncate" title={r.display_name}>{r.display_name || r.sku}</div>
+                      <div className="text-[9px] text-gray-400 font-mono flex items-center gap-2">
+                        <span>{r.sku}</span>
+                        {rSeries && <span className="text-amber-600">→ {rSeries}</span>}
+                        {r.price > 0 && <span>£{Number(r.price).toFixed(2)}</span>}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => addRelatedPin(r, 'also_liked')}
+                      className="px-1.5 py-1 rounded border border-rose-200 text-rose-600 hover:bg-rose-50 text-[10px] font-semibold flex items-center gap-1 flex-shrink-0"
+                      title="Pin to Customers Also Liked"
+                      data-testid={`related-add-liked-${r.sku}`}
+                    >
+                      <Heart className="w-3 h-3" /> Liked
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => addRelatedPin(r, 'you_may_need')}
+                      className="px-1.5 py-1 rounded border border-amber-300 text-amber-700 hover:bg-amber-50 text-[10px] font-semibold flex items-center gap-1 flex-shrink-0"
+                      title="Pin to You May Also Need"
+                      data-testid={`related-add-need-${r.sku}`}
+                    >
+                      <PackagePlus className="w-3 h-3" /> Need
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Pinned lists */}
+          {PIN_KINDS.map(({ kind, label, Icon, hint }) => {
+            const pins = relatedPins.filter(p => p.kind === kind);
+            return (
+              <div key={kind} className="border border-gray-200 rounded overflow-hidden" data-testid={`related-pins-${kind}`}>
+                <div className="px-2 py-1 bg-gray-50 border-b border-gray-200 text-[10px] uppercase tracking-wider font-semibold text-gray-600 flex items-center gap-1">
+                  <Icon className="w-3 h-3" />
+                  {label} ({pins.length})
+                  <span className="ml-1 normal-case tracking-normal font-normal text-gray-400">— {hint}</span>
+                </div>
+                {pins.length === 0 ? (
+                  <div className="px-2 py-2 text-[11px] text-gray-400">Nothing pinned — customers see auto-suggestions.</div>
+                ) : (
+                  <div className="divide-y">
+                    {pins.map(p => (
+                      <div key={`${p.kind}-${p.sku}`} className="px-2 py-1.5 flex items-center gap-2" data-testid={`related-pin-${p.kind}-${p.sku}`}>
+                        {p.image ? (
+                          <img src={p.image} alt="" className="w-7 h-7 rounded object-cover border flex-shrink-0" />
+                        ) : (
+                          <div className="w-7 h-7 rounded bg-gray-100 border flex-shrink-0" />
+                        )}
+                        <div className="min-w-0 flex-1">
+                          <div className="text-[11px] font-medium text-gray-800 truncate">{p.series_name || p.display_name}</div>
+                          <div className="text-[9px] text-gray-400 font-mono truncate">{p.display_name} · {p.sku}</div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => removeRelatedPin(p.sku, p.kind)}
+                          className="p-1 text-rose-600 hover:bg-rose-50 rounded flex-shrink-0"
+                          title="Unpin"
+                          data-testid={`related-pin-remove-${p.kind}-${p.sku}`}
+                        >
+                          <XIcon className="w-3 h-3" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+          <div className="text-[10px] text-gray-400">Pins save with the product when you hit Save Changes below.</div>
+        </div>
+      )}
+    </div>
+  );
+
   return (
     <QuickEditModal
       open={open}
@@ -1106,6 +1307,7 @@ const QuickEditProductDrawer = ({ open, onOpenChange, product, onSaved, previewI
       saleAndDescriptionSlot={saleAndDescriptionPanel}
       previewSlot={previewPanel}
       variantsSlot={variantsPanel}
+      relatedSlot={relatedPanel}
     />
   );
 };

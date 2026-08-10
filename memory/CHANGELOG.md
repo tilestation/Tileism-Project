@@ -3401,3 +3401,33 @@ The endpoint that powers the frontend `useNewOrderNotifier` hook (polls every 10
   - New "HIDDEN:" strip below chip row shows all hidden suppliers with a small `~~Name~~ ↶ restore` button so the delete is reversible
 
 **Verified end-to-end** — delete Regulus → chip disappears immediately, Hidden strip appears with restore link. Restore → chip returns, strip disappears. State survives page reloads and works across browsers.
+
+
+---
+
+## 10 Aug 2026 — Related Products Pinning (Phase 3 of Landing-Page Parity)
+
+### Owner ask
+"Related Products pinning — 'Customers Also Liked' / 'You May Also Need' picker inside Quick Edit. DO THIS"
+
+### Delivered
+**Backend** (`routes/supplier_sync.py` + `routes/tiles.py`):
+- `QuickUpdateRequest.related_products` — array of `{sku, kind: 'also_liked'|'you_may_need', series_name, display_name, image}`; sanitized on write, empty list clears pins. Persists to `supplier_products` and mirrors to `tiles` when `show_on_website=true`.
+- NEW `GET /api/supplier-sync/products/related-picker-search?q=&limit=&exclude_sku=` — lightweight picker search across BOTH `tiles` (published first) and `supplier_products`, deduped by SKU, returns raw series fields so the frontend computes series via the shared `getSeriesName` helper.
+- `GET /api/tiles/related/{series}` — gathers pins from every SKU in the series (supplier_products + tiles docs), resolves each via `_resolve_pin_card`, returns pinned entries FIRST in `related_series` (flagged `pinned:true`) plus a new `pinned_you_may_need` array. Bulletproof empty_check/fallback updated. 60s response cache still applies.
+
+**Admin UI** (`QuickEditProductDrawer.jsx` + `QuickEditModal.jsx` new `relatedSlot`):
+- Amber collapsible "Related Products" panel (header count "X liked · Y need") below Variants in Quick Edit — Manager pages only, same pattern as Variants.
+- Debounced search picker with per-result "+ Liked" / "+ Need" buttons, duplicate/self-series guards with toasts, pinned lists per section with unpin buttons. Pins save with the main Save Changes round-trip.
+- data-testids: quick-edit-related-panel, related-toggle, related-search-input, related-search-results, related-add-liked-{sku}, related-add-need-{sku}, related-pin-{kind}-{sku}, related-pin-remove-{kind}-{sku}.
+
+**Storefront** (`CollectionDetailPage.js` + `CrossSellSections.jsx`):
+- "Customers Also Liked": pinned series render first with an amber "Staff Pick" badge (data-testid staff-pick-badge).
+- "You May Also Need": accepts `pinnedItems`, resolves each pinned series via `/api/tiles/collection/{series}` and renders them first with a "Hand-Picked" label pill + "Recommended for this product" subtext; auto cross-group suggestions fill remaining slots, deduped.
+
+### Testing
+- iteration_222.json — 100% pass (5/5 backend pytest at `/app/backend/tests/test_related_products_pinning.py`, all admin + storefront flows verified incl. persistence round-trip, duplicate guard, Staff Pick badge, Hand-Picked pill, and regression on Sale/Description/More Specs/Variants panels).
+- Test fixture: LP-6611 (TestSeries) pinned with BLUE-GR-60 (also_liked) + TSM-100-0100 (you_may_need).
+
+### Note
+- Storefront reflects pin changes within ~60s (bulletproof cache). Consider cache invalidation on save if instant preview is ever requested.
