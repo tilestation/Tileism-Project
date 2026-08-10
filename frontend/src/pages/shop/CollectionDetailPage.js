@@ -477,6 +477,14 @@ const CollectionDetailPage = () => {
     const color = (getProductColor(product) || '').trim();
     const finish = (product?.finish || product?.attributes?.finish || '').trim();
 
+    // Unit products (cleaners, adhesives — size like "1L"/"20kg", not "60x60",
+    // or materials/tools groups): each product is a distinct item, so the Type
+    // chip shows the name EXACTLY as saved in Supplier Products — no stripping.
+    const sizeVal = (product?.size || product?.attributes?.size || '').trim();
+    const groupVal = String(product?.product_group || product?.main_category || '').toLowerCase();
+    const dimensional = /\d+\s*x\s*\d+/i.test(sizeVal);
+    if (!dimensional && (sizeVal || ['materials', 'tools', 'accessories'].includes(groupVal))) return name;
+
     let remaining = name;
     // Remove series prefix
     if (seriesName) {

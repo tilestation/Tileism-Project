@@ -1348,14 +1348,16 @@ async def _get_tile_collections_impl(
                 variant_label = color
                 variant_type = "color"
             else:
-                # Name mode: use first word of display name
+                # Name mode: each product is its own variant — use the FULL
+                # display name (exactly as saved in admin) so distinct items
+                # don't collapse into one first-word bucket.
                 display_name = product.get("display_name") or product.get("name") or ""
-                first_word = display_name.strip().split()[0] if display_name.strip() else ""
-                variant_label = first_word.lower() if first_word else ""
+                variant_label = display_name.strip()
                 variant_type = "name"
             
-            if variant_label and variant_label not in seen_variants and images:
-                seen_variants.add(variant_label)
+            dedupe_key = variant_label.lower() if variant_label else ""
+            if dedupe_key and dedupe_key not in seen_variants and images:
+                seen_variants.add(dedupe_key)
                 color_swatches.append({
                     "color": variant_label,
                     "hex": get_color_hex(variant_label) if color else None,

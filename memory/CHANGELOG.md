@@ -3674,3 +3674,19 @@ Self-tested: backend unit cases + screenshot of /admin/product-name-sanity (inpu
 2. **Preview naming bug (user's Ultra Tile screenshots)**: BulkPreviewModal + QuickEdit slot builders were taking RAW original_series/range_name fields, bypassing series.js `looksLikeCleanSeriesName` — dirty per-product values ("UT TILE XTREME 1L - UltraTile ProClean...") produced 6 long chips + wrong H1. Now both use `getSeriesName(p)` (the exact helper managers use for group headers) → one "Ultra Tile Cleaning & Maintenance" collection slot, H1 matches the manager group.
 3. **Draft card names**: tiles.py draft merge no longer appends size — cards show the SP name EXACTLY (was "Xtreme Cleaner 1 Litre 1l").
 - Self-tested e2e: dirty-range_name fixture → ONE slot, H1 "ULTRA TILE CLEANING & MAINTENANCE", exact SP names in variant box + draft banner; adopt of ADH-001 verified then reverted. Test mutations restored.
+
+---
+
+## 11 Aug 2026 — Variant detail on collection cards + exact names everywhere
+### User complaints (prod screenshots)
+1. Ultra Tile Cleaning card on /tiles showed only "3 VARIANTS" (6 products) with vague labels.
+2. PDP showed "Xtreme Cleaner 1 Litre 1l" — where's "1l" from? Wants names EXACTLY as in Supplier Products.
+
+### Root causes + fixes
+- **tiles.py collections aggregation (~line 1350)**: name-mode variants deduped by FIRST WORD (3× ProClean → 1). Now: full display name per product, lowercase dedupe → all 6 variants with full labels; variant_count correct.
+- **supplier_sync.py publish (~line 2550)**: publish appended size when not a naive substring of the name ("1l" not in "1 Litre") → " 1l" suffixes stored in tiles. Now: tile name = admin name EXACTLY (str(base_name).strip()), slug from exact name.
+- **CollectionDetailPage getStyleLabel (~line 480)**: Type chips stripped the first word of names for colour-less products ("UT EASY CLEAN"→"EASY CLEAN"). Now: unit products (non-dimensional size, or materials/tools/accessories group) return the name EXACTLY.
+- **TileCollectionsPage swatch labels**: truncate → line-clamp-2 + title tooltip for full-name variant labels.
+
+### Testing (self-tested, curl + 3 screenshots)
+Local repro published the 6 ULT-* products: card shows "6 VARIANTS" with 6 full-name thumbs; PDP Type chips show all 6 exact names; stored tile names have NO size suffix. NOTE for prod: user must re-Publish the 6 cleaning products after deploy to strip the stored " 1l" suffixes (SP names already correct).

@@ -2547,11 +2547,9 @@ def publish_supplier_products_to_website(
                 base_name = sp.get('our_product_name') or sp.get('product_name') or sp.get('display_name') or sp.get('name', 'Unknown Product')
                 original_name = sp.get('name', 'Unknown Product')
                 
-                # If the base name doesn't already contain the size, append it for uniqueness
-                product_size = sp.get('size') or ''
-                name = base_name
-                if product_size and product_size.lower() not in base_name.lower():
-                    name = f"{base_name} {product_size}"
+                # Use the admin-saved name EXACTLY as it appears in Supplier
+                # Products — no size suffix (size renders separately on the site).
+                name = str(base_name).strip()
                 
                 # Get or generate display_code
                 display_code = sp.get('display_code')

@@ -829,7 +829,7 @@ export const CollectionCard = ({
                         }}
                       />
                     </div>
-                    <span className="text-[11px] text-gray-500 mt-1 leading-tight text-center max-w-[60px] truncate">
+                    <span className="text-[11px] text-gray-500 mt-1 leading-tight text-center max-w-[64px] break-words line-clamp-2" title={colorName}>
                       {colorName}
                     </span>
                   </div>
