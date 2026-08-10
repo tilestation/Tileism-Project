@@ -3639,3 +3639,17 @@ NEVER run multiple search_replace edits on the SAME file in one parallel batch �
 
 ### Testing
 - iteration_228: 5/5 backend pytest + all frontend flows PASS (100%). Fixture TEST-DRAFT-PO1 left unpublished with clean values.
+
+---
+
+## 10 Aug 2026 (v.late) — Name Sanity: false "Missing colour" fix + manual editing
+
+### Bug
+Scanner compared raw colour slugs (`cosmic-black`) against names ("Cosmic Black") → false "missing_color" flags. Same class of issue for sizes ("60x60" vs "60 x 60") and gray/grey.
+
+### Fixes
+- `product_name_sanity.py`: new `_norm_text()` (lowercase, non-alnum→space, gray→grey) used by `_scan_issues` (colour + size space-stripped) and `build_suggested_name` (space-stripped presence + humanises slugs before appending). Unit-tested: user's 3 ProPave Grout products now CLEAN; genuine gaps still flag.
+- **Manual edit UX** in BOTH `ProductNameSanity.jsx` (full page) and `NameSanityDrawer.jsx` (Supplier Products drawer): the editable input is now primed with the CURRENT name (not the suggestion); Save (renamed from Apply) stays disabled until the admin actually edits; a violet wand button + hint row loads the suggestion opt-in. "Auto-fix all" unchanged (explicit + confirmed).
+
+### Testing
+Self-tested: backend unit cases + screenshot of /admin/product-name-sanity (input primed with current name, Save gating, wand present). Drawer variant = identical mechanical edits, webpack compiles clean.

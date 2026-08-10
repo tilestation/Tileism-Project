@@ -107,7 +107,7 @@ const NameSanityDrawer = ({ open, onClose, defaultSupplier = '', onRenamed, sele
   }, [defaultSupplier, open]);
 
   const applyOne = async (row, override) => {
-    const newName = (override ?? suggestedEdits[row.sku] ?? row.suggested_name).trim();
+    const newName = (override ?? suggestedEdits[row.sku] ?? row.product_name).trim();
     if (!newName || newName === row.product_name) {
       toast.info('Nothing to change');
       return;
@@ -762,14 +762,14 @@ const NameSanityDrawer = ({ open, onClose, defaultSupplier = '', onRenamed, sele
                     <th className="px-3 py-2 font-medium">Current name</th>
                     <th className="px-3 py-2 font-medium w-56">Issues</th>
                     <th className="px-3 py-2 font-medium w-48">Fields</th>
-                    <th className="px-3 py-2 font-medium">Suggested (editable)</th>
+                    <th className="px-3 py-2 font-medium">New name (edit &amp; save)</th>
                     <th className="px-3 py-2 font-medium text-right w-40">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
                   {visibleRows.map(row => {
                     const busy = !!rowSaving[row.sku];
-                    const currentEdit = suggestedEdits[row.sku] ?? row.suggested_name;
+                    const currentEdit = suggestedEdits[row.sku] ?? row.product_name;
                     const willChange = currentEdit && currentEdit !== row.product_name;
                     return (
                       <tr key={row.sku} className={busy ? 'opacity-50' : ''} data-testid={`pns-row-${row.sku}`}>
@@ -804,12 +804,31 @@ const NameSanityDrawer = ({ open, onClose, defaultSupplier = '', onRenamed, sele
                           {!row.color && !row.size && !row.finish && <div className="text-gray-300">no attributes</div>}
                         </td>
                         <td className="px-3 py-2 align-top">
-                          <Input
-                            value={currentEdit}
-                            onChange={(e) => setSuggestedEdits(prev => ({ ...prev, [row.sku]: e.target.value }))}
-                            className="h-8 text-xs"
-                            data-testid={`pns-suggest-${row.sku}`}
-                          />
+                          <div className="flex items-center gap-1">
+                            <Input
+                              value={currentEdit}
+                              onChange={(e) => setSuggestedEdits(prev => ({ ...prev, [row.sku]: e.target.value }))}
+                              className="h-8 text-xs"
+                              data-testid={`pns-suggest-${row.sku}`}
+                            />
+                            {row.suggested_name && row.suggested_name !== currentEdit && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => setSuggestedEdits(prev => ({ ...prev, [row.sku]: row.suggested_name }))}
+                                className="h-8 px-2 flex-shrink-0"
+                                title={`Use suggestion: ${row.suggested_name}`}
+                                data-testid={`pns-use-suggestion-${row.sku}`}
+                              >
+                                <Wand2 className="w-3 h-3 text-violet-500" />
+                              </Button>
+                            )}
+                          </div>
+                          {row.suggested_name && row.suggested_name !== currentEdit && (
+                            <div className="mt-0.5 text-[10px] text-gray-400 truncate max-w-[300px]" title={row.suggested_name}>
+                              suggestion: {row.suggested_name}
+                            </div>
+                          )}
                         </td>
                         <td className="px-3 py-2 text-right whitespace-nowrap align-top">
                           <Button
@@ -819,7 +838,7 @@ const NameSanityDrawer = ({ open, onClose, defaultSupplier = '', onRenamed, sele
                             className="h-7 text-[11px] bg-emerald-600 hover:bg-emerald-700 text-white mr-1"
                             data-testid={`pns-apply-${row.sku}`}
                           >
-                            {busy ? <RefreshCw className="w-3 h-3 animate-spin" /> : <><Save className="w-3 h-3 mr-1" />Apply</>}
+                            {busy ? <RefreshCw className="w-3 h-3 animate-spin" /> : <><Save className="w-3 h-3 mr-1" />Save</>}
                           </Button>
                           <Button
                             size="sm"
@@ -845,7 +864,7 @@ const NameSanityDrawer = ({ open, onClose, defaultSupplier = '', onRenamed, sele
         {/* Footer hint */}
         <div className="text-[11px] text-gray-500 flex items-center gap-2 justify-center py-2 border-t border-gray-200 bg-white">
           <Wand2 className="w-3 h-3" />
-          Suggested names are built from <code>product_name + color + size + finish</code>. Edit inline before Apply.
+          Edit any name directly and click <b>Save</b> — nothing changes until you save. The <Wand2 className="w-3 h-3 inline text-violet-500" /> button loads the auto-suggestion (built from <code>product_name + color + size + finish</code>) if you want it.
         </div>
       </div>
     </div>

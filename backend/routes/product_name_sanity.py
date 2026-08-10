@@ -52,6 +52,14 @@ def _first(field_value) -> str:
     return ""
 
 
+def _norm_text(s: str) -> str:
+    """Normalise for comparison: lowercase, non-alphanumerics → space, gray→grey.
+    Makes 'cosmic-black' match 'Cosmic Black' and 'Storm_Grey' match 'storm gray'."""
+    out = re.sub(r"[^a-z0-9]+", " ", str(s or "").lower()).strip()
+    out = re.sub(r"\s+", " ", out).replace("gray", "grey")
+    return out
+
+
 def _scan_issues(doc: dict) -> List[str]:
     name = str(doc.get("product_name") or doc.get("name") or "").strip()
     sku  = str(doc.get("sku") or doc.get("supplier_code") or "").strip()
@@ -67,9 +75,10 @@ def _scan_issues(doc: dict) -> List[str]:
         issues.append("just_sku")
     if " " not in name and len(name) < 15 and name:
         issues.append("single_word")
-    if color and color.lower() not in name.lower():
+    name_norm = _norm_text(name)
+    if color and _norm_text(color) and _norm_text(color) not in name_norm:
         issues.append("missing_color")
-    if size and size.lower() not in name.lower().replace(" ", ""):
+    if size and _norm_text(size).replace(" ", "") and _norm_text(size).replace(" ", "") not in name_norm.replace(" ", ""):
         issues.append("missing_size")
     if any(tok in name.upper() for tok in _PLACEHOLDER_TOKENS):
         issues.append("has_placeholder")
@@ -111,8 +120,12 @@ def build_suggested_name(doc: dict) -> str:
 
     parts = [base]
     for extra in (_clean_extra(color), _clean_extra(size), _clean_extra(finish)):
-        if extra and extra.lower() not in " ".join(parts).lower():
-            parts.append(extra)
+        if not extra:
+            continue
+        # Space-stripped normalised presence check — 'cosmic-black' counts as
+        # present when the name says 'Cosmic Black'; '60x60' matches '60 x 60'.
+        if _norm_text(extra) and _norm_text(extra).replace(" ", "") not in _norm_text(" ".join(parts)).replace(" ", ""):
+            parts.append(re.sub(r"[-_]+", " ", extra).strip())
 
     suggested = " ".join(parts).strip()
     # Title-case but keep numeric/measurement tokens (like "12mm", "60x60") as-is
