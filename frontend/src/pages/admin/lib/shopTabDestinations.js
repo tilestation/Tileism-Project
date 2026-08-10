@@ -18,12 +18,12 @@ export const fetchShopTabDestinations = async (force = false) => {
 
 export const clearShopTabDestinationsCache = () => { cache = null; };
 
-// Map of lowercased category_name -> { label, groupSlug } for quick chip lookups.
+// Map of lowercased category_name -> { label, groupSlug, name } for quick chip lookups.
 export const buildDestinationMap = (pages) => {
   const map = new Map();
   (pages || []).forEach(page => (page.tabs || []).forEach(tab => {
     if (tab.assignable && tab.category_name) {
-      map.set(tab.category_name.toLowerCase(), { label: tab.label, groupSlug: page.group_slug });
+      map.set(tab.category_name.toLowerCase(), { label: tab.label, groupSlug: page.group_slug, name: tab.category_name });
     }
   }));
   return map;

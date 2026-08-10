@@ -133,6 +133,15 @@ const ManagerPageShell = ({
     fetchShopTabDestinations().then(pages => setDestMap(buildDestinationMap(pages)));
   }, []);
 
+  // Gap filter — show only products not assigned to any shop tab
+  const [gapOnly, setGapOnly] = useState(false);
+  const [inheriting, setInheriting] = useState(false);
+  const hasShopTab = useCallback((p) => {
+    if (!destMap) return true;
+    return (Array.isArray(p.sub_categories) ? p.sub_categories : [])
+      .some(sc => destMap.has(String(sc).toLowerCase()));
+  }, [destMap]);
+
   // Per-product overrides for the Tier Pricing modal.
   // Shape: { 'supplier|||sku': { trade_discount?, credit_back_rate?, disabled? } }
   const [tierProductOverrides, setTierProductOverrides] = useState({});
@@ -304,8 +313,74 @@ const ManagerPageShell = ({
         return name.includes(q) || sku.includes(q) || supplier.includes(q);
       });
     }
+    // Gap filter — only products missing every shop-tab destination
+    if (gapOnly && destMap) {
+      list = list.filter(p => !hasShopTab(p));
+    }
     return list;
-  }, [products, subTab, filters, search, effectiveSubTabs, effectiveFilterFacets, facetCategory]);
+  }, [products, subTab, filters, search, effectiveSubTabs, effectiveFilterFacets, facetCategory, gapOnly, destMap, hasShopTab]);
+
+  const gapCount = useMemo(
+    () => (destMap ? products.filter(p => !hasShopTab(p)).length : 0),
+    [products, destMap, hasShopTab]
+  );
+
+  // Series inherit — copy the shop tabs already used by series siblings onto
+  // members that have none. Runs across ALL products in this Manager.
+  const runSeriesInherit = async () => {
+    if (!destMap) return;
+    const plan = [];
+    groupBySeries(products).forEach(g => {
+      if (!g.series || g.series === 'Individual') return;
+      const rows = g.products.map(p => ({
+        p,
+        tabs: (Array.isArray(p.sub_categories) ? p.sub_categories : [])
+          .map(sc => destMap.get(String(sc).toLowerCase()))
+          .filter(Boolean),
+      }));
+      const union = [...new Map(rows.flatMap(r => r.tabs).map(t => [t.name.toLowerCase(), t.name])).values()];
+      if (union.length === 0) return;
+      const gaps = rows.filter(r => r.tabs.length === 0).map(r => r.p);
+      if (gaps.length > 0) plan.push({ series: g.series, adds: union, gaps });
+    });
+    if (plan.length === 0) {
+      toast.info("No series found where some products have shop tabs and others don't");
+      return;
+    }
+    const totalProducts = plan.reduce((s, x) => s + x.gaps.length, 0);
+    const example = plan[0];
+    if (!window.confirm(
+      `Inherit shop tabs within ${plan.length} series?\n\n` +
+      `${totalProducts} product(s) with no shop tab will copy the tabs already used by their series siblings.\n\n` +
+      `Example: "${example.series}" → ${example.adds.join(', ')}`
+    )) return;
+    setInheriting(true);
+    let updated = 0;
+    let failed = 0;
+    for (const item of plan) {
+      try {
+        const res = await fetch(`${API_URL}/api/supplier-sync/products/assign-shop-tabs`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            skus: item.gaps.filter(p => p.sku).map(p => p.sku),
+            supplier_codes: item.gaps.filter(p => !p.sku && p.supplier_code).map(p => p.supplier_code),
+            add_categories: item.adds,
+            remove_categories: [],
+          }),
+        });
+        if (!res.ok) throw new Error();
+        const data = await res.json();
+        updated += data.updated || 0;
+      } catch {
+        failed += item.gaps.length;
+      }
+    }
+    setInheriting(false);
+    if (failed > 0) toast.error(`${updated} updated, ${failed} failed`);
+    else toast.success(`${updated} product(s) inherited their series' shop tabs`);
+    fetchProducts();
+  };
 
   // Group the filtered list by series (Ultra Tile Cleaning & Maintenance,
   // Dolomite Onyx, etc.) so each Manager renders the same "Series — N products"
@@ -478,6 +553,32 @@ const ManagerPageShell = ({
               <Layers className="w-3 h-3 mr-1" />
               {seriesCount} series
             </Badge>
+          )}
+          {/* Gap filter — spot + fix products missing every shop-tab destination */}
+          {destMap && gapCount > 0 && (
+            <button
+              type="button"
+              onClick={() => setGapOnly(v => !v)}
+              className={`inline-flex items-center gap-1 px-2 py-1 rounded-full border text-xs font-medium transition-colors ${gapOnly ? 'bg-amber-500 border-amber-500 text-white' : 'bg-amber-50 border-amber-200 text-amber-700 hover:bg-amber-100'}`}
+              title={gapOnly ? 'Showing only products with no shop tab — click to show all' : 'Show only products not assigned to any shop tab'}
+              data-testid={`${categoryKey}-gap-filter-btn`}
+            >
+              <AlertCircle className="w-3 h-3" />
+              {gapCount} no tab
+            </button>
+          )}
+          {destMap && gapCount > 0 && (
+            <button
+              type="button"
+              onClick={runSeriesInherit}
+              disabled={inheriting}
+              className="inline-flex items-center gap-1 px-2 py-1 rounded-full border border-sky-200 bg-sky-50 text-sky-700 hover:bg-sky-100 text-xs font-medium transition-colors disabled:opacity-50"
+              title="Products with no shop tab copy the tabs already used by their series siblings"
+              data-testid={`${categoryKey}-inherit-series-btn`}
+            >
+              <Layers className="w-3 h-3" />
+              {inheriting ? 'Inheriting…' : 'Inherit from series'}
+            </button>
           )}
           {/* View-mode toggle: Table vs Images (replaces the deleted
               /admin/supplier-images/:supplier page). */}

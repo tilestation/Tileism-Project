@@ -3517,3 +3517,33 @@ Shop tab URLs (/tiles?category={slug}) filter the storefront primarily by produc
 - QE checkbox state must be read via svg.lucide-check (custom button checkboxes, no input elements).
 - Use flooring group for create-tab testing (tiles group materializes defaults — restore = delete the whole 'shop' menu doc + created category).
 - Testing agent code-review backlog: extract shop-tabs endpoints to dedicated router; log when create reuses an existing category slug; console 403s on /api/analytics/* (unrelated).
+
+
+---
+
+## 10 Aug 2026 — Gap Filter, Series Tab Inherit, Preview Data Sync
+
+### Delivered
+**1. Gap Filter** (ManagerPageShell.jsx, frontend-only):
+- Amber "{N} no tab" pill next to the visible-count — toggles filteredProducts to products with zero tab-mapped sub_categories (hasShopTab via destMap). testids: {categoryKey}-gap-filter-btn.
+
+**2. Series Tab Inherit** (ManagerPageShell.jsx runSeriesInherit, frontend-driven):
+- "Inherit from series" sky pill — builds plan via the SAME groupBySeries grouping the table uses: for each series, union of tab-mapped categories across members; members with none get the union via per-series assign-shop-tabs POSTs. Native window.confirm shows series/product counts + example. buildDestinationMap now carries canonical `name`.
+- VERIFIED mutation path E2E with controlled fixture (removed Porcelain from 5225 → series "Premium Oak" became mixed → inherit re-added Porcelain+Floor Tiles → restored to snapshot exactly).
+
+**3. Preview Data Sync** (supplier_sync.py + WebsiteGlobalManager Section 4):
+- `GET /api/supplier-sync/preview-sync/export?collection&skip&limit` — open read-only paged dump, whitelist: supplier_products, tiles, website_categories, category_groups, navigation_menus, page_banners. ObjectIds cleaned recursively.
+- `POST /api/supplier-sync/preview-sync/pull` — admin-auth (Depends get_current_user + is_admin_user), guards: http scheme, SELF-PULL refusal (checks Host AND X-Forwarded-Host — plain Host is internal behind k8s ingress! bug found+fixed), connectivity ping with friendly "deploy today's update first" 400. Background task pages 500/doc, revives *_at ISO strings to datetime, delete_many+insert_many per collection, status doc in preview_sync_status (_id='status').
+- `GET /preview-sync/status` — polled by UI every 2s while running.
+- UI: Section 4 on /admin/website-structure — source input (default https://www.tilestation.co.uk), Pull Live Data + confirm warning, live per-collection progress dots.
+- FULL PIPELINE PROVEN via localhost self-run: 1581 supplier_products + 726 tiles + 64 cats + 6 groups + 3 menus + 1 banner, dates revived, data intact. Real prod pull works only AFTER user deploys today's build (export endpoint must exist on live).
+
+### Testing
+- iteration_226.json — 100% (backend 8/8 pytest /app/backend/tests/test_preview_sync.py; all UI flows).
+- Main agent additionally verified inherit mutation path via playwright (dialog accept) + snapshot restore.
+- Snapshot utility: /tmp/materials_subcat_snapshot.json (materials sub_categories baseline).
+
+### Code-review backlog (from testing agent)
+- delete_many+insert_many is destructive on partial failure — consider swap-collection strategy someday.
+- supplier_sync.py ~15k lines — extract preview-sync + shop-tabs routers (P3).
+- Consider PUBLIC_BACKEND_URL env in self-pull guard as extra belt-and-braces.

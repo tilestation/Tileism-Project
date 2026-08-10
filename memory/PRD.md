@@ -5,7 +5,7 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 
 ## Active Backlog (top priorities)
 - **P1 — Retire /admin/navigation-structure** once the user verifies the new Managers locations (Website pill + Storefront buttons, shipped 10 Aug 2026, iteration_223 100% pass). Removal is UI-only and safe for published products: all nav/banner/label/category data lives in DB collections consumed via APIs. Remove: lazy import + route in App.js, sidebar link, the 4.3k-line NavigationStructureManager.jsx.
-- P1 — Script to sync production DB showrooms/product data into the preview DB.
+- **NOTE — Preview Data Sync** (shipped 10 Aug 2026) only pulls from production AFTER the user deploys today's build to live (the export endpoint must exist there). Pipeline itself fully proven in preview.
 - P1 — Google Ads dashboard (waiting on Developer Token approval); Google Business Profile API (waiting on allowlist).
 - P2 — Mobile Showroom Booking System; custom domain on backend; cross-post engine; Houzz Pro.
 - Cleanup — two legacy 'TEST LINK → /test' rows sit at top of the live Main Menu (user can delete from Website tab).

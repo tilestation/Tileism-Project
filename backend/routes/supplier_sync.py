@@ -6000,6 +6000,153 @@ def create_shop_tab(data: CreateShopTabRequest):
 
 
 # ============================================================
+# PREVIEW DATA SYNC — pull live-site catalog data into this environment
+# ============================================================
+
+PREVIEW_SYNC_COLLECTIONS = [
+    "supplier_products", "tiles", "website_categories",
+    "category_groups", "navigation_menus", "page_banners",
+]
+
+
+def _clean_for_export(value):
+    from bson import ObjectId
+    if isinstance(value, ObjectId):
+        return str(value)
+    if isinstance(value, dict):
+        return {k: _clean_for_export(v) for k, v in value.items() if k != "_id"}
+    if isinstance(value, list):
+        return [_clean_for_export(v) for v in value]
+    return value
+
+
+@router.get("/preview-sync/export")
+def preview_sync_export(collection: str, skip: int = 0, limit: int = 500):
+    """Read-only paged dump of whitelisted catalog collections. Consumed by a
+    preview environment's pull endpoint to mirror live data for safe testing."""
+    if collection not in PREVIEW_SYNC_COLLECTIONS:
+        raise HTTPException(status_code=400, detail=f"Collection not allowed. Choose from: {', '.join(PREVIEW_SYNC_COLLECTIONS)}")
+    db = get_db()
+    limit = max(1, min(int(limit), 1000))
+    total = db[collection].count_documents({})
+    docs = [_clean_for_export(d) for d in db[collection].find({}).skip(max(0, int(skip))).limit(limit)]
+    return {"collection": collection, "total": total, "skip": skip, "count": len(docs), "docs": docs}
+
+
+class PreviewSyncPullRequest(BaseModel):
+    source_url: str
+    collections: List[str] = []
+
+
+def _revive_dates(doc):
+    from datetime import datetime as _dt
+    for k, v in list(doc.items()):
+        if isinstance(v, str) and (k.endswith("_at") or k in ("created", "updated")):
+            try:
+                doc[k] = _dt.fromisoformat(v)
+            except ValueError:
+                pass
+    return doc
+
+
+def _run_preview_sync(source_url: str, collections: List[str]):
+    import requests as _rq
+    from datetime import datetime, timezone
+    db = get_db()
+
+    def set_status(patch):
+        db.preview_sync_status.update_one({"_id": "status"}, {"$set": patch}, upsert=True)
+
+    db.preview_sync_status.replace_one({"_id": "status"}, {
+        "_id": "status", "state": "running", "source": source_url,
+        "started_at": datetime.now(timezone.utc).isoformat(),
+        "collections": {c: {"done": False, "count": 0} for c in collections},
+        "error": None,
+    }, upsert=True)
+    try:
+        for coll in collections:
+            fetched = []
+            skip = 0
+            while True:
+                r = _rq.get(
+                    f"{source_url}/api/supplier-sync/preview-sync/export",
+                    params={"collection": coll, "skip": skip, "limit": 500},
+                    timeout=90,
+                )
+                r.raise_for_status()
+                data = r.json()
+                docs = data.get("docs", [])
+                fetched.extend(docs)
+                skip += len(docs)
+                set_status({f"collections.{coll}.count": len(fetched)})
+                if not docs or skip >= data.get("total", 0):
+                    break
+            if fetched:
+                fetched = [_revive_dates(d) for d in fetched]
+                db[coll].delete_many({})
+                db[coll].insert_many(fetched)
+            set_status({f"collections.{coll}.done": True, f"collections.{coll}.count": len(fetched)})
+        set_status({"state": "done", "finished_at": datetime.now(timezone.utc).isoformat()})
+    except Exception as e:
+        set_status({"state": "error", "error": str(e)})
+
+
+@router.post("/preview-sync/pull")
+def preview_sync_pull(
+    data: PreviewSyncPullRequest,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    current_user: dict = Depends(get_current_user),
+):
+    """Kick off a background sync that REPLACES this environment's catalog
+    collections with the live site's data. Admin-only; refuses self-pull."""
+    if not is_admin_user(current_user):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    source = (data.source_url or "").strip().rstrip("/")
+    if not source.startswith("http"):
+        raise HTTPException(status_code=400, detail="source_url must start with http(s)://")
+    from urllib.parse import urlparse
+    src_host = (urlparse(source).netloc or "").lower()
+    # Behind the k8s ingress the Host header is internal — check forwarded headers too.
+    self_hosts = {
+        (request.headers.get("host") or "").lower(),
+        (request.headers.get("x-forwarded-host") or "").split(",")[0].strip().lower(),
+        (urlparse(os.environ.get("REACT_APP_BACKEND_URL", "")).netloc or "").lower(),
+    }
+    self_hosts.discard("")
+    if src_host and src_host in self_hosts:
+        raise HTTPException(status_code=400, detail="Source is this same site — refusing to sync into itself")
+    cols = [c for c in (data.collections or PREVIEW_SYNC_COLLECTIONS) if c in PREVIEW_SYNC_COLLECTIONS]
+    if not cols:
+        raise HTTPException(status_code=400, detail="No valid collections requested")
+    import requests as _rq
+    try:
+        ping = _rq.get(
+            f"{source}/api/supplier-sync/preview-sync/export",
+            params={"collection": "category_groups", "skip": 0, "limit": 1},
+            timeout=15,
+        )
+        if ping.status_code != 200:
+            raise HTTPException(status_code=400, detail=f"Live site responded {ping.status_code} — has today's update been deployed there yet?")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Could not reach {source}: {e}")
+    background_tasks.add_task(_run_preview_sync, source, cols)
+    return {"success": True, "message": "Sync started in the background", "collections": cols}
+
+
+@router.get("/preview-sync/status")
+def preview_sync_status():
+    db = get_db()
+    doc = db.preview_sync_status.find_one({"_id": "status"})
+    if not doc:
+        return {"state": "idle"}
+    doc.pop("_id", None)
+    return doc
+
+
+# ============================================================
 # BULK TIER PRICING UPDATE ENDPOINT
 # ============================================================
 

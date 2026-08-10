@@ -10,7 +10,7 @@
  */
 import React, { useState, useEffect } from 'react';
 import { toast } from 'sonner';
-import { Globe, Menu, Tag, Image as ImageIcon, Trash2, Plus, Store } from 'lucide-react';
+import { Globe, Menu, Tag, Image as ImageIcon, Trash2, Plus, Store, Download, RefreshCw } from 'lucide-react';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
 import ManagerTabsBar from './components/managers/ManagerTabsBar';
@@ -35,6 +35,7 @@ const SECTION_ACCENTS = {
   blue:   { box: 'border-blue-100',   head: 'bg-blue-50 border-blue-100',     num: 'bg-blue-600',   icon: 'text-blue-600',   title: 'text-blue-900',   hint: 'text-blue-500' },
   amber:  { box: 'border-amber-100',  head: 'bg-amber-50 border-amber-100',   num: 'bg-amber-600',  icon: 'text-amber-600',  title: 'text-amber-900',  hint: 'text-amber-500' },
   purple: { box: 'border-purple-100', head: 'bg-purple-50 border-purple-100', num: 'bg-purple-600', icon: 'text-purple-600', title: 'text-purple-900', hint: 'text-purple-500' },
+  emerald: { box: 'border-emerald-100', head: 'bg-emerald-50 border-emerald-100', num: 'bg-emerald-600', icon: 'text-emerald-600', title: 'text-emerald-900', hint: 'text-emerald-500' },
 };
 
 const Section = ({ number, icon: Icon, title, hint, accent, children, testid }) => {
@@ -58,6 +59,10 @@ export default function WebsiteGlobalManager() {
   const [labels, setLabels] = useState({ predefined: [], custom: [] });
   const [newLabel, setNewLabel] = useState({ value: '', label: '', color: 'gray', description: '' });
   const [labelSaving, setLabelSaving] = useState(false);
+  // Preview Data Sync
+  const [syncSource, setSyncSource] = useState('https://www.tilestation.co.uk');
+  const [syncStatus, setSyncStatus] = useState(null);
+  const [syncStarting, setSyncStarting] = useState(false);
 
   const authHeaders = () => {
     const token = localStorage.getItem('token');
@@ -82,6 +87,41 @@ export default function WebsiteGlobalManager() {
   };
 
   useEffect(() => { loadAll(); }, []);
+
+  // Preview Data Sync — poll status while a sync is running
+  const fetchSyncStatus = async () => {
+    try {
+      const res = await fetch(`${API_URL}/api/supplier-sync/preview-sync/status`);
+      if (res.ok) setSyncStatus(await res.json());
+    } catch { /* silent */ }
+  };
+  useEffect(() => { fetchSyncStatus(); }, []);
+  useEffect(() => {
+    if (syncStatus?.state !== 'running') return;
+    const t = setInterval(fetchSyncStatus, 2000);
+    return () => clearInterval(t);
+  }, [syncStatus?.state]);
+
+  const startSync = async () => {
+    const source = syncSource.trim();
+    if (!source) { toast.error('Enter your live site address first'); return; }
+    if (!window.confirm(
+      `⚠️ This REPLACES this preview's products, categories, navigation and banners with the data from:\n\n${source}\n\nYour live site is NOT touched — data only flows INTO this preview. Continue?`
+    )) return;
+    setSyncStarting(true);
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch(`${API_URL}/api/supplier-sync/preview-sync/pull`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        body: JSON.stringify({ source_url: source }),
+      });
+      if (!res.ok) { const err = await res.json().catch(() => ({})); toast.error(err.detail || 'Failed to start sync'); return; }
+      toast.success('Sync started — pulling live data into this preview…');
+      setSyncStatus({ state: 'running', collections: {} });
+    } catch { toast.error('Failed to start sync'); }
+    finally { setSyncStarting(false); }
+  };
 
   const saveMainNav = async () => {
     setNavSaving(true);
@@ -222,6 +262,55 @@ export default function WebsiteGlobalManager() {
         <Section number={3} icon={ImageIcon} title="Default Page Banner" hint="fallback hero for any page without its own banner" accent="purple" testid="website-default-banner-section">
           <BannerEditorCard scope="default" pageLabel="the site" testPrefix="website-default-banner" />
           <p className="text-[11px] text-gray-400 mt-2">Each category page can override this — open that category's Manager → <b>Storefront</b> → Page Banner.</p>
+        </Section>
+
+        {/* 4 · Preview Data Sync */}
+        <Section number={4} icon={Download} title="Preview Data Sync" hint="copy your live site's data into this preview for safer testing" accent="emerald" testid="website-preview-sync-section">
+          <div className="space-y-3">
+            <div className="text-[12px] text-gray-600 bg-gray-50 border border-gray-200 rounded px-3 py-2">
+              Pulls products, categories, navigation and banners <b>from your live site into this preview</b> so you can test with real data.
+              Your live site is never changed. Requires today's update to be deployed on the live site first.
+            </div>
+            <div className="flex flex-wrap items-end gap-2">
+              <div className="flex-1 min-w-[260px]">
+                <label className="block text-[11px] font-medium text-gray-600 mb-1">Live site address</label>
+                <Input value={syncSource} onChange={(e) => setSyncSource(e.target.value)} placeholder="https://www.tilestation.co.uk" className="h-8 text-sm font-mono" data-testid="preview-sync-source-input" />
+              </div>
+              <Button
+                type="button"
+                size="sm"
+                onClick={startSync}
+                disabled={syncStarting || syncStatus?.state === 'running'}
+                className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                data-testid="preview-sync-start-btn"
+              >
+                <Download className="w-3.5 h-3.5 mr-1" />
+                {syncStatus?.state === 'running' ? 'Syncing…' : (syncStarting ? 'Starting…' : 'Pull Live Data')}
+              </Button>
+            </div>
+            {syncStatus && syncStatus.state !== 'idle' && (
+              <div className="border border-gray-200 rounded-lg p-3 text-xs space-y-1.5" data-testid="preview-sync-status">
+                <div className="flex items-center gap-2 font-medium">
+                  {syncStatus.state === 'running' && <><RefreshCw className="w-3.5 h-3.5 animate-spin text-emerald-600" /> <span className="text-emerald-700">Sync in progress…</span></>}
+                  {syncStatus.state === 'done' && <span className="text-emerald-700">✓ Last sync completed{syncStatus.finished_at ? ` — ${new Date(syncStatus.finished_at).toLocaleString()}` : ''}</span>}
+                  {syncStatus.state === 'error' && <span className="text-red-600">✗ Sync failed: {syncStatus.error}</span>}
+                </div>
+                {syncStatus.collections && Object.keys(syncStatus.collections).length > 0 && (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-1">
+                    {Object.entries(syncStatus.collections).map(([name, info]) => (
+                      <div key={name} className="flex items-center gap-1.5 text-gray-600">
+                        <span className={`w-1.5 h-1.5 rounded-full ${info.done ? 'bg-emerald-500' : 'bg-amber-400 animate-pulse'}`} />
+                        {name.replace(/_/g, ' ')}: {info.count}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {syncStatus.state === 'done' && (
+                  <p className="text-gray-400">Reload any Manager page to see the fresh data.</p>
+                )}
+              </div>
+            )}
+          </div>
         </Section>
       </div>
     </div>
