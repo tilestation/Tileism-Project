@@ -3431,3 +3431,32 @@ The endpoint that powers the frontend `useNewOrderNotifier` hook (polls every 10
 
 ### Note
 - Storefront reflects pin changes within ~60s (bulletproof cache). Consider cache invalidation on save if instant preview is ever requested.
+
+
+---
+
+## 10 Aug 2026 — Manage Everything From Managers (Option A consolidation)
+
+### Owner ask
+"I want to manage everything from Managers now... extract the missing bits from Navigation and Structure and place in a very easy layout." Approved plan: Option A (category bits inside each Manager + one global Website pill). Old page kept for now with a moved notice; FULL REMOVAL of /admin/navigation-structure planned AFTER user verifies the new locations (must not affect published products — safe: the page is UI-only, all data lives in DB collections read via APIs).
+
+### Delivered (frontend only — zero backend changes, data 100% compatible)
+1. **Storefront button on every Manager** (`ManagerPageShell.jsx` → `StorefrontPanel.jsx` dialog):
+   - "1 · Shop Page Tabs" — that category page's tab strip (NavLinksEditor). menu_type mapping: tiles→'shop', others→'shop_{group}'.
+   - "2 · Page Banner" — that page's hero (BannerEditorCard, upsert by group_slug; 'USING DEFAULT BANNER' chip + Remove-to-default).
+   - Group auto-selected per Manager (tiles/materials/flooring/tools/underfloor-heating); picker shown for bathroom/custom managers.
+2. **New "🌐 Website" pill** in ManagerTabsBar → `/admin/website-structure` (`WebsiteGlobalManager.jsx`):
+   - 1 · Main Menu (top nav links) — round-trip via /api/website-admin/navigation/main
+   - 2 · Product Labels & Stamps — built-in chips + custom add/delete (/api/tiles/labels/*)
+   - 3 · Default Page Banner (is_default upsert)
+   - "How this page works" explainer; numbered sections; nothing saves without pressing Save.
+3. **Shared small components**: `NavLinksEditor.jsx` (reorder/label/url/live-switch/delete rows), `BannerEditorCard.jsx` (live preview, upload via /upload-banner-image, overlay presets).
+4. **Old page notice**: emerald "This page has moved into Managers" banner on /admin/navigation-structure with jump links; page fully functional during transition.
+
+### Testing
+- iteration_223.json — 100% pass, all 10 scenarios (both surfaces, 4 round-trips with data restored, old page regression, Manager regression).
+
+### Follow-ups / notes
+- P1 (after user verification): retire /admin/navigation-structure entirely + remove sidebar link. Checklist: page is read/write UI only; nav/banners/labels/categories data untouched by deletion; keep NavigationMenuEditor route? (check usage), remove lazy import + route + sidebar entry.
+- Pre-existing junk found: two 'TEST LINK → /test' rows at top of the LIVE main navigation (positions 0-1) — user can now delete them from Website tab → Main Menu.
+- Testing agent suggestion: BannerEditorCard could toast on non-200 load failures (currently silent).

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { 
   Menu, Grid3X3, Layers, Filter, Plus, Edit2, Trash2, Save, X, Grid, 
   ChevronDown, ChevronRight, GripVertical, Eye, EyeOff, RefreshCw,
@@ -1570,6 +1571,23 @@ const NavigationStructureManager = () => {
           <RefreshCw className="w-4 h-4 mr-2" />
           Refresh
         </Button>
+      </div>
+
+      {/* Moved-into-Managers notice — this page keeps working during the transition */}
+      <div className="mb-6 p-4 rounded-xl bg-emerald-50 border border-emerald-200" data-testid="nav-structure-moved-notice">
+        <p className="text-sm font-semibold text-emerald-900 mb-1">📦 This page has moved into Managers</p>
+        <p className="text-[13px] text-emerald-800 mb-2">
+          Everything here is now editable from one place — the <b>Managers workspace</b>. This old page still works while you switch over.
+        </p>
+        <div className="flex flex-wrap gap-2 text-xs">
+          <Link to="/admin/website-structure" className="px-3 py-1.5 rounded-full bg-emerald-600 text-white font-medium hover:bg-emerald-700" data-testid="moved-link-website">
+            🌐 Website tab — Main Menu · Labels · Default Banner
+          </Link>
+          <Link to="/admin/tiles" className="px-3 py-1.5 rounded-full bg-white border border-emerald-300 text-emerald-700 font-medium hover:bg-emerald-100" data-testid="moved-link-managers">
+            Each Manager → Storefront button — Shop Tabs · Page Banner
+          </Link>
+          <span className="px-3 py-1.5 text-emerald-600">Categories, Filters &amp; Specs were already in Managers (Configure button)</span>
+        </div>
       </div>
 
       <Tabs value={activeTab} onValueChange={handleTabChange}>

@@ -169,6 +169,7 @@ const WebsiteSettingsEditor = React.lazy(() => import('./pages/admin/WebsiteSett
 const AnnouncementRibbonAdmin = React.lazy(() => import('./pages/admin/AnnouncementRibbonAdmin'));
 const NavigationMenuEditor = React.lazy(() => import('./pages/admin/NavigationMenuEditor'));
 const NavigationStructureManager = React.lazy(() => import('./pages/admin/NavigationStructureManager'));
+const WebsiteGlobalManager = React.lazy(() => import('./pages/admin/WebsiteGlobalManager'));
 const CollectionManager = React.lazy(() => import('./pages/admin/CollectionManager'));
 const CollectionMappingManager = React.lazy(() => import('./pages/admin/CollectionMappingManager'));
 const CollectionDetailSettings = React.lazy(() => import('./pages/admin/CollectionDetailSettings'));
@@ -632,6 +633,7 @@ function App() {
             <Route path="announcement-ribbon" element={<AnnouncementRibbonAdmin />} />
             <Route path="navigation-menu" element={<NavigationMenuEditor />} />
             <Route path="navigation-structure" element={<NavigationStructureManager />} />
+            <Route path="website-structure" element={<WebsiteGlobalManager />} />
             <Route path="collection-manager" element={<CollectionManager />} />
             <Route path="collection-mapping" element={<CollectionMappingManager />} />
             <Route path="collection-detail-settings" element={<CollectionDetailSettings />} />

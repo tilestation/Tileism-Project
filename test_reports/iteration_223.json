@@ -1,0 +1,37 @@
+{
+  "summary": "Frontend-only verification of the new 'Website' consolidation feature (Option A). Executed all 10 review-request scenarios end-to-end via Playwright against the live preview. Every scenario PASSED. All round-trip mutations (main menu label, custom label, storefront tab, per-page banner) were restored to their original state so the shared preview DB is untouched.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_scenarios_verified": [
+    "/admin/website-structure renders website-global-manager; ManagerTabsBar shows Website pill active (emerald border/bg); Main Menu loaded 7 nav rows from /api/website-admin/navigation/main.",
+    "Main Menu round-trip: edited last row (ENGINEERED WOOD) → 'E2E TEST LINK', clicked Save, saw success toast, reload persisted, then restored to ENGINEERED WOOD.",
+    "Labels: 8 built-in chips render (NEW/SALE/NEW SIZES/BESTSELLER/LIMITED/EXCLUSIVE/CLEARANCE/ECO). Added custom E2ETEST (purple), chip appeared as website-label-E2ETEST, then deleted via delete btn + confirm dialog; chip removed.",
+    "Default Banner section renders BannerEditorCard: preview, title input, save button all present.",
+    "Tiles storefront panel: tiles-storefront-btn opens storefront-panel; group auto = 'tiles'; 7 tabs render (ALL TILES/WALL TILES/FLOOR TILES/PORCELAIN/POLISHED/MATT/SALE); banner editor + View live link present.",
+    "Materials storefront panel: group auto = 'materials'; 0 tabs (empty-state text visible); 'USING DEFAULT BANNER' chip shown.",
+    "Materials tabs round-trip: added 'E2E TAB' → /tiles?group=materials, saved (toast), API GET /api/website-admin/navigation/shop_materials returned count=1. Deleted row + saved; API count back to 0.",
+    "Group switcher: switching to 'flooring' reloaded 3 tabs (ALL FLOORING/VINYL/LAMINATE); banner editor re-keyed.",
+    "Materials banner round-trip: saved 'E2E Materials Banner' → Remove(use default) btn appeared → clicked with confirm → 'USING DEFAULT BANNER' chip returned.",
+    "/admin/navigation-structure loads; nav-structure-moved-notice visible; moved-link-website href=/admin/website-structure.",
+    "Manager regression: /admin/tiles shows Website pill in ManagerTabsBar, Configure btn present, 1057 product Edit buttons render."
+  ],
+  "critical_code_review_comments": [
+    "Two pre-existing 'TEST LINK'→/test entries at the top of the main nav appear to be leftover test artifacts from previous manual/automated runs. Not caused by this feature but worth cleanup by the main agent since this is a live-preview DB.",
+    "BannerEditorCard.load() falls back to setForm(emptyBanner) on non-ok response — silently discards existing state. Consider surfacing a toast on non-200 non-404 responses.",
+    "menuTypeFor() special-cases only 'tiles' → 'shop'. Fine today, but worth a comment/const table to avoid drift if more legacy menu_type aliases are added.",
+    "console shows repeated 403 GETs on some background resource (likely subscriptions/announcements endpoint) — unrelated to this feature but noise in prod."
+  ],
+  "test_report_links": [],
+  "action_items": [],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a (frontend-only)", "frontend": "100%"},
+  "test_credentials": "admin@test.com / admin123",
+  "seed_data_creation": "None persisted. All temporary data (E2E TEST LINK, E2ETEST label, E2E TAB tab, E2E Materials Banner) restored to original state via the UI.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Feature ships as described. Two pre-existing 'TEST LINK' entries live at positions 0-1 of main nav; those are legacy noise (not this feature's fault). Use last row index (len-1) — do not touch first two — when doing further main-menu round-trip tests. shop_materials empty is the intended baseline."
+}

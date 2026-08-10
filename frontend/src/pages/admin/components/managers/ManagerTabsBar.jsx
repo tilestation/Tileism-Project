@@ -21,7 +21,7 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
-  Layers, Grid3X3, Package, Square, Bath, Flame, Wrench, Plus, Sparkles, AlertTriangle, RefreshCw,
+  Layers, Grid3X3, Package, Square, Bath, Flame, Wrench, Plus, Sparkles, AlertTriangle, RefreshCw, Globe,
 } from 'lucide-react';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
@@ -182,6 +182,18 @@ const ManagerTabsBar = ({
             </Link>
           );
         })}
+
+        {/* Website (global storefront settings) pill — always last built-in */}
+        <div className="h-4 w-px bg-gray-200 mx-1 flex-shrink-0" />
+        <Link
+          to="/admin/website-structure"
+          className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs font-medium whitespace-nowrap transition-colors ${active === 'website' ? THEME_ACTIVE.emerald : 'border-transparent text-gray-500 hover:text-gray-800 hover:bg-gray-50'}`}
+          data-testid="manager-tab-website"
+          title="Global website settings — top menu, product labels, default banner"
+        >
+          <Globe className="w-3.5 h-3.5" />
+          Website
+        </Link>
 
         {/* Custom Manager tabs (loaded from backend) */}
         {customTabs.length > 0 && <div className="h-4 w-px bg-gray-200 mx-1 flex-shrink-0" />}

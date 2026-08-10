@@ -23,7 +23,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import {
-  ArrowLeft, RefreshCw, Search, Save, X, Edit2, Filter, ExternalLink, AlertCircle, CheckCircle, Plus, FileSpreadsheet, Settings,
+  ArrowLeft, RefreshCw, Search, Save, X, Edit2, Filter, ExternalLink, AlertCircle, CheckCircle, Plus, FileSpreadsheet, Settings, Store,
 } from 'lucide-react';
 import { Button } from '../../../components/ui/button';
 import { Input } from '../../../components/ui/input';
@@ -48,6 +48,7 @@ import ProductImagesGridPanel from './managers/ProductImagesGridPanel';
 import { groupBySeries } from '../lib/series';
 import { Layers, LayoutGrid, List } from 'lucide-react';
 import ManagerConfigModal from './managers/ManagerConfigModal';
+import StorefrontPanel from './managers/StorefrontPanel';
 import AssignColoursModal from './managers/AssignColoursModal';
 import TierPricingModal from './supplier-products/TierPricingModal';
 import BulkSaleModal from './supplier-products/BulkSaleModal';
@@ -122,6 +123,7 @@ const ManagerPageShell = ({
   const [showBulkImages, setShowBulkImages] = useState(false);
   const [showCsvImport, setShowCsvImport] = useState(false);
   const [showConfig, setShowConfig] = useState(false);
+  const [showStorefront, setShowStorefront] = useState(false);
 
   // Per-product overrides for the Tier Pricing modal.
   // Shape: { 'supplier|||sku': { trade_discount?, credit_back_rate?, disabled? } }
@@ -403,6 +405,9 @@ const ManagerPageShell = ({
             </Button>
             <Button size="sm" variant="outline" onClick={() => setShowConfig(true)} data-testid={`${categoryKey}-configure-btn`} title="Add/edit Filters, Sub-Tabs and Spec Fields for this Manager">
               <Settings className="w-4 h-4 mr-1.5" /> Configure
+            </Button>
+            <Button size="sm" variant="outline" className="border-emerald-300 text-emerald-700 hover:bg-emerald-50" onClick={() => setShowStorefront(true)} data-testid={`${categoryKey}-storefront-btn`} title="Edit this category's shop page — its tabs and hero banner">
+              <Store className="w-4 h-4 mr-1.5" /> Storefront
             </Button>
             <Button size="sm" variant="outline" onClick={() => setShowCsvImport(true)} data-testid={`${categoryKey}-csv-import-btn`} title="Bulk import products from CSV">
               <FileSpreadsheet className="w-4 h-4 mr-1.5" /> CSV Import
@@ -825,6 +830,13 @@ const ManagerPageShell = ({
         onSave={saveConfig}
         onRefresh={refreshConfig}
         themeColor={theme}
+      />
+
+      <StorefrontPanel
+        open={showStorefront}
+        onOpenChange={setShowStorefront}
+        managerTitle={title}
+        defaultGroupSlug={({ tiles: 'tiles', materials: 'materials', flooring: 'flooring', tools: 'tools', underfloor_heating: 'underfloor-heating' })[categoryKey] || null}
       />
 
       <TierPricingModal
