@@ -8763,19 +8763,38 @@ def toggle_always_in_stock(data: dict):
             filter_query["supplier"] = supplier
         
         # Update the product
+        sp_set = {"always_in_stock": always_in_stock, "updated_at": datetime.now(timezone.utc)}
+        if always_in_stock:
+            sp_set["in_stock"] = True
+            sp_set["stock_status"] = "in_stock"
         result = db.supplier_products.update_one(
             filter_query,
-            {
-                "$set": {
-                    "always_in_stock": always_in_stock,
-                    "updated_at": datetime.now(timezone.utc)
-                }
-            }
+            {"$set": sp_set}
         )
         
         if result.matched_count == 0:
             raise HTTPException(status_code=404, detail="Product not found")
         
+        if result.matched_count == 0:
+            raise HTTPException(status_code=404, detail="Product not found")
+
+        # Mirror to the tiles collection so the storefront PDP reflects it
+        try:
+            tile_set = {"always_in_stock": always_in_stock, "stock_overridden_at": datetime.now(timezone.utc)}
+            if always_in_stock:
+                tile_set["in_stock"] = True
+                tile_set["stock_status"] = "in_stock"
+            db.tiles.update_one({"sku": sku}, {"$set": tile_set})
+        except Exception as e:
+            logger.warning(f"Failed to mirror always_in_stock to tiles for {sku}: {e}")
+
+        # Bust the collection endpoint cache so the change shows immediately
+        try:
+            from utils.endpoint_cache import endpoint_cache
+            endpoint_cache.invalidate()
+        except Exception:
+            pass
+
         return {
             "success": True,
             "sku": sku,

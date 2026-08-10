@@ -3690,3 +3690,11 @@ Self-tested: backend unit cases + screenshot of /admin/product-name-sanity (inpu
 
 ### Testing (self-tested, curl + 3 screenshots)
 Local repro published the 6 ULT-* products: card shows "6 VARIANTS" with 6 full-name thumbs; PDP Type chips show all 6 exact names; stored tile names have NO size suffix. NOTE for prod: user must re-Publish the 6 cleaning products after deploy to strip the stored " 1l" suffixes (SP names already correct).
+
+---
+
+## 11 Aug 2026 — Direct stock-status dropdown in Supplier Products
+- The Status column dropdown (In Stock / Low Stock / Out of Stock) was gated to LEPORCE/Plus39 suppliers; everyone else had static badges. Now universal for ALL suppliers with a 4th option "Always In Stock" (blue styling).
+- `handleSetStockStatus` handles the always_in_stock flag transitions (clears flag when switching away; sets it via toggle endpoint when chosen).
+- Backend `toggle-always-in-stock` now mirrors to `tiles` (always_in_stock/in_stock/stock_status) + busts the endpoint cache (set-stock-status already did); enabling it also normalises SP in_stock/stock_status.
+- Self-tested e2e: dropdown shows 4 options, Out of Stock → Always In Stock round-trip, SP + tiles both consistent, toasts firing.

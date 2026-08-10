@@ -6981,9 +6981,35 @@ export default function SupplierProducts() {
     }
   };
 
-  // Set stock status for a product (In Stock / Low Stock / Out of Stock)
+  // Set stock status for a product (In Stock / Low Stock / Out of Stock / Always In Stock)
   const handleSetStockStatus = async (product, stockStatus) => {
     try {
+      // "Always In Stock" is a flag, not a stock_status value
+      if (stockStatus === 'always_in_stock') {
+        const response = await fetch(`${API_URL}/api/supplier-sync/products/toggle-always-in-stock`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sku: product.sku, supplier: product.supplier, always_in_stock: true })
+        });
+        if (response.ok) {
+          setProducts(prev => prev.map(p =>
+            p.sku === product.sku ? { ...p, always_in_stock: true, in_stock: true } : p
+          ));
+          toast.success('Product will always show as In Stock');
+        } else {
+          const error = await response.json();
+          toast.error(error.detail || 'Failed to update');
+        }
+        return;
+      }
+      // Switching away from "Always In Stock" — clear the flag first
+      if (product.always_in_stock) {
+        await fetch(`${API_URL}/api/supplier-sync/products/toggle-always-in-stock`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sku: product.sku, supplier: product.supplier, always_in_stock: false })
+        });
+      }
       const inStock = stockStatus !== 'out_of_stock';
       const response = await fetch(`${API_URL}/api/supplier-sync/products/set-stock-status`, {
         method: 'POST',
@@ -6999,7 +7025,7 @@ export default function SupplierProducts() {
       if (response.ok) {
         // Update local state immediately
         setProducts(prev => prev.map(p => 
-          p.sku === product.sku ? { ...p, stock_status: stockStatus, in_stock: inStock } : p
+          p.sku === product.sku ? { ...p, stock_status: stockStatus, in_stock: inStock, always_in_stock: false } : p
         ));
         const statusLabels = { 'in_stock': 'In Stock', 'low_stock': 'Low Stock', 'out_of_stock': 'Out of Stock' };
         toast.success(`Stock status set to ${statusLabels[stockStatus]}`);
@@ -9009,42 +9035,24 @@ export default function SupplierProducts() {
                       )}
                       {hasAction('supplier_products.status_column') && (
                       <td className="py-3 px-4 text-center">
-                        {/* Stock Status Dropdown for Plus39 and LEPORCE */}
-                        {(product.supplier === 'LEPORCE' || product.supplier === 'Plus39') ? (
-                          <select
-                            value={product.stock_status || (product.in_stock ? 'in_stock' : 'out_of_stock')}
-                            onChange={(e) => handleSetStockStatus(product, e.target.value)}
-                            className={`text-xs px-2 py-1.5 rounded-full border cursor-pointer font-medium ${
-                              product.stock_status === 'out_of_stock' || (!product.stock_status && product.in_stock === false) ? 'bg-red-100 text-red-700 border-red-300' :
-                              product.stock_status === 'low_stock' ? 'bg-amber-100 text-amber-700 border-amber-300' :
-                              'bg-green-100 text-green-700 border-green-300'
-                            }`}
-                            title="Click to change stock status"
-                            data-testid={`stock-status-${product.sku || product.supplier_code || product._id}`}
-                          >
-                            <option value="in_stock">In Stock</option>
-                            <option value="low_stock">Low Stock</option>
-                            <option value="out_of_stock">Out of Stock</option>
-                          </select>
-                        ) : product.always_in_stock ? (
-                          <span className="inline-flex px-2 py-1 text-xs font-medium rounded-full bg-blue-100 text-blue-700" title="This product will always show as In Stock on website">
-                            Always In Stock
-                          </span>
-                        ) : product.stock_status === 'low_stock' ? (
-                          <span className="inline-flex px-2 py-1 text-xs font-medium rounded-full bg-amber-100 text-amber-700">
-                            Low Stock
-                          </span>
-                        ) : product.in_stock === true ? (
-                          <span className="inline-flex px-2 py-1 text-xs font-medium rounded-full bg-green-100 text-green-700">
-                            In Stock
-                          </span>
-                        ) : product.in_stock === false ? (
-                          <span className="inline-flex px-2 py-1 text-xs font-medium rounded-full bg-red-100 text-red-700">
-                            Out of Stock
-                          </span>
-                        ) : (
-                          <span className="text-gray-400">-</span>
-                        )}
+                        {/* Direct stock-status dropdown — all suppliers */}
+                        <select
+                          value={product.always_in_stock ? 'always_in_stock' : (product.stock_status || (product.in_stock === false ? 'out_of_stock' : 'in_stock'))}
+                          onChange={(e) => handleSetStockStatus(product, e.target.value)}
+                          className={`text-xs px-2 py-1.5 rounded-full border cursor-pointer font-medium ${
+                            product.always_in_stock ? 'bg-blue-100 text-blue-700 border-blue-300' :
+                            product.stock_status === 'out_of_stock' || (!product.stock_status && product.in_stock === false) ? 'bg-red-100 text-red-700 border-red-300' :
+                            product.stock_status === 'low_stock' ? 'bg-amber-100 text-amber-700 border-amber-300' :
+                            'bg-green-100 text-green-700 border-green-300'
+                          }`}
+                          title="Click to change stock status — updates the website immediately"
+                          data-testid={`stock-status-${product.sku || product.supplier_code || product._id}`}
+                        >
+                          <option value="in_stock">In Stock</option>
+                          <option value="low_stock">Low Stock</option>
+                          <option value="out_of_stock">Out of Stock</option>
+                          <option value="always_in_stock">Always In Stock</option>
+                        </select>
                       </td>
                       )}
                       <td className="py-3 px-4">
