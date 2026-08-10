@@ -1658,9 +1658,9 @@ async def get_collection_products(
         return JSONResponse(content=_cached, headers=public_cache_headers)
 
     if preview:
-        # Admin preview — always fresh data, never cache or serve LKG.
+        # Admin preview — fresh data incl. unpublished drafts, never cache or serve LKG.
         try:
-            result = await _get_collection_products_impl(series_name, sort_by, page, limit)
+            result = await _get_collection_products_impl(series_name, sort_by, page, limit, include_unpublished=True)
             return JSONResponse(content=result or {"products": [], "total": 0}, headers=no_store_headers)
         except Exception:
             logging.error(f"Collection preview crash for '{series_name}': {traceback.format_exc()}")
@@ -1698,6 +1698,7 @@ async def _get_collection_products_impl(
     sort_by: str = "color",
     page: int = 1,
     limit: int = 24,
+    include_unpublished: bool = False,
 ):
     import business_config.business_rules as br
     db = get_tile_db()
@@ -1908,11 +1909,82 @@ async def _get_collection_products_impl(
     if collection_trade_discount_type is None:
         collection_trade_discount_type = "percent"
 
+    serialized = [serialize_tile_for_shop(p) for p in products]
+
+    # Admin preview: merge in matching supplier_products that aren't on the
+    # published page yet, marked is_draft so the storefront can badge them.
+    draft_count = 0
+    if include_unpublished:
+        page_skus = {s.get("sku") for s in serialized if s.get("sku")}
+        sp_query = {"$or": [
+            {"our_product_name": {"$regex": f"^{re.escape(series_name)}", "$options": "i"}},
+            {"product_name": {"$regex": f"^{re.escape(series_name)}", "$options": "i"}},
+            {"display_name": {"$regex": f"^{re.escape(series_name)}", "$options": "i"}},
+            {"name": {"$regex": f"^{re.escape(series_name)}", "$options": "i"}},
+            {"series": {"$regex": f"^{re.escape(series_name)}$", "$options": "i"}},
+            {"range_name": {"$regex": f"^{re.escape(series_name)}$", "$options": "i"}},
+            {"original_series": {"$regex": f"^{re.escape(series_name)}$", "$options": "i"}},
+        ]}
+        for sp in db.supplier_products.find(sp_query).limit(60):
+            d_sku = sp.get("sku") or sp.get("supplier_code") or ""
+            if not d_sku or d_sku in page_skus:
+                continue
+            base_name = sp.get("our_product_name") or sp.get("product_name") or sp.get("display_name") or sp.get("name") or ""
+            if not base_name:
+                continue
+            psize = sp.get("size") or ""
+            d_name = base_name if (not psize or psize.lower() in base_name.lower()) else f"{base_name} {psize}"
+            d_price = sp.get("price") or sp.get("list_price") or 0
+            if not d_price and sp.get("cost_price"):
+                d_price = round(sp["cost_price"] * 2, 2)
+            pseudo = {
+                "_id": f"draft-{d_sku}",
+                "sku": d_sku,
+                "supplier_code": sp.get("supplier_code") or d_sku,
+                "name": d_name,
+                "display_name": d_name,
+                "display_code": sp.get("display_code", ""),
+                "slug": re.sub(r"[^a-z0-9]+", "-", d_name.lower()).strip("-"),
+                "description": sp.get("description", ""),
+                "supplier_name": sp.get("supplier", ""),
+                "price": d_price,
+                "room_lot_price": d_price,
+                "images": sp.get("images", []),
+                "finish": sp.get("finish") or "",
+                "material": sp.get("material") or "",
+                "size": sp.get("size") or "",
+                "color": sp.get("color") or "",
+                "attributes": {
+                    "finish": sp.get("finish") or "",
+                    "material": sp.get("material") or "",
+                    "size": sp.get("size") or "",
+                    "color": sp.get("color") or "",
+                },
+                "series": sp.get("series") or "",
+                "labels": sp.get("labels", []),
+                "in_stock": True,
+                "stock": sp.get("stock_m2") or sp.get("stock_quantity") or 0,
+                "product_group": sp.get("product_group") or "tiles",
+                "main_category": sp.get("main_category", ""),
+                "sub_categories": sp.get("sub_categories", []),
+                "colors": sp.get("colors", []),
+                "materials": sp.get("materials", []),
+                "styles": sp.get("styles", []),
+                "features": sp.get("features", []),
+                "rooms": sp.get("rooms", []),
+            }
+            card = serialize_tile_for_shop(pseudo)
+            card["is_draft"] = True
+            serialized.append(card)
+            page_skus.add(d_sku)
+            draft_count += 1
+
     return _jsonify_safe({
         "series_name": series_name,
         "series_description": series_description,
         "custom_description": custom_description,
-        "products": [serialize_tile_for_shop(p) for p in products],
+        "products": serialized,
+        "draft_count": draft_count,
         "credit_back_rate": collection_credit_back,
         "trade_discount": collection_trade_discount,
         "trade_discount_type": collection_trade_discount_type,

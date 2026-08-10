@@ -511,16 +511,21 @@ const QuickEditProductDrawer = ({ open, onOpenChange, product, onSaved, previewI
     </div>
   );
 
-  // Landing-page preview button — opens the customer /shop/collection/{series}
-  // URL in a new tab on THIS environment's storefront (admin + shop share the
-  // same origin). Admins can override via REACT_APP_STOREFRONT_URL.
+  // Landing-page preview button — opens the customer landing page in a new
+  // tab on THIS environment's storefront (admin + shop share the same
+  // origin). Products with a series get the collection page; series-less
+  // live products get their own /tiles/{slug} page.
   const previewPanel = product ? (() => {
     const storefront = process.env.REACT_APP_STOREFRONT_URL || window.location.origin;
-    const seriesName = getSeriesName(product);
-    // Raw series name (spaces intact) — the storefront never uses dash-slugs.
-    // ?preview=1 lets the landing page include unpublished products.
-    const slug = (seriesName || product.product_name || product.name || '').trim();
-    const href = slug ? `${storefront}/shop/collection/${encodeURIComponent(slug)}?preview=1` : `${storefront}/shop`;
+    const explicit = [product.original_series, product.range_name, product.series, product.series_name]
+      .map(v => (v || '').trim()).find(Boolean);
+    const seriesName = explicit || (getSeriesName(product) || '').trim();
+    // ?preview=1 lets the landing page include unpublished drafts.
+    const href = seriesName
+      ? `${storefront}/shop/collection/${encodeURIComponent(seriesName)}?preview=1`
+      : product.live_slug
+        ? `${storefront}/tiles/${product.live_slug}?preview=1`
+        : `${storefront}/shop`;
     return (
       <div className="flex items-center justify-between text-xs">
         <div className="flex items-center gap-2 text-slate-500">

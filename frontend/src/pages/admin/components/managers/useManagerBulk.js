@@ -143,19 +143,53 @@ export function useManagerBulk({ products = [], onRefresh, storageKey = null }) 
     }
   }, [getSelectedList, splitByIdField, onRefresh]);
 
-  // Bulk Publish — mark selected products live on the storefront
+  // Bulk Publish — rebuild the full website product from the admin record
+  // (copies series, categories, images, prices) then mark flags. Previously
+  // this only flipped flags, so brand-new products never reached the site
+  // and stale website docs (e.g. missing series) were never refreshed.
   const bulkPublish = useCallback(async () => {
     if (selectedProducts.size === 0) return toast.error('No products selected');
     if (!window.confirm(`Publish ${selectedProducts.size} product(s) to the storefront?`)) return;
+    const ids = [...new Set(getSelectedList().map(p => p.sku || p.supplier_code).filter(Boolean))];
+    setBulkSaving(true);
+    try {
+      const res = await fetch(`${API_URL}/api/supplier-sync/publish-to-website?skus=${encodeURIComponent(ids.join(','))}`, { method: 'POST' });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.detail || `HTTP ${res.status}`);
+      }
+    } catch (err) {
+      console.error('[Manager Bulk] Publish failed', err);
+      toast.error(`Publish failed: ${err.message}`);
+      setBulkSaving(false);
+      return;
+    }
+    setBulkSaving(false);
     await bulkUpdate({ published: true, visibility: 'online', show_on_website: true }, { label: 'Published' });
-  }, [selectedProducts.size, bulkUpdate]);
+  }, [selectedProducts.size, bulkUpdate, getSelectedList]);
 
-  // Bulk Unpublish — hide from storefront but keep in DB
+  // Bulk Unpublish — actually remove from the storefront (tiles collection),
+  // not just flip flags (which left products visible on the website).
   const bulkUnpublish = useCallback(async () => {
     if (selectedProducts.size === 0) return toast.error('No products selected');
-    if (!window.confirm(`Unpublish ${selectedProducts.size} product(s) — they'll be hidden from the storefront?`)) return;
+    if (!window.confirm(`Unpublish ${selectedProducts.size} product(s) — they'll be removed from the storefront?`)) return;
+    const ids = [...new Set(getSelectedList().map(p => p.sku || p.supplier_code).filter(Boolean))];
+    setBulkSaving(true);
+    try {
+      const res = await fetch(`${API_URL}/api/supplier-sync/unpublish-from-website?skus=${encodeURIComponent(ids.join(','))}`, { method: 'DELETE' });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.detail || `HTTP ${res.status}`);
+      }
+    } catch (err) {
+      console.error('[Manager Bulk] Unpublish failed', err);
+      toast.error(`Unpublish failed: ${err.message}`);
+      setBulkSaving(false);
+      return;
+    }
+    setBulkSaving(false);
     await bulkUpdate({ published: false, visibility: 'hidden', show_on_website: false }, { label: 'Unpublished' });
-  }, [selectedProducts.size, bulkUpdate]);
+  }, [selectedProducts.size, bulkUpdate, getSelectedList]);
 
   // Bulk Archive — set inactive
   const bulkArchive = useCallback(async () => {

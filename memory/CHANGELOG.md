@@ -3590,3 +3590,37 @@ Shop tab URLs (/tiles?category={slug}) filter the storefront primarily by produc
 
 ## 10 Aug 2026 (later) — Preview Publish Check badge
 - `BulkPreviewModal.jsx`: amber "changes not yet published" banner between header and series chips when any selected product has `published != true`. Shows count, name chips (max 8, then "+N more"). testids: `bulk-preview-unpublished-badge`, `bulk-preview-unpublished-list`. Client-side only (uses `selectedProducts` prop). Verified via screenshot with unpublished SKU 5445 (Laminate Premium Oak).
+
+---
+
+## 10 Aug 2026 (night) — Preview-before-Publish + Publish pipeline overhaul (a+b+c+d)
+
+### User report
+"Why do I need to publish to see the preview?" + "products published previously seem broken/fragile — check production" + "Ultra Tile Cleaning & Maintenance is a collection in admin but shows as separate products on the website".
+
+### Production audit (read-only, via https://tile-station-production.up.railway.app)
+- 54 collections / 426 products checked — data intact. Minor: 6 SKUs missing images (La Dolce SPLP15, Herringbone HE6019, Botticino SPGR01/SBOTRO9, Ardesia Slate SESPO1/SESPO3), 2 stale counts, leading space in " Xtreme Cleaner 1 Litre".
+- The 6 cleaning products ARE live (e.g. /api/tiles/products/xtreme-cleaner-1-litre) but with series:'' → website can't group them into a collection. Prod frontend = tilestation.co.uk, prod backend = Railway.
+
+### Root causes found
+1. Legacy publish paths set show_on_website/visibility but never supplier_products.published → admin badge lied.
+2. Manager bulkPublish only flipped flags via bulk-update-unified (auto-publish gated on category updates) → new products never reached tiles; bulkUnpublish never removed tiles docs.
+3. Products published without series → no website collection (collections group by tiles.series, tiles.py line ~1062).
+4. Preview modal built collection URLs from manager group names that aren't real collections.
+
+### Fixes
+- **tiles.py**: `_get_collection_products_impl(include_unpublished)` — preview=1 merges matching supplier_products not in tiles as pseudo-cards with `is_draft:true` (+`draft_count` in response). Case-insensitive series match. Capped at 60.
+- **supplier_sync.py /publish-to-website**: skus param matches sku OR supplier_code; tile_doc now includes colors/materials/styles/features/rooms, main_category, website_categories, show_on_website, pallet fields (prefers sp.pallet_price), stock_status, pricing_unit, custom_labels, hidden_seo_keywords; SP update sets `published:true`.
+- **supplier_sync.py /unpublish-from-website**: all branches set `published:false`.
+- **supplier_sync.py GET /products**: batch live-tiles lookup → response `published` (live truth = tile doc exists), `live_on_website`, `live_slug`, `live_series`.
+- **useManagerBulk.js**: bulkPublish → POST publish-to-website?skus= (full doc rebuild incl. series) then flags; bulkUnpublish → DELETE unpublish-from-website?skus= then flags.
+- **BulkPreviewModal.jsx**: slot builder — explicit/parsed series → collection page; series-less live → /tiles/{live_slug}; else name-based collection. Badge/desc copy updated for drafts.
+- **QuickEditProductDrawer.jsx**: same URL logic for Preview on site.
+- **CollectionDetailPage.js**: amber `preview-draft-banner` after breadcrumb listing draft products (preview mode only).
+
+### User's fix path for "Ultra Tile Cleaning & Maintenance" (after deploy)
+Select the series in Materials Manager → Publish. The rebuilt tile docs carry series → website groups them into one collection with a landing page.
+
+### Testing
+- iteration_227: 7/7 backend pytest + all 5 frontend flows PASS (100%).
+- Fixture: supplier_products SKU `TEST-DRAFT-PO1` (series 'Premium Oak') kept as canonical unpublished draft for future tests.

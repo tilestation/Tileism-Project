@@ -19,15 +19,29 @@ const DEVICES = [
 ];
 
 const BulkPreviewModal = ({ open, onOpenChange, selectedProducts = [] }) => {
-  // Unique landing pages from the selection (one per series).
+  // Preview slots — one per landing page in the selection. Products with a
+  // series get their collection page; series-less live products get their
+  // own product page; series-less drafts fall back to a name-based
+  // collection lookup (the backend's ?preview=1 draft merge finds them).
   const seriesList = useMemo(() => {
     const map = new Map();
     selectedProducts.forEach(p => {
-      const series = (getSeriesName(p) || p.display_name || p.name || '').trim();
-      if (series && !map.has(series.toLowerCase())) {
-        // The storefront resolves collections by the RAW series name (spaces
-        // intact, URI-encoded) — never dash-slugified.
-        map.set(series.toLowerCase(), { name: series, slug: series });
+      const explicit = [p.original_series, p.range_name, p.series, p.series_name]
+        .map(v => (v || '').trim()).find(Boolean);
+      const series = explicit || (getSeriesName(p) || '').trim();
+      if (series) {
+        const key = `c:${series.toLowerCase()}`;
+        if (!map.has(key)) map.set(key, { name: series, slug: key, path: `/shop/collection/${encodeURIComponent(series)}?preview=1` });
+      } else if (p.live_slug) {
+        const key = `p:${p.live_slug}`;
+        const nm = (p.our_product_name || p.product_name || p.display_name || p.name || p.live_slug).trim();
+        if (!map.has(key)) map.set(key, { name: nm, slug: key, path: `/tiles/${p.live_slug}?preview=1` });
+      } else {
+        const nm = (p.our_product_name || p.product_name || p.display_name || p.name || '').trim();
+        if (nm) {
+          const key = `c:${nm.toLowerCase()}`;
+          if (!map.has(key)) map.set(key, { name: nm, slug: key, path: `/shop/collection/${encodeURIComponent(nm)}?preview=1` });
+        }
       }
     });
     return [...map.values()];
@@ -52,7 +66,8 @@ const BulkPreviewModal = ({ open, onOpenChange, selectedProducts = [] }) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
-  const url = activeSlug ? `${window.location.origin}/shop/collection/${encodeURIComponent(activeSlug)}?preview=1` : null;
+  const activeSlot = seriesList.find(s => s.slug === activeSlug) || null;
+  const url = activeSlot ? `${window.location.origin}${activeSlot.path}` : null;
   const deviceWidth = DEVICES.find(d => d.key === device)?.width || '100%';
 
   return (
@@ -94,8 +109,8 @@ const BulkPreviewModal = ({ open, onOpenChange, selectedProducts = [] }) => {
             </span>
           </DialogTitle>
           <DialogDescription className="text-xs">
-            This is <b>this preview environment's</b> storefront — exactly what customers will get once you deploy.
-            Unpublished products won't appear until you hit Publish.
+            This is the storefront exactly as customers will see it. Unpublished products are
+            included here as <b>drafts</b> — hit Publish to make them live.
           </DialogDescription>
         </DialogHeader>
 
@@ -104,7 +119,7 @@ const BulkPreviewModal = ({ open, onOpenChange, selectedProducts = [] }) => {
           <div className="mx-4 mb-2 px-3 py-2 rounded-lg border border-amber-200 bg-amber-50 flex-shrink-0" data-testid="bulk-preview-unpublished-badge">
             <div className="flex items-center gap-1.5 text-xs font-semibold text-amber-800">
               <AlertTriangle className="w-3.5 h-3.5" />
-              {unpublished.length} selected {unpublished.length === 1 ? 'product has' : 'products have'} changes not yet published — {unpublished.length === 1 ? 'it' : 'they'} won't appear in this preview
+              {unpublished.length} selected {unpublished.length === 1 ? 'product isn\'t' : 'products aren\'t'} live on the website yet — shown below as draft previews. Publish to make {unpublished.length === 1 ? 'it' : 'them'} live.
             </div>
             <div className="mt-1.5 flex flex-wrap gap-1" data-testid="bulk-preview-unpublished-list">
               {unpublished.slice(0, 8).map(p => (

@@ -1889,6 +1889,17 @@ const CollectionDetailPage = () => {
         </nav>
       </div>
 
+      {/* Admin preview: draft products included on this page */}
+      {isAdminPreview && products.some(p => p.is_draft) && (
+        <div className="max-w-7xl mx-auto px-4" data-testid="preview-draft-banner">
+          <div className="mb-3 px-4 py-3 rounded-lg border border-amber-300 bg-amber-50 text-sm text-amber-800">
+            <b>Draft preview:</b> {products.filter(p => p.is_draft).length} product(s) on this page {products.filter(p => p.is_draft).length === 1 ? 'is' : 'are'} not live on the website yet —{' '}
+            {products.filter(p => p.is_draft).slice(0, 6).map(p => p.display_name).join(', ')}
+            {products.filter(p => p.is_draft).length > 6 ? ` +${products.filter(p => p.is_draft).length - 6} more` : ''}. Publish them from the admin manager to make them live.
+          </div>
+        </div>
+      )}
+
       {/* Main Content */}
       <div className="max-w-7xl mx-auto px-4 pb-16">
         <div className="grid lg:grid-cols-2 gap-8 lg:gap-12">

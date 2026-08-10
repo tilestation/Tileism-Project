@@ -2505,11 +2505,11 @@ def publish_supplier_products_to_website(
         # Build query
         query = {}
         
-        # If specific SKUs provided, only publish those
+        # If specific SKUs provided, only publish those (match sku OR supplier_code)
         if skus:
             sku_list = [s.strip() for s in skus.split(",") if s.strip()]
             if sku_list:
-                query["sku"] = {"$in": sku_list}
+                query["$or"] = [{"sku": {"$in": sku_list}}, {"supplier_code": {"$in": sku_list}}]
         else:
             _sup = normalise_filter_value(supplier)
             if _sup:
@@ -2539,7 +2539,10 @@ def publish_supplier_products_to_website(
         for sp in supplier_products:
             try:
                 # Generate website-friendly data
-                sku = sp.get('sku', '')
+                sku = sp.get('sku') or sp.get('supplier_code') or ''
+                if not sku:
+                    skipped += 1
+                    continue
                 # Use our_product_name first (admin-customized), then product_name, then display_name, then name (original supplier)
                 base_name = sp.get('our_product_name') or sp.get('product_name') or sp.get('display_name') or sp.get('name', 'Unknown Product')
                 original_name = sp.get('name', 'Unknown Product')
@@ -2587,11 +2590,16 @@ def publish_supplier_products_to_website(
                     "slug": slug,
                     "price": list_price,
                     "room_lot_price": list_price,
-                    "pallet_price": round(list_price * 0.9, 2) if list_price else 0,
+                    "pallet_price": sp.get('pallet_price') or (round(list_price * 0.9, 2) if list_price else 0),
+                    "half_pallet_price": sp.get('half_pallet_price'),
+                    "m2_per_pallet": sp.get('m2_per_pallet'),
+                    "m2_per_half_pallet": sp.get('m2_per_half_pallet'),
+                    "pallet_enabled": sp.get('pallet_enabled', False),
                     "cost_price": cost_price,
                     "description": sp.get('description', ''),
                     "short_description": sp.get('description', '')[:200] if sp.get('description') else '',
                     "seo_keywords": sp.get('seo_keywords', ''),
+                    "hidden_seo_keywords": sp.get('hidden_seo_keywords', ''),
                     "category_ids": [],
                     "attributes": {
                         "finish": sp.get('finish') or '',
@@ -2607,6 +2615,12 @@ def publish_supplier_products_to_website(
                     "material": sp.get('material') or '',
                     "size": sp.get('size') or '',
                     "color": sp.get('color') or '',
+                    # Array fields — required for storefront colour/material/style aggregation
+                    "colors": sp.get('colors', []) or ([sp.get('color')] if sp.get('color') else []),
+                    "materials": sp.get('materials', []) or ([sp.get('material')] if sp.get('material') else []),
+                    "styles": sp.get('styles', []),
+                    "features": sp.get('features', []),
+                    "rooms": sp.get('rooms', []),
                     "series": sp.get('series') or '',
                     "original_series": sp.get('original_series') or '',
                     "thickness": sp.get('thickness') or '',
@@ -2633,6 +2647,12 @@ def publish_supplier_products_to_website(
                     "categories": sp.get('categories') or [],
                     "sub_category": sp.get('sub_category') or '',
                     "sub_categories": sp.get('sub_categories') or [],
+                    "main_category": sp.get('main_category', ''),
+                    "website_categories": sp.get('website_categories', {}),
+                    "show_on_website": True,
+                    "stock_status": sp.get('stock_status'),
+                    "pricing_unit": sp.get('pricing_unit'),
+                    "custom_labels": sp.get('custom_labels', []),
                     "collection": sp.get('collection') or sp.get('original_series') or '',
                     "labels": sp.get('labels', []),
                     # Tier pricing fields
@@ -2667,8 +2687,8 @@ def publish_supplier_products_to_website(
                 
                 # Update the supplier_products record to mark as published
                 db.supplier_products.update_one(
-                    {"sku": sku},
-                    {"$set": {"show_on_website": True, "in_products_db": True, "visibility": "published", "status": "active"}}
+                    {"$or": [{"sku": sku}, {"supplier_code": sku}]},
+                    {"$set": {"published": True, "show_on_website": True, "in_products_db": True, "visibility": "published", "status": "active"}}
                 )
                 
                 # Also update the products collection to remove draft status
@@ -2995,7 +3015,7 @@ def unpublish_from_website(
             # ALWAYS update supplier_products to mark as unpublished (even if tiles delete returned 0)
             sp_result = db.supplier_products.update_one(
                 {"sku": sku},
-                {"$set": {"show_on_website": False}}
+                {"$set": {"published": False, "show_on_website": False}}
             )
             supplier_updated = sp_result.modified_count
             
@@ -3013,8 +3033,8 @@ def unpublish_from_website(
             
             # ALWAYS update supplier_products (even if tiles delete returned 0)
             sp_result = db.supplier_products.update_many(
-                {"sku": {"$in": sku_list}},
-                {"$set": {"show_on_website": False}}
+                {"$or": [{"sku": {"$in": sku_list}}, {"supplier_code": {"$in": sku_list}}]},
+                {"$set": {"published": False, "show_on_website": False}}
             )
             supplier_updated = sp_result.modified_count
             logger.info(f"Updated {supplier_updated} supplier_products records for SKUs: {sku_list}")
@@ -3033,7 +3053,7 @@ def unpublish_from_website(
             # Update supplier_products
             db.supplier_products.update_many(
                 {"supplier": supplier},
-                {"$set": {"show_on_website": False, "in_products_db": False}}
+                {"$set": {"published": False, "show_on_website": False, "in_products_db": False}}
             )
             
         else:
@@ -4070,6 +4090,21 @@ def get_all_supplier_products(
         if skus_to_check:
             existing_products = db.products.find({"sku": {"$in": skus_to_check}}, {"sku": 1})
             existing_in_products = {p["sku"] for p in existing_products}
+
+        # Batch check which SKUs are LIVE on the website (tiles collection).
+        # This is the source of truth for the admin "published" state — the
+        # legacy publish paths never set supplier_products.published, so the
+        # stored flag drifts. A product is published iff its tile doc exists.
+        codes_to_check = list({c for p in products_list for c in (p.get("sku"), p.get("supplier_code")) if c})
+        live_tiles = {}
+        if codes_to_check:
+            for t in db.tiles.find(
+                {"$or": [{"sku": {"$in": codes_to_check}}, {"supplier_code": {"$in": codes_to_check}}]},
+                {"sku": 1, "supplier_code": 1, "slug": 1, "series": 1},
+            ):
+                for c in (t.get("sku"), t.get("supplier_code")):
+                    if c:
+                        live_tiles[c] = t
         
         products = []
         products_to_update = []  # Batch updates for in_products_db flag
@@ -4127,6 +4162,11 @@ def get_all_supplier_products(
                 "always_in_stock": p.get("always_in_stock", False),  # Always show as In Stock on website
                 "visibility": p.get("visibility", "online"),  # online, in_store_only, hidden
                 "in_products_db": actual_in_products_db,  # Use verified status from products collection
+                # Live-truth published state — tile doc existence, not the stored flag
+                "published": (sku or p.get("supplier_code")) in live_tiles,
+                "live_on_website": (sku or p.get("supplier_code")) in live_tiles,
+                "live_slug": (live_tiles.get(sku or p.get("supplier_code")) or {}).get("slug"),
+                "live_series": (live_tiles.get(sku or p.get("supplier_code")) or {}).get("series"),
                 "category": corrected_category,  # Use corrected category
                 "material": p.get("material"),
                 "specifications": p.get("specifications"),  # Flooring specifications
