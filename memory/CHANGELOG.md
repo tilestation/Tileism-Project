@@ -3383,3 +3383,21 @@ The endpoint that powers the frontend `useNewOrderNotifier` hook (polls every 10
 **Verified via curl**: All 9 orders in preview DB return `payment_status: "paid"`. `since=` filter correctly excludes older payments. 13 pending orders that existed in DB are correctly hidden from the endpoint.
 
 **Deploy note**: User's screenshot showed tilestation.co.uk production behaviour. This fix is in preview only — needs Railway redeploy to reach live.
+
+---
+
+## Feb 10, 2026 — Hidden Suppliers (Chip Disappears After Delete)
+
+**Bug**: After successfully running "Delete Supplier Entirely" for Regulus, the chip stayed visible in the Supplier Products tab row. Root cause: `SUPPLIERS` is a hardcoded array at the top of `SupplierProducts.js`. Deleting the DB rows removes the data but the chip lives in code.
+
+**Fix**:
+- Backend (`supplier_sync.py`):
+  - `POST /suppliers/delete-entirely` now upserts a `{name, hidden_at}` doc into new `hidden_suppliers` collection
+  - `GET /suppliers/hidden` — returns the hidden list (server-side, cross-browser persistence)
+  - `POST /suppliers/{name}/restore` — un-hides so the chip reappears
+- Frontend (`SupplierProducts.js`):
+  - Fetches hidden list on mount + after every successful delete
+  - Chip render filters via `SUPPLIERS.filter(s => !hiddenSuppliersSet.has(s.id))`
+  - New "HIDDEN:" strip below chip row shows all hidden suppliers with a small `~~Name~~ ↶ restore` button so the delete is reversible
+
+**Verified end-to-end** — delete Regulus → chip disappears immediately, Hidden strip appears with restore link. Restore → chip returns, strip disappears. State survives page reloads and works across browsers.

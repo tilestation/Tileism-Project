@@ -9364,6 +9364,20 @@ def delete_supplier_entirely(data: DeleteSupplierEntireRequest):
         # have used historically).
         deleted["supplier_row"] = db.suppliers.delete_many({"$or": [{"name": supplier}, {"slug": supplier}]}).deleted_count
 
+        # Also record the supplier as HIDDEN so the frontend chip list
+        # (which is a hardcoded set in SupplierProducts.js) can filter it
+        # out on next load. Without this, deleting a supplier removes all
+        # its data but the chip stays visible forever.
+        try:
+            now_iso = datetime.now(timezone.utc).isoformat()
+            db.hidden_suppliers.update_one(
+                {"name": supplier},
+                {"$set": {"name": supplier, "hidden_at": now_iso}},
+                upsert=True,
+            )
+        except Exception as e:
+            logger.warning(f"[SUPPLIER-HARD-DELETE] Failed to mark hidden: {e}")
+
         total = sum(v for v in deleted.values() if isinstance(v, int))
         logger.warning(f"[SUPPLIER-HARD-DELETE] {supplier} — total_removed={total} breakdown={deleted}")
         return {
@@ -9377,6 +9391,44 @@ def delete_supplier_entirely(data: DeleteSupplierEntireRequest):
         raise
     except Exception as e:
         logger.error(f"delete_supplier_entirely error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/suppliers/hidden")
+def list_hidden_suppliers():
+    """Return the list of supplier names that have been deleted entirely
+    and should be hidden from the admin's Supplier Products chip list.
+
+    Called on page load by SupplierProducts.js so the hardcoded SUPPLIERS
+    array can be filtered — otherwise deleting Regulus wipes its data but
+    the chip stays visible forever."""
+    try:
+        db = get_db()
+        if "hidden_suppliers" not in db.list_collection_names():
+            return {"hidden": []}
+        rows = list(db.hidden_suppliers.find({}, {"_id": 0, "name": 1, "hidden_at": 1}))
+        return {"hidden": rows}
+    except Exception as e:
+        logger.error(f"list_hidden_suppliers error: {e}")
+        return {"hidden": []}
+
+
+@router.post("/suppliers/{supplier}/restore")
+def restore_hidden_supplier(supplier: str):
+    """Un-hide a previously deleted supplier so its chip reappears in the
+    admin UI. Data that was hard-deleted isn't recovered — this only
+    reveals the chip so admins can re-import products for that brand."""
+    try:
+        db = get_db()
+        supplier = (supplier or "").strip()
+        if not supplier:
+            raise HTTPException(status_code=400, detail="Supplier is required")
+        res = db.hidden_suppliers.delete_many({"name": {"$regex": f"^{supplier}$", "$options": "i"}})
+        return {"success": True, "restored": res.deleted_count, "supplier": supplier}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"restore_hidden_supplier error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

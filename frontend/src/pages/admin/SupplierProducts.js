@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../../lib/api';
@@ -132,6 +132,11 @@ export default function SupplierProducts() {
   const [showBulkDeleteDialog, setShowBulkDeleteDialog] = useState(false);
   const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState('');
   const [managerBuilderOpen, setManagerBuilderOpen] = useState(false);
+  // Suppliers the admin has hard-deleted via "Delete Supplier Entirely" —
+  // the chips for these are filtered out of the tab row until they're
+  // restored via the "restore" chip in the footer.
+  const [hiddenSuppliers, setHiddenSuppliers] = useState([]);
+  const hiddenSuppliersSet = useMemo(() => new Set(hiddenSuppliers.map(h => h.name || h)), [hiddenSuppliers]);
   
   // Initialize selectedProducts from localStorage to persist across refresh
   const [selectedProducts, setSelectedProducts] = useState(() => {
@@ -1978,6 +1983,36 @@ export default function SupplierProducts() {
     }
   };
 
+  // Fetch the list of "hidden" suppliers — the ones an admin has hard-
+  // deleted via the "Delete Supplier Entirely" flow. Those chips are
+  // filtered out of the tab row until they're explicitly restored.
+  const fetchHiddenSuppliers = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_URL}/api/supplier-sync/suppliers/hidden`);
+      if (!res.ok) return;
+      const data = await res.json();
+      setHiddenSuppliers(Array.isArray(data.hidden) ? data.hidden : []);
+    } catch {
+      // silent — chip filter is best-effort; falling back to full list is fine
+    }
+  }, []);
+
+  useEffect(() => { fetchHiddenSuppliers(); }, [fetchHiddenSuppliers]);
+
+  // Restore a previously hidden supplier so its chip re-appears in the
+  // supplier tab row. Used by the "Restore" links in the hidden-chips
+  // footer strip.
+  const restoreHiddenSupplier = async (supplierName) => {
+    try {
+      const res = await fetch(`${API_URL}/api/supplier-sync/suppliers/${encodeURIComponent(supplierName)}/restore`, { method: 'POST' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      toast.success(`Restored '${supplierName}' — chip visible again`);
+      fetchHiddenSuppliers();
+    } catch (err) {
+      toast.error(`Restore failed: ${err.message}`);
+    }
+  };
+
   // Open the "Delete Supplier Entirely" modal for one supplier. Fetches
   // a live impact-count from the backend so the admin sees exactly what
   // will be removed before typing anything.
@@ -2021,6 +2056,8 @@ export default function SupplierProducts() {
       toast.success(data.message);
       // If we just deleted the currently-selected supplier, drop back to 'all'.
       if (selectedSupplier === name) setSelectedSupplier('all');
+      // Refresh the hidden-suppliers list so the chip disappears immediately.
+      fetchHiddenSuppliers();
       fetchProducts();
     } catch (err) {
       toast.error(`Delete failed: ${err.message}`);
@@ -8098,7 +8135,7 @@ export default function SupplierProducts() {
 
       {/* Supplier Tabs */}
       <div className="flex flex-wrap gap-2 border-b pb-4">
-        {SUPPLIERS.map(supplier => {
+        {SUPPLIERS.filter(s => !hiddenSuppliersSet.has(s.id)).map(supplier => {
           const count = supplier.id === 'all' 
             ? (stats._total || Object.entries(stats).reduce((a, [k, b]) => k === '_total' ? a : a + (b || 0), 0))
             : stats[supplier.id] || 0;
@@ -8154,6 +8191,31 @@ export default function SupplierProducts() {
           );
         })}
       </div>
+
+      {/* Hidden Suppliers Restore Strip — appears only when at least one
+          supplier has been hard-deleted, giving admins a one-click way to
+          re-show the chip if they change their mind. */}
+      {hiddenSuppliers.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 text-[11px] text-gray-500 -mt-1" data-testid="hidden-suppliers-strip">
+          <span className="uppercase tracking-wider font-semibold text-gray-400">Hidden:</span>
+          {hiddenSuppliers.map(h => {
+            const name = h.name || h;
+            return (
+              <button
+                key={name}
+                type="button"
+                onClick={() => restoreHiddenSupplier(name)}
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded border border-gray-200 bg-gray-50 hover:bg-emerald-50 hover:border-emerald-200 hover:text-emerald-700"
+                title={`Restore '${name}' chip`}
+                data-testid={`restore-supplier-${name}`}
+              >
+                <span className="line-through text-gray-400">{name}</span>
+                <span className="text-emerald-600 font-medium">↶ restore</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       {/* Category Coverage Banner — shown when the "Needs Category" filter is active
           or the backfill preview has been run. Explains the router routing and offers
