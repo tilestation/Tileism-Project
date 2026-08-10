@@ -6,7 +6,7 @@
  * desktop / tablet / mobile device toggles.
  */
 import React, { useState, useMemo, useEffect } from 'react';
-import { Eye, Monitor, Tablet, Smartphone, RefreshCw, ExternalLink } from 'lucide-react';
+import { Eye, Monitor, Tablet, Smartphone, RefreshCw, ExternalLink, AlertTriangle } from 'lucide-react';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
 } from '../../../../components/ui/dialog';
@@ -32,6 +32,11 @@ const BulkPreviewModal = ({ open, onOpenChange, selectedProducts = [] }) => {
     });
     return [...map.values()];
   }, [selectedProducts]);
+
+  const unpublished = useMemo(
+    () => selectedProducts.filter(p => !p.published),
+    [selectedProducts]
+  );
 
   const [activeSlug, setActiveSlug] = useState(null);
   const [device, setDevice] = useState('desktop');
@@ -93,6 +98,29 @@ const BulkPreviewModal = ({ open, onOpenChange, selectedProducts = [] }) => {
             Unpublished products won't appear until you hit Publish.
           </DialogDescription>
         </DialogHeader>
+
+        {/* Unpublished changes warning */}
+        {unpublished.length > 0 && (
+          <div className="mx-4 mb-2 px-3 py-2 rounded-lg border border-amber-200 bg-amber-50 flex-shrink-0" data-testid="bulk-preview-unpublished-badge">
+            <div className="flex items-center gap-1.5 text-xs font-semibold text-amber-800">
+              <AlertTriangle className="w-3.5 h-3.5" />
+              {unpublished.length} selected {unpublished.length === 1 ? 'product has' : 'products have'} changes not yet published — {unpublished.length === 1 ? 'it' : 'they'} won't appear in this preview
+            </div>
+            <div className="mt-1.5 flex flex-wrap gap-1" data-testid="bulk-preview-unpublished-list">
+              {unpublished.slice(0, 8).map(p => (
+                <span
+                  key={p.sku || p.supplier_code || p._id}
+                  className="px-2 py-0.5 rounded-full bg-white border border-amber-200 text-[11px] text-amber-700"
+                >
+                  {p.our_product_name || p.product_name || p.display_name || p.name || p.sku}
+                </span>
+              ))}
+              {unpublished.length > 8 && (
+                <span className="px-2 py-0.5 text-[11px] text-amber-600 font-medium">+{unpublished.length - 8} more</span>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Series switcher */}
         {seriesList.length > 1 && (

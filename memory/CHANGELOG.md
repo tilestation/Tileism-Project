@@ -3585,3 +3585,8 @@ Shop tab URLs (/tiles?category={slug}) filter the storefront primarily by produc
 - curl: `?preview=1` now 200 with products (was 503).
 - Bulk bar → Preview: iframe rendered the Premium Oak landing page (title, hero, swatches, In Stock).
 - Quick Edit → Preview on site: href points to this env, target page renders fully.
+
+---
+
+## 10 Aug 2026 (later) — Preview Publish Check badge
+- `BulkPreviewModal.jsx`: amber "changes not yet published" banner between header and series chips when any selected product has `published != true`. Shows count, name chips (max 8, then "+N more"). testids: `bulk-preview-unpublished-badge`, `bulk-preview-unpublished-list`. Client-side only (uses `selectedProducts` prop). Verified via screenshot with unpublished SKU 5445 (Laminate Premium Oak).
