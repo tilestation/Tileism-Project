@@ -52,6 +52,8 @@ const NameSanityDrawer = ({ open, onClose, defaultSupplier = '', onRenamed, sele
   const [sweepResult, setSweepResult] = useState(null); // { total_ghosts, per_collection, rows }
   const [sweepSelected, setSweepSelected] = useState(() => new Set()); // Set of `${col}|${sku}`
   const [sweepPurging, setSweepPurging] = useState(false);
+  const [ghostEdits, setGhostEdits] = useState({});   // { `${col}|${sku}`: 'new name typed by admin' }
+  const [ghostSaving, setGhostSaving] = useState(false);
 
   const scoped = Array.isArray(selectedSkus) && selectedSkus.length > 0;
 
@@ -343,6 +345,54 @@ const NameSanityDrawer = ({ open, onClose, defaultSupplier = '', onRenamed, sele
       toast.error(`Bulk purge failed: ${err.message}`);
     } finally {
       setSweepPurging(false);
+    }
+  };
+
+  // Ghost rows whose edit box differs from the stored name — savable in one click.
+  const editedGhostItems = (sweepResult?.rows || [])
+    .map((r) => {
+      const k = `${r.collection}|${r.sku}`;
+      const edit = ghostEdits[k];
+      if (edit === undefined) return null;
+      const newName = edit.trim();
+      const current = (r.name || r.product_name || '').trim();
+      if (!newName || newName.length < 3 || newName === current) return null;
+      return { sku: r.sku, collection: r.collection, new_name: newName };
+    })
+    .filter(Boolean);
+
+  const saveEditedGhosts = async () => {
+    if (editedGhostItems.length === 0) { toast.info('No edited ghost names to save'); return; }
+    setGhostSaving(true);
+    try {
+      const res = await fetch(`${API_URL}/api/product-name-sanity/ghost-sweep/rename`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
+        body: JSON.stringify({ items: editedGhostItems }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      const failedSkus = new Set((data.failed || []).map(f => f.sku));
+      toast.success(`Fixed ${data.updated} ghost name${data.updated === 1 ? '' : 's'}${failedSkus.size ? ` — ${failedSkus.size} failed` : ''}`);
+      // Update the sweep rows in place (they stay ghosts — just correctly named now)
+      setSweepResult(prev => ({
+        ...prev,
+        rows: prev.rows.map(r => {
+          const item = editedGhostItems.find(i => i.sku === r.sku && i.collection === r.collection);
+          if (!item || failedSkus.has(r.sku)) return r;
+          return { ...r, name: item.new_name, product_name: item.new_name };
+        }),
+      }));
+      setGhostEdits(prev => {
+        const next = { ...prev };
+        editedGhostItems.forEach(i => { if (!failedSkus.has(i.sku)) delete next[`${i.collection}|${i.sku}`]; });
+        return next;
+      });
+      onRenamed?.();
+    } catch (err) {
+      toast.error(`Ghost rename failed: ${err.message}`);
+    } finally {
+      setGhostSaving(false);
     }
   };
 
@@ -698,6 +748,17 @@ const NameSanityDrawer = ({ open, onClose, defaultSupplier = '', onRenamed, sele
                   </Button>
                   <Button
                     size="sm"
+                    onClick={saveEditedGhosts}
+                    disabled={ghostSaving || editedGhostItems.length === 0}
+                    className="bg-blue-600 hover:bg-blue-700 text-white h-7 text-[11px]"
+                    data-testid="pns-ghost-save-edited"
+                    title="Save every ghost name you've edited below (fixes the record without deleting it)"
+                  >
+                    {ghostSaving ? <RefreshCw className="w-3 h-3 mr-1 animate-spin" /> : <Save className="w-3 h-3 mr-1" />}
+                    Save edited ({editedGhostItems.length})
+                  </Button>
+                  <Button
+                    size="sm"
                     onClick={bulkPurgeGhosts}
                     disabled={sweepPurging || sweepSelected.size === 0}
                     className="bg-red-600 hover:bg-red-700 text-white h-7 text-[11px]"
@@ -737,7 +798,7 @@ const NameSanityDrawer = ({ open, onClose, defaultSupplier = '', onRenamed, sele
                         </th>
                         <th className="px-2 py-2 font-medium w-32">Collection</th>
                         <th className="px-2 py-2 font-medium w-32">SKU</th>
-                        <th className="px-2 py-2 font-medium">Name in that collection</th>
+                        <th className="px-2 py-2 font-medium">Name in that collection (edit &amp; save)</th>
                         <th className="px-2 py-2 font-medium w-32">Supplier tag</th>
                         <th className="px-2 py-2 font-medium w-32">Updated</th>
                       </tr>
@@ -764,7 +825,18 @@ const NameSanityDrawer = ({ open, onClose, defaultSupplier = '', onRenamed, sele
                             </td>
                             <td className="px-2 py-1.5 font-mono text-[11px] text-slate-700">{r.sku}</td>
                             <td className="px-2 py-1.5 text-slate-800">
-                              {r.name || r.product_name || <span className="text-gray-300">—</span>}
+                              <Input
+                                value={ghostEdits[k] ?? (r.name || r.product_name || '')}
+                                onChange={(e) => setGhostEdits(prev => ({ ...prev, [k]: e.target.value }))}
+                                placeholder="— empty —"
+                                className="h-7 text-xs"
+                                data-testid={`pns-ghost-name-${r.sku}`}
+                              />
+                              {ghostEdits[k] !== undefined && ghostEdits[k].trim() !== (r.name || r.product_name || '').trim() && (
+                                <div className="text-[10px] text-blue-600 mt-0.5" data-testid={`pns-ghost-edited-${r.sku}`}>
+                                  edited — was: {(r.name || r.product_name) || '—'}
+                                </div>
+                              )}
                               {r.supplier_product_name && r.supplier_product_name !== r.name && (
                                 <div className="text-[10px] text-gray-500">supplier: {r.supplier_product_name}</div>
                               )}

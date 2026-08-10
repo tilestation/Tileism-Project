@@ -3659,3 +3659,10 @@ Self-tested: backend unit cases + screenshot of /admin/product-name-sanity (inpu
 ## 10 Aug 2026 — Bulk Rename Save (Name Sanity)
 - "Save all edited (N)" blue button added next to "Auto-fix all" in BOTH `ProductNameSanity.jsx` and `NameSanityDrawer.jsx`. Collects every row whose edit box differs from the current name and POSTs them in one batch to `/api/product-name-sanity/apply` (existing endpoint). Saved rows drop from the list; failures reported per-batch; unsaved edits kept. Button disabled until ≥1 edit.
 - Self-tested via screenshot e2e: edited 2 rows → "Save all edited (2)" → "Saved 2 names" toast, rows removed, DB mirrored to tiles/products. QA suffixes cleaned after test.
+
+---
+
+## 10 Aug 2026 — Ghost Rename (manual fix instead of purge)
+- Backend: `POST /api/product-name-sanity/ghost-sweep/rename` — batch `{sku, collection, new_name}`; rewrites name (+product_name for products/sync_staging) in-place in the ghost's own collection (products/tiles/sync_staging only), audit-logged as GHOST_RENAME, stamps ghost_name_fixed_by.
+- Frontend (`NameSanityDrawer.jsx` ghost sweep): "Name in that collection" is now an inline editable input per row with an "edited — was: X" marker; blue "Save edited (N)" button in the panel header next to Purge. Rows stay in the list after rename (still ghosts, just corrected).
+- Self-tested e2e via screenshot: sweep (735 local ghosts) → edit ADH-001 → Save → "Fixed 1 ghost name" toast, DB persisted with ghost_name_fixed_by stamp, marker cleared. Test rename restored after.

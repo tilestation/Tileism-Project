@@ -686,6 +686,67 @@ async def ghost_sweep(
     }
 
 
+class GhostRenameItem(BaseModel):
+    sku: str = Field(min_length=1)
+    collection: str
+    new_name: str = Field(min_length=3, max_length=250)
+
+
+class GhostRenameRequest(BaseModel):
+    items: List[GhostRenameItem]
+
+
+@router.post("/ghost-sweep/rename")
+async def ghost_sweep_rename(
+    payload: GhostRenameRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """Manually fix ghost record names in-place. Unlike purge, this KEEPS the
+    row in its collection (products/tiles/sync_staging) but rewrites its name —
+    for ghost EPOS/Website entries the admin wants to correct rather than delete.
+    """
+    if not has_permission(current_user, "supplier_products"):
+        raise HTTPException(403, "You need the Supplier Products permission to rename ghost records")
+
+    ALLOWED = {"products", "tiles", "sync_staging"}
+    db = get_db()
+    now = datetime.now(timezone.utc)
+    updated = 0
+    failed: list[dict] = []
+
+    for item in payload.items:
+        col = item.collection.strip()
+        if col not in ALLOWED:
+            failed.append({"sku": item.sku, "reason": f"collection '{col}' not allowed"})
+            continue
+        new_name = item.new_name.strip()
+        regex = {"$regex": f"^{re.escape(item.sku.strip())}$", "$options": "i"}
+        set_data = {"name": new_name, "updated_at": now, "ghost_name_fixed_by": current_user.get("email")}
+        if col in ("products", "sync_staging"):
+            set_data["product_name"] = new_name
+        try:
+            res = await db[col].update_many(
+                {"$or": [{"sku": regex}, {"supplier_code": regex}, {"key": regex}]},
+                {"$set": set_data},
+            )
+            if res.matched_count == 0:
+                failed.append({"sku": item.sku, "reason": "not_found"})
+            else:
+                updated += 1
+        except Exception as e:
+            failed.append({"sku": item.sku, "reason": str(e)})
+
+    await log_audit(
+        action="GHOST_RENAME",
+        entity_type="product",
+        user=current_user,
+        entity_id="bulk-ghost-rename",
+        entity_name=f"{updated} ghost records renamed via Name Sanity ghost sweep",
+        after_data={"updated": updated, "failed_count": len(failed)},
+    )
+    return {"ok": True, "updated": updated, "failed": failed}
+
+
 class GhostBulkPurgeRequest(BaseModel):
     items: List[dict] = Field(
         default_factory=list,
