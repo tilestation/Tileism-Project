@@ -2655,6 +2655,8 @@ def publish_supplier_products_to_website(
                     "custom_labels": sp.get('custom_labels', []),
                     "collection": sp.get('collection') or sp.get('original_series') or '',
                     "labels": sp.get('labels', []),
+                    "field_label_overrides": sp.get('field_label_overrides', {}),
+                    "custom_specs": sp.get('custom_specs', []),
                     # Tier pricing fields
                     "tier_pricing_disabled": sp.get('tier_pricing_disabled', False),
                     "has_custom_tier_pricing": sp.get('has_custom_tier_pricing', False),
@@ -6229,6 +6231,79 @@ def shop_tab_gaps():
         "total_products": total_products,
         "by_group": sorted([{"group": k, "count": v} for k, v in by_group.items()], key=lambda x: -x["count"]),
     }
+
+
+def _clean_name_ws(s: str) -> str:
+    """Trim + collapse internal runs of whitespace to a single space."""
+    return re.sub(r"\s+", " ", s).strip()
+
+
+_SP_NAME_FIELDS = ("name", "product_name", "our_product_name", "display_name", "series")
+_TILE_NAME_FIELDS = ("name", "display_name", "website_name", "original_name", "series", "original_series")
+
+
+@router.get("/products/data-health")
+def products_data_health():
+    """Missing-image counts per product group + count of products whose name
+    fields carry stray whitespace. Powers the admin dashboard Data Health card."""
+    db = get_db()
+    by_group = {}
+    missing_total = 0
+    total_products = 0
+    untrimmed = 0
+    proj = {f: 1 for f in _SP_NAME_FIELDS}
+    proj.update({"images": 1, "image": 1, "product_group": 1, "category": 1})
+    for d in db.supplier_products.find({}, proj):
+        total_products += 1
+        imgs = d.get("images") or ([d["image"]] if d.get("image") else [])
+        if not [i for i in imgs if i]:
+            missing_total += 1
+            grp = str(d.get("product_group") or d.get("category") or "unassigned").strip().lower()
+            by_group[grp] = by_group.get(grp, 0) + 1
+        if any(isinstance(d.get(f), str) and d[f] and d[f] != _clean_name_ws(d[f]) for f in _SP_NAME_FIELDS):
+            untrimmed += 1
+    return {
+        "missing_images_total": missing_total,
+        "total_products": total_products,
+        "missing_images_by_group": sorted([{"group": k, "count": v} for k, v in by_group.items()], key=lambda x: -x["count"]),
+        "untrimmed_names": untrimmed,
+    }
+
+
+@router.post("/products/trim-names")
+def trim_product_names():
+    """One-click data cleanup: trim leading/trailing spaces and collapse double
+    spaces in name fields across supplier_products, tiles, products and
+    sync_staging. Slugs are NOT touched."""
+    db = get_db()
+    examples = []
+    counts = {}
+    targets = [
+        (db.supplier_products, _SP_NAME_FIELDS, "supplier_products"),
+        (db.tiles, _TILE_NAME_FIELDS, "tiles"),
+        (db.products, ("name", "product_name", "display_name"), "products"),
+        (db.sync_staging, ("name", "product_name"), "sync_staging"),
+    ]
+    for coll, fields, label in targets:
+        fixed = 0
+        proj = {f: 1 for f in fields}
+        for d in coll.find({}, proj):
+            sets = {}
+            for f in fields:
+                v = d.get(f)
+                if isinstance(v, str) and v:
+                    cleaned = _clean_name_ws(v)
+                    if cleaned != v:
+                        sets[f] = cleaned
+                        if len(examples) < 5:
+                            examples.append(f"'{v}' → '{cleaned}'")
+            if sets:
+                coll.update_one({"_id": d["_id"]}, {"$set": sets})
+                fixed += 1
+        counts[f"{label}_fixed"] = fixed
+    counts["total_fixed"] = sum(counts.values())
+    counts["examples"] = examples
+    return counts
 
 
 # ============================================================

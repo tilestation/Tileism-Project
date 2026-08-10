@@ -15,6 +15,7 @@ import MarketingFunnelCard from '../../components/dashboard/MarketingFunnelCard'
 import ReturnHeatmapCard from '../../components/dashboard/ReturnHeatmapCard';
 import ConversionFunnelCard from './ConversionFunnelCard';
 import ShopTabGapsCard from './components/ShopTabGapsCard';
+import DataHealthCard from './components/DataHealthCard';
 import { normaliseImageUrl } from '../../utils/safeStr';
 import AutoExportSchedulerCard from '../../components/AutoExportSchedulerCard';
 
@@ -830,6 +831,8 @@ export const AdminDashboard = () => {
       <ConversionFunnelCard />
       {/* Products not assigned to any shop tab — spot gaps before they pile up */}
       <ShopTabGapsCard />
+      {/* Catalogue hygiene — missing photos + one-click name cleanup */}
+      <DataHealthCard />
       {/* Milestone Achievement Popup */}
       {showMilestonePopup && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 animate-in fade-in duration-300">

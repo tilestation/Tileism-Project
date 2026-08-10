@@ -46,7 +46,7 @@ import BulkImageUploadModal from './managers/BulkImageUploadModal';
 import CsvImportModal from './managers/CsvImportModal';
 import ProductImagesGridPanel from './managers/ProductImagesGridPanel';
 import { groupBySeries } from '../lib/series';
-import { Layers, LayoutGrid, List } from 'lucide-react';
+import { Layers, LayoutGrid, List, ImageOff } from 'lucide-react';
 import ManagerConfigModal from './managers/ManagerConfigModal';
 import StorefrontPanel from './managers/StorefrontPanel';
 import ShopTabsAssignModal from './managers/ShopTabsAssignModal';
@@ -136,10 +136,13 @@ const ManagerPageShell = ({
 
   // Gap filter — show only products not assigned to any shop tab
   const [gapOnly, setGapOnly] = useState(false);
+  // No-photos filter — show only products with no images (dashboard Data Health card)
+  const [noImagesOnly, setNoImagesOnly] = useState(false);
   const [inheriting, setInheriting] = useState(false);
-  // Deep link from the dashboard gaps card: /admin/{manager}?gaps=1
+  // Deep link from the dashboard cards: /admin/{manager}?gaps=1 or ?noimages=1
   useEffect(() => {
     if (searchParams.get('gaps') === '1') setGapOnly(true);
+    if (searchParams.get('noimages') === '1') setNoImagesOnly(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const [showBulkPreview, setShowBulkPreview] = useState(false);
@@ -324,8 +327,17 @@ const ManagerPageShell = ({
     if (gapOnly && destMap) {
       list = list.filter(p => !hasShopTab(p));
     }
+    // No-photos filter — only products with no images at all
+    if (noImagesOnly) {
+      list = list.filter(p => !((Array.isArray(p.images) ? p.images : []).filter(Boolean).length > 0 || p.image));
+    }
     return list;
-  }, [products, subTab, filters, search, effectiveSubTabs, effectiveFilterFacets, facetCategory, gapOnly, destMap, hasShopTab]);
+  }, [products, subTab, filters, search, effectiveSubTabs, effectiveFilterFacets, facetCategory, gapOnly, destMap, hasShopTab, noImagesOnly]);
+
+  const noImagesCount = useMemo(
+    () => products.filter(p => !((Array.isArray(p.images) ? p.images : []).filter(Boolean).length > 0 || p.image)).length,
+    [products]
+  );
 
   const gapCount = useMemo(
     () => (destMap ? products.filter(p => !hasShopTab(p)).length : 0),
@@ -585,6 +597,19 @@ const ManagerPageShell = ({
             >
               <Layers className="w-3 h-3" />
               {inheriting ? 'Inheriting…' : 'Inherit from series'}
+            </button>
+          )}
+          {/* No-photos filter — spot + fix products with no images */}
+          {noImagesCount > 0 && (
+            <button
+              type="button"
+              onClick={() => setNoImagesOnly(v => !v)}
+              className={`inline-flex items-center gap-1 px-2 py-1 rounded-full border text-xs font-medium transition-colors ${noImagesOnly ? 'bg-rose-500 border-rose-500 text-white' : 'bg-rose-50 border-rose-200 text-rose-700 hover:bg-rose-100'}`}
+              title={noImagesOnly ? 'Showing only products with no photos — click to show all' : 'Show only products with no photos'}
+              data-testid={`${categoryKey}-noimages-filter-btn`}
+            >
+              <ImageOff className="w-3 h-3" />
+              {noImagesCount} no photos
             </button>
           )}
           {/* View-mode toggle: Table vs Images (replaces the deleted

@@ -1,0 +1,20 @@
+{
+  "summary": "Iter 228: Fully verified 3 requested features + regressions. Backend (5/5 pytest tests pass): /api/supplier-sync/products/data-health returns 507/1582 missing images with per-group breakdown and untrimmed_names=0; /api/supplier-sync/products/trim-names correctly trims a stray-space fixture on TEST-DRAFT-PO1 (response counted supplier_products_fixed=1, examples included) and untrimmed_names returns to 0 after; /api/supplier-sync/products/bulk-update-unified persists field_label_overrides.finish='Surface Finish' and custom_specs [{key:bottle_volume,label:Bottle Volume,value:1L}] on TEST-DRAFT-PO1 (verified via GET ?search=TEST-DRAFT-PO1); regression /api/tiles/collection/Premium Oak?preview=1 returns draft_count>=1 with TEST-DRAFT-PO1 flagged is_draft; /api/supplier-sync/products/shop-tab-gaps returns 200. Frontend: /admin dashboard renders DataHealthCard (data-testid data-health-card) showing '507 of 1582 products have no photos' with per-group chips (tiles·177, flooring·198, etc.). /admin/tiles?noimages=1 deep-links with rose 'tiles-noimages-filter-btn' ACTIVE (bg-rose-500 class), showing 177 rows; toggling off restores 1058 rows. Bulk modal (bar-specs-filters) opens for selected TEST-DRAFT-PO1 row, label 'finish' can be inline-renamed to 'Surface Finish' with reset link shown, custom field 'Bottle Volume=1L' can be added, Save is enabled, Apply returns 200 with success toast 'Applied 2 fields to 1 product'. Cleanup performed: fixture TEST-DRAFT-PO1 restored to product_name='Premium Oak Signature Plank', field_label_overrides={}, custom_specs=[].",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_data_health_trim_bulk_iter228.py",
+    "/app/test_reports/pytest/iter228.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Note: renaming a field label (e.g. 'finish') in the bulk modal shows the label rendered twice — once under Filters and once under Spec Fields — because both sections list rows keyed on 'finish' and both are updated via shared field_label_overrides. This is intended per the request note; UI users may find seeing duplicate 'Surface Finish' entries confusing. Consider a subtle badge/tooltip clarifying the shared key."
+  ],
+  "updated_files": ["/app/backend/tests/test_data_health_trim_bulk_iter228.py"],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "admin@test.com / admin123",
+  "seed_data_creation": "Temporary stray-space fixture on supplier_products/TEST-DRAFT-PO1 was injected then restored after trim-names test. Bulk save applied via UI then cleaned via bulk-update-unified replace mode. Final DB state: product_name='Premium Oak Signature Plank', field_label_overrides={}, custom_specs=[].",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "All iter228 features (Missing Images Fixer dashboard card + tiles filter, Name Cleanup trim endpoint, Bulk modal label rename + custom fields) work end-to-end. TEST-DRAFT-PO1 fixture remains UNPUBLISHED with clean values; safe for further iteration tests. Test file /app/backend/tests/test_data_health_trim_bulk_iter228.py is reusable regression coverage (uses product_ids key — earlier assumption of 'ids' was wrong for /bulk-update-unified)."
+}

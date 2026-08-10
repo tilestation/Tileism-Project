@@ -3624,3 +3624,18 @@ Select the series in Materials Manager → Publish. The rebuilt tile docs carry 
 ### Testing
 - iteration_227: 7/7 backend pytest + all 5 frontend flows PASS (100%).
 - Fixture: supplier_products SKU `TEST-DRAFT-PO1` (series 'Premium Oak') kept as canonical unpublished draft for future tests.
+
+---
+
+## 10 Aug 2026 (late night) — Data Health card + Name Cleanup + Bulk editor parity
+
+### Delivered
+1. **Missing Images Fixer**: `GET /api/supplier-sync/products/data-health` (missing-image counts per group + untrimmed_names). New `DataHealthCard.jsx` on the dashboard (after ShopTabGapsCard) with per-group chips deep-linking `/admin/{manager}?noimages=1`. ManagerPageShell got a `noImagesOnly` filter + rose "N no photos" chip + deep-link support.
+2. **Name Cleanup**: `POST /api/supplier-sync/products/trim-names` — trims lead/trail + collapses double spaces across name fields in supplier_products/tiles/products/sync_staging (slugs untouched). One-click button on the DataHealthCard. Local run fixed 17 records (BOREALIS/CARRARA trailing spaces).
+3. **Bulk editor parity with Quick Edit** (`BulkSpecsFiltersModal.jsx`): click-to-rename field labels (saved as `field_label_overrides` merged per selected product; reset link) + "Custom Fields" section (merged into each product's `custom_specs`, same key derivation as Quick Edit). Undo snapshot covers both. Publish tile_doc now also copies field_label_overrides/custom_specs so republish doesn't wipe them.
+
+### Critical tooling lesson (also in memory/learnings.md)
+NEVER run multiple search_replace edits on the SAME file in one parallel batch — races corrupted tiles.py and supplier_sync.py (duplicated/mangled blocks). Same-file edits must be sequential. Also: Radix Dialog focus-trap fires onBlur immediately after mounting an autoFocus input — don't close inline editors on blur inside dialogs (close on Enter/Escape).
+
+### Testing
+- iteration_228: 5/5 backend pytest + all frontend flows PASS (100%). Fixture TEST-DRAFT-PO1 left unpublished with clean values.
