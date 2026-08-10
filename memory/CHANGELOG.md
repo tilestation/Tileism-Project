@@ -3547,3 +3547,25 @@ Shop tab URLs (/tiles?category={slug}) filter the storefront primarily by produc
 - delete_many+insert_many is destructive on partial failure — consider swap-collection strategy someday.
 - supplier_sync.py ~15k lines — extract preview-sync + shop-tabs routers (P3).
 - Consider PUBLIC_BACKEND_URL env in self-pull guard as extra belt-and-braces.
+
+
+---
+
+## 10 Aug 2026 — Gap Dashboard Card + Bulk Landing-Page Preview
+
+### Delivered
+**1. Gap Dashboard** :
+- Backend `GET /api/supplier-sync/products/shop-tab-gaps` — {total_gaps, total_products, by_group} using new `_assignable_tab_category_names(db)` helper; group keys normalized to lowercase (data had mixed 'Flooring'/'flooring').
+- `ShopTabGapsCard.jsx` on the admin Dashboard (below ConversionFunnelCard): amber card "558 of 1581 products aren't on any shop tab" with per-group chips deep-linking to `/admin/{manager}?gaps=1`; green all-clear state when 0.
+- ManagerPageShell reads `?gaps=1` on mount → pre-activates the gap filter (verified: deep link lands with filter on, 134 visible).
+
+**2. Bulk Landing-Page Preview**:
+- `BulkPreviewModal.jsx` — opened from new 'Preview' button in the bulk bar (bar-preview, placed before Publish). Iframe of THIS preview env's storefront `/shop/collection/{series-slug}` (same-origin, loads fine), device toggles (desktop/tablet/mobile), refresh, open-in-new-tab, and series switcher chips when the selection spans multiple series (slug = getSeriesName with spaces→dashes, same as Quick Edit preview).
+- Honest hint in header: unpublished products won't appear until Publish; this is the preview env's storefront.
+
+### Testing (self-tested via curl + 3 screenshots — no testing agent this round)
+- Gaps endpoint counts verified; dashboard card renders with correct data + working deep link (filter pre-activated).
+- Preview modal verified: real Alabaster landing page rendered in iframe; multi-series chips (4 series) switch pages; mobile toggle narrows the frame.
+
+### Notes
+- tbody checkboxes include series-header rows (selecting one selects the whole series) — that's why few clicks can yield several series chips.

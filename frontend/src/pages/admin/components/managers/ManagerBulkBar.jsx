@@ -9,7 +9,7 @@
 import React, { useState } from 'react';
 import { Button } from '../../../../components/ui/button';
 import {
-  X, CheckSquare, Trash2, Archive, Globe, EyeOff, Percent, Palette, Layers, Grid3X3, Package, PoundSterling, Sparkles, Image as ImageIcon, Tag, Sliders, LayoutGrid,
+  X, CheckSquare, Trash2, Archive, Globe, Eye, EyeOff, Percent, Palette, Layers, Grid3X3, Package, PoundSterling, Sparkles, Image as ImageIcon, Tag, Sliders, LayoutGrid,
 } from 'lucide-react';
 
 const ManagerBulkBar = ({
@@ -29,6 +29,7 @@ const ManagerBulkBar = ({
   onOpenBulkImages,
   onOpenReassignCategory,
   onOpenShopTabs,
+  onOpenPreview,
   onOpenSaleLabels,
   saving = false,
   themeColor = 'orange',
@@ -171,6 +172,21 @@ const ManagerBulkBar = ({
         >
           <Sliders className="w-3.5 h-3.5" />
           Specs / Filters
+        </button>
+      )}
+
+      {/* Landing page preview — see it before publishing */}
+      {!hidden.has('preview') && onOpenPreview && (
+        <button
+          type="button"
+          onClick={onOpenPreview}
+          disabled={saving}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/15 hover:bg-white/25 transition text-[13px] font-medium"
+          data-testid="bar-preview"
+          title="Preview the selected products' landing pages before publishing"
+        >
+          <Eye className="w-3.5 h-3.5" />
+          Preview
         </button>
       )}
 

@@ -6146,6 +6146,51 @@ def preview_sync_status():
     return doc
 
 
+def _assignable_tab_category_names(db):
+    """Lowercased set of category names used by assignable shop tabs."""
+    from urllib.parse import urlparse, parse_qs
+    cats = {c["slug"]: c.get("name") for c in db.website_categories.find({}, {"_id": 0, "slug": 1, "name": 1})}
+    names = set()
+    for g in db.category_groups.find({}, {"slug": 1}):
+        menu_type = "shop" if g["slug"] == "tiles" else f"shop_{g['slug']}"
+        menu = db.navigation_menus.find_one({"menu_type": menu_type}, {"_id": 0})
+        items = (menu or {}).get("items", [])
+        if not items and menu_type == "shop":
+            items = DEFAULT_TILES_SHOP_MENU
+        for it in items:
+            if it.get("is_active") is False:
+                continue
+            qs = parse_qs(urlparse(it.get("link_url") or "").query)
+            slug = (qs.get("category") or [None])[0]
+            if slug:
+                names.add((cats.get(slug) or slug.replace("-", " ").title()).lower())
+    return names
+
+
+@router.get("/products/shop-tab-gaps")
+def shop_tab_gaps():
+    """Counts of products not assigned to any shop tab, per product group.
+    Powers the admin dashboard 'gaps' card."""
+    db = get_db()
+    names = _assignable_tab_category_names(db)
+    by_group = {}
+    total = 0
+    total_products = 0
+    for d in db.supplier_products.find({}, {"sub_categories": 1, "product_group": 1, "category": 1}):
+        total_products += 1
+        subs = [str(x).lower() for x in (d.get("sub_categories") or [])]
+        if any(s in names for s in subs):
+            continue
+        total += 1
+        grp = str(d.get("product_group") or d.get("category") or "unassigned").strip().lower()
+        by_group[grp] = by_group.get(grp, 0) + 1
+    return {
+        "total_gaps": total,
+        "total_products": total_products,
+        "by_group": sorted([{"group": k, "count": v} for k, v in by_group.items()], key=lambda x: -x["count"]),
+    }
+
+
 # ============================================================
 # BULK TIER PRICING UPDATE ENDPOINT
 # ============================================================

@@ -14,6 +14,7 @@ import AbandonedCartRecoveryCard from '../../components/dashboard/AbandonedCartR
 import MarketingFunnelCard from '../../components/dashboard/MarketingFunnelCard';
 import ReturnHeatmapCard from '../../components/dashboard/ReturnHeatmapCard';
 import ConversionFunnelCard from './ConversionFunnelCard';
+import ShopTabGapsCard from './components/ShopTabGapsCard';
 import { normaliseImageUrl } from '../../utils/safeStr';
 import AutoExportSchedulerCard from '../../components/AutoExportSchedulerCard';
 
@@ -827,6 +828,8 @@ export const AdminDashboard = () => {
     <div className="space-y-8" data-testid="admin-dashboard">
       {/* Conversion funnel — compounds with the SEO + uptime dashboards */}
       <ConversionFunnelCard />
+      {/* Products not assigned to any shop tab — spot gaps before they pile up */}
+      <ShopTabGapsCard />
       {/* Milestone Achievement Popup */}
       {showMilestonePopup && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 animate-in fade-in duration-300">

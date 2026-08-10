@@ -50,6 +50,7 @@ import { Layers, LayoutGrid, List } from 'lucide-react';
 import ManagerConfigModal from './managers/ManagerConfigModal';
 import StorefrontPanel from './managers/StorefrontPanel';
 import ShopTabsAssignModal from './managers/ShopTabsAssignModal';
+import BulkPreviewModal from './managers/BulkPreviewModal';
 import { fetchShopTabDestinations, buildDestinationMap } from '../lib/shopTabDestinations';
 import AssignColoursModal from './managers/AssignColoursModal';
 import TierPricingModal from './supplier-products/TierPricingModal';
@@ -136,6 +137,12 @@ const ManagerPageShell = ({
   // Gap filter — show only products not assigned to any shop tab
   const [gapOnly, setGapOnly] = useState(false);
   const [inheriting, setInheriting] = useState(false);
+  // Deep link from the dashboard gaps card: /admin/{manager}?gaps=1
+  useEffect(() => {
+    if (searchParams.get('gaps') === '1') setGapOnly(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const [showBulkPreview, setShowBulkPreview] = useState(false);
   const hasShopTab = useCallback((p) => {
     if (!destMap) return true;
     return (Array.isArray(p.sub_categories) ? p.sub_categories : [])
@@ -863,6 +870,7 @@ const ManagerPageShell = ({
         onOpenBulkSpecs={() => setShowBulkSpecs(true)}
         onOpenReassignCategory={bulk.bulkAssignCategory}
         onOpenShopTabs={() => setShowShopTabs(true)}
+        onOpenPreview={() => setShowBulkPreview(true)}
         saving={bulk.bulkSaving}
         themeColor={bulkBarTheme || theme}
         hideActions={['category']}
@@ -970,6 +978,12 @@ const ManagerPageShell = ({
         onSave={saveConfig}
         onRefresh={refreshConfig}
         themeColor={theme}
+      />
+
+      <BulkPreviewModal
+        open={showBulkPreview}
+        onOpenChange={setShowBulkPreview}
+        selectedProducts={bulk.getSelectedList()}
       />
 
       <StorefrontPanel
