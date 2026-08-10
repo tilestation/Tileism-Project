@@ -5842,6 +5842,19 @@ def related_picker_search(q: str = "", limit: int = 12, exclude_sku: str = ""):
     return {"results": results}
 
 
+# Default tiles shop menu — MUST stay in sync with the fallback served by
+# /website-admin/navigation/shop (website_admin.py) for pages with no DB doc.
+DEFAULT_TILES_SHOP_MENU = [
+    {"id": "1", "label": "ALL TILES", "link_url": "/shop/tiles", "display_order": 0, "is_active": True, "highlight": False},
+    {"id": "2", "label": "WALL TILES", "link_url": "/shop/tiles?category=wall-tiles", "display_order": 1, "is_active": True, "highlight": False},
+    {"id": "3", "label": "FLOOR TILES", "link_url": "/shop/tiles?category=floor-tiles", "display_order": 2, "is_active": True, "highlight": False},
+    {"id": "4", "label": "PORCELAIN", "link_url": "/shop/tiles?category=porcelain", "display_order": 3, "is_active": True, "highlight": False},
+    {"id": "5", "label": "POLISHED", "link_url": "/shop/tiles?filter=finish:polished", "display_order": 4, "is_active": True, "highlight": False},
+    {"id": "6", "label": "MATT", "link_url": "/shop/tiles?filter=finish:matt", "display_order": 5, "is_active": True, "highlight": False},
+    {"id": "7", "label": "SALE", "link_url": "/shop/tiles?filter=sale:true", "display_order": 6, "is_active": True, "highlight": True, "highlight_color": "#ef4444"},
+]
+
+
 @router.get("/shop-tab-destinations")
 def get_shop_tab_destinations():
     """All shop pages + their tabs, each resolved to the website category it
@@ -5858,16 +5871,7 @@ def get_shop_tab_destinations():
         menu = db.navigation_menus.find_one({"menu_type": menu_type}, {"_id": 0})
         items = (menu or {}).get("items", [])
         if not items and menu_type == "shop":
-            # Mirror the default tiles shop menu served by /website-admin/navigation/shop
-            items = [
-                {"label": "ALL TILES", "link_url": "/shop/tiles", "display_order": 0, "is_active": True},
-                {"label": "WALL TILES", "link_url": "/shop/tiles?category=wall-tiles", "display_order": 1, "is_active": True},
-                {"label": "FLOOR TILES", "link_url": "/shop/tiles?category=floor-tiles", "display_order": 2, "is_active": True},
-                {"label": "PORCELAIN", "link_url": "/shop/tiles?category=porcelain", "display_order": 3, "is_active": True},
-                {"label": "POLISHED", "link_url": "/shop/tiles?filter=finish:polished", "display_order": 4, "is_active": True},
-                {"label": "MATT", "link_url": "/shop/tiles?filter=finish:matt", "display_order": 5, "is_active": True},
-                {"label": "SALE", "link_url": "/shop/tiles?filter=sale:true", "display_order": 6, "is_active": True},
-            ]
+            items = DEFAULT_TILES_SHOP_MENU
         tabs = []
         for it in sorted(items, key=lambda x: x.get("display_order", 0)):
             if it.get("is_active") is False:
@@ -5928,6 +5932,71 @@ def assign_shop_tabs(data: AssignShopTabsRequest):
         "added": data.add_categories,
         "removed": data.remove_categories,
     }
+
+
+class CreateShopTabRequest(BaseModel):
+    group_slug: str
+    label: str
+
+
+@router.post("/shop-tab-destinations/create")
+def create_shop_tab(data: CreateShopTabRequest):
+    """Create a brand-new shop tab: backing website category (if needed) +
+    nav item appended to that shop page's menu. Used by the Shop Tabs modal."""
+    import re as _re
+    import uuid as _uuid
+    from datetime import datetime, timezone
+    label = (data.label or "").strip()
+    if not label or not data.group_slug:
+        raise HTTPException(status_code=400, detail="label and group_slug are required")
+    db = get_db()
+    group = db.category_groups.find_one({"slug": data.group_slug})
+    if not group:
+        raise HTTPException(status_code=404, detail=f"Unknown shop page '{data.group_slug}'")
+    cat_slug = _re.sub(r"[^a-z0-9]+", "-", label.lower()).strip("-")
+    if not cat_slug:
+        raise HTTPException(status_code=400, detail="Label must contain letters or numbers")
+    existing_cat = db.website_categories.find_one({"slug": cat_slug})
+    cat_name = existing_cat["name"] if existing_cat else label.title()
+    if not existing_cat:
+        now = datetime.now(timezone.utc)
+        db.website_categories.insert_one({
+            "name": cat_name, "slug": cat_slug, "description": "",
+            "parent_id": None, "image_url": "",
+            "display_order": db.website_categories.count_documents({}),
+            "is_active": True, "show_on_homepage": False,
+            "seo_title": "", "seo_description": "", "product_count": 0,
+            "group_slug": data.group_slug, "custom_url": None,
+            "highlight": False, "subtitle": "",
+            "created_at": now, "updated_at": now,
+        })
+    menu_type = "shop" if data.group_slug == "tiles" else f"shop_{data.group_slug}"
+    menu = db.navigation_menus.find_one({"menu_type": menu_type})
+    items = (menu or {}).get("items", [])
+    if not items and menu_type == "shop":
+        # Materialize the defaults so appending doesn't wipe the standard tabs.
+        items = [dict(it) for it in DEFAULT_TILES_SHOP_MENU]
+    if data.group_slug == "tiles":
+        link_url = f"/shop/tiles?category={cat_slug}"
+    else:
+        link_url = f"/tiles?group={data.group_slug}&category={cat_slug}"
+    for it in items:
+        if (it.get("link_url") or "") == link_url or (it.get("label") or "").strip().lower() == label.lower():
+            raise HTTPException(status_code=409, detail=f"A tab like '{label}' already exists on that page")
+    items.append({
+        "id": str(_uuid.uuid4()), "label": label.upper(), "link_type": "custom",
+        "link_url": link_url, "display_order": len(items),
+        "is_active": True, "highlight": False, "highlight_color": None, "children": [],
+    })
+    db.navigation_menus.update_one(
+        {"menu_type": menu_type},
+        {"$set": {"menu_type": menu_type, "items": items}},
+        upsert=True,
+    )
+    return {"success": True, "tab": {
+        "label": label.upper(), "url": link_url,
+        "category_slug": cat_slug, "category_name": cat_name, "assignable": True,
+    }}
 
 
 # ============================================================

@@ -3489,3 +3489,31 @@ Shop tab URLs (/tiles?category={slug}) filter the storefront primarily by produc
 ### Deferred / backlog
 - Same Shop Tabs panel inside Quick Edit (user chose bulk-bar-only for now).
 - Testing agent suggestions: extract shared default-shop-menu constant; move endpoints to dedicated router module (supplier_sync.py >14k lines).
+
+
+---
+
+## 10 Aug 2026 — Shop Tabs Phase 2: Quick Edit picker, New Tab shortcut, Destination column
+
+### Owner ask (picked from suggested next actions)
+1. Quick Edit Tabs, 2. New Tab Shortcut, 3. Destination Column.
+
+### Delivered
+**Backend** (`routes/supplier_sync.py`):
+- `DEFAULT_TILES_SHOP_MENU` module constant (shared by destinations + create endpoints; MUST stay in sync with website_admin.py fallback).
+- `POST /api/supplier-sync/shop-tab-destinations/create` — {group_slug, label} → creates website_categories doc if slug missing (name=title-cased label) + appends UPPERCASED nav item to shop menu (materializes tiles defaults first so they aren't wiped). Guards: 400 empty label, 404 unknown group, 409 duplicate label/url.
+
+**Frontend**:
+- `lib/shopTabDestinations.js` — module-cached fetch + buildDestinationMap helper (shared by 3 consumers).
+- Quick Edit drawer: sky-blue "Shop Tabs" collapsible (below Related Products) — binary checkboxes grouped by shop page, staged via tabsChecked, applied inside handleSave AFTER quick-update via assign-shop-tabs (idempotent). Header shows "N destinations · unsaved changes". New QuickEditModal slot: shopTabsSlot.
+- ShopTabsAssignModal: "+ New tab" per page section → inline form → create → force-refresh destinations + auto-tick new tab for selection. Force-refetch on every modal open.
+- ManagerPageShell: fixed "Shop Tabs" column (th before Actions, colSpan bumped to columns.length+3) — green chips (max 3 + "+N") or amber "none" pill for gap-spotting; destMap re-read when modal closes so new tabs appear without reload.
+
+### Testing
+- iteration_225.json — 100% (backend 8/8 pytest incl. 3 new create-endpoint tests; full UI round-trips on /admin/materials). All test data restored.
+- FIXTURE KEPT INTENTIONALLY: "CLEANING & MAINTENANCE" tab on the Materials page (matches user's Ultra Tile Cleaning series).
+
+### Notes for future agents
+- QE checkbox state must be read via svg.lucide-check (custom button checkboxes, no input elements).
+- Use flooring group for create-tab testing (tiles group materializes defaults — restore = delete the whole 'shop' menu doc + created category).
+- Testing agent code-review backlog: extract shop-tabs endpoints to dedicated router; log when create reuses an existing category slug; console 403s on /api/analytics/* (unrelated).

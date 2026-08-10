@@ -59,6 +59,7 @@ const QuickEditModal = ({
   previewSlot,
   variantsSlot,
   relatedSlot,
+  shopTabsSlot,
 }) => {
   if (!product) return null;
 
@@ -511,6 +512,14 @@ const QuickEditModal = ({
           {relatedSlot && (
             <div className="pt-2 border-t">
               {relatedSlot}
+            </div>
+          )}
+
+          {/* Optional Shop Tabs slot — pick which storefront tabs this single
+              product appears under (staged; applied on Save Changes). */}
+          {shopTabsSlot && (
+            <div className="pt-2 border-t">
+              {shopTabsSlot}
             </div>
           )}
 

@@ -19,9 +19,10 @@
  */
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { toast } from 'sonner';
-import { ChevronDown, ChevronRight, Sliders, Tag, ExternalLink, Percent, FileText, Eye, Layers, Palette, Ruler, Sparkles, Link2, PenLine, X as XIcon, Pin, Search, Heart, PackagePlus } from 'lucide-react';
+import { ChevronDown, ChevronRight, Sliders, Tag, ExternalLink, Percent, FileText, Eye, Layers, Palette, Ruler, Sparkles, Link2, PenLine, X as XIcon, Pin, Search, Heart, PackagePlus, LayoutGrid, Check } from 'lucide-react';
 import QuickEditModal from '../supplier-products/QuickEditModal';
 import { getSeriesName } from '../../lib/series';
+import { fetchShopTabDestinations } from '../../lib/shopTabDestinations';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
 
@@ -88,6 +89,11 @@ const QuickEditProductDrawer = ({ open, onOpenChange, product, onSaved, previewI
   const [relatedResults, setRelatedResults] = useState([]);
   const [relatedSearching, setRelatedSearching] = useState(false);
   const relatedDebounceRef = useRef(null);
+  // Shop Tabs panel — stage which storefront tabs this product appears under.
+  const [shopTabsOpen, setShopTabsOpen] = useState(false);
+  const [shopTabPages, setShopTabPages] = useState(null);
+  const [tabsChecked, setTabsChecked] = useState({}); // category_name -> bool (staged)
+  const [tabsBaseline, setTabsBaseline] = useState(new Set());
   const debounceRef = useRef(null);
 
   // Preview images fallback if the caller didn't supply one
@@ -152,6 +158,10 @@ const QuickEditProductDrawer = ({ open, onOpenChange, product, onSaved, previewI
     setRelatedPins(Array.isArray(product.related_products) ? product.related_products.map(p => ({ ...p })) : []);
     setRelatedQuery('');
     setRelatedResults([]);
+    // Seed the Shop Tabs panel from the product's current sub_categories.
+    setShopTabsOpen(false);
+    setTabsChecked({});
+    setTabsBaseline(new Set((Array.isArray(product.sub_categories) ? product.sub_categories : []).map(c => String(c).toLowerCase())));
     fetchCategorySuggestions();
   }, [open, product]);
 
@@ -269,6 +279,26 @@ const QuickEditProductDrawer = ({ open, onOpenChange, product, onSaved, previewI
         }
       }
       const extraCount = Object.keys(moreSpecsUpdates).length;
+      // Apply staged Shop Tabs changes (idempotent add/remove on sub_categories).
+      const tabAdds = Object.entries(tabsChecked).filter(([, v]) => v).map(([k]) => k);
+      const tabRemoves = Object.entries(tabsChecked).filter(([, v]) => !v).map(([k]) => k);
+      if (tabAdds.length > 0 || tabRemoves.length > 0) {
+        try {
+          const res3 = await fetch(`${API_URL}/api/supplier-sync/products/assign-shop-tabs`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              skus: product.sku ? [product.sku] : [],
+              supplier_codes: !product.sku && product.supplier_code ? [product.supplier_code] : [],
+              add_categories: tabAdds,
+              remove_categories: tabRemoves,
+            }),
+          });
+          if (!res3.ok) throw new Error(`HTTP ${res3.status}`);
+        } catch (err) {
+          toast.error(`Shop tabs save failed: ${err.message}`);
+        }
+      }
       toast.success(
         extraCount > 0
           ? `Product updated (+ ${extraCount} extra spec${extraCount !== 1 ? 's' : ''})`
@@ -1279,6 +1309,90 @@ const QuickEditProductDrawer = ({ open, onOpenChange, product, onSaved, previewI
     </div>
   );
 
+  // === Shop Tabs panel (single-product destinations) =====================
+  const toggleShopTabsPanel = () => {
+    setShopTabsOpen(v => !v);
+    if (!shopTabPages) fetchShopTabDestinations().then(setShopTabPages);
+  };
+
+  const tabIsChecked = (catName) => {
+    if (catName in tabsChecked) return tabsChecked[catName];
+    return tabsBaseline.has(catName.toLowerCase());
+  };
+
+  const toggleShopTab = (catName) => {
+    setTabsChecked(prev => ({ ...prev, [catName]: !tabIsChecked(catName) }));
+  };
+
+  const shopTabsOnCount = (shopTabPages || []).reduce((sum, page) =>
+    sum + page.tabs.filter(t => t.assignable && t.category_name && tabIsChecked(t.category_name)).length, 0);
+  const shopTabsStagedCount = Object.keys(tabsChecked).length;
+
+  const shopTabsPanel = (
+    <div className="border border-sky-100 rounded-lg overflow-hidden" data-testid="quick-edit-shop-tabs-panel">
+      <button
+        type="button"
+        onClick={toggleShopTabsPanel}
+        className="w-full flex items-center gap-2 px-3 py-2 bg-sky-50 hover:bg-sky-100 text-left text-sm font-medium text-sky-800"
+        data-testid="shop-tabs-panel-toggle"
+      >
+        {shopTabsOpen ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+        <LayoutGrid className="w-4 h-4 text-sky-600" />
+        <span>Shop Tabs</span>
+        <span className="ml-1 text-[10px] uppercase tracking-wider text-sky-500">
+          {shopTabPages ? `${shopTabsOnCount} destination${shopTabsOnCount !== 1 ? 's' : ''}` : 'where it appears'}
+          {shopTabsStagedCount > 0 && <span className="text-amber-500"> · unsaved changes</span>}
+        </span>
+      </button>
+      {shopTabsOpen && (
+        <div className="p-3 bg-white space-y-3 text-xs">
+          <div className="text-[11px] text-sky-700 bg-sky-50 border border-sky-100 rounded px-2 py-1.5">
+            Tick every shop tab this product should appear under — multiple tabs are fine.
+            Changes apply when you hit <b>Save Changes</b> below.
+          </div>
+          {!shopTabPages ? (
+            <div className="text-[11px] text-gray-400 py-2 text-center">Loading shop pages…</div>
+          ) : shopTabPages.length === 0 ? (
+            <div className="text-[11px] text-gray-400 py-2 text-center">No shop tabs found — add some via the Storefront button.</div>
+          ) : (
+            shopTabPages.map(page => {
+              const assignable = page.tabs.filter(t => t.assignable && t.category_name);
+              if (assignable.length === 0) return null;
+              return (
+                <div key={page.group_slug} className="border border-gray-200 rounded overflow-hidden" data-testid={`qe-shop-tabs-page-${page.group_slug}`}>
+                  <div className="px-2 py-1 bg-gray-50 border-b border-gray-200 text-[10px] uppercase tracking-wider font-semibold text-gray-600">
+                    {page.group_name} page
+                  </div>
+                  <div className="divide-y">
+                    {assignable.map(tab => {
+                      const checked = tabIsChecked(tab.category_name);
+                      return (
+                        <button
+                          key={tab.category_slug}
+                          type="button"
+                          onClick={() => toggleShopTab(tab.category_name)}
+                          className="w-full flex items-center gap-2 px-2 py-1.5 text-left hover:bg-sky-50/60 transition-colors"
+                          data-testid={`qe-shop-tab-option-${page.group_slug}-${tab.category_slug}`}
+                        >
+                          <span className={`w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 transition-colors ${checked ? 'bg-sky-600 border-sky-600 text-white' : 'bg-white border-gray-300'}`}>
+                            {checked && <Check className="w-2.5 h-2.5" />}
+                          </span>
+                          <span className="text-[11px] font-medium text-gray-800">{tab.label}</span>
+                          <span className="text-[9px] text-gray-400 ml-auto font-mono">{tab.url}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })
+          )}
+          <div className="text-[10px] text-gray-400">Need a brand-new tab? Use the bulk bar's Shop Tabs button — it has a "+ New tab" shortcut.</div>
+        </div>
+      )}
+    </div>
+  );
+
   return (
     <QuickEditModal
       open={open}
@@ -1308,6 +1422,7 @@ const QuickEditProductDrawer = ({ open, onOpenChange, product, onSaved, previewI
       previewSlot={previewPanel}
       variantsSlot={variantsPanel}
       relatedSlot={relatedPanel}
+      shopTabsSlot={shopTabsPanel}
     />
   );
 };

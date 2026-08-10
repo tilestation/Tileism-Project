@@ -4,14 +4,16 @@
  * underlying website category to the selected products' sub_categories
  * (the exact field the storefront tab URLs filter by), so products show
  * under that tab immediately. Multiple tabs per product fully supported.
+ * Also supports creating a brand-new tab on the spot ("+ New tab").
  */
 import React, { useState, useEffect, useMemo } from 'react';
 import { toast } from 'sonner';
-import { LayoutGrid, Check, Minus, Store } from 'lucide-react';
+import { LayoutGrid, Check, Minus, Store, Plus } from 'lucide-react';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
 } from '../../../../components/ui/dialog';
 import { Button } from '../../../../components/ui/button';
+import { fetchShopTabDestinations, clearShopTabDestinationsCache } from '../../lib/shopTabDestinations';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
 
@@ -20,15 +22,18 @@ const ShopTabsAssignModal = ({ open, onOpenChange, selectedProducts = [], onSave
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [desired, setDesired] = useState({}); // category_name -> true (add) | false (remove)
+  const [newTabFor, setNewTabFor] = useState(null); // group_slug of open "+ New tab" form
+  const [newTabLabel, setNewTabLabel] = useState('');
+  const [creatingTab, setCreatingTab] = useState(false);
 
   useEffect(() => {
     if (!open) return;
     setDesired({});
+    setNewTabFor(null);
+    setNewTabLabel('');
     setLoading(true);
-    fetch(`${API_URL}/api/supplier-sync/shop-tab-destinations`)
-      .then(res => (res.ok ? res.json() : { pages: [] }))
-      .then(data => setPages(data.pages || []))
-      .catch(() => setPages([]))
+    fetchShopTabDestinations(true)
+      .then(setPages)
       .finally(() => setLoading(false));
   }, [open]);
 
@@ -68,6 +73,32 @@ const ShopTabsAssignModal = ({ open, onOpenChange, selectedProducts = [], onSave
     return { adds, removes };
   }, [desired]);
 
+  const createTab = async (groupSlug) => {
+    const label = newTabLabel.trim();
+    if (!label) { toast.error('Type a name for the new tab first'); return; }
+    setCreatingTab(true);
+    try {
+      const res = await fetch(`${API_URL}/api/supplier-sync/shop-tab-destinations/create`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ group_slug: groupSlug, label }),
+      });
+      if (!res.ok) { const err = await res.json().catch(() => ({})); toast.error(err.detail || 'Failed to create tab'); return; }
+      const data = await res.json();
+      clearShopTabDestinationsCache();
+      const fresh = await fetchShopTabDestinations(true);
+      setPages(fresh);
+      // Auto-tick the brand-new tab for the current selection
+      if (data.tab?.category_name) {
+        setDesired(prev => ({ ...prev, [data.tab.category_name]: true }));
+      }
+      setNewTabFor(null);
+      setNewTabLabel('');
+      toast.success(`Tab "${data.tab?.label || label}" created — ticked for your selection`);
+    } catch { toast.error('Failed to create tab'); }
+    finally { setCreatingTab(false); }
+  };
+
   const apply = async () => {
     if (adds.length === 0 && removes.length === 0) { toast.info('No changes to apply'); return; }
     setSaving(true);
@@ -89,7 +120,7 @@ const ShopTabsAssignModal = ({ open, onOpenChange, selectedProducts = [], onSave
   };
 
   const CheckBox = ({ state }) => (
-    <span className={`w-4.5 h-4.5 w-[18px] h-[18px] rounded border flex items-center justify-center flex-shrink-0 transition-colors ${
+    <span className={`w-[18px] h-[18px] rounded border flex items-center justify-center flex-shrink-0 transition-colors ${
       state === 'all' ? 'bg-emerald-600 border-emerald-600 text-white'
         : state === 'some' ? 'bg-amber-400 border-amber-400 text-white'
         : 'bg-white border-gray-300'
@@ -122,7 +153,32 @@ const ShopTabsAssignModal = ({ open, onOpenChange, selectedProducts = [], onSave
                 <div className="px-3 py-2 bg-gray-50 border-b border-gray-200 flex items-center gap-2">
                   <Store className="w-3.5 h-3.5 text-gray-500" />
                   <span className="text-sm font-semibold text-gray-800">{page.group_name} page</span>
+                  <button
+                    type="button"
+                    onClick={() => { setNewTabFor(newTabFor === page.group_slug ? null : page.group_slug); setNewTabLabel(''); }}
+                    className="ml-auto text-[11px] font-medium text-emerald-600 hover:text-emerald-800 flex items-center gap-0.5"
+                    data-testid={`shop-tabs-new-tab-btn-${page.group_slug}`}
+                  >
+                    <Plus className="w-3 h-3" /> New tab
+                  </button>
                 </div>
+                {newTabFor === page.group_slug && (
+                  <div className="px-3 py-2 bg-emerald-50/60 border-b border-emerald-100 flex items-center gap-2" data-testid={`shop-tabs-new-tab-form-${page.group_slug}`}>
+                    <input
+                      type="text"
+                      value={newTabLabel}
+                      onChange={(e) => setNewTabLabel(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && createTab(page.group_slug)}
+                      placeholder="New tab name, e.g. Cleaning & Maintenance"
+                      className="flex-1 h-8 text-sm border border-emerald-300 rounded px-2 bg-white"
+                      autoFocus
+                      data-testid={`shop-tabs-new-tab-input-${page.group_slug}`}
+                    />
+                    <Button size="sm" onClick={() => createTab(page.group_slug)} disabled={creatingTab} className="bg-emerald-600 hover:bg-emerald-700 text-white h-8" data-testid={`shop-tabs-new-tab-create-${page.group_slug}`}>
+                      {creatingTab ? 'Creating…' : 'Create'}
+                    </Button>
+                  </div>
+                )}
                 <div className="divide-y">
                   {page.tabs.map((tab, i) => tab.assignable ? (
                     <button

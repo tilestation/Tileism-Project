@@ -50,6 +50,7 @@ import { Layers, LayoutGrid, List } from 'lucide-react';
 import ManagerConfigModal from './managers/ManagerConfigModal';
 import StorefrontPanel from './managers/StorefrontPanel';
 import ShopTabsAssignModal from './managers/ShopTabsAssignModal';
+import { fetchShopTabDestinations, buildDestinationMap } from '../lib/shopTabDestinations';
 import AssignColoursModal from './managers/AssignColoursModal';
 import TierPricingModal from './supplier-products/TierPricingModal';
 import BulkSaleModal from './supplier-products/BulkSaleModal';
@@ -126,6 +127,11 @@ const ManagerPageShell = ({
   const [showConfig, setShowConfig] = useState(false);
   const [showStorefront, setShowStorefront] = useState(false);
   const [showShopTabs, setShowShopTabs] = useState(false);
+  // Destination chips column — map of lowercased category name -> tab info
+  const [destMap, setDestMap] = useState(null);
+  useEffect(() => {
+    fetchShopTabDestinations().then(pages => setDestMap(buildDestinationMap(pages)));
+  }, []);
 
   // Per-product overrides for the Tier Pricing modal.
   // Shape: { 'supplier|||sku': { trade_discount?, credit_back_rate?, disabled? } }
@@ -599,6 +605,7 @@ const ManagerPageShell = ({
                   {columns.map(c => (
                     <th key={c.key} className="px-3 py-2 text-left font-medium text-gray-700">{c.label}</th>
                   ))}
+                  <th className="px-3 py-2 text-left font-medium text-gray-700" title="Which storefront tabs each product appears under — assign via the Shop Tabs bulk button or Quick Edit">Shop Tabs</th>
                   <th className="px-3 py-2 text-right font-medium text-gray-700">Actions</th>
                 </tr>
               </thead>
@@ -632,7 +639,7 @@ const ManagerPageShell = ({
                             data-testid={`${categoryKey}-series-check-${group.series}`}
                           />
                         </td>
-                        <td colSpan={columns.length + 2} className="px-3 py-2">
+                        <td colSpan={columns.length + 3} className="px-3 py-2">
                           <div className="flex items-center gap-2 text-sm font-semibold text-gray-800">
                             <Layers className="w-4 h-4 text-slate-500" />
                             <span>{group.series} Series</span>
@@ -650,7 +657,7 @@ const ManagerPageShell = ({
                     ) : (
                       <tr className="border-y border-dashed border-gray-200" data-testid={`${categoryKey}-series-header-individual`}>
                         <td className="px-3 py-2" />
-                        <td colSpan={columns.length + 2} className="px-3 py-1 text-[11px] text-gray-500 italic">
+                        <td colSpan={columns.length + 3} className="px-3 py-1 text-[11px] text-gray-500 italic">
                           Individual — {group.products.length} product{group.products.length !== 1 ? 's' : ''} (no series assigned)
                         </td>
                       </tr>
@@ -680,6 +687,35 @@ const ManagerPageShell = ({
                               {c.render ? c.render(p) : (p[c.key] ?? '—')}
                             </td>
                           ))}
+                          <td className="px-3 py-2" data-testid={`${categoryKey}-desttabs-${p.sku || p.supplier_code}`}>
+                            {(() => {
+                              if (!destMap) return <span className="text-gray-300 text-xs">…</span>;
+                              const assigned = (Array.isArray(p.sub_categories) ? p.sub_categories : [])
+                                .map(sc => destMap.get(String(sc).toLowerCase()))
+                                .filter(Boolean);
+                              if (assigned.length === 0) {
+                                return (
+                                  <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-50 text-amber-600 border border-amber-200" title="Not on any shop tab yet — select it and use the Shop Tabs button">
+                                    none
+                                  </span>
+                                );
+                              }
+                              return (
+                                <div className="flex flex-wrap gap-1 max-w-[180px]">
+                                  {assigned.slice(0, 3).map((t, i) => (
+                                    <span key={i} className="inline-flex px-1.5 py-0.5 rounded text-[10px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200 whitespace-nowrap" title={`Shows under ${t.label}`}>
+                                      {t.label}
+                                    </span>
+                                  ))}
+                                  {assigned.length > 3 && (
+                                    <span className="inline-flex px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-100 text-gray-500" title={assigned.slice(3).map(t => t.label).join(', ')}>
+                                      +{assigned.length - 3}
+                                    </span>
+                                  )}
+                                </div>
+                              );
+                            })()}
+                          </td>
                           <td className="px-3 py-2 text-right">
                             <Button size="sm" variant="outline" onClick={() => openEdit(p)} data-testid={`${categoryKey}-edit-${p.sku || p.supplier_code}`}>
                               <Edit2 className="w-3 h-3 mr-1" /> Edit
@@ -844,7 +880,11 @@ const ManagerPageShell = ({
 
       <ShopTabsAssignModal
         open={showShopTabs}
-        onOpenChange={setShowShopTabs}
+        onOpenChange={(o) => {
+          setShowShopTabs(o);
+          // Re-read tab definitions on close — picks up tabs created via "+ New tab"
+          if (!o) fetchShopTabDestinations().then(pages => setDestMap(buildDestinationMap(pages)));
+        }}
         selectedProducts={bulk.getSelectedList()}
         onSaved={fetchProducts}
       />

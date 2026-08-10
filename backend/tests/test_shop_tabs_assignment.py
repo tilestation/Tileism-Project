@@ -116,3 +116,118 @@ def test_restore_baseline_subcategories(s):
     final = _get_subcats(s, TEST_SKU)
     if final is not None:
         assert set(final) >= set(BASELINE_SUBCATS), f"Baseline not restored: {final}"
+
+
+# ==========================================================
+# Iteration 225 — CREATE TAB endpoint (POST /shop-tab-destinations/create)
+# ==========================================================
+E2E_LABEL = "E2E Test Tab"
+E2E_SLUG = "e2e-test-tab"
+FLOORING_GROUP = "flooring"
+
+
+def _get_flooring_tabs(s):
+    r = s.get(f"{API}/supplier-sync/shop-tab-destinations", timeout=30)
+    assert r.status_code == 200
+    pages = {p["group_slug"]: p for p in r.json()["pages"]}
+    return pages.get(FLOORING_GROUP, {}).get("tabs", [])
+
+
+def _mongo():
+    """Return live mongo db handle using backend env (for restore)."""
+    from pymongo import MongoClient
+    from dotenv import dotenv_values
+    env = dotenv_values("/app/backend/.env")
+    client = MongoClient(env["MONGO_URL"])
+    return client[env["DB_NAME"]], client
+
+
+def _restore_flooring_baseline():
+    """Restore navigation_menus shop_flooring to exactly the original 3 tabs
+    (ALL FLOORING / VINYL / LAMINATE) and delete e2e-test-tab category."""
+    db, client = _mongo()
+    try:
+        menu = db.navigation_menus.find_one({"menu_type": "shop_flooring"})
+        if menu:
+            items = [it for it in (menu.get("items") or [])
+                     if (it.get("label") or "").strip().upper() != E2E_LABEL.upper()
+                     and E2E_SLUG not in (it.get("link_url") or "")]
+            db.navigation_menus.update_one(
+                {"menu_type": "shop_flooring"},
+                {"$set": {"items": items}},
+            )
+        db.website_categories.delete_many({"slug": E2E_SLUG})
+    finally:
+        client.close()
+
+
+def test_create_shop_tab_flow(s):
+    """POST create → verify tab in GET → duplicate 409 → restore."""
+    # Pre-clean in case previous run left artefacts
+    _restore_flooring_baseline()
+
+    tabs_before = _get_flooring_tabs(s)
+    labels_before = [t["label"] for t in tabs_before]
+    assert set(labels_before) == {"ALL FLOORING", "VINYL", "LAMINATE"}, \
+        f"Flooring baseline drift: {labels_before}"
+
+    try:
+        # CREATE
+        r = s.post(f"{API}/supplier-sync/shop-tab-destinations/create",
+                   json={"group_slug": FLOORING_GROUP, "label": E2E_LABEL}, timeout=30)
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body.get("success") is True
+        tab = body["tab"]
+        assert tab["label"] == E2E_LABEL.upper()
+        assert tab["url"] == f"/tiles?group={FLOORING_GROUP}&category={E2E_SLUG}"
+        assert tab["category_slug"] == E2E_SLUG
+        assert tab["category_name"] == "E2E Test Tab"
+        assert tab["assignable"] is True
+
+        # Verify via mongo: website_categories doc + nav item appended
+        db, client = _mongo()
+        try:
+            cat = db.website_categories.find_one({"slug": E2E_SLUG})
+            assert cat is not None
+            assert cat["group_slug"] == FLOORING_GROUP
+            menu = db.navigation_menus.find_one({"menu_type": "shop_flooring"})
+            assert menu is not None
+            labels = [(it.get("label") or "").upper() for it in menu["items"]]
+            assert E2E_LABEL.upper() in labels
+            assert len(menu["items"]) == 4  # 3 baseline + new
+        finally:
+            client.close()
+
+        # Verify GET destinations shows new tab
+        tabs_after = _get_flooring_tabs(s)
+        labels_after = [t["label"] for t in tabs_after]
+        assert E2E_LABEL.upper() in labels_after, f"New tab not in GET: {labels_after}"
+
+        # Duplicate → 409
+        r_dup = s.post(f"{API}/supplier-sync/shop-tab-destinations/create",
+                       json={"group_slug": FLOORING_GROUP, "label": E2E_LABEL}, timeout=15)
+        assert r_dup.status_code == 409, r_dup.text
+    finally:
+        _restore_flooring_baseline()
+
+    # Post-restore assertions
+    tabs_final = _get_flooring_tabs(s)
+    assert set(t["label"] for t in tabs_final) == {"ALL FLOORING", "VINYL", "LAMINATE"}
+    db, client = _mongo()
+    try:
+        assert db.website_categories.find_one({"slug": E2E_SLUG}) is None
+    finally:
+        client.close()
+
+
+def test_create_shop_tab_empty_label_returns_400(s):
+    r = s.post(f"{API}/supplier-sync/shop-tab-destinations/create",
+               json={"group_slug": FLOORING_GROUP, "label": "   "}, timeout=15)
+    assert r.status_code == 400
+
+
+def test_create_shop_tab_unknown_group_returns_404(s):
+    r = s.post(f"{API}/supplier-sync/shop-tab-destinations/create",
+               json={"group_slug": "nonexistent-group-xyz", "label": "Whatever"}, timeout=15)
+    assert r.status_code == 404
