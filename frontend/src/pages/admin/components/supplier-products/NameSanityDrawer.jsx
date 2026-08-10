@@ -132,6 +132,41 @@ const NameSanityDrawer = ({ open, onClose, defaultSupplier = '', onRenamed, sele
     }
   };
 
+  // Rows whose edit box differs from the current name — savable in one click.
+  const editedItems = report.rows
+    .map(row => {
+      const edit = suggestedEdits[row.sku];
+      if (edit === undefined) return null;
+      const newName = edit.trim();
+      if (!newName || newName.length < 3 || newName === row.product_name) return null;
+      return { sku: row.sku, supplier: row.supplier, new_name: newName };
+    })
+    .filter(Boolean);
+
+  const saveAllEdited = async () => {
+    if (editedItems.length === 0) { toast.info('No edited names to save'); return; }
+    setRunning(true);
+    try {
+      const res = await fetch(`${API_URL}/api/product-name-sanity/apply`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
+        body: JSON.stringify({ items: editedItems }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      const failedSkus = new Set((data.failed || []).map(f => f.sku));
+      const savedSkus = new Set(editedItems.map(i => i.sku).filter(s => !failedSkus.has(s)));
+      toast.success(`Saved ${data.updated} name${data.updated === 1 ? '' : 's'}${failedSkus.size ? ` — ${failedSkus.size} failed` : ''}`);
+      setReport(prev => ({ ...prev, rows: prev.rows.filter(r => !savedSkus.has(r.sku)), total_flagged: prev.total_flagged - savedSkus.size }));
+      setSuggestedEdits(prev => { const next = { ...prev }; savedSkus.forEach(s => delete next[s]); return next; });
+      onRenamed?.();
+    } catch (err) {
+      toast.error(`Bulk save failed: ${err.message}`);
+    } finally {
+      setRunning(false);
+    }
+  };
+
   const applyAllSuggested = async () => {
     const count = report.rows.filter(r => r.issues.length > 0).length;
     if (count === 0) { toast.info('No rows to fix'); return; }
@@ -486,7 +521,17 @@ const NameSanityDrawer = ({ open, onClose, defaultSupplier = '', onRenamed, sele
               )}
             </div>
 
-            <div className="ml-auto">
+            <div className="ml-auto flex items-center gap-2">
+              <Button
+                onClick={saveAllEdited}
+                disabled={running || editedItems.length === 0}
+                className="bg-blue-600 hover:bg-blue-700 text-white h-8"
+                data-testid="pns-save-all-edited"
+                title="Save every name you've edited in the list below"
+              >
+                {running ? <RefreshCw className="w-4 h-4 mr-1.5 animate-spin" /> : <Save className="w-4 h-4 mr-1.5" />}
+                Save all edited {editedItems.length ? `(${editedItems.length})` : ''}
+              </Button>
               <Button
                 onClick={applyAllSuggested}
                 disabled={running || report.rows.length === 0}

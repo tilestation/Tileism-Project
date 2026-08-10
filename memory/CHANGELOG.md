@@ -3653,3 +3653,9 @@ Scanner compared raw colour slugs (`cosmic-black`) against names ("Cosmic Black"
 
 ### Testing
 Self-tested: backend unit cases + screenshot of /admin/product-name-sanity (input primed with current name, Save gating, wand present). Drawer variant = identical mechanical edits, webpack compiles clean.
+
+---
+
+## 10 Aug 2026 — Bulk Rename Save (Name Sanity)
+- "Save all edited (N)" blue button added next to "Auto-fix all" in BOTH `ProductNameSanity.jsx` and `NameSanityDrawer.jsx`. Collects every row whose edit box differs from the current name and POSTs them in one batch to `/api/product-name-sanity/apply` (existing endpoint). Saved rows drop from the list; failures reported per-batch; unsaved edits kept. Button disabled until ≥1 edit.
+- Self-tested via screenshot e2e: edited 2 rows → "Save all edited (2)" → "Saved 2 names" toast, rows removed, DB mirrored to tiles/products. QA suffixes cleaned after test.
