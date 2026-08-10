@@ -3666,3 +3666,11 @@ Self-tested: backend unit cases + screenshot of /admin/product-name-sanity (inpu
 - Backend: `POST /api/product-name-sanity/ghost-sweep/rename` — batch `{sku, collection, new_name}`; rewrites name (+product_name for products/sync_staging) in-place in the ghost's own collection (products/tiles/sync_staging only), audit-logged as GHOST_RENAME, stamps ghost_name_fixed_by.
 - Frontend (`NameSanityDrawer.jsx` ghost sweep): "Name in that collection" is now an inline editable input per row with an "edited — was: X" marker; blue "Save edited (N)" button in the panel header next to Purge. Rows stay in the list after rename (still ghosts, just corrected).
 - Self-tested e2e via screenshot: sweep (735 local ghosts) → edit ADH-001 → Save → "Fixed 1 ghost name" toast, DB persisted with ghost_name_fixed_by stamp, marker cleared. Test rename restored after.
+
+---
+
+## 11 Aug 2026 — Adopt Ghost + Preview naming parity with Supplier Products
+1. **Adopt Ghost**: `POST /api/product-name-sanity/ghost-sweep/adopt` — copies ghost rows (products/tiles/sync_staging) into supplier_products (name/price/images/categories, stamps adopted_from/by/at, uuid id), skips existing SKUs, audit-logged GHOST_ADOPT. Green "Adopt selected (N)" button in the ghost panel between Select-all and Purge. Sweep refreshes after (adopted rows vanish).
+2. **Preview naming bug (user's Ultra Tile screenshots)**: BulkPreviewModal + QuickEdit slot builders were taking RAW original_series/range_name fields, bypassing series.js `looksLikeCleanSeriesName` — dirty per-product values ("UT TILE XTREME 1L - UltraTile ProClean...") produced 6 long chips + wrong H1. Now both use `getSeriesName(p)` (the exact helper managers use for group headers) → one "Ultra Tile Cleaning & Maintenance" collection slot, H1 matches the manager group.
+3. **Draft card names**: tiles.py draft merge no longer appends size — cards show the SP name EXACTLY (was "Xtreme Cleaner 1 Litre 1l").
+- Self-tested e2e: dirty-range_name fixture → ONE slot, H1 "ULTRA TILE CLEANING & MAINTENANCE", exact SP names in variant box + draft banner; adopt of ADH-001 verified then reverted. Test mutations restored.

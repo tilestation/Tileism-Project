@@ -1932,8 +1932,9 @@ async def _get_collection_products_impl(
             base_name = sp.get("our_product_name") or sp.get("product_name") or sp.get("display_name") or sp.get("name") or ""
             if not base_name:
                 continue
-            psize = sp.get("size") or ""
-            d_name = base_name if (not psize or psize.lower() in base_name.lower()) else f"{base_name} {psize}"
+            # Show the product name EXACTLY as it appears in Supplier Products —
+            # no size suffix (size renders separately on the landing page).
+            d_name = base_name.strip()
             d_price = sp.get("price") or sp.get("list_price") or 0
             if not d_price and sp.get("cost_price"):
                 d_price = round(sp["cost_price"] * 2, 2)

@@ -19,16 +19,15 @@ const DEVICES = [
 ];
 
 const BulkPreviewModal = ({ open, onOpenChange, selectedProducts = [] }) => {
-  // Preview slots — one per landing page in the selection. Products with a
-  // series get their collection page; series-less live products get their
-  // own product page; series-less drafts fall back to a name-based
-  // collection lookup (the backend's ?preview=1 draft merge finds them).
+  // Preview slots — one per landing page in the selection. The series is
+  // resolved with getSeriesName (the SAME helper the managers use to build
+  // their group headers), so the preview always matches the admin grouping.
+  // Series-less live products get their own product page; series-less drafts
+  // fall back to a name-based collection lookup (backend draft merge).
   const seriesList = useMemo(() => {
     const map = new Map();
     selectedProducts.forEach(p => {
-      const explicit = [p.original_series, p.range_name, p.series, p.series_name]
-        .map(v => (v || '').trim()).find(Boolean);
-      const series = explicit || (getSeriesName(p) || '').trim();
+      const series = (getSeriesName(p) || '').trim();
       if (series) {
         const key = `c:${series.toLowerCase()}`;
         if (!map.has(key)) map.set(key, { name: series, slug: key, path: `/shop/collection/${encodeURIComponent(series)}?preview=1` });

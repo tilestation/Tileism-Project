@@ -517,9 +517,9 @@ const QuickEditProductDrawer = ({ open, onOpenChange, product, onSaved, previewI
   // live products get their own /tiles/{slug} page.
   const previewPanel = product ? (() => {
     const storefront = process.env.REACT_APP_STOREFRONT_URL || window.location.origin;
-    const explicit = [product.original_series, product.range_name, product.series, product.series_name]
-      .map(v => (v || '').trim()).find(Boolean);
-    const seriesName = explicit || (getSeriesName(product) || '').trim();
+    // getSeriesName = the SAME helper the managers use for group headers, so
+    // the preview lands on the collection the admin sees in the manager.
+    const seriesName = (getSeriesName(product) || '').trim();
     // ?preview=1 lets the landing page include unpublished drafts.
     const href = seriesName
       ? `${storefront}/shop/collection/${encodeURIComponent(seriesName)}?preview=1`

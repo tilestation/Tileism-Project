@@ -747,6 +747,98 @@ async def ghost_sweep_rename(
     return {"ok": True, "updated": updated, "failed": failed}
 
 
+class GhostAdoptRequest(BaseModel):
+    items: List[dict] = Field(
+        default_factory=list,
+        description="List of { sku, collection } pairs from the ghost sweep to adopt into supplier_products",
+    )
+
+
+@router.post("/ghost-sweep/adopt")
+async def ghost_sweep_adopt(
+    payload: GhostAdoptRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """Turn ghost rows into proper managed products: copies each ghost record
+    from its collection (products/tiles/sync_staging) into `supplier_products`
+    so it shows up in Supplier Products and the managers. The original record
+    is left in place (it's no longer a ghost once the supplier row exists).
+    Skips SKUs that already exist in supplier_products.
+    """
+    if not has_permission(current_user, "supplier_products"):
+        raise HTTPException(403, "You need the Supplier Products permission to adopt ghost records")
+
+    ALLOWED = {"products", "tiles", "sync_staging"}
+    db = get_db()
+    now = datetime.now(timezone.utc)
+    adopted = 0
+    skipped: list[dict] = []
+
+    for it in payload.items:
+        sku = str(it.get("sku") or "").strip()
+        col = str(it.get("collection") or "").strip()
+        if not sku or col not in ALLOWED:
+            skipped.append({"sku": sku, "reason": "invalid_sku_or_collection"})
+            continue
+
+        regex = {"$regex": f"^{re.escape(sku)}$", "$options": "i"}
+        existing = await db.supplier_products.find_one(
+            {"$or": [{"sku": regex}, {"supplier_code": regex}]}, {"_id": 1}
+        )
+        if existing:
+            skipped.append({"sku": sku, "reason": "already_in_supplier_products"})
+            continue
+
+        src = await db[col].find_one({"$or": [{"sku": regex}, {"supplier_code": regex}, {"key": regex}]})
+        if not src:
+            skipped.append({"sku": sku, "reason": "source_not_found"})
+            continue
+
+        name = str(src.get("product_name") or src.get("name") or src.get("display_name") or sku).strip()
+        import uuid
+        sp_doc = {
+            "id": str(uuid.uuid4()),
+            "sku": src.get("sku") or sku,
+            "supplier_code": src.get("supplier_code") or src.get("sku") or sku,
+            "barcode": src.get("barcode"),
+            "product_name": name,
+            "our_product_name": name,
+            "name": name,
+            "supplier": src.get("supplier") or src.get("supplier_name") or "Adopted",
+            "price": src.get("price") or src.get("room_lot_price") or 0,
+            "cost_price": src.get("cost_price") or 0,
+            "images": src.get("images") or ([src["image"]] if src.get("image") else []),
+            "size": src.get("size") or "",
+            "color": src.get("color") or "",
+            "finish": src.get("finish") or "",
+            "material": src.get("material") or "",
+            "series": src.get("series") or "",
+            "description": src.get("description") or "",
+            "product_group": src.get("product_group") or "",
+            "category": src.get("category") or "",
+            "sub_categories": src.get("sub_categories") or [],
+            "main_category": src.get("main_category") or "",
+            "stock_quantity": src.get("stock_quantity") or src.get("stock") or 0,
+            "adopted_from": col,
+            "adopted_by": current_user.get("email"),
+            "adopted_at": now,
+            "created_at": now,
+            "updated_at": now,
+        }
+        await db.supplier_products.insert_one(sp_doc)
+        adopted += 1
+
+    await log_audit(
+        action="GHOST_ADOPT",
+        entity_type="supplier_product",
+        user=current_user,
+        entity_id="bulk-ghost-adopt",
+        entity_name=f"{adopted} ghost records adopted into Supplier Products",
+        after_data={"adopted": adopted, "skipped_count": len(skipped)},
+    )
+    return {"ok": True, "adopted": adopted, "skipped": skipped}
+
+
 class GhostBulkPurgeRequest(BaseModel):
     items: List[dict] = Field(
         default_factory=list,

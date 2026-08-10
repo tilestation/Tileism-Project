@@ -54,6 +54,7 @@ const NameSanityDrawer = ({ open, onClose, defaultSupplier = '', onRenamed, sele
   const [sweepPurging, setSweepPurging] = useState(false);
   const [ghostEdits, setGhostEdits] = useState({});   // { `${col}|${sku}`: 'new name typed by admin' }
   const [ghostSaving, setGhostSaving] = useState(false);
+  const [ghostAdopting, setGhostAdopting] = useState(false);
 
   const scoped = Array.isArray(selectedSkus) && selectedSkus.length > 0;
 
@@ -345,6 +346,36 @@ const NameSanityDrawer = ({ open, onClose, defaultSupplier = '', onRenamed, sele
       toast.error(`Bulk purge failed: ${err.message}`);
     } finally {
       setSweepPurging(false);
+    }
+  };
+
+  const adoptSelectedGhosts = async () => {
+    if (sweepSelected.size === 0) { toast.info('Select at least one ghost row to adopt'); return; }
+    if (!window.confirm(`Adopt ${sweepSelected.size} ghost row${sweepSelected.size === 1 ? '' : 's'} into Supplier Products?\n\nEach becomes a proper managed product (name, price, images and categories are copied). SKUs already in Supplier Products are skipped. This is logged.`)) return;
+    const items = Array.from(sweepSelected).map((k) => {
+      const [collection, ...rest] = k.split('|');
+      return { collection, sku: rest.join('|') };
+    });
+    setGhostAdopting(true);
+    try {
+      const res = await fetch(`${API_URL}/api/product-name-sanity/ghost-sweep/adopt`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
+        body: JSON.stringify({ items }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      toast.success(
+        `Adopted ${data.adopted} product${data.adopted === 1 ? '' : 's'} into Supplier Products${data.skipped?.length ? ` — ${data.skipped.length} skipped` : ''}`,
+        { duration: 6000 }
+      );
+      onRenamed?.();
+      // Refresh the sweep — adopted rows are no longer ghosts
+      await runGhostSweep();
+    } catch (err) {
+      toast.error(`Adopt failed: ${err.message}`);
+    } finally {
+      setGhostAdopting(false);
     }
   };
 
@@ -756,6 +787,17 @@ const NameSanityDrawer = ({ open, onClose, defaultSupplier = '', onRenamed, sele
                   >
                     {ghostSaving ? <RefreshCw className="w-3 h-3 mr-1 animate-spin" /> : <Save className="w-3 h-3 mr-1" />}
                     Save edited ({editedGhostItems.length})
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={adoptSelectedGhosts}
+                    disabled={ghostAdopting || sweepSelected.size === 0}
+                    className="bg-emerald-600 hover:bg-emerald-700 text-white h-7 text-[11px]"
+                    data-testid="pns-ghost-adopt-selected"
+                    title="Copy the selected ghost rows into Supplier Products so they become proper managed products"
+                  >
+                    {ghostAdopting ? <RefreshCw className="w-3 h-3 mr-1 animate-spin" /> : <ShieldCheck className="w-3 h-3 mr-1" />}
+                    Adopt selected ({sweepSelected.size})
                   </Button>
                   <Button
                     size="sm"
