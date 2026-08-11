@@ -1119,7 +1119,7 @@ async def run_deep_sync(db, categories: List[str] = None, resume: bool = True):
             update_state(phase="login", message="Logging into Ceramica Impex B2B portal...")
             
             if not await perform_login(page):
-                update_state(phase="error", message="Login failed")
+                update_state(is_running=False, phase="error", message="Login failed")
                 await browser.close()
                 return {"error": "Login failed"}
             
@@ -1491,7 +1491,7 @@ async def run_light_sync(db):
             update_state(phase="login", message="Logging into Ceramica Impex...")
             
             if not await perform_login(page):
-                update_state(phase="error", message="Login failed")
+                update_state(is_running=False, phase="error", message="Login failed")
                 await browser.close()
                 return {"error": "Login failed"}
             

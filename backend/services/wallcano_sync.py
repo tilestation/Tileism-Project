@@ -887,7 +887,7 @@ async def run_deep_sync(db):
             update_state(phase="login", message="Logging into Wallcano...")
             
             if not await perform_login(page):
-                update_state(phase="error", message="Login failed - check credentials")
+                update_state(is_running=False, phase="error", message="Login failed - check credentials")
                 await browser.close()
                 return {"error": "Login failed"}
             
