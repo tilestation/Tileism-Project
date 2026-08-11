@@ -654,6 +654,21 @@ async def initialize_scheduler():
         
         # Add chat notification check job (runs every 2 minutes)
         try:
+            from services.nightly_sync import run_nightly_light_syncs, get_settings as _nightly_settings
+            _ns = _nightly_settings()
+            sched.add_job(
+                run_nightly_light_syncs,
+                trigger=CronTrigger(hour=_ns["hour"], minute=_ns["minute"], timezone="Europe/London"),
+                id="nightly_light_sync",
+                name="Nightly supplier light sync (stock & prices)",
+                replace_existing=True,
+                misfire_grace_time=3600
+            )
+            logger.info(f"Added nightly supplier light sync job ({_ns['hour']:02d}:{_ns['minute']:02d} Europe/London)")
+        except Exception as nightly_err:
+            logger.warning(f"Could not add nightly light sync job: {nightly_err}")
+
+        try:
             from routes.live_chat import check_unanswered_chats
             sched.add_job(
                 check_unanswered_chats,

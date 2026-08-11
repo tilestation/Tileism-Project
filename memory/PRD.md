@@ -8950,3 +8950,11 @@ See `/app/memory/test_credentials.md`
 - **Related Product Pinning**: already existed in Quick Edit drawer; FIXED pin lookup in `/api/tiles/related` (tiles.py ~L2070 — added series/range_name match) and FIXED stale cache (quick-update now busts endpoint_cache, so pin clear shows immediately).
 - Testing: iteration_229.json — backend 7/8 (the 1 failure was the pin-clear cache bug, fixed + re-verified via curl), frontend 100%.
 - NOTE: Live sync requires the live site to be redeployed first (it needs the export endpoint).
+
+## Aug 11, 2026 Session Delta (evening) — Nightly Sync Schedule + Verona findings
+- **Nightly light-sync schedule**: NEW `services/nightly_sync.py` (sequential Splendour quick → Ceramica light → Wallcano light, results logged to `nightly_sync_log`) + `routes/nightly_sync.py` (GET /api/supplier-sync/nightly/status, POST /toggle, POST /run-now, admin-auth). Registered on existing APScheduler in `services/scheduler.py` — CronTrigger 01:00 Europe/London, job id `nightly_light_sync`. USER CHOICE: stages only, NO auto-apply (reviews in the morning). Settings in `scheduler_settings` doc `_id=nightly_light_sync` (enabled default true).
+- **Wallcano LIGHT sync built** (`run_light_sync` in wallcano_sync.py — stock-only via known product_details URLs; portal has no prices). Route now accepts mode=light. VERIFIED against the real portal: 30/30 updated, 0 failed, real stock figures staged.
+- **Sync Hub UI**: compact "Nightly auto-sync" strip above supplier tabs (status badge, last-run summary, Run now link, on/off toggle). data-testids: nightly-sync-strip/-state/-toggle, nightly-run-now-link.
+- **Verona server-side sync = NOT feasible currently**: Cloudflare blocks server browsers (tested live — "Attention Required"); old Bright Data proxy creds EXPIRED (407 tested). User chose to keep the extension (v4.9 built this session, points at live domain, downloadable at /api/supplier-sync/verona/extension/download + button on Verona tab).
+- Full nightly cycle validated end-to-end via run-now: orchestrator ran Splendour quick sync (steady, 0 failures) — left completing in background (~70 min for 1027+252+30 products).
+- NOTE: playwright chromium headless-shell was missing in preview; reinstalled via `python -m playwright install chromium` (known recurrence, like ffmpeg).

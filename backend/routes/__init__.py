@@ -144,6 +144,7 @@ from .manager_csv import router as manager_csv_router
 from .manager_config_templates import router as manager_config_templates_router
 from .product_name_sanity import router as product_name_sanity_router
 from .live_sync import router as live_sync_router
+from .nightly_sync import router as nightly_sync_router
 from .series_manager import router as series_manager_router
 from .variants import router as variants_router
 
@@ -298,6 +299,7 @@ api_router.include_router(manager_csv_router)
 api_router.include_router(manager_config_templates_router)
 api_router.include_router(product_name_sanity_router)
 api_router.include_router(live_sync_router)
+api_router.include_router(nightly_sync_router)
 api_router.include_router(series_manager_router)
 api_router.include_router(variants_router)
 __all__ = [

@@ -1180,6 +1180,114 @@ async def run_deep_sync(db):
         return {"error": str(e)}
 
 
+_STOCK_PATTERNS = [
+    r'Available\s*Quantity[:\s]*(\d+\.?\d*)\s*m2',
+    r'Available[:\s]*(\d+\.?\d*)\s*m2',
+    r'Quantity[:\s]*(\d+\.?\d*)\s*(?:m2|sqm|m²)',
+    r'Stock[:\s]*(\d+\.?\d*)\s*(?:m2|sqm|m²)',
+    r'(\d+\.?\d*)\s*m2\s*(?:available|in stock)',
+    r'Available\s*Quantity[:\s]*(\d+\.?\d*)',
+]
+
+
+async def run_light_sync(db):
+    """
+    LIGHT SYNC: Stock-only refresh for existing Wallcano products.
+    Visits known product_details URLs from sync_staging — no category crawl,
+    no images, no details. NOTE: Wallcano has no prices on their portal.
+    """
+    global sync_state
+    
+    if sync_state["is_running"]:
+        return {"error": "Sync already in progress"}
+    
+    existing = list(db.sync_staging.find(
+        {"supplier": "Wallcano", "url": {"$regex": "product_details"}},
+        {"url": 1, "sku": 1, "_id": 0}
+    ))
+    if not existing:
+        return {"error": "No existing Wallcano products with URLs found. Run a DEEP sync first."}
+    
+    reset_sync_state()
+    job_id = f"wallcano-light-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+    update_state(
+        is_running=True,
+        job_id=job_id,
+        phase="starting",
+        sync_mode="light",
+        message=f"Starting LIGHT sync (stock only) for {len(existing)} products...",
+        products_found=len(existing),
+        started_at=datetime.now(timezone.utc).isoformat()
+    )
+    
+    synced = failed = 0
+    try:
+        from playwright.async_api import async_playwright
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(headless=True)
+            page = await browser.new_page()
+            
+            update_state(phase="login", message="Logging into Wallcano...")
+            if not await perform_login(page):
+                await browser.close()
+                update_state(is_running=False, phase="error", message="Login failed")
+                return {"error": "Login failed"}
+            
+            update_state(phase="syncing")
+            total = len(existing)
+            for i, item in enumerate(existing):
+                if sync_state.get("stop_requested"):
+                    update_state(message="Stop requested — finishing up...")
+                    break
+                update_state(
+                    progress=int((i / total) * 100),
+                    message=f"[LIGHT] Updating stock {i+1}/{total}: {item.get('sku')}...",
+                    products_synced=synced,
+                    products_failed=failed
+                )
+                try:
+                    await page.goto(item["url"], timeout=30000)
+                    await asyncio.sleep(REQUEST_DELAY)
+                    body_text = await page.inner_text('body')
+                    stock_m2 = 0
+                    for pattern in _STOCK_PATTERNS:
+                        m = re.search(pattern, body_text, re.I)
+                        if m:
+                            stock_m2 = float(m.group(1))
+                            break
+                    db.sync_staging.update_one(
+                        {"supplier": "Wallcano", "sku": item["sku"]},
+                        {"$set": {
+                            "stock_m2": stock_m2,
+                            "stock_quantity": stock_m2,
+                            "in_stock": stock_m2 > 0,
+                            "synced_at": datetime.now(timezone.utc),
+                            "sync_source": "light_stock_sync"
+                        }}
+                    )
+                    synced += 1
+                except Exception as e:
+                    failed += 1
+                    logger.error(f"[WALLCANO LIGHT] Error on {item.get('url')}: {e}")
+            
+            await browser.close()
+        
+        update_state(
+            is_running=False,
+            phase="complete",
+            progress=100,
+            message=f"LIGHT sync complete! {synced} updated, {failed} failed",
+            products_synced=synced,
+            products_failed=failed,
+            completed_at=datetime.now(timezone.utc).isoformat()
+        )
+        return {"success": True, "synced": synced, "failed": failed}
+    except Exception as e:
+        logger.error(f"[WALLCANO LIGHT] Sync error: {e}")
+        update_state(is_running=False, phase="error", message=f"LIGHT sync error: {str(e)[:200]}")
+        return {"error": str(e)}
+
+
 def start_sync_background(mode: str = "deep"):
     """Start sync in background thread"""
     import threading
@@ -1189,7 +1297,10 @@ def start_sync_background(mode: str = "deep"):
             db = get_db()
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
-            loop.run_until_complete(run_deep_sync(db))
+            if mode in ("light", "quick"):
+                loop.run_until_complete(run_light_sync(db))
+            else:
+                loop.run_until_complete(run_deep_sync(db))
             loop.close()
         except Exception as e:
             logger.error(f"Background sync error: {e}")

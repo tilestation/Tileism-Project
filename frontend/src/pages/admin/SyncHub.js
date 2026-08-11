@@ -53,6 +53,7 @@ export default function SyncHub() {
   
   // Server-side sync state (for Splendour)
   const [serverSyncStatus, setServerSyncStatus] = useState(null);
+  const [nightlyStatus, setNightlyStatus] = useState(null);
   const [serverSyncPolling, setServerSyncPolling] = useState(false);
   
   // Ceramica Impex Server-Side Sync state
@@ -400,6 +401,48 @@ export default function SyncHub() {
       toast.info('Wallcano sync stop signal sent');
     } catch (error) {
       console.error('Error stopping Wallcano sync:', error);
+    }
+  };
+
+  // Nightly auto-sync status + controls
+  const fetchNightlyStatus = () => {
+    fetch(`${API_URL}/api/supplier-sync/nightly/status`)
+      .then(res => res.json())
+      .then(setNightlyStatus)
+      .catch(() => {});
+  };
+
+  useEffect(() => { fetchNightlyStatus(); }, []);
+
+  const toggleNightly = async () => {
+    if (!nightlyStatus) return;
+    try {
+      const res = await fetch(`${API_URL}/api/supplier-sync/nightly/toggle`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('token')}` },
+        body: JSON.stringify({ enabled: !nightlyStatus.enabled })
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      toast.success(`Nightly auto-sync turned ${!nightlyStatus.enabled ? 'ON' : 'OFF'}`);
+      fetchNightlyStatus();
+    } catch (err) {
+      toast.error(`Could not update schedule: ${err.message}`);
+    }
+  };
+
+  const runNightlyNow = async () => {
+    if (!window.confirm('Run the nightly light sync for Splendour, Ceramica Impex & Wallcano right now? Takes roughly 30-45 minutes and stages updates for review.')) return;
+    try {
+      const res = await fetch(`${API_URL}/api/supplier-sync/nightly/run-now`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+      });
+      const r = await res.json();
+      if (!res.ok || !r.ok) throw new Error(r.message || `HTTP ${res.status}`);
+      toast.success('Nightly light sync started — watch each supplier tab for live progress');
+      fetchNightlyStatus();
+    } catch (err) {
+      toast.error(`Could not start: ${err.message}`);
     }
   };
 
@@ -1542,6 +1585,47 @@ export default function SyncHub() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Nightly Auto-Sync strip */}
+      {nightlyStatus && (
+        <div className="flex items-center justify-between flex-wrap gap-2 px-4 py-2 rounded-lg bg-slate-50 border border-slate-200 text-sm" data-testid="nightly-sync-strip">
+          <div className="flex items-center gap-2 flex-wrap text-slate-700">
+            <Clock className="w-4 h-4 text-slate-500" />
+            <span className="font-medium">Nightly auto-sync</span>
+            <span className={`px-1.5 py-0.5 rounded text-xs font-semibold ${nightlyStatus.enabled ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-200 text-gray-600'}`} data-testid="nightly-sync-state">
+              {nightlyStatus.is_running ? 'RUNNING…' : (nightlyStatus.enabled ? 'ON' : 'OFF')}
+            </span>
+            <span className="text-slate-500 text-xs">
+              Light sync (stock &amp; prices) for Splendour, Ceramica Impex &amp; Wallcano at {nightlyStatus.schedule?.split(' ')[0]} — updates are staged here for your morning review, never auto-applied
+            </span>
+            {nightlyStatus.last_run && (
+              <span className="text-slate-500 text-xs" data-testid="nightly-last-run">
+                · Last ran {new Date(nightlyStatus.last_run.started_at).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })} ({nightlyStatus.last_run.total_synced} refreshed)
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={runNightlyNow}
+              disabled={nightlyStatus.is_running}
+              className="text-xs text-slate-500 hover:text-slate-800 underline disabled:opacity-40"
+              data-testid="nightly-run-now-link"
+            >
+              Run now
+            </button>
+            <button
+              type="button"
+              onClick={toggleNightly}
+              className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${nightlyStatus.enabled ? 'bg-emerald-500' : 'bg-gray-300'}`}
+              data-testid="nightly-sync-toggle"
+              title={nightlyStatus.enabled ? 'Turn nightly sync off' : 'Turn nightly sync on'}
+            >
+              <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${nightlyStatus.enabled ? 'translate-x-4.5 translate-x-[18px]' : 'translate-x-[3px]'}`} />
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Supplier Tabs */}
       <div className="flex flex-wrap gap-2 border-b pb-4">

@@ -2025,11 +2025,10 @@ async def start_wallcano_server_sync(mode: str = "deep"):
     Start a server-side Wallcano sync.
     
     IMPORTANT: Wallcano does NOT have prices on their portal.
-    Only product details (name, SKU, stock, images, size, etc.) are synced.
-    Prices must be set manually after sync.
     
     Args:
-        mode: Only "deep" mode supported (full sync with images and details)
+        mode: "deep" (full sync with images and details) or "light" (stock-only
+              refresh of existing products — fast, used by the nightly schedule)
     """
     try:
         from services.wallcano_sync import get_sync_state, start_sync_background
@@ -2042,12 +2041,16 @@ async def start_wallcano_server_sync(mode: str = "deep"):
                 "state": state
             }
         
-        result = start_sync_background(mode="deep")
+        sync_mode = "light" if mode in ("light", "quick") else "deep"
+        result = start_sync_background(mode=sync_mode)
         
         return {
             "success": True,
-            "mode": "deep",
-            "message": "Wallcano sync started. NOTE: Prices are NOT available on Wallcano portal - set manually after sync.",
+            "mode": sync_mode,
+            "message": (
+                "Wallcano LIGHT sync started (stock only)." if sync_mode == "light"
+                else "Wallcano sync started. NOTE: Prices are NOT available on Wallcano portal - set manually after sync."
+            ),
             "note": "Check /api/supplier-sync/wallcano/server-sync/status for progress"
         }
         
