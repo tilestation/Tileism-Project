@@ -3698,3 +3698,11 @@ Local repro published the 6 ULT-* products: card shows "6 VARIANTS" with 6 full-
 - `handleSetStockStatus` handles the always_in_stock flag transitions (clears flag when switching away; sets it via toggle endpoint when chosen).
 - Backend `toggle-always-in-stock` now mirrors to `tiles` (always_in_stock/in_stock/stock_status) + busts the endpoint cache (set-stock-status already did); enabling it also normalises SP in_stock/stock_status.
 - Self-tested e2e: dropdown shows 4 options, Out of Stock → Always In Stock round-trip, SP + tiles both consistent, toasts firing.
+
+---
+
+## 11 Aug 2026 — Bulk Stock Update (both bulk bars)
+- **Manager bulk bar** (`ManagerBulkBar.jsx` + `ManagerPageShell.jsx` bulkSetStock): "Stock…" select (In/Low/Out/Always In Stock) → bulk endpoints, toast, list refresh. testid: bar-stock-status.
+- **Supplier Products Quick Actions bar** (`SupplierProducts.js` handleBulkSetStock): same teal "Stock…" select, optimistic row badge update. testid: qa-stock-status.
+- **Backend**: `bulk-set-stock-status` + `bulk-toggle-always-in-stock` now match sku OR supplier_code, mirror to `tiles`, clear/set always_in_stock consistently, bust endpoint cache.
+- Self-tested e2e in both bars (toasts + instant badge flip + DB mirror). Test products restored to Always In Stock.

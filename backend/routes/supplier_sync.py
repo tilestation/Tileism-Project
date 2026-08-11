@@ -9003,20 +9003,35 @@ def bulk_set_stock_status(data: dict):
         # Determine in_stock boolean based on status
         in_stock = stock_status in ["in_stock", "low_stock"]
         
-        # Build filter
-        filter_query = {"sku": {"$in": skus}}
+        # Build filter — match sku OR supplier_code
+        filter_query = {"$or": [{"sku": {"$in": skus}}, {"supplier_code": {"$in": skus}}]}
         
-        # Update all matching products
-        result = db.supplier_products.update_many(
+        # Update all matching products (clears any always_in_stock override)
+        set_data = {
+            "stock_status": stock_status,
+            "in_stock": in_stock,
+            "always_in_stock": False,
+            "updated_at": datetime.now(timezone.utc)
+        }
+        result = db.supplier_products.update_many(filter_query, {"$set": set_data})
+
+        # Mirror to the tiles collection so the storefront reflects it
+        tiles_result = db.tiles.update_many(
             filter_query,
-            {
-                "$set": {
-                    "stock_status": stock_status,
-                    "in_stock": in_stock,
-                    "updated_at": datetime.now(timezone.utc)
-                }
-            }
+            {"$set": {
+                "stock_status": stock_status,
+                "in_stock": in_stock,
+                "always_in_stock": False,
+                "stock_overridden_at": datetime.now(timezone.utc)
+            }}
         )
+
+        # Bust the collection endpoint cache so the change shows immediately
+        try:
+            from utils.endpoint_cache import endpoint_cache
+            endpoint_cache.invalidate()
+        except Exception:
+            pass
         
         status_labels = {"in_stock": "In Stock", "low_stock": "Low Stock", "out_of_stock": "Out of Stock"}
         
@@ -9024,6 +9039,7 @@ def bulk_set_stock_status(data: dict):
             "success": True,
             "updated_count": result.modified_count,
             "matched_count": result.matched_count,
+            "tiles_updated": tiles_result.modified_count,
             "stock_status": stock_status,
             "message": f"Set {result.modified_count} products to {status_labels[stock_status]}"
         }
@@ -9051,25 +9067,39 @@ def bulk_toggle_always_in_stock(data: dict):
         if not skus:
             raise HTTPException(status_code=400, detail="No SKUs provided")
         
-        # Build filter
-        filter_query = {"sku": {"$in": skus}}
+        # Build filter — match sku OR supplier_code
+        filter_query = {"$or": [{"sku": {"$in": skus}}, {"supplier_code": {"$in": skus}}]}
         if supplier:
             filter_query["supplier"] = supplier
         
         # Update all matching products
-        result = db.supplier_products.update_many(
-            filter_query,
-            {
-                "$set": {
-                    "always_in_stock": always_in_stock,
-                    "updated_at": datetime.now(timezone.utc)
-                }
-            }
+        sp_set = {"always_in_stock": always_in_stock, "updated_at": datetime.now(timezone.utc)}
+        if always_in_stock:
+            sp_set["in_stock"] = True
+            sp_set["stock_status"] = "in_stock"
+        result = db.supplier_products.update_many(filter_query, {"$set": sp_set})
+
+        # Mirror to the tiles collection so the storefront reflects it
+        tile_set = {"always_in_stock": always_in_stock, "stock_overridden_at": datetime.now(timezone.utc)}
+        if always_in_stock:
+            tile_set["in_stock"] = True
+            tile_set["stock_status"] = "in_stock"
+        tiles_result = db.tiles.update_many(
+            {"$or": [{"sku": {"$in": skus}}, {"supplier_code": {"$in": skus}}]},
+            {"$set": tile_set}
         )
+
+        # Bust the collection endpoint cache
+        try:
+            from utils.endpoint_cache import endpoint_cache
+            endpoint_cache.invalidate()
+        except Exception:
+            pass
         
         return {
             "success": True,
             "updated": result.modified_count,
+            "tiles_updated": tiles_result.modified_count,
             "always_in_stock": always_in_stock,
             "message": f"Updated {result.modified_count} products"
         }

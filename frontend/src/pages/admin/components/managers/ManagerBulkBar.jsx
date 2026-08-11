@@ -18,6 +18,7 @@ const ManagerBulkBar = ({
   onSelectAll,
   onBulkPublish,
   onBulkUnpublish,
+  onBulkStock,
   onBulkArchive,
   onBulkDelete,
   onOpenTierPricing,
@@ -68,6 +69,24 @@ const ManagerBulkBar = ({
           </button>
         )}
       </div>
+
+      {/* Stock status — marks all selected In/Out of Stock immediately */}
+      {!hidden.has('stock') && onBulkStock && (
+        <select
+          value=""
+          onChange={(e) => { const v = e.target.value; if (v) onBulkStock(v); }}
+          disabled={saving}
+          className="px-2.5 py-1.5 rounded-lg bg-white/15 hover:bg-white/25 transition text-[13px] font-medium text-white cursor-pointer border-0 outline-none [&>option]:text-gray-900"
+          data-testid="bar-stock-status"
+          title="Mark all selected products In Stock / Out of Stock — updates the website immediately"
+        >
+          <option value="" disabled>Stock…</option>
+          <option value="in_stock">In Stock</option>
+          <option value="low_stock">Low Stock</option>
+          <option value="out_of_stock">Out of Stock</option>
+          <option value="always_in_stock">Always In Stock</option>
+        </select>
+      )}
 
       {/* Content actions */}
       {!hidden.has('colours') && onOpenAssignColours && (

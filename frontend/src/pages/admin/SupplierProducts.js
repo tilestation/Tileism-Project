@@ -6981,6 +6981,37 @@ export default function SupplierProducts() {
     }
   };
 
+  // Bulk stock status from the Quick Actions bar — all selected at once
+  const handleBulkSetStock = async (status) => {
+    const selectedKeys = Array.from(selectedProducts);
+    const selectedProds = products.filter(p => selectedKeys.includes(getProductKey(p)));
+    const skus = [...new Set(selectedProds.map(p => p.sku || p.supplier_code).filter(Boolean))];
+    if (skus.length === 0) { toast.error('Please select products first'); return; }
+    const labels = { in_stock: 'In Stock', low_stock: 'Low Stock', out_of_stock: 'Out of Stock', always_in_stock: 'Always In Stock' };
+    try {
+      const url = status === 'always_in_stock'
+        ? `${API_URL}/api/supplier-sync/products/bulk-toggle-always-in-stock`
+        : `${API_URL}/api/supplier-sync/products/bulk-set-stock-status`;
+      const body = status === 'always_in_stock' ? { skus, always_in_stock: true } : { skus, stock_status: status };
+      const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const inStock = status === 'in_stock' || status === 'low_stock' || status === 'always_in_stock';
+      setProducts(prev => prev.map(p =>
+        skus.includes(p.sku || p.supplier_code)
+          ? {
+              ...p,
+              stock_status: status === 'always_in_stock' ? 'in_stock' : status,
+              in_stock: inStock,
+              always_in_stock: status === 'always_in_stock',
+            }
+          : p
+      ));
+      toast.success(`${skus.length} product${skus.length !== 1 ? 's' : ''} marked ${labels[status]}`);
+    } catch (err) {
+      toast.error(`Stock update failed: ${err.message}`);
+    }
+  };
+
   // Set stock status for a product (In Stock / Low Stock / Out of Stock / Always In Stock)
   const handleSetStockStatus = async (product, stockStatus) => {
     try {
@@ -16613,6 +16644,21 @@ export default function SupplierProducts() {
               )}
               Mark Not For Sale
             </button>
+
+            {/* Bulk stock status — marks all selected In/Out of Stock immediately */}
+            <select
+              value=""
+              onChange={(e) => { const v = e.target.value; if (v) handleBulkSetStock(v); }}
+              className="px-2.5 py-1.5 rounded-lg bg-teal-500/90 hover:bg-teal-500 transition-all text-[13px] font-medium text-white cursor-pointer border-0 outline-none shadow-md shadow-teal-500/20 [&>option]:text-gray-900"
+              data-testid="qa-stock-status"
+              title="Mark all selected products In Stock / Out of Stock — updates the website immediately"
+            >
+              <option value="" disabled>Stock…</option>
+              <option value="in_stock">In Stock</option>
+              <option value="low_stock">Low Stock</option>
+              <option value="out_of_stock">Out of Stock</option>
+              <option value="always_in_stock">Always In Stock</option>
+            </select>
 
             <button
               type="button"

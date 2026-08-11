@@ -339,6 +339,27 @@ const ManagerPageShell = ({
     [products]
   );
 
+  // Bulk stock status — marks all selected products In/Out of Stock (mirrors to website)
+  const bulkSetStock = useCallback(async (status) => {
+    const list = bulk.getSelectedList();
+    const skus = [...new Set(list.map(p => p.sku || p.supplier_code).filter(Boolean))];
+    if (skus.length === 0) return;
+    const labels = { in_stock: 'In Stock', low_stock: 'Low Stock', out_of_stock: 'Out of Stock', always_in_stock: 'Always In Stock' };
+    try {
+      const url = status === 'always_in_stock'
+        ? `${API_URL}/api/supplier-sync/products/bulk-toggle-always-in-stock`
+        : `${API_URL}/api/supplier-sync/products/bulk-set-stock-status`;
+      const body = status === 'always_in_stock' ? { skus, always_in_stock: true } : { skus, stock_status: status };
+      const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      toast.success(`${skus.length} product${skus.length !== 1 ? 's' : ''} marked ${labels[status]}`);
+      fetchProducts();
+    } catch (err) {
+      toast.error(`Stock update failed: ${err.message}`);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bulk, fetchProducts]);
+
   const gapCount = useMemo(
     () => (destMap ? products.filter(p => !hasShopTab(p)).length : 0),
     [products, destMap, hasShopTab]
@@ -884,6 +905,7 @@ const ManagerPageShell = ({
         onSelectAll={() => bulk.selectAll(filteredProducts)}
         onBulkPublish={bulk.bulkPublish}
         onBulkUnpublish={bulk.bulkUnpublish}
+        onBulkStock={bulkSetStock}
         onBulkArchive={bulk.bulkArchive}
         onBulkDelete={bulk.bulkDelete}
         onOpenAssignColours={() => setShowAssignColours(true)}
