@@ -12586,7 +12586,10 @@ def bulk_update_unified(data: dict):
                         original_name = sp.get('name', 'Unknown Product')
                         product_size = sp.get('size') or ''
                         name = base_name
-                        if product_size and product_size.lower() not in base_name.lower():
+                        # Only append DIMENSIONAL sizes (60x60 etc.) — unit sizes
+                        # like "1l"/"20kg" must never be appended so the storefront
+                        # name matches Supplier Products exactly.
+                        if product_size and re.search(r'\d\s*[xX×]\s*\d', product_size) and product_size.lower() not in base_name.lower():
                             name = f"{base_name} {product_size}"
                         
                         display_code = sp.get('display_code', '')

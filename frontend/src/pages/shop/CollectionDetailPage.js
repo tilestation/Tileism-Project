@@ -1124,6 +1124,11 @@ const CollectionDetailPage = () => {
     if (explicitStatus === 'special_order') {
       return { label: 'Special Order', color: 'text-blue-600', dotColor: 'bg-blue-500' };
     }
+    // Admin explicitly set "In Stock" — authoritative even when the numeric
+    // stock count is 0 (unit products often have no stock feed).
+    if (explicitStatus === 'in_stock') {
+      return { label: 'In Stock', color: 'text-green-600', dotColor: 'bg-green-500' };
+    }
     // Boolean override (set by admin alongside stock_status). Only
     // honoured when the admin explicitly set in_stock=false — a
     // boolean true here doesn't override the numeric stock check.

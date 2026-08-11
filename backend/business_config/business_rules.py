@@ -3210,8 +3210,11 @@ def construct_complete_name(name: str, size: str = None, finish: str = None) -> 
     # Match patterns like: 30x60, 600x600, 1200 x 1200, 80X80
     has_size_in_name = bool(re.search(r'\d+\s*[xX×]\s*\d+', complete_name))
     
-    # Add size if provided and not already in name
-    if size and not has_size_in_name:
+    # Add size if provided and not already in name.
+    # Only DIMENSIONAL sizes (e.g. 60x60, 600x300x7mm) are ever appended —
+    # unit sizes like "1L" / "20kg" must never be appended so the name stays
+    # exactly as it appears in Supplier Products.
+    if size and not has_size_in_name and re.search(r'\d+\s*[xX×]\s*\d+', size):
         # Clean size: remove thickness (e.g., "195x1215x10mm" -> "195x1215")
         size_clean = re.sub(r'[xX×]\d+mm$', '', size)  # Remove thickness like x10mm
         size_clean = re.sub(r'mm$', '', size_clean)    # Remove trailing mm

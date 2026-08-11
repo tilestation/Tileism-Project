@@ -296,6 +296,8 @@ async def apply_new_names(
         set_data = {
             "product_name": item.new_name.strip(),
             "name": item.new_name.strip(),
+            "our_product_name": item.new_name.strip(),
+            "display_name": item.new_name.strip(),
             "updated_at": now,
             "product_name_fixed_by": current_user.get("email"),
         }
@@ -308,7 +310,12 @@ async def apply_new_names(
         # Best-effort — a missing SKU in either collection is fine.
         clean_name = item.new_name.strip()
         try:
-            await db.tiles.update_one({"sku": item.sku}, {"$set": {"name": clean_name, "updated_at": now}})
+            # display_name is what serialize_tile_for_shop shows on the storefront —
+            # it MUST be updated together with name or the old (pre-rename) name keeps showing.
+            await db.tiles.update_one(
+                {"sku": item.sku},
+                {"$set": {"name": clean_name, "display_name": clean_name, "website_name": clean_name, "updated_at": now}},
+            )
         except Exception:
             pass
         try:
@@ -372,6 +379,8 @@ async def apply_suggested_names(
             {"$set": {
                 "product_name": suggested,
                 "name": suggested,
+                "our_product_name": suggested,
+                "display_name": suggested,
                 "updated_at": now,
                 "product_name_fixed_by": current_user.get("email"),
                 "product_name_fixed_at": now,
@@ -458,11 +467,16 @@ async def sync_supplier_names_to_epos_and_website(
         if not target_name:
             continue
 
-        # tiles collection — best-effort mirror
+        # tiles collection — best-effort mirror (name AND display_name; the
+        # storefront reads display_name so a stale one keeps the old name alive)
         try:
             tres = await db.tiles.update_many(
-                {"sku": sku, "$or": [{"name": {"$ne": target_name}}, {"name": {"$exists": False}}]},
-                {"$set": {"name": target_name, "updated_at": now}},
+                {"sku": sku, "$or": [
+                    {"name": {"$ne": target_name}},
+                    {"display_name": {"$ne": target_name}},
+                    {"name": {"$exists": False}},
+                ]},
+                {"$set": {"name": target_name, "display_name": target_name, "website_name": target_name, "updated_at": now}},
             )
             if tres.modified_count:
                 tiles_updated += tres.modified_count
@@ -724,6 +738,9 @@ async def ghost_sweep_rename(
         set_data = {"name": new_name, "updated_at": now, "ghost_name_fixed_by": current_user.get("email")}
         if col in ("products", "sync_staging"):
             set_data["product_name"] = new_name
+        if col == "tiles":
+            set_data["display_name"] = new_name
+            set_data["website_name"] = new_name
         try:
             res = await db[col].update_many(
                 {"$or": [{"sku": regex}, {"supplier_code": regex}, {"key": regex}]},

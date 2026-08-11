@@ -188,6 +188,9 @@ def serialize_tile_for_shop(tile: dict) -> dict:
         # set always_in_stock=True. The manual override is authoritative.
         "in_stock": (
             False if tile.get("stock_status") == "out_of_stock"
+            # Admin explicitly set In Stock / Low Stock — authoritative even
+            # when the numeric stock count is 0 and always_in_stock is False.
+            else True if tile.get("stock_status") in ("in_stock", "low_stock")
             else (
                 tile["in_stock"] if isinstance(tile.get("in_stock"), bool)
                 else (tile.get("stock", 0) > 0 or tile.get("always_in_stock", False))
@@ -1965,7 +1968,10 @@ async def _get_collection_products_impl(
                 },
                 "series": sp.get("series") or "",
                 "labels": sp.get("labels", []),
-                "in_stock": True,
+                # Drafts mirror the admin's stock settings from Supplier Products
+                "in_stock": sp.get("stock_status") != "out_of_stock",
+                "stock_status": sp.get("stock_status") or "in_stock",
+                "always_in_stock": sp.get("always_in_stock", False),
                 "stock": sp.get("stock_m2") or sp.get("stock_quantity") or 0,
                 "product_group": sp.get("product_group") or "tiles",
                 "main_category": sp.get("main_category", ""),

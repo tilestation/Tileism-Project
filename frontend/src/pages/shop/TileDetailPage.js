@@ -926,8 +926,25 @@ const TileDetailPage = () => {
               {(() => {
                 const stockQty = tile.stock || tile.stock_quantity || tile.stock_m2 || 0;
                 const lowStockThreshold = 30; // m² threshold for low stock
+                const explicitStatus = (tile.stock_status || '').toLowerCase();
                 
-                if (tile.always_in_stock || stockQty > lowStockThreshold) {
+                if (explicitStatus === 'out_of_stock' || tile.in_stock === false) {
+                  return (
+                    <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-red-100 text-red-800 rounded-full text-sm font-medium">
+                      <span className="w-2 h-2 bg-red-500 rounded-full"></span>
+                      Out of Stock
+                    </div>
+                  );
+                }
+                if (explicitStatus === 'low_stock') {
+                  return (
+                    <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-amber-100 text-amber-800 rounded-full text-sm font-medium">
+                      <span className="w-2 h-2 bg-amber-500 rounded-full"></span>
+                      Low Stock
+                    </div>
+                  );
+                }
+                if (explicitStatus === 'in_stock' || tile.always_in_stock || stockQty > lowStockThreshold) {
                   return (
                     <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-green-100 text-green-800 rounded-full text-sm font-medium">
                       <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
@@ -939,6 +956,13 @@ const TileDetailPage = () => {
                     <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-amber-100 text-amber-800 rounded-full text-sm font-medium">
                       <span className="w-2 h-2 bg-amber-500 rounded-full"></span>
                       Low Stock
+                    </div>
+                  );
+                } else if (tile.in_stock === true) {
+                  return (
+                    <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-green-100 text-green-800 rounded-full text-sm font-medium">
+                      <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
+                      In Stock
                     </div>
                   );
                 } else {

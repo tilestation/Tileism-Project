@@ -338,18 +338,18 @@ const TileListingPage = () => {
                           No Image
                         </div>
                       )}
-                      {/* Stock Alert Badges */}
-                      {tile.stock !== undefined && tile.stock <= 0 && (
+                      {/* Stock Alert Badges — respect the admin's explicit in_stock flag */}
+                      {tile.in_stock === false && (
                         <div className="absolute top-2 left-2 bg-red-500 text-white text-xs font-bold px-2 py-1 rounded">
                           Out of Stock
                         </div>
                       )}
-                      {tile.stock > 0 && tile.stock <= 5 && (
+                      {tile.in_stock !== false && tile.stock > 0 && tile.stock <= 5 && (
                         <div className="absolute top-2 left-2 bg-orange-500 text-white text-xs font-bold px-2 py-1 rounded animate-pulse">
                           Only {tile.stock} left!
                         </div>
                       )}
-                      {tile.stock > 5 && tile.stock <= 10 && (
+                      {tile.in_stock !== false && tile.stock > 5 && tile.stock <= 10 && (
                         <div className="absolute top-2 left-2 bg-amber-500 text-white text-xs font-bold px-2 py-1 rounded">
                           Low Stock
                         </div>
