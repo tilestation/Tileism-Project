@@ -3706,3 +3706,10 @@ Local repro published the 6 ULT-* products: card shows "6 VARIANTS" with 6 full-
 - **Supplier Products Quick Actions bar** (`SupplierProducts.js` handleBulkSetStock): same teal "Stock…" select, optimistic row badge update. testid: qa-stock-status.
 - **Backend**: `bulk-set-stock-status` + `bulk-toggle-always-in-stock` now match sku OR supplier_code, mirror to `tiles`, clear/set always_in_stock consistently, bust endpoint cache.
 - Self-tested e2e in both bars (toasts + instant badge flip + DB mirror). Test products restored to Always In Stock.
+
+---
+
+## 11 Aug 2026 — Direct Cost & List Price editing (Supplier Products)
+- Backend: `POST /api/supplier-sync/products/set-prices` {skus, cost_price?, price?} — updates supplier_products, mirrors price→tiles (price + room_lot_price) + products (EPOS), cost_price everywhere, busts endpoint cache. Validates non-negative.
+- Frontend (`SupplierProducts.js`): Cost and List Price cells are click-to-edit (Enter/blur saves, Escape cancels; testids cost-cell-/cost-input-/price-cell-/price-input-{sku}). New "£ Prices" indigo button in Quick Actions bar opens a modal (testid bulk-price-modal) to set cost and/or list for all selected (blank = keep current).
+- Self-tested e2e: inline cost £7.10 + list £23.50 saved with toasts; bulk "2 products updated — list £18.75"; SP+tiles+products mirroring verified via DB. Test prices reset afterwards (preview DB refreshes via live→preview sync anyway).

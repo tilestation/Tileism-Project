@@ -8981,6 +8981,65 @@ def update_product_stock_status(data: dict):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+class SetPricesRequest(BaseModel):
+    skus: List[str]
+    cost_price: Optional[float] = None
+    price: Optional[float] = None
+
+
+@router.post("/products/set-prices")
+def set_product_prices(payload: SetPricesRequest):
+    """Set cost and/or list price directly for one or many products.
+    Mirrors the list price to the storefront (tiles) and EPOS (products)."""
+    try:
+        skus = [s.strip() for s in payload.skus if s and s.strip()]
+        if not skus:
+            raise HTTPException(status_code=400, detail="No SKUs provided")
+        if payload.cost_price is None and payload.price is None:
+            raise HTTPException(status_code=400, detail="Provide cost_price and/or price")
+        if (payload.cost_price is not None and payload.cost_price < 0) or (payload.price is not None and payload.price < 0):
+            raise HTTPException(status_code=400, detail="Prices cannot be negative")
+
+        db = get_db()
+        now = datetime.now(timezone.utc)
+        filter_query = {"$or": [{"sku": {"$in": skus}}, {"supplier_code": {"$in": skus}}]}
+
+        sp_set = {"updated_at": now, "price_updated_at": now}
+        tile_set = {"updated_at": now}
+        prod_set = {"updated_at": now}
+        if payload.cost_price is not None:
+            sp_set["cost_price"] = payload.cost_price
+            tile_set["cost_price"] = payload.cost_price
+            prod_set["cost_price"] = payload.cost_price
+        if payload.price is not None:
+            sp_set["price"] = payload.price
+            tile_set["price"] = payload.price
+            tile_set["room_lot_price"] = payload.price
+            prod_set["price"] = payload.price
+
+        result = db.supplier_products.update_many(filter_query, {"$set": sp_set})
+        tiles_result = db.tiles.update_many(filter_query, {"$set": tile_set})
+        db.products.update_many(filter_query, {"$set": prod_set})
+
+        try:
+            from utils.endpoint_cache import endpoint_cache
+            endpoint_cache.invalidate()
+        except Exception:
+            pass
+
+        return {
+            "success": True,
+            "updated_count": result.modified_count,
+            "matched_count": result.matched_count,
+            "tiles_updated": tiles_result.modified_count,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error setting prices: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post("/products/bulk-set-stock-status")
 def bulk_set_stock_status(data: dict):
     """

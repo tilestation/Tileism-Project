@@ -539,6 +539,10 @@ export default function SupplierProducts() {
     newCustomLabel: ''
   });
   const [showBulkSaleModal, setShowBulkSaleModal] = useState(false);
+  // Inline + bulk cost/list price editing
+  const [priceEdit, setPriceEdit] = useState(null); // { key, field: 'cost_price'|'price', value }
+  const [showBulkPriceModal, setShowBulkPriceModal] = useState(false);
+  const [bulkPriceForm, setBulkPriceForm] = useState({ cost: '', list: '' });
   const [showDocumentsModal, setShowDocumentsModal] = useState(false);
   const [documentsModalProducts, setDocumentsModalProducts] = useState([]);
   const [descProductScope, setDescProductScope] = useState(new Set()); // empty = all products
@@ -6981,6 +6985,58 @@ export default function SupplierProducts() {
     }
   };
 
+  // Set cost and/or list price for one or many products (mirrors to website + EPOS)
+  const handleSetPrices = async (skus, fields) => {
+    const cleanSkus = [...new Set(skus.filter(Boolean))];
+    if (cleanSkus.length === 0) return false;
+    try {
+      const res = await fetch(`${API_URL}/api/supplier-sync/products/set-prices`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ skus: cleanSkus, ...fields }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.detail || `HTTP ${res.status}`);
+      }
+      setProducts(prev => prev.map(p =>
+        cleanSkus.includes(p.sku || p.supplier_code) ? { ...p, ...fields } : p
+      ));
+      const parts = [];
+      if (fields.cost_price !== undefined) parts.push(`cost £${Number(fields.cost_price).toFixed(2)}`);
+      if (fields.price !== undefined) parts.push(`list £${Number(fields.price).toFixed(2)}`);
+      toast.success(`${cleanSkus.length} product${cleanSkus.length !== 1 ? 's' : ''} updated — ${parts.join(', ')}`);
+      return true;
+    } catch (err) {
+      toast.error(`Price update failed: ${err.message}`);
+      return false;
+    }
+  };
+
+  const commitPriceEdit = async () => {
+    if (!priceEdit) return;
+    const value = parseFloat(priceEdit.value);
+    if (isNaN(value) || value < 0) { toast.error('Enter a valid price'); return; }
+    const { key, field } = priceEdit;
+    setPriceEdit(null);
+    await handleSetPrices([key], { [field]: value });
+  };
+
+  const applyBulkPrices = async () => {
+    const fields = {};
+    if (bulkPriceForm.cost !== '' && !isNaN(parseFloat(bulkPriceForm.cost))) fields.cost_price = parseFloat(bulkPriceForm.cost);
+    if (bulkPriceForm.list !== '' && !isNaN(parseFloat(bulkPriceForm.list))) fields.price = parseFloat(bulkPriceForm.list);
+    if (Object.keys(fields).length === 0) { toast.error('Enter a cost and/or list price'); return; }
+    const selectedKeys = Array.from(selectedProducts);
+    const selectedProds = products.filter(p => selectedKeys.includes(getProductKey(p)));
+    const skus = selectedProds.map(p => p.sku || p.supplier_code);
+    const ok = await handleSetPrices(skus, fields);
+    if (ok) {
+      setShowBulkPriceModal(false);
+      setBulkPriceForm({ cost: '', list: '' });
+    }
+  };
+
   // Bulk stock status from the Quick Actions bar — all selected at once
   const handleBulkSetStock = async (status) => {
     const selectedKeys = Array.from(selectedProducts);
@@ -8993,38 +9049,83 @@ export default function SupplierProducts() {
                       <td className="py-3 px-4 text-sm text-gray-600">
                         {product.finish || '-'}
                       </td>
-                      {/* Cost column */}
+                      {/* Cost column — click to edit */}
                       {hasAction('supplier_products.cost_column') && (
                         <td className="py-3 px-4 text-right">
-                          {/* Show cost_each for 'each' products, cost_price or cost_m2 for m² products */}
-                          {product.size_unit === 'each' && product.cost_each && !isNaN(Number(product.cost_each)) ? (
-                            <span className="text-gray-500">£{Number(product.cost_each).toFixed(2)} <span className="text-xs text-gray-400">/ea</span></span>
-                          ) : product.cost_price && !isNaN(Number(product.cost_price)) ? (
-                            <span className="text-gray-500">£{Number(product.cost_price).toFixed(2)}</span>
-                          ) : product.cost_m2 && !isNaN(Number(product.cost_m2)) ? (
-                            <span className="text-gray-500">£{Number(product.cost_m2).toFixed(2)}</span>
+                          {priceEdit && priceEdit.key === (product.sku || product.supplier_code) && priceEdit.field === 'cost_price' ? (
+                            <input
+                              autoFocus
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              value={priceEdit.value}
+                              onChange={(e) => setPriceEdit(prev => ({ ...prev, value: e.target.value }))}
+                              onKeyDown={(e) => { if (e.key === 'Enter') commitPriceEdit(); if (e.key === 'Escape') setPriceEdit(null); }}
+                              onBlur={commitPriceEdit}
+                              className="w-20 px-1.5 py-0.5 text-right text-sm border border-blue-400 rounded"
+                              data-testid={`cost-input-${product.sku || product.supplier_code}`}
+                            />
                           ) : (
-                            <span className="text-gray-300">-</span>
+                            <button
+                              type="button"
+                              onClick={() => setPriceEdit({ key: product.sku || product.supplier_code, field: 'cost_price', value: product.cost_price ?? '' })}
+                              className="hover:bg-blue-50 hover:ring-1 hover:ring-blue-200 rounded px-1.5 py-0.5 transition-colors"
+                              title="Click to edit cost"
+                              data-testid={`cost-cell-${product.sku || product.supplier_code}`}
+                            >
+                              {product.size_unit === 'each' && product.cost_each && !isNaN(Number(product.cost_each)) ? (
+                                <span className="text-gray-500">£{Number(product.cost_each).toFixed(2)} <span className="text-xs text-gray-400">/ea</span></span>
+                              ) : product.cost_price && !isNaN(Number(product.cost_price)) ? (
+                                <span className="text-gray-500">£{Number(product.cost_price).toFixed(2)}</span>
+                              ) : product.cost_m2 && !isNaN(Number(product.cost_m2)) ? (
+                                <span className="text-gray-500">£{Number(product.cost_m2).toFixed(2)}</span>
+                              ) : (
+                                <span className="text-gray-300">—</span>
+                              )}
+                            </button>
                           )}
                         </td>
                       )}
                       <td className="py-3 px-4 text-right">
-                        {product.sale_active && product.now_price ? (
-                          <div className="space-y-0.5">
-                            <div className="flex items-center justify-end gap-1">
-                              <span className="text-xs text-gray-400 line-through">
-                                £{Number(product.was_price || product.price).toFixed(2)}
-                              </span>
-                              <span className="text-xs bg-red-100 text-red-600 px-1 rounded">
-                                -{product.discount_percentage}%
-                              </span>
-                            </div>
-                            <span className="font-bold text-red-600">£{Number(product.now_price).toFixed(2)}</span>
-                          </div>
-                        ) : product.price && !isNaN(Number(product.price)) ? (
-                          <span className="font-semibold text-green-600">£{Number(product.price).toFixed(2)}</span>
+                        {priceEdit && priceEdit.key === (product.sku || product.supplier_code) && priceEdit.field === 'price' ? (
+                          <input
+                            autoFocus
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            value={priceEdit.value}
+                            onChange={(e) => setPriceEdit(prev => ({ ...prev, value: e.target.value }))}
+                            onKeyDown={(e) => { if (e.key === 'Enter') commitPriceEdit(); if (e.key === 'Escape') setPriceEdit(null); }}
+                            onBlur={commitPriceEdit}
+                            className="w-20 px-1.5 py-0.5 text-right text-sm border border-blue-400 rounded"
+                            data-testid={`price-input-${product.sku || product.supplier_code}`}
+                          />
                         ) : (
-                          <span className="text-gray-400">-</span>
+                          <button
+                            type="button"
+                            onClick={() => setPriceEdit({ key: product.sku || product.supplier_code, field: 'price', value: product.price ?? '' })}
+                            className="hover:bg-blue-50 hover:ring-1 hover:ring-blue-200 rounded px-1.5 py-0.5 transition-colors"
+                            title="Click to edit list price"
+                            data-testid={`price-cell-${product.sku || product.supplier_code}`}
+                          >
+                            {product.sale_active && product.now_price ? (
+                              <div className="space-y-0.5">
+                                <div className="flex items-center justify-end gap-1">
+                                  <span className="text-xs text-gray-400 line-through">
+                                    £{Number(product.was_price || product.price).toFixed(2)}
+                                  </span>
+                                  <span className="text-xs bg-red-100 text-red-600 px-1 rounded">
+                                    -{product.discount_percentage}%
+                                  </span>
+                                </div>
+                                <span className="font-bold text-red-600">£{Number(product.now_price).toFixed(2)}</span>
+                              </div>
+                            ) : product.price && !isNaN(Number(product.price)) ? (
+                              <span className="font-semibold text-green-600">£{Number(product.price).toFixed(2)}</span>
+                            ) : (
+                              <span className="text-gray-400">—</span>
+                            )}
+                          </button>
                         )}
                       </td>
                       <td className="py-3 px-4 text-right">
@@ -16645,6 +16746,17 @@ export default function SupplierProducts() {
               Mark Not For Sale
             </button>
 
+            {/* Bulk cost / list price */}
+            <button
+              type="button"
+              onClick={() => setShowBulkPriceModal(true)}
+              className="px-2.5 py-1.5 rounded-lg bg-indigo-500/90 hover:bg-indigo-500 transition-all text-[13px] font-medium text-white shadow-md shadow-indigo-500/20"
+              data-testid="qa-set-prices"
+              title="Set cost and/or list price for all selected products"
+            >
+              £ Prices
+            </button>
+
             {/* Bulk stock status — marks all selected In/Out of Stock immediately */}
             <select
               value=""
@@ -16754,6 +16866,62 @@ export default function SupplierProducts() {
             >
               <X className="w-4 h-4" />
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Bulk cost / list price modal */}
+      {showBulkPriceModal && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/40" onClick={() => setShowBulkPriceModal(false)}>
+          <div className="bg-white rounded-xl shadow-2xl p-5 w-[360px]" onClick={(e) => e.stopPropagation()} data-testid="bulk-price-modal">
+            <h3 className="text-sm font-bold text-gray-900 mb-1">Set prices for {selectedProducts.size} selected</h3>
+            <p className="text-xs text-gray-500 mb-4">Leave a field blank to keep each product's current value. List price updates the website immediately.</p>
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs font-semibold text-gray-600 mb-1 block">Cost (£)</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={bulkPriceForm.cost}
+                  onChange={(e) => setBulkPriceForm(prev => ({ ...prev, cost: e.target.value }))}
+                  placeholder="e.g. 5.50"
+                  className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:border-blue-400 focus:outline-none"
+                  data-testid="bulk-price-cost-input"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-gray-600 mb-1 block">List Price (£)</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={bulkPriceForm.list}
+                  onChange={(e) => setBulkPriceForm(prev => ({ ...prev, list: e.target.value }))}
+                  placeholder="e.g. 19.99"
+                  className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:border-blue-400 focus:outline-none"
+                  data-testid="bulk-price-list-input"
+                />
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 mt-5">
+              <button
+                type="button"
+                onClick={() => setShowBulkPriceModal(false)}
+                className="px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100 rounded-lg"
+                data-testid="bulk-price-cancel"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={applyBulkPrices}
+                className="px-4 py-1.5 text-sm font-semibold bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg"
+                data-testid="bulk-price-apply"
+              >
+                Apply
+              </button>
+            </div>
           </div>
         </div>
       )}
