@@ -8958,3 +8958,13 @@ See `/app/memory/test_credentials.md`
 - **Verona server-side sync = NOT feasible currently**: Cloudflare blocks server browsers (tested live — "Attention Required"); old Bright Data proxy creds EXPIRED (407 tested). User chose to keep the extension (v4.9 built this session, points at live domain, downloadable at /api/supplier-sync/verona/extension/download + button on Verona tab).
 - Full nightly cycle validated end-to-end via run-now: orchestrator ran Splendour quick sync (steady, 0 failures) — left completing in background (~70 min for 1027+252+30 products).
 - NOTE: playwright chromium headless-shell was missing in preview; reinstalled via `python -m playwright install chromium` (known recurrence, like ffmpeg).
+
+## Aug 11, 2026 Session Delta (night) — Deep/Light Sync 100% Verification & Root-Cause Fix
+- **ROOT CAUSE of "deep sync missing products" FOUND & FIXED**: interrupted deep syncs left `sync_progress` records status="running" forever; every later deep sync silently "resumed" the stale product list and SKIPPED DISCOVERY (Wallcano skipped it entirely; Splendour/Ceramica reused old URL lists). A stale March 11 Ceramica record was live in the DB. FIX: `get_resume_data` in all 3 services now age-gates resume data (<24h, else auto-delete + full fresh sync); added `fresh=1` param to all 3 start endpoints to force-wipe progress.
+- **Full real-portal verification (all passed)**:
+  - Splendour DEEP: 800 unique discovered (368 subcats + alphabet search), 793 synced, 2 failed, 5 non-tile skipped → staged 1094→1118
+  - Ceramica DEEP: 460 discovered/460 synced, 0 failed → staged 252→475 (+223 recovered!)
+  - Wallcano DEEP: 86/86, 0 failed → staged 38→80
+  - Wallcano LIGHT 30/30 ✅; Splendour QUICK observed live 443+/1027 0 failures ✅; Ceramica LIGHT steady 44/475 0 failures (completing in background ~80min)
+  - Nightly orchestrator + nightly_sync_log write: validated via monkeypatched unit run (test log cleaned)
+- **PRODUCTION NOTE**: live site likely has the same stale resume records — after deploy, run one Full Sync per supplier (the fix auto-purges stale state) to recover missing products; then review the new staged products in Sync Hub.

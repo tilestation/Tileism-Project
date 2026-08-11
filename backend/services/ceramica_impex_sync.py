@@ -31,7 +31,7 @@ import asyncio
 import re
 import logging
 import math
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict, Any, List
 import os
 from pymongo import MongoClient
@@ -187,22 +187,32 @@ def save_sync_progress(db, job_id: str, product_urls: List[str], synced_urls: Li
 
 
 def get_resume_data(db) -> Optional[Dict]:
-    """Get resume data if a previous sync was interrupted"""
+    """Get resume data only if a previous sync was interrupted RECENTLY (<24h).
+    Stale records would reuse an outdated product list and silently skip
+    discovering new portal products — they are deleted instead."""
     try:
         progress = db.sync_progress.find_one(
             {"supplier": "Ceramica Impex", "status": "running"},
             sort=[("updated_at", -1)]
         )
-        if progress:
-            return {
-                "job_id": progress.get("job_id"),
-                "mode": progress.get("mode", "deep"),
-                "all_product_urls": progress.get("all_product_urls", []),
-                "synced_urls": set(progress.get("synced_urls", [])),
-                "phase": progress.get("phase"),
-                "synced_count": progress.get("synced_count", 0)
-            }
-        return None
+        if not progress:
+            return None
+        updated_at = progress.get("updated_at")
+        if updated_at:
+            if updated_at.tzinfo is None:
+                updated_at = updated_at.replace(tzinfo=timezone.utc)
+            if datetime.now(timezone.utc) - updated_at > timedelta(hours=24):
+                logger.warning(f"Ignoring STALE Ceramica Impex resume data from {updated_at} — deleting it and running a full fresh sync")
+                db.sync_progress.delete_many({"supplier": "Ceramica Impex"})
+                return None
+        return {
+            "job_id": progress.get("job_id"),
+            "mode": progress.get("mode", "deep"),
+            "all_product_urls": progress.get("all_product_urls", []),
+            "synced_urls": set(progress.get("synced_urls", [])),
+            "phase": progress.get("phase"),
+            "synced_count": progress.get("synced_count", 0)
+        }
     except Exception as e:
         logger.error(f"Error getting resume data: {e}")
         return None

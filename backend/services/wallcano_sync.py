@@ -27,7 +27,7 @@ Sync Mode:
 import asyncio
 import re
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict, Any, List
 import os
 from pymongo import MongoClient
@@ -193,20 +193,29 @@ def save_sync_progress(db, job_id: str, all_products: list, synced_skus: list, p
 
 
 def get_resume_data(db):
-    """Get resume data if a previous Wallcano sync was interrupted"""
+    """Get resume data only if a previous Wallcano sync was interrupted RECENTLY (<24h).
+    Stale records make deep syncs skip product discovery entirely — delete them."""
     try:
         progress = db.sync_progress.find_one(
             {"supplier": "Wallcano", "status": "running"},
             sort=[("updated_at", -1)]
         )
-        if progress:
-            return {
-                "job_id": progress.get("job_id"),
-                "synced_skus": set(progress.get("synced_skus", [])),
-                "synced_count": progress.get("synced_count", 0),
-                "phase": progress.get("phase")
-            }
-        return None
+        if not progress:
+            return None
+        updated_at = progress.get("updated_at")
+        if updated_at:
+            if updated_at.tzinfo is None:
+                updated_at = updated_at.replace(tzinfo=timezone.utc)
+            if datetime.now(timezone.utc) - updated_at > timedelta(hours=24):
+                logger.warning(f"Ignoring STALE Wallcano resume data from {updated_at} — deleting it and running a full fresh sync")
+                db.sync_progress.delete_many({"supplier": "Wallcano"})
+                return None
+        return {
+            "job_id": progress.get("job_id"),
+            "synced_skus": set(progress.get("synced_skus", [])),
+            "synced_count": progress.get("synced_count", 0),
+            "phase": progress.get("phase")
+        }
     except Exception as e:
         logger.error(f"Error getting Wallcano resume data: {e}")
         return None

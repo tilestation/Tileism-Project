@@ -1092,7 +1092,7 @@ def get_splendour_scrape_status(job_id: str):
 # User just clicks a button in Sync Hub - no browser extension needed.
 
 @router.post("/splendour/server-sync/start")
-async def start_splendour_server_sync(categories: List[str] = None, mode: str = "deep"):
+async def start_splendour_server_sync(categories: List[str] = None, mode: str = "deep", fresh: int = 0):
     """
     Start a server-side Splendour sync.
     
@@ -1120,6 +1120,11 @@ async def start_splendour_server_sync(categories: List[str] = None, mode: str = 
             }
         
         db = get_db()
+        
+        # fresh=1 wipes any saved resume progress so the deep sync re-discovers everything
+        if fresh:
+            from services.splendour_sync import clear_sync_progress
+            clear_sync_progress(db)
         
         # Accept both "quick" and "light" for backwards compatibility
         if mode in ["quick", "light"]:
@@ -2020,7 +2025,7 @@ class CeramicaImpexProduct(BaseModel):
 # =============================================================================
 
 @router.post("/wallcano/server-sync/start")
-async def start_wallcano_server_sync(mode: str = "deep"):
+async def start_wallcano_server_sync(mode: str = "deep", fresh: int = 0):
     """
     Start a server-side Wallcano sync.
     
@@ -2040,6 +2045,11 @@ async def start_wallcano_server_sync(mode: str = "deep"):
                 "message": "Sync already in progress",
                 "state": state
             }
+        
+        # fresh=1 wipes any saved resume progress so the deep sync re-discovers everything
+        if fresh:
+            from services.wallcano_sync import clear_sync_progress, get_db as _wget_db
+            clear_sync_progress(_wget_db())
         
         sync_mode = "light" if mode in ("light", "quick") else "deep"
         result = start_sync_background(mode=sync_mode)
@@ -3847,7 +3857,7 @@ def get_ceramica_impex_scrape_status(job_id: str):
 # Supports TWO modes: DEEP (full sync) and LIGHT (price/stock only)
 
 @router.post("/ceramica-impex/server-sync/start")
-async def start_ceramica_impex_server_sync(categories: List[str] = None, mode: str = "deep"):
+async def start_ceramica_impex_server_sync(categories: List[str] = None, mode: str = "deep", fresh: int = 0):
     """
     Start a server-side Ceramica Impex sync.
     
@@ -3875,6 +3885,11 @@ async def start_ceramica_impex_server_sync(categories: List[str] = None, mode: s
             }
         
         db = get_db()
+        
+        # fresh=1 wipes any saved resume progress so the deep sync re-discovers everything
+        if fresh:
+            from services.ceramica_impex_sync import clear_sync_progress
+            clear_sync_progress(db)
         
         if mode == "light":
             # Light sync - stock and price only
