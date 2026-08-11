@@ -95,6 +95,7 @@ def download_verona_extension():
     """
     # Check multiple possible locations - latest version first
     possible_paths = [
+        "/app/frontend/public/verona-sync-extension-v4.9.zip",
         "/app/frontend/public/verona-sync-extension-v4.8.zip",
         "/app/frontend/public/verona-sync-extension-v4.6.zip",
         "/app/frontend/public/verona-sync-extension-v4.5.zip",
@@ -113,7 +114,7 @@ def download_verona_extension():
             return FileResponse(
                 path,
                 media_type="application/zip",
-                filename="TileStation-Verona-Extension-v4.8.zip"
+                filename="TileStation-Verona-Extension-v4.9.zip"
             )
     
     raise HTTPException(status_code=404, detail="Extension file not found")

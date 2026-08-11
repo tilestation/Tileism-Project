@@ -1576,6 +1576,33 @@ export default function SyncHub() {
         })}
       </div>
 
+      {/* Verona Browser Extension (Verona has no server-side sync — it uses the Chrome extension) */}
+      {selectedSupplier === 'Verona' && (
+        <Card className="border-blue-200 bg-blue-50">
+          <CardContent className="py-4">
+            <div className="flex items-center justify-between flex-wrap gap-3">
+              <div className="flex items-center gap-3">
+                <div className="w-3 h-3 rounded-full bg-blue-500" />
+                <div>
+                  <h3 className="font-semibold text-blue-900">Browser Extension Sync</h3>
+                  <p className="text-sm text-blue-700">
+                    Verona syncs via the Chrome extension — browse veronagroup.co, click the extension icon and it stages products here for review
+                  </p>
+                </div>
+              </div>
+              <Button
+                onClick={() => { window.location.href = `${API_URL}/api/supplier-sync/verona/extension/download`; }}
+                className="bg-blue-600 hover:bg-blue-700 text-white"
+                data-testid="download-verona-extension-btn"
+              >
+                <Download className="w-4 h-4 mr-2" />
+                Download Extension v4.9
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Server-Side Sync Button (Splendour) */}
       {selectedSupplier === 'Splendour' && (
         <Card className="border-teal-200 bg-teal-50">
