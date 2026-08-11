@@ -5817,6 +5817,14 @@ def quick_update_supplier_product(data: QuickUpdateRequest):
         
         logger.info(f"Quick update for {data.supplier}/{data.sku}: {list(update_fields.keys())}")
         
+        # Bust endpoint caches (incl. tiles_related) so pin changes and name/price
+        # edits show on the storefront immediately instead of serving stale cache.
+        try:
+            from utils.endpoint_cache import endpoint_cache
+            endpoint_cache.invalidate()
+        except Exception:
+            pass
+        
         return {
             "success": True,
             "message": f"Product {data.sku} updated",
@@ -6260,11 +6268,36 @@ def products_data_health():
             by_group[grp] = by_group.get(grp, 0) + 1
         if any(isinstance(d.get(f), str) and d[f] and d[f] != _clean_name_ws(d[f]) for f in _SP_NAME_FIELDS):
             untrimmed += 1
+    # Name Guard — storefront (tiles) rows whose name/display_name drifted from
+    # the Supplier Products name. Target matches sync-to-epos-website exactly
+    # (product_name only) so "Fix now" always clears the warning.
+    sp_names = {}
+    for d in db.supplier_products.find(
+        {"product_name": {"$nin": [None, ""]}},
+        {"sku": 1, "supplier_code": 1, "product_name": 1},
+    ):
+        sku = d.get("sku") or d.get("supplier_code")
+        if sku:
+            sp_names[sku] = str(d["product_name"]).strip()
+    name_drift = 0
+    drift_samples = []
+    for t in db.tiles.find({}, {"sku": 1, "name": 1, "display_name": 1}):
+        target = sp_names.get(t.get("sku"))
+        if not target:
+            continue
+        t_name = str(t.get("name") or "").strip()
+        t_disp = str(t.get("display_name") or t_name).strip()
+        if t_name != target or t_disp != target:
+            name_drift += 1
+            if len(drift_samples) < 5:
+                drift_samples.append({"sku": t.get("sku"), "storefront": t_disp or t_name, "supplier": target})
     return {
         "missing_images_total": missing_total,
         "total_products": total_products,
         "missing_images_by_group": sorted([{"group": k, "count": v} for k, v in by_group.items()], key=lambda x: -x["count"]),
         "untrimmed_names": untrimmed,
+        "name_drift": name_drift,
+        "name_drift_samples": drift_samples,
     }
 
 

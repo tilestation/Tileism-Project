@@ -1,0 +1,35 @@
+{
+  "summary": "Iter229: Verified 4 features — Name Guard Alert, Live Data Sync (preview-only), Stock Badge Sweep, and Related Product Pinning series-match. 7/8 backend pytests passed. Frontend UI verified end-to-end: admin dashboard shows Data Health card with name-drift row (359 drifts), Fix now runs successfully (drift → 0, row disappears, 'UT TILE XTREME 1L 1l' repaired to 'UT TILE XTREME 1L'), live-sync inline form opens/cancels correctly, /new-collection and /clearance load with zero JS errors, storefront shows In Stock (green) for zero-stock in_stock=true products.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "PUT /api/supplier-sync/products/quick-update + GET /api/tiles/related/{series}", "issue": "After clearing pins with related_products:[] on one SKU, GET /api/tiles/related still returns the pinned card. Likely a cache-invalidation gap — the tiles_related bulletproof_endpoint cache_namespace is not busted by quick-update, or a sibling supplier_product/tile doc still holds the pin. Pin creation and series-match lookup work correctly."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter229_live_sync_and_pins.py",
+    "/app/test_reports/pytest/iter229.xml"
+  ],
+  "action_items": [
+    "Investigate and fix the pin-clear cache-invalidation edge case: quick-update should bust the tiles_related cache and also strip pins from any propagated tile docs / other supplier_product docs in the same series so an empty related_products:[] fully clears the pinned card on the next GET."
+  ],
+  "critical_code_review_comments": [
+    "supplier_sync.py is 15,254 lines — well over the 700-line guideline; should be split into focused modules (products, quick-update, data-health, bulk-editor, etc.).",
+    "tiles.py get_related_products uses cache_namespace 'tiles_related' but quick-update mutations don't appear to invalidate that namespace, leading to stale pinned cards after clear."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter229_live_sync_and_pins.py"
+  ],
+  "success_rate": {"backend": "87.5% (7/8 pytests)", "frontend": "100% (all critical flows verified)"},
+  "test_credentials": "admin@test.com / admin123",
+  "seed_data_creation": "None — used existing ULT-EC + LP-6611 fixtures.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Fix Now button was clicked in this run, so name_drift is now 0 (was 359). If re-testing name-drift UI, either seed a drift manually or accept name_drift=0 state. Storefront /shop/collection/Ultra%20Tile%20Cleaning%20%26%20Maintenance now shows fully clean names (no 1l 1l duplicate). Live-sync UI verified but pull-from-live NOT executed against preview (would replace catalogue).",
+  "rca of the issue": "test_clear_pins failure — GET /api/tiles/related is decorated with bulletproof_endpoint(cache_namespace='tiles_related'). PUT /api/supplier-sync/products/quick-update likely does not invalidate 'tiles_related' cache, so the previously-pinned card is served from cache after clearing. Reproduction: PUT quick-update with pins → GET returns pinned:true (works). PUT quick-update with related_products:[] → GET still returns pinned:true (bug). Mitigation: bust tiles_related cache in quick-update (and any related mutation endpoints); optionally also propagate related_products=[] to sibling tile docs sharing the series."
+}

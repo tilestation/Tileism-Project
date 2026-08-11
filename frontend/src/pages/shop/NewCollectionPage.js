@@ -182,6 +182,10 @@ const ProductCard = ({ product, viewMode }) => {
   const displayName = product.product_name || product.name;
   const stock = product.stock_quantity || product.stock_m2 || 0;
   const stockUnit = product.stock_m2 ? 'm²' : 'units';
+  // Trust the admin's explicit stock flag over the raw count (matches the PDP)
+  const outOfStock = product.in_stock === false
+    || (product.stock_status || '') === 'out_of_stock'
+    || (product.in_stock === undefined && !product.stock_status && stock <= 0);
   
   if (viewMode === 'list') {
     return (
@@ -219,8 +223,8 @@ const ProductCard = ({ product, viewMode }) => {
           <div className="mt-3 flex items-center gap-4 text-sm text-gray-600">
             {product.size && <span>Size: {product.size}</span>}
             {product.finish && <span>Finish: {product.finish}</span>}
-            <span className={stock > 0 ? 'text-green-600' : 'text-red-600'}>
-              Stock: {stock} {stockUnit}
+            <span className={outOfStock ? 'text-red-600' : 'text-green-600'}>
+              {outOfStock ? 'Out of stock' : (stock > 0 ? `Stock: ${stock} ${stockUnit}` : 'In stock')}
             </span>
           </div>
         </div>
@@ -254,8 +258,8 @@ const ProductCard = ({ product, viewMode }) => {
           {product.price && (
             <p className="text-xl font-bold text-emerald-600">£{product.price?.toFixed(2)}</p>
           )}
-          <span className={`text-sm ${stock > 0 ? 'text-green-600' : 'text-red-600'}`}>
-            {stock > 0 ? `${stock} ${stockUnit} left` : 'Out of stock'}
+          <span className={`text-sm ${outOfStock ? 'text-red-600' : 'text-green-600'}`}>
+            {outOfStock ? 'Out of stock' : (stock > 0 ? `${stock} ${stockUnit} left` : 'In stock')}
           </span>
         </div>
         {product.size && (

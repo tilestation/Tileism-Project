@@ -2074,6 +2074,10 @@ async def get_related_products(
                 {"product_name": {"$regex": f"^{re.escape(series_name)}", "$options": "i"}},
                 {"name": {"$regex": f"^{re.escape(series_name)}", "$options": "i"}},
                 {"original_series": {"$regex": f"^{re.escape(series_name)}$", "$options": "i"}},
+                # series/range_name matching — covers products whose names don't
+                # start with the series (e.g. "UT EASY CLEAN" in "Ultra Tile ...")
+                {"series": {"$regex": f"^{re.escape(series_name)}$", "$options": "i"}},
+                {"range_name": {"$regex": f"^{re.escape(series_name)}$", "$options": "i"}},
             ],
             "related_products.0": {"$exists": True},
         }, {"related_products": 1}).limit(25)
