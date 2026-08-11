@@ -908,7 +908,7 @@ export default function SyncHub() {
       // Add valid updates section
       if (validUpdates.length > 0) {
         wsData.push(['EXISTING PRODUCT UPDATES (Ready to Apply)']);
-        wsData.push(['Product Name', 'SKU', 'Previous Stock', 'New Stock', 'Stock Change', 'Stock Direction', 'Previous Price (£)', 'New Price (£)', 'Price Change (£)', 'Price Direction', 'Can Apply', 'Synced At']);
+        wsData.push(['Product Name', 'SKU', 'Previous Stock', 'New Stock', 'Stock Change', 'Stock Direction', 'Previous Cost (£)', 'New Cost (£)', 'Cost Change (£)', 'Cost Direction', 'Can Apply', 'Synced At']);
         
         validUpdates.forEach(p => {
           const newStock = p.stock_quantity || p.stock_m2 || 0;
@@ -1097,7 +1097,7 @@ export default function SyncHub() {
       // Valid updates table
       if (validUpdates.length > 0) {
         const tableHeaders = [
-          'Product Name', 'SKU', 'Old Stock', 'New Stock', 'Stock Change', 'Old Price', 'New Price', 'Price Change', 'Status'
+          'Product Name', 'SKU', 'Old Stock', 'New Stock', 'Stock Change', 'Old Cost', 'New Cost', 'Cost Change', 'Status'
         ];
 
         const tableData = validUpdates.map(p => {
@@ -2448,10 +2448,10 @@ export default function SyncHub() {
                     </div>
                   </div>
                   
-                  {/* Price Changes Summary */}
+                  {/* Cost Changes Summary */}
                   <div className="space-y-3">
                     <h4 className="font-semibold text-gray-700 flex items-center gap-2">
-                      £ Price Changes
+                      £ Cost Changes (from supplier)
                     </h4>
                     <div className="grid grid-cols-3 gap-3">
                       <div className="bg-white rounded-lg p-3 border border-amber-200">
@@ -2522,17 +2522,11 @@ export default function SyncHub() {
                             }`}
                           >
                             <span className="font-medium truncate max-w-[200px]">{product.name}</span>
-                            {product.price_locked ? (
-                              <span className="text-blue-600 font-medium text-xs flex items-center gap-1">
-                                <Lock className="w-3 h-3" /> Price Locked (manual)
-                              </span>
-                            ) : (
                             <span className={`font-mono font-bold ${product.price_change > 0 ? 'text-amber-700' : 'text-green-700'}`}>
-                              Price: £{product.current_price?.toFixed(2) || '0.00'} → £{product.price?.toFixed(2) || '0.00'}
+                              Cost: £{product.current_price?.toFixed(2) || '0.00'} → £{product.price?.toFixed(2) || '0.00'}
                               {product.price_change > 0 ? ' ↑' : ' ↓'}
                               <span className="text-xs ml-1">({product.price_change > 0 ? '+' : ''}£{product.price_change?.toFixed(2)})</span>
                             </span>
-                            )}
                           </div>
                         ))}
                       </div>
@@ -2593,7 +2587,7 @@ export default function SyncHub() {
                         <th className="text-left py-3 px-4 font-medium text-gray-600 text-sm">Product</th>
                         <th className="text-left py-3 px-4 font-medium text-gray-600 text-sm">SKU</th>
                         <th className="text-center py-3 px-4 font-medium text-gray-600 text-sm">Stock Comparison</th>
-                        <th className="text-center py-3 px-4 font-medium text-gray-600 text-sm">Price Comparison</th>
+                        <th className="text-center py-3 px-4 font-medium text-gray-600 text-sm">Cost Comparison</th>
                         <th className="text-center py-3 px-4 font-medium text-gray-600 text-sm">Status</th>
                         <th className="text-center py-3 px-4 font-medium text-gray-600 text-sm">Actions</th>
                       </tr>

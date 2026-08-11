@@ -8968,3 +8968,11 @@ See `/app/memory/test_credentials.md`
   - Wallcano LIGHT 30/30 ✅; Splendour QUICK observed live 443+/1027 0 failures ✅; Ceramica LIGHT steady 44/475 0 failures (completing in background ~80min)
   - Nightly orchestrator + nightly_sync_log write: validated via monkeypatched unit run (test log cleaned)
 - **PRODUCTION NOTE**: live site likely has the same stale resume records — after deploy, run one Full Sync per supplier (the fix auto-purges stale state) to recover missing products; then review the new staged products in Sync Hub.
+
+## Aug 11, 2026 Session Delta (late night) — COST-ONLY Sync Pricing
+- **USER RULE: syncs pull supplier COST only; admin sets list price manually; cost changes must be visible.**
+- `sync_staging.py` — both staged-list diff branches now compute `current_cost/new_cost/cost_change` (legacy `current_price/price/price_change` fields now CARRY COST VALUES so all UI/exports/filters track cost). Admin list price surfaced as `list_price`, never diffed.
+- Apply endpoint — writes `cost_price`/`cost_price_m2` ONLY (price/list_price NEVER touched, markup formula removed from updates); records `last_cost_change {from,to,changed_at,source}` + `cost_change_history` (last 20) on supplier_products when cost differs.
+- SyncHub UI — "Cost Comparison" column, "£ Cost Changes (from supplier)" stats, "Cost:" notable changes, CSV/PDF headers relabeled to Cost.
+- VERIFIED e2e: staged SKU 800853 cost 18.50→37.84 shown in diff; after apply cost updated, list price stayed £51.99, history recorded.
+- NOTE: new-product staging still carries a suggested calculated price (admin reviews/sets before adding) — only UPDATES are cost-only.

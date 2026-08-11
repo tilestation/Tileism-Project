@@ -533,47 +533,30 @@ def get_all_staged_products():
                 if new_stock is not None and old_stock is not None:
                     product_data["stock_change"] = new_stock - old_stock
                 
-                # Calculate price change (handle different price fields)
-                # IMPORTANT: Some suppliers (Verona) send cost price as "price", requiring markup calculation.
-                # Other suppliers (Ceramica Impex server-sync) already calculate list price and store cost separately.
-                # If cost_price exists separately, "price" is already the list price — do NOT apply markup again.
-                
-                # CHECK: Is the price manually locked by admin?
+                # COST-ONLY PRICING: syncs track the supplier COST only.
+                # The list price is admin-managed and NEVER changed by a sync.
+                # current_price/price/price_change now carry COST values so the
+                # UI (table, stats, exports) shows cost transitions.
                 price_locked = existing.get("price_locked", False)
+                product_data["price_locked"] = price_locked
                 
                 raw_synced_price = product.get("price")
                 raw_cost_price = product.get("cost_price")
-                old_price = existing.get("price") or existing.get("room_lot_price")
+                new_cost = raw_cost_price if raw_cost_price is not None else raw_synced_price
+                old_cost = existing.get("cost_price") if existing.get("cost_price") is not None else existing.get("cost_price_m2")
                 
-                if price_locked:
-                    # Price was manually set by admin — DO NOT overwrite
-                    product_data["price_change"] = None
-                    product_data["price_locked"] = True
-                    product_data["price"] = old_price  # Keep existing price
-                    # Still store the synced cost for reference
-                    if raw_cost_price is not None:
-                        product_data["synced_cost_price"] = raw_cost_price
-                    if raw_synced_price is not None:
-                        product_data["synced_list_price"] = raw_synced_price
-                elif raw_synced_price is not None:
-                    if raw_cost_price is not None and raw_cost_price != raw_synced_price:
-                        # cost_price exists and differs from price → price is already the list price
-                        calculated_list_price = raw_synced_price
-                        product_data["cost_price"] = raw_cost_price
-                    else:
-                        # No separate cost_price → price IS the cost price, apply markup
-                        calculated_list_price = calculate_list_price_from_cost(raw_synced_price)
-                        product_data["cost_price"] = raw_synced_price
-                    
-                    product_data["calculated_list_price"] = calculated_list_price
-                    product_data["price"] = calculated_list_price
-                    
-                    if calculated_list_price is not None and old_price is not None:
-                        product_data["price_change"] = round(calculated_list_price - old_price, 2)
-                    else:
-                        product_data["price_change"] = None
+                product_data["current_cost"] = old_cost
+                product_data["new_cost"] = new_cost
+                product_data["cost_price"] = new_cost
+                product_data["current_price"] = old_cost
+                product_data["price"] = new_cost
+                product_data["has_price"] = new_cost is not None
+                product_data["list_price"] = existing.get("price") or existing.get("room_lot_price")
+                if new_cost is not None and old_cost is not None:
+                    product_data["cost_change"] = round(float(new_cost) - float(old_cost), 2)
                 else:
-                    product_data["price_change"] = None
+                    product_data["cost_change"] = None
+                product_data["price_change"] = product_data["cost_change"]
                 
                 suppliers[supplier]["updates"].append(product_data)
             else:
@@ -794,43 +777,28 @@ def get_staged_by_supplier(supplier: str):
                 else:
                     product_data["stock_change"] = None
                 
-                # Handle different price fields for change calculation
-                # If cost_price exists separately, "price" is already the list price — do NOT apply markup again.
-                
-                # CHECK: Is the price manually locked by admin?
+                # COST-ONLY PRICING: syncs track the supplier COST only.
+                # The list price is admin-managed and NEVER changed by a sync.
                 price_locked = existing.get("price_locked", False)
+                product_data["price_locked"] = price_locked
                 
                 raw_synced_price = product.get("price")
                 raw_cost_price = product.get("cost_price")
-                old_price = existing.get("price") or existing.get("room_lot_price")
+                new_cost = raw_cost_price if raw_cost_price is not None else raw_synced_price
+                old_cost = existing.get("cost_price") if existing.get("cost_price") is not None else existing.get("cost_price_m2")
                 
-                if price_locked:
-                    product_data["price_change"] = None
-                    product_data["price_locked"] = True
-                    product_data["price"] = old_price
-                    if raw_cost_price is not None:
-                        product_data["synced_cost_price"] = raw_cost_price
-                    if raw_synced_price is not None:
-                        product_data["synced_list_price"] = raw_synced_price
-                elif raw_synced_price is not None:
-                    if raw_cost_price is not None and raw_cost_price != raw_synced_price:
-                        # cost_price exists and differs from price → price is already the list price
-                        calculated_list_price = raw_synced_price
-                        product_data["cost_price"] = raw_cost_price
-                    else:
-                        # No separate cost_price → price IS the cost price, apply markup
-                        calculated_list_price = calculate_list_price_from_cost(raw_synced_price)
-                        product_data["cost_price"] = raw_synced_price
-                    
-                    product_data["calculated_list_price"] = calculated_list_price
-                    product_data["price"] = calculated_list_price
-                    
-                    if calculated_list_price is not None and old_price is not None:
-                        product_data["price_change"] = round(calculated_list_price - old_price, 2)
-                    else:
-                        product_data["price_change"] = None
+                product_data["current_cost"] = old_cost
+                product_data["new_cost"] = new_cost
+                product_data["cost_price"] = new_cost
+                product_data["current_price"] = old_cost
+                product_data["price"] = new_cost
+                product_data["has_price"] = new_cost is not None
+                product_data["list_price"] = existing.get("price") or existing.get("room_lot_price")
+                if new_cost is not None and old_cost is not None:
+                    product_data["cost_change"] = round(float(new_cost) - float(old_cost), 2)
                 else:
-                    product_data["price_change"] = None
+                    product_data["cost_change"] = None
+                product_data["price_change"] = product_data["cost_change"]
                 
                 updates.append(product_data)
             else:
@@ -942,43 +910,33 @@ def apply_supplier_changes(supplier: str, request: Optional[ApplyChangesRequest]
             stock_m2 = product.get("stock_m2") or 0
             update_data["in_stock"] = stock_qty > 0 or stock_m2 > 0
             
-            # Update price if available - Apply markup calculation
-            # Rule: List Price = Cost × 1.90 × 1.20 (90% markup + VAT), rounded up to .99
-            # BUT: If cost_price exists separately, "price" is already the list price — do NOT re-markup
-            # SKIP if price is manually locked by admin
-            existing_product = get_sync_db().supplier_products.find_one(
-                {"supplier": supplier, "sku": product.get("sku")},
-                {"price_locked": 1}
-            )
-            price_locked = existing_product.get("price_locked", False) if existing_product else False
+            # COST-ONLY PRICING: syncs update the supplier COST only.
+            # The admin's list price is NEVER touched by a sync — the admin
+            # sets it manually. Cost changes are recorded in last_cost_change
+            # and cost_change_history so the admin always knows.
+            raw_cost_price = product.get("cost_price")
+            synced_price = product.get("price")
+            new_cost = raw_cost_price if raw_cost_price is not None else synced_price
             
-            if price_locked:
-                # Skip price update — admin manually set this price
-                pass
-            elif product.get("price") is not None:
-                raw_cost_price = product.get("cost_price")
-                synced_price = product.get("price")
-                
-                if raw_cost_price is not None and raw_cost_price != synced_price:
-                    # cost_price exists and differs → price is already the list price
-                    update_data["cost_price_m2"] = raw_cost_price
-                    update_data["cost_price"] = raw_cost_price
-                    update_data["price"] = synced_price
-                    update_data["list_price"] = synced_price
-                else:
-                    # No separate cost_price → price IS the cost price, apply markup
-                    cost_price = synced_price
-                    update_data["cost_price_m2"] = cost_price
-                    update_data["cost_price"] = cost_price
-                    
-                    # Calculate list price: cost × 1.90 × 1.20, round up to .99
-                    import math
-                    raw_list_price = cost_price * 1.90 * 1.20
-                    list_price = math.ceil(raw_list_price) - 0.01
-                    if list_price < raw_list_price:
-                        list_price = math.ceil(raw_list_price + 1) - 0.01
-                    update_data["price"] = round(list_price, 2)
-                    update_data["list_price"] = round(list_price, 2)
+            if new_cost is not None:
+                old_cost = existing.get("cost_price") if existing.get("cost_price") is not None else existing.get("cost_price_m2")
+                update_data["cost_price"] = new_cost
+                update_data["cost_price_m2"] = new_cost
+                if old_cost is not None and round(float(old_cost), 2) != round(float(new_cost), 2):
+                    change_entry = {
+                        "from": round(float(old_cost), 2),
+                        "to": round(float(new_cost), 2),
+                        "changed_at": datetime.now(timezone.utc).isoformat(),
+                        "source": product.get("sync_source", "sync"),
+                    }
+                    update_data["last_cost_change"] = change_entry
+                    try:
+                        get_sync_db().supplier_products.update_one(
+                            {"_id": existing.get("_id")},
+                            {"$push": {"cost_change_history": {"$each": [change_entry], "$slice": -20}}}
+                        )
+                    except Exception:
+                        pass
             
             # CRITICAL: Update image if available from sync
             # This ensures product images from the extension sync are saved
