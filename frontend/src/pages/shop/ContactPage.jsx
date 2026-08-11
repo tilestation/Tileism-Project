@@ -251,6 +251,7 @@ export default function ContactPage() {
                   <div>
                     <p className="text-sm font-medium text-gray-500 mb-0.5">WhatsApp</p>
                     <p className="text-xl font-bold text-gray-900 group-hover:text-green-600 transition-colors">{contactSettings.whatsapp}</p>
+                    <p className="text-xs text-gray-400 mt-0.5" data-testid="whatsapp-text-only-note">Text only</p>
                   </div>
                 </a>
               )}
