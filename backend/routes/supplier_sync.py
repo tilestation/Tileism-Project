@@ -95,6 +95,7 @@ def download_verona_extension():
     """
     # Check multiple possible locations - latest version first
     possible_paths = [
+        "/app/frontend/public/verona-sync-extension-v5.0.zip",
         "/app/frontend/public/verona-sync-extension-v4.9.zip",
         "/app/frontend/public/verona-sync-extension-v4.8.zip",
         "/app/frontend/public/verona-sync-extension-v4.6.zip",
@@ -114,7 +115,7 @@ def download_verona_extension():
             return FileResponse(
                 path,
                 media_type="application/zip",
-                filename="TileStation-Verona-Extension-v4.9.zip"
+                filename=f"TileStation-Verona-Extension-{os.path.basename(path).split('-')[-1].replace('.zip','')}.zip"
             )
     
     raise HTTPException(status_code=404, detail="Extension file not found")
@@ -4255,6 +4256,8 @@ def get_all_supplier_products(
                 # Pricing unit + product group (drives labels in the Tier Pricing modal)
                 "pricing_unit": p.get("pricing_unit"),
                 "product_group": p.get("product_group"),
+                # Cost change alert (set when a sync apply changes the cost)
+                "last_cost_change": p.get("last_cost_change"),
             }
 
             # Pass-through of any additional category-specific spec fields the
@@ -8790,6 +8793,51 @@ def preview_sync_from_products():
     except Exception as e:
         logger.error(f"Preview sync error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============ COST CHANGE ALERTS + MARGIN GUARD ============
+
+class AckCostChangeRequest(BaseModel):
+    sku: str
+    supplier: Optional[str] = None
+
+
+@router.post("/products/acknowledge-cost-change")
+def acknowledge_cost_change(request: AckCostChangeRequest):
+    """Dismiss the 'cost changed' badge for a product (history is kept)."""
+    try:
+        db = get_db()
+        q = {"$or": [{"sku": request.sku}, {"supplier_code": request.sku}]}
+        if request.supplier:
+            q["supplier"] = request.supplier
+        result = db.supplier_products.update_many(q, {"$unset": {"last_cost_change": ""}})
+        return {"success": True, "cleared": result.modified_count}
+    except Exception as e:
+        logger.error(f"acknowledge-cost-change error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class MarginGuardRequest(BaseModel):
+    floor_percent: float
+
+
+@router.get("/margin-guard")
+def get_margin_guard():
+    """Margin floor setting — warn when a cost pushes ex-VAT margin below this %."""
+    db = get_db()
+    doc = db.settings.find_one({"_id": "margin_guard"}) or {}
+    return {"floor_percent": doc.get("floor_percent", 30.0)}
+
+
+@router.post("/margin-guard")
+def set_margin_guard(request: MarginGuardRequest):
+    db = get_db()
+    db.settings.update_one(
+        {"_id": "margin_guard"},
+        {"$set": {"floor_percent": float(request.floor_percent)}},
+        upsert=True,
+    )
+    return {"success": True, "floor_percent": float(request.floor_percent)}
 
 
 @router.post("/products/toggle-always-in-stock")

@@ -14,7 +14,7 @@ import { ImageOff, CheckCircle2, Eraser, RefreshCw, ShieldAlert, CloudDownload }
 import { toast } from 'sonner';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
-const LIVE_SITE_URL = 'https://www.tilestation.co.uk';
+const LIVE_SITE_URL = 'https://tile-station-production.up.railway.app';
 
 const GROUP_ROUTES = {
   tiles: '/admin/tiles',

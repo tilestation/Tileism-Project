@@ -54,6 +54,7 @@ export default function SyncHub() {
   // Server-side sync state (for Splendour)
   const [serverSyncStatus, setServerSyncStatus] = useState(null);
   const [nightlyStatus, setNightlyStatus] = useState(null);
+  const [marginFloor, setMarginFloor] = useState(30);
   const [serverSyncPolling, setServerSyncPolling] = useState(false);
   
   // Ceramica Impex Server-Side Sync state
@@ -413,6 +414,29 @@ export default function SyncHub() {
   };
 
   useEffect(() => { fetchNightlyStatus(); }, []);
+
+  useEffect(() => {
+    fetch(`${API_URL}/api/supplier-sync/margin-guard`)
+      .then(res => res.json())
+      .then(d => setMarginFloor(d.floor_percent))
+      .catch(() => {});
+  }, []);
+
+  const saveMarginFloor = async () => {
+    const v = parseFloat(marginFloor);
+    if (isNaN(v) || v < 0 || v > 95) { toast.error('Margin floor must be 0-95%'); return; }
+    try {
+      await fetch(`${API_URL}/api/supplier-sync/margin-guard`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ floor_percent: v })
+      });
+      toast.success(`Margin floor set to ${v}% — refreshing alerts`);
+      fetchStagingData();
+    } catch (err) {
+      toast.error('Could not save margin floor');
+    }
+  };
 
   const toggleNightly = async () => {
     if (!nightlyStatus) return;
@@ -1680,7 +1704,7 @@ export default function SyncHub() {
                 data-testid="download-verona-extension-btn"
               >
                 <Download className="w-4 h-4 mr-2" />
-                Download Extension v4.9
+                Download Extension v5.0
               </Button>
             </div>
           </CardContent>
@@ -2450,8 +2474,23 @@ export default function SyncHub() {
                   
                   {/* Cost Changes Summary */}
                   <div className="space-y-3">
-                    <h4 className="font-semibold text-gray-700 flex items-center gap-2">
+                    <h4 className="font-semibold text-gray-700 flex items-center gap-2 flex-wrap">
                       £ Cost Changes (from supplier)
+                      <span className="text-xs font-normal text-gray-500 flex items-center gap-1 ml-2">
+                        Margin floor:
+                        <input
+                          type="number"
+                          min="0"
+                          max="95"
+                          step="1"
+                          value={marginFloor}
+                          onChange={(e) => setMarginFloor(e.target.value)}
+                          onBlur={saveMarginFloor}
+                          onKeyDown={(e) => { if (e.key === 'Enter') e.target.blur(); }}
+                          className="w-14 px-1 py-0.5 text-center border border-gray-300 rounded text-xs"
+                          data-testid="margin-floor-input"
+                        />%
+                      </span>
                     </h4>
                     <div className="grid grid-cols-3 gap-3">
                       <div className="bg-white rounded-lg p-3 border border-amber-200">
@@ -2696,6 +2735,15 @@ export default function SyncHub() {
                                         : 'bg-green-100 text-green-700'
                                     }`}>
                                       {priceDiff > 0 ? '+' : ''}£{priceDiff?.toFixed(2)}
+                                    </span>
+                                  )}
+                                  {product.margin_alert && (
+                                    <span
+                                      className="text-xs px-2 py-0.5 rounded-full font-bold bg-red-600 text-white"
+                                      title={`New cost pushes margin to ${product.margin_after_percent}% — below your ${marginFloor}% floor (list price £${product.list_price?.toFixed(2)})`}
+                                      data-testid={`margin-alert-${product.sku}`}
+                                    >
+                                      Margin {product.margin_after_percent}%
                                     </span>
                                   )}
                                 </div>

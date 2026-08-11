@@ -36,7 +36,7 @@ SYNC_COLLECTIONS = [
 ]
 
 PAGE_SIZE = 500
-PRODUCTION_HOSTS = ("tilestation.co.uk",)
+PRODUCTION_HOSTS = ("tilestation.co.uk", "railway.app")
 
 
 def get_db():

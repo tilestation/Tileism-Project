@@ -476,6 +476,8 @@ def get_all_staged_products():
     try:
         # Get all staged products
         staged = list(get_sync_db().sync_staging.find().sort("synced_at", -1))
+        _mg = get_sync_db().settings.find_one({"_id": "margin_guard"}) or {}
+        margin_floor = _mg.get("floor_percent", 30.0)
         
         # Group by supplier
         suppliers = {}
@@ -685,6 +687,8 @@ def get_staged_by_supplier(supplier: str):
     try:
         db = get_sync_db()
         staged = list(db.sync_staging.find({"supplier": supplier}).sort("synced_at", -1))
+        _mg = db.settings.find_one({"_id": "margin_guard"}) or {}
+        margin_floor = _mg.get("floor_percent", 30.0)
         
         updates = []
         new_products = []
@@ -799,6 +803,18 @@ def get_staged_by_supplier(supplier: str):
                 else:
                     product_data["cost_change"] = None
                 product_data["price_change"] = product_data["cost_change"]
+                
+                # MARGIN GUARD: warn when the new cost pushes the ex-VAT margin
+                # (based on the admin's current list price) below the floor
+                _lp = product_data["list_price"]
+                if _lp and new_cost is not None and float(_lp) > 0:
+                    _net = float(_lp) / 1.2
+                    _margin = round((_net - float(new_cost)) / _net * 100, 1) if _net > 0 else None
+                    product_data["margin_after_percent"] = _margin
+                    product_data["margin_alert"] = _margin is not None and _margin < margin_floor
+                else:
+                    product_data["margin_after_percent"] = None
+                    product_data["margin_alert"] = False
                 
                 updates.append(product_data)
             else:
@@ -2584,3 +2600,4 @@ def get_dismissed_warnings(supplier: str):
         {"_id": 0, "code": 1, "dismissed_at": 1, "action": 1}
     ))
     return {"dismissed": dismissed, "count": len(dismissed)}
+

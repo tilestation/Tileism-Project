@@ -541,6 +541,7 @@ export default function SupplierProducts() {
   const [showBulkSaleModal, setShowBulkSaleModal] = useState(false);
   // Inline + bulk cost/list price editing
   const [priceEdit, setPriceEdit] = useState(null); // { key, field: 'cost_price'|'price', value }
+  const [marginFloor, setMarginFloor] = useState(null); // Margin Guard floor % (null = not loaded)
   const [showBulkPriceModal, setShowBulkPriceModal] = useState(false);
   const [bulkPriceForm, setBulkPriceForm] = useState({ cost: '', list: '' });
   const [showDocumentsModal, setShowDocumentsModal] = useState(false);
@@ -7022,6 +7023,38 @@ export default function SupplierProducts() {
     await handleSetPrices([key], { [field]: value });
   };
 
+  // Margin Guard floor — used for the red low-margin chips in the cost column
+  useEffect(() => {
+    fetch(`${API_URL}/api/supplier-sync/margin-guard`)
+      .then(res => res.json())
+      .then(d => setMarginFloor(d.floor_percent))
+      .catch(() => {});
+  }, []);
+
+  const getMarginPercent = (product) => {
+    const price = Number(product.price ?? product.list_price ?? 0);
+    const cost = Number(product.cost_price ?? 0);
+    if (!price || !cost) return null;
+    const net = price / 1.2;
+    if (net <= 0) return null;
+    return Math.round(((net - cost) / net) * 1000) / 10;
+  };
+
+  const acknowledgeCostChange = async (product) => {
+    const sku = product.sku || product.supplier_code;
+    try {
+      await fetch(`${API_URL}/api/supplier-sync/products/acknowledge-cost-change`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sku, supplier: product.supplier })
+      });
+      setProducts(prev => prev.map(p => (p.sku || p.supplier_code) === sku ? { ...p, last_cost_change: null } : p));
+      toast.success('Cost change acknowledged');
+    } catch (err) {
+      toast.error('Could not dismiss the badge');
+    }
+  };
+
   const applyBulkPrices = async () => {
     const fields = {};
     if (bulkPriceForm.cost !== '' && !isNaN(parseFloat(bulkPriceForm.cost))) fields.cost_price = parseFloat(bulkPriceForm.cost);
@@ -9084,6 +9117,34 @@ export default function SupplierProducts() {
                               )}
                             </button>
                           )}
+                          {product.last_cost_change && (
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); acknowledgeCostChange(product); }}
+                              className={`mt-0.5 inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-semibold whitespace-nowrap ${
+                                Number(product.last_cost_change.to) > Number(product.last_cost_change.from)
+                                  ? 'bg-red-100 text-red-700 hover:bg-red-200'
+                                  : 'bg-green-100 text-green-700 hover:bg-green-200'
+                              }`}
+                              title={`Cost changed from £${Number(product.last_cost_change.from).toFixed(2)} to £${Number(product.last_cost_change.to).toFixed(2)} — click to dismiss`}
+                              data-testid={`cost-change-badge-${product.sku || product.supplier_code}`}
+                            >
+                              {Number(product.last_cost_change.to) > Number(product.last_cost_change.from) ? '▲' : '▼'} £{Number(product.last_cost_change.from).toFixed(2)}→£{Number(product.last_cost_change.to).toFixed(2)}
+                            </button>
+                          )}
+                          {(() => {
+                            const m = getMarginPercent(product);
+                            if (m === null || marginFloor === null || m >= marginFloor) return null;
+                            return (
+                              <span
+                                className="mt-0.5 inline-block px-1.5 py-0.5 rounded text-[10px] font-bold bg-red-600 text-white whitespace-nowrap"
+                                title={`Margin ${m}% is below your ${marginFloor}% floor — raise the list price or check the cost`}
+                                data-testid={`margin-alert-${product.sku || product.supplier_code}`}
+                              >
+                                M {m}%
+                              </span>
+                            );
+                          })()}
                         </td>
                       )}
                       <td className="py-3 px-4 text-right">
