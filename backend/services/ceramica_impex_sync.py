@@ -147,6 +147,16 @@ def update_state(**kwargs):
     """Update sync state"""
     global sync_state
     sync_state.update(kwargs)
+    if kwargs.get("phase") == "error":
+        try:
+            from services.sync_alerts import record_sync_failure
+            record_sync_failure(
+                "Ceramica Impex",
+                kwargs.get("message") or sync_state.get("message") or "Sync failed",
+                sync_state.get("sync_mode") or "server",
+            )
+        except Exception:
+            pass
 
 
 def calculate_list_price(cost: float) -> float:

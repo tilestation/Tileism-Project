@@ -10,7 +10,7 @@
  */
 import React, { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
-import { ImageOff, CheckCircle2, Eraser, RefreshCw, ShieldAlert, CloudDownload } from 'lucide-react';
+import { ImageOff, CheckCircle2, Eraser, RefreshCw, ShieldAlert, CloudDownload, AlertTriangle, Siren } from 'lucide-react';
 import { toast } from 'sonner';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
@@ -114,6 +114,102 @@ const LiveSyncRow = ({ onSynced }) => {
   );
 };
 
+const timeAgo = (iso) => {
+  if (!iso) return '';
+  const mins = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000));
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.round(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  return `${Math.round(hrs / 24)}d ago`;
+};
+
+// Red alarm banner — shows when a supplier sync died mid-run or failed to log in
+const SyncFailureAlert = () => {
+  const [alerts, setAlerts] = useState(null);
+  const [dismissing, setDismissing] = useState(false);
+
+  const load = useCallback(() => {
+    fetch(`${API_URL}/api/sync-alerts/status`)
+      .then(res => (res.ok ? res.json() : null))
+      .then(setAlerts)
+      .catch(() => setAlerts(null));
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  if (!alerts?.has_alerts) return null;
+
+  const dismissAll = async () => {
+    setDismissing(true);
+    try {
+      const res = await fetch(`${API_URL}/api/sync-alerts/dismiss`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ all: true }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      toast.success('Sync alerts dismissed');
+      load();
+    } catch (err) {
+      toast.error(`Dismiss failed: ${err.message}`);
+    } finally {
+      setDismissing(false);
+    }
+  };
+
+  return (
+    <div className="rounded-xl border-2 border-red-400 bg-red-50 px-4 py-3 mb-3" data-testid="sync-failure-alert">
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <div className="flex items-center gap-2">
+          <Siren className="w-5 h-5 text-red-600 flex-shrink-0" />
+          <span className="text-sm font-bold text-red-900">
+            Sync failure — supplier stock &amp; prices may be stale
+          </span>
+        </div>
+        <div className="flex items-center gap-2">
+          <Link
+            to="/admin/sync-hub"
+            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-red-600 text-white text-xs font-semibold hover:bg-red-700 transition-colors"
+            data-testid="sync-alert-open-hub-btn"
+          >
+            Open Sync Hub →
+          </Link>
+          <button
+            type="button"
+            onClick={dismissAll}
+            disabled={dismissing}
+            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-white border border-red-300 text-red-700 text-xs font-semibold hover:bg-red-100 transition-colors disabled:opacity-50"
+            data-testid="sync-alert-dismiss-btn"
+          >
+            {dismissing ? <RefreshCw className="w-3 h-3 animate-spin" /> : null}
+            Dismiss
+          </button>
+        </div>
+      </div>
+      <div className="mt-2 space-y-1.5">
+        {(alerts.failures || []).map((f) => (
+          <div key={f.id} className="flex items-start gap-2 text-xs text-red-800" data-testid={`sync-failure-row-${f.supplier}`}>
+            <AlertTriangle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0 text-red-500" />
+            <span>
+              <b>{f.supplier}</b> ({f.sync_type}) failed {timeAgo(f.occurred_at)} — <span className="font-mono">{f.error}</span>
+              {f.email_sent && <span className="ml-1 text-red-500">· email sent</span>}
+              {f.telegram_sent && <span className="ml-1 text-red-500">· Telegram sent</span>}
+            </span>
+          </div>
+        ))}
+        {(alerts.stuck || []).map((s) => (
+          <div key={s.supplier} className="flex items-start gap-2 text-xs text-red-800" data-testid={`sync-stuck-row-${s.supplier}`}>
+            <AlertTriangle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0 text-red-500" />
+            <span>
+              <b>{s.supplier}</b> sync looks <b>stuck</b> — running for {s.running_hours}h ({s.phase || 'unknown phase'}). It has probably died mid-run.
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
 export const DataHealthCard = () => {
   const [data, setData] = useState(null);
   const [trimming, setTrimming] = useState(false);
@@ -166,24 +262,29 @@ export const DataHealthCard = () => {
     }
   };
 
-  if (!data) return null;
+  if (!data) return <SyncFailureAlert />;
 
   const nameDrift = data.name_drift || 0;
   const allClean = data.missing_images_total === 0 && data.untrimmed_names === 0 && nameDrift === 0;
 
   if (allClean) {
     return (
-      <div className="px-4 py-2.5 rounded-xl bg-emerald-50 border border-emerald-200" data-testid="data-health-card">
-        <div className="flex items-center gap-2 text-sm text-emerald-700">
-          <CheckCircle2 className="w-4 h-4" />
-          Catalogue data healthy — photos, clean names and storefront names all match Supplier Products.
+      <>
+        <SyncFailureAlert />
+        <div className="px-4 py-2.5 rounded-xl bg-emerald-50 border border-emerald-200" data-testid="data-health-card">
+          <div className="flex items-center gap-2 text-sm text-emerald-700">
+            <CheckCircle2 className="w-4 h-4" />
+            Catalogue data healthy — photos, clean names and storefront names all match Supplier Products.
+          </div>
+          {isPreviewEnv() && <LiveSyncRow onSynced={load} />}
         </div>
-        {isPreviewEnv() && <LiveSyncRow onSynced={load} />}
-      </div>
+      </>
     );
   }
 
   return (
+    <>
+      <SyncFailureAlert />
     <div className="rounded-xl border border-rose-200 bg-rose-50/60 px-4 py-3" data-testid="data-health-card">
       {data.missing_images_total > 0 && (
         <>
@@ -258,6 +359,7 @@ export const DataHealthCard = () => {
       )}
       {isPreviewEnv() && <LiveSyncRow onSynced={load} />}
     </div>
+    </>
   );
 };
 

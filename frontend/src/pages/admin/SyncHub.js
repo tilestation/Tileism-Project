@@ -5,12 +5,13 @@ import {
   RefreshCw, Package, AlertTriangle, Check, X, Plus, 
   ArrowUp, ArrowDown, Minus, Eye, Trash2, Clock,
   CheckCircle2, XCircle, AlertCircle, ChevronDown, ChevronUp,
-  FileSpreadsheet, FileText, Download, Search, Link, Loader2, Lock
+  FileSpreadsheet, FileText, Download, Search, Link, Loader2, Lock, Zap
 } from 'lucide-react';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../../components/ui/dialog';
 import { Input } from '../../components/ui/input';
+import SyncReviewMode from './components/SyncReviewMode';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import * as XLSX from 'xlsx';
@@ -50,6 +51,7 @@ export default function SyncHub() {
   const [bulkAddingNewProducts, setBulkAddingNewProducts] = useState(false); // Loading state for bulk add
   const [bulkAddProgress, setBulkAddProgress] = useState(null); // Progress tracking for bulk add
   const [selectedNewProducts, setSelectedNewProducts] = useState(new Set()); // Selected new products for bulk actions
+  const [reviewMode, setReviewMode] = useState(false); // Fast review overlay for new products
   
   // Server-side sync state (for Splendour)
   const [serverSyncStatus, setServerSyncStatus] = useState(null);
@@ -2792,15 +2794,27 @@ export default function SyncHub() {
           {/* New Products Section */}
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-lg flex items-center gap-2">
-                <Plus className="w-5 h-5 text-green-600" />
-                New Products Detected
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <Plus className="w-5 h-5 text-green-600" />
+                  New Products Detected
+                  {filteredData?.total_new > 0 && (
+                    <span className="text-sm font-normal text-green-600 bg-green-100 px-2 py-0.5 rounded-full">
+                      {filteredData.total_new} new
+                    </span>
+                  )}
+                </CardTitle>
                 {filteredData?.total_new > 0 && (
-                  <span className="text-sm font-normal text-green-600 bg-green-100 px-2 py-0.5 rounded-full">
-                    {filteredData.total_new} new
-                  </span>
+                  <Button
+                    size="sm"
+                    className="bg-slate-900 hover:bg-slate-800 text-yellow-300 font-semibold"
+                    onClick={() => setReviewMode(true)}
+                    data-testid="open-review-mode-btn"
+                  >
+                    <Zap className="w-4 h-4 mr-1.5" /> Review Mode
+                  </Button>
                 )}
-              </CardTitle>
+              </div>
             </CardHeader>
             <CardContent>
               {filteredData?.new_products?.length === 0 ? (
@@ -3185,6 +3199,19 @@ export default function SyncHub() {
             <p className="text-white text-center mt-3 text-sm">{previewImage.name}</p>
           </div>
         </div>
+      )}
+
+      {/* Fast Review Mode overlay */}
+      {reviewMode && (
+        <SyncReviewMode
+          supplier={selectedSupplier}
+          products={filteredData?.new_products || []}
+          onClose={() => {
+            setReviewMode(false);
+            fetchStagingData();
+            fetchStats();
+          }}
+        />
       )}
     </div>
   );

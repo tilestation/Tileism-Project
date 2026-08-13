@@ -1,0 +1,42 @@
+{
+  "summary": "Frontend E2E test of (1) Sync Hub Review Mode overlay and (2) Sync Failure Alarm banner on admin dashboard. Review Mode overlay opens correctly, renders 475 cards, Add/Ignore/Clearance toggle all work as spec'd and progress counter updates (473 left / 1 added / 1 ignored). Two functional bugs found: (A) 'Done' close button does NOT close the overlay because the admin sidebar renders ABOVE the full-screen overlay (z-index bug) - Done button visually and functionally intercepted by sidebar. (B) Sync Failure Alarm banner NEVER appears on the dashboard: POST /api/sync-alerts/test returns recorded:true & email_configured:true, but an immediate GET /api/sync-alerts/status still returns {failures:[], stuck:[], has_alerts:false}. The test alert is not being surfaced via the status endpoint, so the frontend SyncFailureAlert component correctly hides itself. Regression: normal Sync Hub list view and dashboard still render fine.",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "GET /api/sync-alerts/status", "issue": "Right after POST /api/sync-alerts/test returns recorded:true, GET /api/sync-alerts/status returns failures:[], has_alerts:false. The test alert is not persisted/queryable, so the dashboard SyncFailureAlert banner never renders. Contradicts the pre-verification note in the review request.", "priority": "CRITICAL"}
+    ],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "SyncReviewMode overlay (SyncReviewMode.jsx)", "issue": "'Done' close button click is intercepted because the admin sidebar (right rail) is stacked ABOVE the overlay. Sidebar is visible on the right in Review Mode. Force-clicks on data-testid='review-mode-close-btn' at x=1666 land on the sidebar layer, so onClose never fires and the overlay never closes. Fix: raise SyncReviewMode container z-index above sidebar (e.g. z-[100] on the fixed overlay) OR render it as a portal on document.body.", "selector": "[data-testid='review-mode-close-btn']", "priority": "HIGH"}
+    ],
+    "integration_issues": [
+      {"flow": "Sync Failure Alarm dashboard banner", "issue": "Banner never renders because /api/sync-alerts/status returns has_alerts:false immediately after a successful test alert POST. Frontend SyncFailureAlert.jsx is correct - the backend status endpoint is the blocker.", "affected_selectors": ["[data-testid='sync-failure-alert']", "[data-testid='sync-alert-open-hub-btn']", "[data-testid='sync-alert-dismiss-btn']"]}
+    ],
+    "design_issues": [
+      {"screen": "AdminDashboard", "issues": ["React warning: 'Each child in a list should have a unique key prop.' emitted by AdminDashboard render - needs a key on one of its list renders."]}
+    ]
+  },
+  "test_report_links": [],
+  "action_items": [
+    "Fix Review Mode overlay z-index / render as portal so the Done (and Finish) button is clickable - currently blocked by admin sidebar.",
+    "Fix /api/sync-alerts/status so that the test alert recorded by POST /api/sync-alerts/test appears in the failures[] list with has_alerts:true. Possibly the alert is stored but the query filter (time window, dismissed flag default, supplier match) excludes it.",
+    "Add key prop to the list rendered inside AdminDashboard to silence the React warning."
+  ],
+  "critical_code_review_comments": [
+    "SyncReviewMode.jsx: root container must use a higher z-index than the fixed admin sidebar (or use React portal). Currently full-screen overlay is not truly on top.",
+    "sync_alerts route: POST /test and GET /status appear out of sync - write and read paths must use the same collection/filter (dismissed=false, within recent window).",
+    "SyncHub.js is >3200 lines - recommend splitting into smaller focused files."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a (frontend-only run; 1 endpoint bug found)", "frontend": "60% (Review Mode Add/Ignore/Clearance + regression pass; overlay-close and alarm banner fail)"},
+  "test_credentials": "admin@test.com / admin123 (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "Added ONE product SKU GS-D8322 (Antiqua Off White 30x60) via Review Mode Add. Ignored ONE product SKU GMB-R1200 (Stromboli Bone 60x60). Toggled clearance on SKU NUEZ60120 (Finlandia Nuez 60x120) but did NOT add it. No sync alerts remain (status confirmed has_alerts:false at end).",
+  "retest_needed": true,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Two blockers for main agent: (1) Review Mode overlay z-index bug - sidebar renders on top of the fixed overlay so the Done button is not clickable. (2) sync-alerts status endpoint returns empty even right after test POST records a fresh alert. When retesting the alarm banner, first curl the status endpoint after POST /test to confirm has_alerts:true before checking UI. SKUs already mutated: GS-D8322 (added), GMB-R1200 (ignored). Remaining new-products count ~473 on Ceramica Impex.",
+  "rca_of_the_issue": {
+    "review_mode_close": "Admin layout sidebar has stacking context / z-index >= overlay's. SyncReviewMode root uses fixed inset-0 but its z-index is lower than or equal to the AdminSidebar. Even with playwright force=True, the click coordinate lands on the sidebar element which sits above the button, so the onClose handler never fires. Fix: bump z-index (e.g. z-[100] or higher than sidebar) or render via createPortal(document.body).",
+    "sync_alarm_banner": "Backend POST /api/sync-alerts/test responds recorded:true, but GET /api/sync-alerts/status called seconds later returns failures:[] and has_alerts:false. The frontend SyncFailureAlert only renders when has_alerts is true, so the banner never mounts. Root cause is server-side: either the test route writes to a different collection/document than the status route reads, or the status filter (e.g. supplier not-null, timestamp window, dismissed flag) excludes the test record. Reproduction: curl -X POST $URL/api/sync-alerts/test then immediately curl $URL/api/sync-alerts/status - has_alerts stays false."
+  }
+}

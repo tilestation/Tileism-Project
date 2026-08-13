@@ -134,6 +134,16 @@ def update_state(**kwargs):
     """Update sync state"""
     global sync_state
     sync_state.update(kwargs)
+    if kwargs.get("phase") == "error":
+        try:
+            from services.sync_alerts import record_sync_failure
+            record_sync_failure(
+                "Splendour",
+                kwargs.get("message") or sync_state.get("message") or "Sync failed",
+                sync_state.get("sync_mode") or "server",
+            )
+        except Exception:
+            pass
 
 
 def save_sync_progress(db, job_id: str, product_urls: List[str], synced_urls: List[str], phase: str, mode: str):

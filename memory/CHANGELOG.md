@@ -3713,3 +3713,26 @@ Local repro published the 6 ULT-* products: card shows "6 VARIANTS" with 6 full-
 - Backend: `POST /api/supplier-sync/products/set-prices` {skus, cost_price?, price?} — updates supplier_products, mirrors price→tiles (price + room_lot_price) + products (EPOS), cost_price everywhere, busts endpoint cache. Validates non-negative.
 - Frontend (`SupplierProducts.js`): Cost and List Price cells are click-to-edit (Enter/blur saves, Escape cancels; testids cost-cell-/cost-input-/price-cell-/price-input-{sku}). New "£ Prices" indigo button in Quick Actions bar opens a modal (testid bulk-price-modal) to set cost and/or list for all selected (blank = keep current).
 - Self-tested e2e: inline cost £7.10 + list £23.50 saved with toasts; bulk "2 products updated — list £18.75"; SP+tiles+products mirroring verified via DB. Test prices reset afterwards (preview DB refreshes via live→preview sync anyway).
+
+### [Aug 13, 2026 — Forked session] 🟢 Sync Hub Review Mode + Sync Failure Alarm — SHIPPED & TESTED (iteration_230 + retest fixes verified)
+
+**1. Faster Review Mode (Sync Hub)**
+- New `/app/frontend/src/pages/admin/components/SyncReviewMode.jsx` — full-screen overlay (rendered via `createPortal` on document.body, `z-[10000]` so it sits above the admin sidebar).
+- Large image cards for every staged NEW product: cost badge, SKU, size chip, stock badge, category, "Mark as Clearance" toggle, one-click **Add** (green) / **Ignore** — no confirm dialogs. Progress header: "N left · X added · Y ignored" + progress bar + completion state.
+- Entry: dark "⚡ Review Mode" button in the New Products card header in SyncHub.js (`data-testid="open-review-mode-btn"`). Closing refreshes staging data + stats.
+- Uses existing endpoints: POST `/api/sync-staging/{supplier}/add-new-product/{id}` and POST `/api/sync-staging/ignore`.
+
+**2. Sync Failure Alarm (dashboard + email/Telegram)**
+- New `/app/backend/services/sync_alerts.py`: `record_sync_failure()` writes to `sync_failures` collection (30-min dedup per supplier, dedup only counts NON-dismissed records), then fires background notifications — email via Resend (to ADMIN_EMAIL, default qasim@tilestation.co.uk) and Telegram if `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID` env vars set (currently NOT set — Telegram ready-to-activate). Also `get_stuck_syncs()` flags any supplier sync "running" > 3h as died-mid-run.
+- Hooks: `update_state(phase="error")` in splendour_sync.py / ceramica_impex_sync.py / wallcano_sync.py triggers the alert (catches login failures + crashes in ALL sync paths); nightly_sync.py records failures from scheduled runs (`_alert_failure`).
+- New `/app/backend/routes/sync_alerts.py`: GET `/api/sync-alerts/status`, POST `/api/sync-alerts/dismiss` ({failure_id} or {all:true}), POST `/api/sync-alerts/test` (fires a test alert incl. real email). Registered in routes/__init__.py.
+- Frontend: `SyncFailureAlert` component inside DataHealthCard.jsx — red banner on the admin dashboard listing failures ("{supplier} (type) failed 5m ago — error · email sent") and stuck syncs, with "Open Sync Hub →" + "Dismiss" buttons.
+
+**Bugs found by testing agent (iteration_230) and FIXED + re-verified:**
+- Overlay Done button unclickable (admin sidebar stacked above z-50 overlay) → portal + z-[10000]. Verified closed via Done.
+- Status endpoint empty right after /test → dedup query was matching DISMISSED records; added `dismissed: False` to the dedup filter. Verified: dismiss → new alert reappears immediately.
+- Pre-existing (NOT from this change): React "unique key" warning on AdminDashboard — all maps checked have keys in this session's files; warning source is elsewhere/pre-existing.
+
+**Test data mutated in preview:** Ceramica Impex SKU GS-D8322 added via Review Mode, GMB-R1200 ignored (can be un-ignored from Ignored Products list). Ceramica staging now shows 473 new.
+
+**Email verified live**: Resend delivery confirmed (`email_sent: true`). Real alert email went to ADMIN_EMAIL during testing.

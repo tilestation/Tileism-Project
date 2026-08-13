@@ -97,10 +97,12 @@ async def run_nightly_light_syncs(manual: bool = False):
                 }
                 if isinstance(ret, dict) and ret.get("error"):
                     results[name]["error"] = str(ret["error"])[:300]
+                    _alert_failure(name, str(ret["error"])[:300])
                 logger.info(f"[NIGHTLY SYNC] {name} done: {results[name]}")
             except Exception as e:
                 logger.exception(f"[NIGHTLY SYNC] {name} crashed")
                 results[name] = {"error": str(e)[:300]}
+                _alert_failure(name, str(e)[:300])
     finally:
         _run_lock = False
 
@@ -118,6 +120,14 @@ async def run_nightly_light_syncs(manual: bool = False):
     logger.info(f"[NIGHTLY SYNC] Complete — {total_synced} products refreshed across {len(results)} suppliers")
     log_doc.pop("_id", None)
     return log_doc
+
+
+def _alert_failure(supplier: str, error: str):
+    try:
+        from services.sync_alerts import record_sync_failure
+        record_sync_failure(supplier, error, "nightly")
+    except Exception:
+        logger.exception("[NIGHTLY SYNC] failed to record sync failure alert")
 
 
 def is_running() -> bool:
