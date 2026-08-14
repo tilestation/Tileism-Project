@@ -95,6 +95,7 @@ def download_verona_extension():
     """
     # Check multiple possible locations - latest version first
     possible_paths = [
+        "/app/frontend/public/verona-sync-extension-v5.1.zip",
         "/app/frontend/public/verona-sync-extension-v5.0.zip",
         "/app/frontend/public/verona-sync-extension-v4.9.zip",
         "/app/frontend/public/verona-sync-extension-v4.8.zip",

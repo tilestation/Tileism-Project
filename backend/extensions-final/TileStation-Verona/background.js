@@ -2,7 +2,34 @@
 // Background Service Worker - Runs even when popup is closed
 // v3.0 - SKIP ALREADY SYNCED PRODUCTS
 
-const DEFAULT_API_URL = 'https://carefree-friendship-production-ee2b.up.railway.app';
+const DEFAULT_API_URL = 'https://tile-station-production.up.railway.app';
+// Known Tile Station backend locations — the extension auto-detects the first
+// one that responds so a future backend migration never breaks syncing.
+const API_CANDIDATES = [
+  'https://tile-station-production.up.railway.app',
+  'https://www.tilestation.co.uk'
+];
+
+async function resolveApiUrl(preferred) {
+  const candidates = [preferred, ...API_CANDIDATES].filter((v, i, a) => v && a.indexOf(v) === i);
+  for (const base of candidates) {
+    try {
+      const r = await fetch(`${base.replace(/\/$/, '')}/api/supplier-sync/verona/receive`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ products: [], source: 'connection_test' })
+      });
+      if (r.ok) {
+        console.log(`API connection OK: ${base}`);
+        return base.replace(/\/$/, '');
+      }
+      console.warn(`API candidate rejected (${r.status}): ${base}`);
+    } catch (e) {
+      console.warn(`API candidate unreachable: ${base}`, e.message);
+    }
+  }
+  return null;
+}
 
 // Store sync state
 let syncState = {
@@ -116,7 +143,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 // Quick sync - just send products from listing page
 async function quickSync(tabId, products, apiUrl) {
   try {
-    const response = await fetch(`${apiUrl}/api/supplier-sync/verona/receive`, {
+    const workingUrl = await resolveApiUrl(apiUrl);
+    if (!workingUrl) {
+      throw new Error('Cannot reach the Tile Station server — check your internet connection or the API URL in settings');
+    }
+    const response = await fetch(`${workingUrl}/api/supplier-sync/verona/receive`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -143,6 +174,15 @@ async function startFullSync(tabId, productUrls, apiUrl, syncMode = 'full') {
   if (syncState.isRunning) {
     throw new Error('Sync already in progress');
   }
+  
+  // Auto-detect the working backend BEFORE starting — a wrong URL previously
+  // caused every product to silently fail.
+  const workingUrl = await resolveApiUrl(apiUrl);
+  if (!workingUrl) {
+    syncState.lastStatus = '❌ Cannot reach the Tile Station server — sync not started. Check the API URL in settings.';
+    throw new Error('Cannot reach the Tile Station server — check the API URL in settings');
+  }
+  apiUrl = workingUrl;
   
   const isLightMode = syncMode === 'light';
   console.log(`Starting sync in ${isLightMode ? 'LIGHT' : 'FULL'} mode`);
@@ -360,11 +400,77 @@ function extractProductDetails() {
     return null;
   }
   
-  // ============ GET PRODUCT CODE/SKU ============
+  // ============ GET SIZE FROM TABLE OR PAGE ============
   const pageText = document.body.innerText;
-  
-  // Method 1: Find "Code" row in table
   const tables = document.querySelectorAll('table');
+  
+  // Method 1: Find "Size" row in table
+  for (const table of tables) {
+    const rows = table.querySelectorAll('tr');
+    for (const row of rows) {
+      const cells = row.querySelectorAll('td, th');
+      if (cells.length >= 2) {
+        const label = cells[0].textContent.trim().toLowerCase();
+        const value = cells[1].textContent.trim();
+        if ((label === 'size' || label === 'tile size' || label === 'dimensions') && value) {
+          product.size = value;
+          console.log('Size from table:', product.size);
+          break;
+        }
+      }
+    }
+    if (product.size) break;
+  }
+  
+  // Method 2: Extract size pattern from page text
+  if (!product.size) {
+    const sizePatterns = [
+      /(\d{2,4})\s*[xX×]\s*(\d{2,4})\s*(cm|mm)?/,
+      /(\d{2,3})\s*[xX×]\s*(\d{2,3})/
+    ];
+    for (const pattern of sizePatterns) {
+      const match = pageText.match(pattern);
+      if (match) {
+        product.size = match[0].trim();
+        console.log('Size from page text:', product.size);
+        break;
+      }
+    }
+  }
+  
+  // ============ GET FINISH FROM TABLE OR NAME ============
+  // Method 1: Find "Finish" row in table
+  for (const table of tables) {
+    const rows = table.querySelectorAll('tr');
+    for (const row of rows) {
+      const cells = row.querySelectorAll('td, th');
+      if (cells.length >= 2) {
+        const label = cells[0].textContent.trim().toLowerCase();
+        const value = cells[1].textContent.trim();
+        if ((label === 'finish' || label === 'surface' || label === 'texture') && value) {
+          product.finish = value;
+          console.log('Finish from table:', product.finish);
+          break;
+        }
+      }
+    }
+    if (product.finish) break;
+  }
+  
+  // Method 2: Extract finish from product name
+  if (!product.finish) {
+    const finishKeywords = ['matt', 'matte', 'polished', 'gloss', 'glossy', 'satin', 'lappato', 'honed', 'natural', 'textured'];
+    const nameLower = product.name.toLowerCase();
+    for (const finish of finishKeywords) {
+      if (nameLower.includes(finish)) {
+        product.finish = finish.charAt(0).toUpperCase() + finish.slice(1);
+        console.log('Finish from name:', product.finish);
+        break;
+      }
+    }
+  }
+  
+  // ============ GET PRODUCT CODE/SKU ============
   for (const table of tables) {
     const rows = table.querySelectorAll('tr');
     for (const row of rows) {

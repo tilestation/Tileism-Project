@@ -3736,3 +3736,9 @@ Local repro published the 6 ULT-* products: card shows "6 VARIANTS" with 6 full-
 **Test data mutated in preview:** Ceramica Impex SKU GS-D8322 added via Review Mode, GMB-R1200 ignored (can be un-ignored from Ignored Products list). Ceramica staging now shows 473 new.
 
 **Email verified live**: Resend delivery confirmed (`email_sent: true`). Real alert email went to ADMIN_EMAIL during testing.
+
+### [Aug 14, 2026] Verona Extension label fix — v5.1
+- User report: installed "v5.0" but popup showed "Verona Sync v4.5". Root cause: v5.0 zip had manifest "5.0.0" (real v5.0 code) but a stale hardcoded `<p>Verona Sync v4.5</p>` in popup.html — label only, functionality WAS v5.0.
+- Fixed label, bumped to v5.1 (manifest 5.1.0), built `/app/frontend/public/verona-sync-extension-v5.1.zip`, added to top of download path list in `routes/supplier_sync.py` (`/api/supplier-sync/verona/extension/download` verified serving v5.1).
+- Canonical extension SOURCE now saved at `/app/backend/extensions-final/TileStation-Verona/` (was stale v4.5 there — the v5.0 source only lived inside the zip). Future edits: edit that folder, re-zip, add new path to supplier_sync.py list.
+- NOTE: live site serves the new zip only after next deploy.

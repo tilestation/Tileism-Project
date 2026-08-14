@@ -24,7 +24,7 @@ const modeLightBtn = document.getElementById('mode-light');
 const modeFullBtn = document.getElementById('mode-full');
 
 // Production API URL
-const DEFAULT_API_URL = 'https://carefree-friendship-production-ee2b.up.railway.app';
+const DEFAULT_API_URL = 'https://tile-station-production.up.railway.app';
 
 let pollInterval = null;
 let syncMode = 'light'; // Default to light mode for faster syncing
@@ -32,6 +32,11 @@ let syncMode = 'light'; // Default to light mode for faster syncing
 // Initialize
 document.addEventListener('DOMContentLoaded', async () => {
   const settings = await chrome.storage.local.get(['apiUrl', 'syncMode']);
+  // Auto-heal stored URLs that don't serve the API (www domain / old previews)
+  if (settings.apiUrl && /tilestation\.co\.uk/i.test(settings.apiUrl)) {
+    settings.apiUrl = DEFAULT_API_URL;
+    await chrome.storage.local.set({ apiUrl: DEFAULT_API_URL });
+  }
   apiUrlInput.value = settings.apiUrl || DEFAULT_API_URL;
   
   // Load sync mode preference
