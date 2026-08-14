@@ -5,7 +5,7 @@ import {
   RefreshCw, Package, AlertTriangle, Check, X, Plus, 
   ArrowUp, ArrowDown, Minus, Eye, Trash2, Clock,
   CheckCircle2, XCircle, AlertCircle, ChevronDown, ChevronUp,
-  FileSpreadsheet, FileText, Download, Search, Link, Loader2, Lock, Zap
+  FileSpreadsheet, FileText, Download, Search, Link, Loader2, Lock, Zap, ShieldCheck
 } from 'lucide-react';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
@@ -2224,13 +2224,41 @@ export default function SyncHub() {
                 {expandedProduct === 'warnings' && (
                   <div className="mt-4 border-t border-amber-200 pt-4">
                     {/* Bulk Dismiss Button */}
-                    <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center justify-between mb-3 gap-2 flex-wrap">
                       <p className="text-xs text-amber-600">Review warnings below. Dismissed warnings won't reappear on next sync.</p>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="border-amber-400 text-amber-700 hover:bg-amber-100"
-                        onClick={async () => {
+                      <div className="flex items-center gap-2">
+                        <Button
+                          size="sm"
+                          className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                          onClick={async () => {
+                            try {
+                              const res = await fetch(`${API_URL}/api/sync-staging/warnings/auto-verify`, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('token')}` },
+                                body: JSON.stringify({ supplier: selectedSupplier })
+                              });
+                              const result = await res.json();
+                              if (result.success) {
+                                if (result.dismissed_count > 0) {
+                                  toast.success(`Verified & cleared ${result.dismissed_count} safe renames · ${result.remaining_count} need manual review`);
+                                } else {
+                                  toast.info(`No auto-verifiable warnings — ${result.remaining_count} need manual review`);
+                                }
+                                fetchStagingData();
+                              }
+                            } catch (err) {
+                              toast.error('Auto-verify failed');
+                            }
+                          }}
+                          data-testid="auto-verify-warnings-btn"
+                        >
+                          <ShieldCheck className="w-3 h-3 mr-1" /> Auto-verify safe renames
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="border-amber-400 text-amber-700 hover:bg-amber-100"
+                          onClick={async () => {
                           try {
                             const res = await fetch(`${API_URL}/api/sync-staging/warnings/dismiss`, {
                               method: 'POST',
@@ -2250,6 +2278,7 @@ export default function SyncHub() {
                       >
                         <Check className="w-3 h-3 mr-1" /> Dismiss All ({stagingData.warnings.length})
                       </Button>
+                      </div>
                     </div>
                     <div className="space-y-2 max-h-80 overflow-y-auto">
                       {stagingData.warnings.map((warning, idx) => {

@@ -309,6 +309,24 @@ def validate_incoming_sync(staged_products: List[Dict], supplier: str) -> List[D
     
     return validation_warnings
 
+
+_MATCH_FILLER = {"effect", "effects", "tiles", "tile"}
+
+def _name_tokens(name: str) -> list:
+    import re
+    tokens = re.findall(r"[a-z0-9]+(?:x[0-9]+)?", (name or "").lower())
+    return [t for t in tokens if t not in _MATCH_FILLER]
+
+def _names_match(a: str, b: str) -> bool:
+    """True when two product names clearly refer to the same product."""
+    ta, tb = _name_tokens(a), _name_tokens(b)
+    if not ta or not tb:
+        return False
+    if ta[0] != tb[0]:
+        return False
+    common = set(ta) & set(tb)
+    return len(common) >= max(1, min(len(set(ta)), len(set(tb))) // 2)
+
 # Database connection (sync for this router)
 def get_sync_db():
     mongo_url = os.environ.get('MONGO_URL')
@@ -841,7 +859,19 @@ def get_staged_by_supplier(supplier: str):
         
         # NEW: Run code mismatch validation on incoming sync data
         validation_warnings = validate_incoming_sync(staged, supplier)
+
+        # Filter out dismissed warnings
+        dismissed_codes = set()
+        try:
+            dismissed_docs = list(db.dismissed_warnings.find({"supplier": supplier}, {"code": 1}))
+            dismissed_codes = set(d["code"] for d in dismissed_docs if d.get("code"))
+        except Exception:
+            pass
+
         for vw in validation_warnings:
+            warning_code = vw.get("code") or vw.get("incoming_code", "")
+            if warning_code and warning_code in dismissed_codes:
+                continue
             warnings.append({
                 "type": vw["type"],
                 "severity": vw["severity"],
@@ -2468,6 +2498,96 @@ def dismiss_validation_warnings(data: DismissWarningsRequest):
         "success": True,
         "dismissed_count": dismissed_count,
         "message": f"Dismissed {dismissed_count} warnings for {data.supplier}"
+    }
+
+
+class AutoVerifyRequest(BaseModel):
+    supplier: str
+    dry_run: bool = False
+
+@router.post("/warnings/auto-verify")
+def auto_verify_warnings(data: AutoVerifyRequest):
+    """
+    Auto-verify name-change warnings that are provably safe renames:
+    the staged product's transformed display name (our naming rules / custom
+    mappings) matches the existing product assigned to that code — meaning the
+    code points at the right product, we just renamed it. Safe ones are
+    dismissed; genuine mismatches are left for manual review.
+    """
+    db = get_sync_db()
+
+    staged = list(db.sync_staging.find({"supplier": data.supplier}))
+    warnings = validate_incoming_sync(staged, data.supplier)
+
+    dismissed_codes = {d["code"] for d in db.dismissed_warnings.find({"supplier": data.supplier}, {"code": 1})}
+    staged_by_sku = {s.get("sku"): s for s in staged if s.get("sku")}
+
+    existing_by_code = {}
+    for p in db.supplier_products.find({"supplier": {"$regex": f"^{data.supplier}$", "$options": "i"}}):
+        code = p.get("original_supplier_code") or p.get("supplier_code")
+        if code:
+            existing_by_code[code] = p
+
+    safe = []
+    remaining = []
+    for w in warnings:
+        code = w.get("code") or w.get("incoming_code")
+        if not code or code in dismissed_codes:
+            continue
+        if w.get("type") != "name_change_detected":
+            remaining.append({"code": code, "type": w.get("type"), "message": w.get("message")})
+            continue
+        staged_doc = staged_by_sku.get(code) or {}
+        existing = existing_by_code.get(code) or {}
+        staged_display = staged_doc.get("product_name")
+        is_safe = bool(staged_display) and (
+            _names_match(staged_display, existing.get("name"))
+            or _names_match(staged_display, existing.get("product_name"))
+        )
+        if is_safe:
+            safe.append({
+                "code": code,
+                "existing_name": w.get("existing_name"),
+                "incoming_name": w.get("incoming_name"),
+                "matched_display_name": staged_display,
+            })
+        else:
+            remaining.append({
+                "code": code,
+                "type": w.get("type"),
+                "existing_name": w.get("existing_name"),
+                "incoming_name": w.get("incoming_name"),
+                "staged_display_name": staged_display,
+                "message": w.get("message"),
+            })
+
+    dismissed_count = 0
+    if not data.dry_run and safe:
+        now = datetime.now(timezone.utc)
+        for s in safe:
+            db.dismissed_warnings.update_one(
+                {"supplier": data.supplier, "code": s["code"]},
+                {"$set": {
+                    "supplier": data.supplier,
+                    "code": s["code"],
+                    "dismissed_at": now,
+                    "dismissed_by": "auto_verify",
+                    "verified_match": s["matched_display_name"],
+                    "supplier_name_at_verify": s["incoming_name"],
+                }},
+                upsert=True,
+            )
+            dismissed_count += 1
+
+    return {
+        "success": True,
+        "checked": len(warnings),
+        "safe_count": len(safe),
+        "dismissed_count": dismissed_count,
+        "remaining_count": len(remaining),
+        "safe_examples": safe[:15],
+        "remaining": remaining[:50],
+        "dry_run": data.dry_run,
     }
 
 

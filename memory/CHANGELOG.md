@@ -3759,3 +3759,12 @@ Local repro published the 6 ULT-* products: card shows "6 VARIANTS" with 6 full-
 - New `GET /api/supplier-sync/verona/last-receive` (supplier_sync.py, after extension download route): reads `sync_logs` (already written by the receive endpoint) → returns `last_data` (newest log with synced>0), `last_ping` (any log incl. connection_test), `staged_count`.
 - `VeronaArrivalRow` in DataHealthCard.jsx: slim row under the health card — colour dot (green ≤48h, amber ≤7d, red older/never), "last data received X ago (N products)", "extension connected X ago" if ping newer, "N awaiting review →" link to Sync Hub Verona tab. Testids: verona-arrival-row/-dot/-text/-review-link.
 - Verified: empty + populated states via curl, dashboard screenshot green state. Test product D88888 posted to preview then removed from staging (sync_logs entry intentionally kept as the timestamp source).
+
+### [Aug 14, 2026] Validation Warnings — Auto-verify + dismissed-filter bug fix
+**User pain**: 342 "Code X assigned to 'A' but sync has 'B'" warnings on live Splendour. Analysis: most are the user's INTENTIONAL renames (staging's transformed display name `product_name` matches the existing product) — provably safe.
+**Built**:
+1. `POST /api/sync-staging/warnings/auto-verify` {supplier, dry_run}: for each name_change_detected warning, safe iff `_names_match(staged.product_name, existing.name|product_name)` (first significant token equal + ≥50% token overlap; filler words: effect/effects/tiles/tile). Safe → upsert dismissed_warnings (dismissed_by: auto_verify). Genuine mismatches remain for manual ✓/Re-link/Break+New.
+2. SyncHub warnings panel: green "Auto-verify safe renames" button (data-testid auto-verify-warnings-btn) beside Dismiss All.
+3. **PRE-EXISTING BUG FIXED**: `get_staged_by_supplier` (the endpoint SyncHub uses) never filtered `dismissed_warnings` — dismissals saved but warnings always reappeared in UI. Added the same dismissed-codes filter used in the grouped endpoint (~line 861).
+**Tested**: simulated live scenario in preview (renamed 3 products linked to staged codes: 2 intentional renames + 1 fake mismatch) → 3 warnings appeared → dry-run flagged exactly 2 safe → real run dismissed 2, kept "Zebra Fantasy" mismatch → restored all test data + removed test dismissals. UI button verified via screenshot.
+**Note**: preview supplier_products 'Splendour' exists under case-variant supplier values; always match case-insensitively (validate does regex ^supplier$ i).
