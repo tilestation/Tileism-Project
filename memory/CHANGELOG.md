@@ -3742,3 +3742,15 @@ Local repro published the 6 ULT-* products: card shows "6 VARIANTS" with 6 full-
 - Fixed label, bumped to v5.1 (manifest 5.1.0), built `/app/frontend/public/verona-sync-extension-v5.1.zip`, added to top of download path list in `routes/supplier_sync.py` (`/api/supplier-sync/verona/extension/download` verified serving v5.1).
 - Canonical extension SOURCE now saved at `/app/backend/extensions-final/TileStation-Verona/` (was stale v4.5 there — the v5.0 source only lived inside the zip). Future edits: edit that folder, re-zip, add new path to supplier_sync.py list.
 - NOTE: live site serves the new zip only after next deploy.
+
+### [Aug 14, 2026] Verona Extension "not working" — FULL RCA + fix
+**Symptom**: User's extension syncs nothing; prod `sync_staging` had ZERO Verona products ever.
+**Verified working**: Railway API `POST /api/supplier-sync/verona/receive` is healthy — real-payload test staged 1 product on production (then cleaned up, staging back to 0).
+**Root causes (distribution chain was broken, user almost certainly still running OLD v4.5)**:
+1. v4.5 background.js posts to DEAD server `carefree-friendship-production-ee2b.up.railway.app` (404) → every sync silently fails. v4.9 points to `www.tilestation.co.uk` which does NOT proxy /api POSTs ("Cannot POST") → also broken. Only v5.0+ has `resolveApiUrl` auto-detect with correct `tile-station-production.up.railway.app`.
+2. LIVE download endpoint `GET /api/supplier-sync/verona/extension/download` on Railway returns 404 — zips lived only in `/app/frontend/public/` which is NOT part of the backend deploy.
+3. `www.tilestation.co.uk/verona-sync-extension-v5.0.zip` returns the SPA index.html disguised as 200 (Express catch-all) — the live frontend deploy predates the zip. So the user could never actually obtain v5.0 from the live site; the popup layout + "v4.5" label match genuine v4.5.
+**Fixes**:
+- Copied v5.1 zip to `/app/backend/static/extensions/verona-sync-extension-v5.1.zip` and put that path FIRST in `possible_paths` in `routes/supplier_sync.py` → live API download works after next deploy.
+- Verified preview serves the true zip (PK bytes, manifest 5.1.0, popup label v5.1, correct API URL): `{preview}/verona-sync-extension-v5.1.zip` and `{preview}/api/supplier-sync/verona/extension/download`.
+**User instructions given**: Remove old extension completely in chrome://extensions, download v5.1 from preview link, Load unpacked, confirm version shows 5.1.0.
