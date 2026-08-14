@@ -10,7 +10,7 @@
  */
 import React, { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
-import { ImageOff, CheckCircle2, Eraser, RefreshCw, ShieldAlert, CloudDownload, AlertTriangle, Siren } from 'lucide-react';
+import { ImageOff, CheckCircle2, Eraser, RefreshCw, ShieldAlert, CloudDownload, AlertTriangle, Siren, Chrome } from 'lucide-react';
 import { toast } from 'sonner';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
@@ -210,6 +210,49 @@ const SyncFailureAlert = () => {
   );
 };
 
+// "Last Verona sync received" — proves the Chrome extension is landing data
+const VeronaArrivalRow = () => {
+  const [info, setInfo] = useState(null);
+
+  useEffect(() => {
+    fetch(`${API_URL}/api/supplier-sync/verona/last-receive`)
+      .then(res => (res.ok ? res.json() : null))
+      .then(setInfo)
+      .catch(() => setInfo(null));
+  }, []);
+
+  if (!info) return null;
+
+  const d = info.last_data;
+  let dot = 'bg-red-500';
+  let text;
+  if (!d) {
+    text = 'Verona extension: no product data received yet';
+  } else {
+    const hrs = (Date.now() - new Date(d.at).getTime()) / 3600000;
+    dot = hrs <= 48 ? 'bg-emerald-500' : hrs <= 168 ? 'bg-amber-500' : 'bg-red-500';
+    text = `Verona extension: last data received ${timeAgo(d.at)} (${d.synced} product${d.synced !== 1 ? 's' : ''})`;
+  }
+
+  const pingNewer = info.last_ping && (!d || new Date(info.last_ping.at) > new Date(d.at));
+
+  return (
+    <div className="flex items-center gap-2 mt-2 px-4 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-600" data-testid="verona-arrival-row">
+      <span className={`w-2 h-2 rounded-full flex-shrink-0 ${dot}`} data-testid="verona-arrival-dot" />
+      <Chrome className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
+      <span data-testid="verona-arrival-text">{text}</span>
+      {pingNewer && (
+        <span className="text-slate-400">· extension connected {timeAgo(info.last_ping.at)}</span>
+      )}
+      {info.staged_count > 0 && (
+        <Link to="/admin/sync-hub?supplier=Verona" className="ml-auto text-sky-600 hover:text-sky-800 font-medium" data-testid="verona-arrival-review-link">
+          {info.staged_count} awaiting review →
+        </Link>
+      )}
+    </div>
+  );
+};
+
 export const DataHealthCard = () => {
   const [data, setData] = useState(null);
   const [trimming, setTrimming] = useState(false);
@@ -278,6 +321,7 @@ export const DataHealthCard = () => {
           </div>
           {isPreviewEnv() && <LiveSyncRow onSynced={load} />}
         </div>
+        <VeronaArrivalRow />
       </>
     );
   }
@@ -359,6 +403,7 @@ export const DataHealthCard = () => {
       )}
       {isPreviewEnv() && <LiveSyncRow onSynced={load} />}
     </div>
+    <VeronaArrivalRow />
     </>
   );
 };

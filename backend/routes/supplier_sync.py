@@ -123,6 +123,37 @@ def download_verona_extension():
     raise HTTPException(status_code=404, detail="Extension file not found")
 
 
+@router.get("/verona/last-receive")
+def get_verona_last_receive():
+    """Last time the Verona extension actually landed product data (+ last ping of any kind)."""
+    db = get_db()
+    last_data = db.sync_logs.find_one(
+        {"supplier": "Verona", "synced": {"$gt": 0}},
+        sort=[("timestamp", -1)],
+    )
+    last_ping = db.sync_logs.find_one(
+        {"supplier": "Verona"},
+        sort=[("timestamp", -1)],
+    )
+
+    def _fmt(doc):
+        if not doc:
+            return None
+        ts = doc.get("timestamp")
+        return {
+            "at": ts.isoformat() if hasattr(ts, "isoformat") else ts,
+            "synced": doc.get("synced", 0),
+            "products_received": doc.get("products_received", 0),
+            "source": doc.get("source"),
+        }
+
+    return {
+        "last_data": _fmt(last_data),
+        "last_ping": _fmt(last_ping),
+        "staged_count": db.sync_staging.count_documents({"supplier": "Verona"}),
+    }
+
+
 @router.get("/search")
 def search_products_for_images(q: str = "", limit: int = 20):
     """Search products by name, series, or style - returns products with images

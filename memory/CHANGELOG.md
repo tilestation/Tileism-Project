@@ -3754,3 +3754,8 @@ Local repro published the 6 ULT-* products: card shows "6 VARIANTS" with 6 full-
 - Copied v5.1 zip to `/app/backend/static/extensions/verona-sync-extension-v5.1.zip` and put that path FIRST in `possible_paths` in `routes/supplier_sync.py` → live API download works after next deploy.
 - Verified preview serves the true zip (PK bytes, manifest 5.1.0, popup label v5.1, correct API URL): `{preview}/verona-sync-extension-v5.1.zip` and `{preview}/api/supplier-sync/verona/extension/download`.
 **User instructions given**: Remove old extension completely in chrome://extensions, download v5.1 from preview link, Load unpacked, confirm version shows 5.1.0.
+
+### [Aug 14, 2026] Verona Arrival Check — dashboard row
+- New `GET /api/supplier-sync/verona/last-receive` (supplier_sync.py, after extension download route): reads `sync_logs` (already written by the receive endpoint) → returns `last_data` (newest log with synced>0), `last_ping` (any log incl. connection_test), `staged_count`.
+- `VeronaArrivalRow` in DataHealthCard.jsx: slim row under the health card — colour dot (green ≤48h, amber ≤7d, red older/never), "last data received X ago (N products)", "extension connected X ago" if ping newer, "N awaiting review →" link to Sync Hub Verona tab. Testids: verona-arrival-row/-dot/-text/-review-link.
+- Verified: empty + populated states via curl, dashboard screenshot green state. Test product D88888 posted to preview then removed from staging (sync_logs entry intentionally kept as the timestamp source).
