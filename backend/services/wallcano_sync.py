@@ -1220,12 +1220,23 @@ async def run_light_sync(db):
     if sync_state["is_running"]:
         return {"error": "Sync already in progress"}
     
+    # Known product URLs: staging + permanent supplier_products (survives staging clears)
     existing = list(db.sync_staging.find(
         {"supplier": "Wallcano", "url": {"$regex": "product_details"}},
-        {"url": 1, "sku": 1, "_id": 0}
+        {"url": 1, "sku": 1, "name": 1, "_id": 0}
     ))
+    seen_urls = {p.get("url") for p in existing}
+    for p in db.supplier_products.find(
+        {"supplier": {"$regex": "^Wallcano$", "$options": "i"}, "url": {"$regex": "product_details"}},
+        {"url": 1, "sku": 1, "name": 1, "_id": 0}
+    ):
+        if p.get("url") not in seen_urls:
+            existing.append({"url": p["url"], "sku": p.get("sku"), "name": p.get("name")})
+            seen_urls.add(p["url"])
+
     if not existing:
-        return {"error": "No existing Wallcano products with URLs found. Run a DEEP sync first."}
+        logger.warning("[WALLCANO LIGHT] No known product URLs anywhere — bootstrapping with a DEEP sync instead")
+        return await run_deep_sync(db)
     
     reset_sync_state()
     job_id = f"wallcano-light-{datetime.now().strftime('%Y%m%d%H%M%S')}"
@@ -1282,7 +1293,15 @@ async def run_light_sync(db):
                             "in_stock": stock_m2 > 0,
                             "synced_at": datetime.now(timezone.utc),
                             "sync_source": "light_stock_sync"
-                        }}
+                        },
+                         "$setOnInsert": {
+                             "supplier": "Wallcano",
+                             "sku": item["sku"],
+                             "url": item["url"],
+                             "name": item.get("name"),
+                             "created_at": datetime.now(timezone.utc)
+                         }},
+                        upsert=True
                     )
                     synced += 1
                 except Exception as e:

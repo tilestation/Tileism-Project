@@ -3768,3 +3768,13 @@ Local repro published the 6 ULT-* products: card shows "6 VARIANTS" with 6 full-
 3. **PRE-EXISTING BUG FIXED**: `get_staged_by_supplier` (the endpoint SyncHub uses) never filtered `dismissed_warnings` — dismissals saved but warnings always reappeared in UI. Added the same dismissed-codes filter used in the grouped endpoint (~line 861).
 **Tested**: simulated live scenario in preview (renamed 3 products linked to staged codes: 2 intentional renames + 1 fake mismatch) → 3 warnings appeared → dry-run flagged exactly 2 safe → real run dismissed 2, kept "Zebra Fantasy" mismatch → restored all test data + removed test dismissals. UI button verified via screenshot.
 **Note**: preview supplier_products 'Splendour' exists under case-variant supplier values; always match case-insensitively (validate does regex ^supplier$ i).
+
+### [Aug 17, 2026] Nightly Wallcano sync failures — RCA + self-healing light syncs
+**Symptom**: 3 nights of alarm emails: "No existing Wallcano products with URLs found. Run a DEEP sync first." (Alarm system itself working as designed.)
+**Root cause (all 3 suppliers shared it)**: light syncs sourced product URLs ONLY from `sync_staging` (transient review area). Live Wallcano staging = 0 docs (cleared/applied) → nightly light sync failed forever. Splendour/Ceramica would break identically after "Clear All Staged".
+**Fixes**:
+1. All 3 light syncs (`run_quick_sync` splendour / `run_light_sync` ceramica+wallcano) now union URLs from `sync_staging` + permanent `supplier_products` (case-insensitive supplier match).
+2. Zero URLs anywhere → auto-fallback to DEEP sync (self-healing bootstrap) instead of erroring. Verified via mock-DB test: all 3 return deep result.
+3. Light sync staging writes now `upsert=True` with `$setOnInsert` (supplier/sku/url/name/created_at) so updates land even when staging was cleared.
+4. `apply_supplier_changes` now persists `url` onto supplier_products — URLs survive staging clears going forward.
+**Live impact after deploy**: next nightly Wallcano run auto-runs a deep sync once (stages products+URLs), following nights run light normally.

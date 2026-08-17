@@ -1083,14 +1083,23 @@ async def run_quick_sync(db):
     if sync_state["is_running"]:
         return {"error": "Sync already in progress"}
     
-    # Get existing product URLs from database
+    # Known product URLs: staging + permanent supplier_products (survives staging clears)
     existing_products = list(db.sync_staging.find(
-        {"supplier": "Splendour", "url": {"$exists": True}},
-        {"url": 1, "sku": 1, "_id": 0}
+        {"supplier": "Splendour", "url": {"$exists": True, "$ne": ""}},
+        {"url": 1, "sku": 1, "name": 1, "_id": 0}
     ))
-    
+    seen_urls = {p.get("url") for p in existing_products}
+    for p in db.supplier_products.find(
+        {"supplier": {"$regex": "^Splendour$", "$options": "i"}, "url": {"$exists": True, "$ne": ""}},
+        {"url": 1, "sku": 1, "name": 1, "_id": 0}
+    ):
+        if p.get("url") not in seen_urls:
+            existing_products.append({"url": p["url"], "sku": p.get("sku"), "name": p.get("name")})
+            seen_urls.add(p["url"])
+
     if not existing_products:
-        return {"error": "No existing Splendour products found. Run a DEEP sync first."}
+        logger.warning("[SPLENDOUR LIGHT] No known product URLs anywhere — bootstrapping with a DEEP sync instead")
+        return await run_full_sync(db)
     
     product_urls = [p['url'] for p in existing_products if p.get('url')]
     
@@ -1172,10 +1181,18 @@ async def run_quick_sync(db):
                         
                         result = db.sync_staging.update_one(
                             {"supplier": "Splendour", "sku": product['sku']},
-                            {"$set": update_fields}
+                            {"$set": update_fields,
+                             "$setOnInsert": {
+                                 "supplier": "Splendour",
+                                 "sku": product['sku'],
+                                 "url": product_url,
+                                 "name": product.get('name') or next((e.get('name') for e in existing_products if e.get('url') == product_url), None),
+                                 "created_at": datetime.now(timezone.utc)
+                             }},
+                            upsert=True
                         )
                         
-                        if result.modified_count > 0 or result.matched_count > 0:
+                        if result.modified_count > 0 or result.matched_count > 0 or result.upserted_id:
                             synced += 1
                         else:
                             skipped += 1

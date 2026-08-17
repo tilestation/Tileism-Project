@@ -945,6 +945,10 @@ def apply_supplier_changes(supplier: str, request: Optional[ApplyChangesRequest]
             if sku and not existing.get("original_supplier_code"):
                 update_data["original_supplier_code"] = sku
             
+            # Persist the supplier portal URL — light syncs need it after staging is cleared
+            if product.get("url"):
+                update_data["url"] = product.get("url")
+            
             # Update stock - store BOTH stock_quantity and stock_m2
             if product.get("stock_quantity") is not None:
                 update_data["stock_quantity"] = product.get("stock_quantity")
