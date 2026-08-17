@@ -292,10 +292,10 @@ async def apply_new_names(
         if item.supplier:
             query["supplier"] = item.supplier
 
-        # Also mirror to the `tiles` collection if present (some routes still read from there)
+        # IMPORTANT: `name` = the SUPPLIER's original product name — never touch it here.
+        # Renames from Name Sanity only change OUR storefront/display name fields.
         set_data = {
             "product_name": item.new_name.strip(),
-            "name": item.new_name.strip(),
             "our_product_name": item.new_name.strip(),
             "display_name": item.new_name.strip(),
             "updated_at": now,
@@ -378,7 +378,6 @@ async def apply_suggested_names(
             {"_id": doc["_id"]},
             {"$set": {
                 "product_name": suggested,
-                "name": suggested,
                 "our_product_name": suggested,
                 "display_name": suggested,
                 "updated_at": now,

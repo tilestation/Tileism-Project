@@ -3789,3 +3789,10 @@ Local repro published the 6 ULT-* products: card shows "6 VARIANTS" with 6 full-
 4. GET_SYNC_STATE/STOP_SYNC now read/write storage (survive worker restarts). Extraction functions unchanged (proven working).
 **Tested via Node vm harness with full chrome API stubs** (/tmp/ext_harness.js): T1 fresh completes 3/3; T2 kill at 1/3 → watchdog resume → exactly 2 remaining posted; T3 closed tab → new tab id 42 → completes; T4 Stop honored mid-scan (found+fixed real bug: loop's progress write was overwriting 'stopped' status).
 **Distribution**: v6.0 zip in frontend/public + backend/static/extensions, download endpoint prefers v6.0. Preview download verified serving final build (persistProgress present, manifest 6.0.0).
+
+### [Aug 17, 2026] Name Sanity bug — "Our Name" no longer overwrites supplier name
+**User report**: editing "Our Name" in Name Sanity also changed the supplier product name. CONFIRMED — and this was the ORIGIN of the 342 sync validation warnings.
+**Fix** (`routes/product_name_sanity.py`): `/apply` and `/apply-suggested` no longer write `name` on supplier_products — only `product_name`/`our_product_name`/`display_name` (+ tiles/products storefront mirrors, unchanged). `name` = supplier's original, reserved for sync matching.
+**Heal**: `/api/sync-staging/warnings/auto-verify` now ALSO restores `supplier_products.name` to the supplier's incoming name for each safe-verified warning — permanently repairing records damaged by the old bug (warning never regenerates).
+**Safe for Name Guard**: drift check compares tiles vs `product_name` (not `name`) — no false drift.
+**Tested on preview**: rename via /apply → name UNCHANGED, product_name/display_name/tiles mirror updated → restored. Heal sim: damaged name → auto-verify → name restored to staged supplier name → restored test data.

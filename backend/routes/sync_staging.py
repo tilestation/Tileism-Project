@@ -2581,6 +2581,14 @@ def auto_verify_warnings(data: AutoVerifyRequest):
                 }},
                 upsert=True,
             )
+            # Heal old damage: restore the supplier's original name into `name`
+            # (a past Name Sanity bug overwrote it with our display name).
+            existing = existing_by_code.get(s["code"])
+            if existing and s.get("incoming_name") and existing.get("name") != s["incoming_name"]:
+                db.supplier_products.update_one(
+                    {"_id": existing["_id"]},
+                    {"$set": {"name": s["incoming_name"], "updated_at": now.isoformat()}},
+                )
             dismissed_count += 1
 
     return {
