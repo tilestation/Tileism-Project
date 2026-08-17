@@ -3778,3 +3778,14 @@ Local repro published the 6 ULT-* products: card shows "6 VARIANTS" with 6 full-
 3. Light sync staging writes now `upsert=True` with `$setOnInsert` (supplier/sku/url/name/created_at) so updates land even when staging was cleared.
 4. `apply_supplier_changes` now persists `url` onto supplier_products — URLs survive staging clears going forward.
 **Live impact after deploy**: next nightly Wallcano run auto-runs a deep sync once (stages products+URLs), following nights run light normally.
+
+### [Aug 17, 2026] Verona Extension v6.0 — TERMINATION-PROOF rebuild (the real "scan stops" fix)
+**Symptom**: v5.1 scan starts, syncs some products (444 landed on live 18:41-18:49), then silently stops.
+**ROOT CAUSE**: Classic MV3 failure — the entire sync loop + ALL state lived in the service worker's memory. Chrome/Edge terminate service workers at will (30s idle timer / lifetime caps); when killed, the loop vanished silently and state reset (popup shows "not running", no error). Every earlier "fix" addressed API URLs, never this.
+**v6.0 architecture** (`/app/backend/extensions-final/TileStation-Verona/background.js` fully rewritten):
+1. Job state (urls, nextIndex, counters, apiUrl, mode, tabId) persisted in chrome.storage.local (`syncJob`), written after EVERY product via `persistProgress()` (status-aware — never stomps a user Stop).
+2. `chrome.alarms` watchdog (30s, "alarms" permission added to manifest) — alarms WAKE dead workers; onAlarm resumes `runLoop()` from persisted nextIndex when job running && !loopActive. Plus boot-time resume IIFE.
+3. `ensureTab()`: if the sync tab was closed, opens a new background tab and continues.
+4. GET_SYNC_STATE/STOP_SYNC now read/write storage (survive worker restarts). Extraction functions unchanged (proven working).
+**Tested via Node vm harness with full chrome API stubs** (/tmp/ext_harness.js): T1 fresh completes 3/3; T2 kill at 1/3 → watchdog resume → exactly 2 remaining posted; T3 closed tab → new tab id 42 → completes; T4 Stop honored mid-scan (found+fixed real bug: loop's progress write was overwriting 'stopped' status).
+**Distribution**: v6.0 zip in frontend/public + backend/static/extensions, download endpoint prefers v6.0. Preview download verified serving final build (persistProgress present, manifest 6.0.0).
