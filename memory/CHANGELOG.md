@@ -3800,3 +3800,13 @@ Local repro published the 6 ULT-* products: card shows "6 VARIANTS" with 6 full-
 ### [Aug 18, 2026] Sync Hub updates list — image fallback for light syncs
 - User asked why nightly sync shows no images. BY DESIGN: nightly = light sync (stock+cost only, no images — images come from Full/Deep sync).
 - UX fix: `get_staged_by_supplier` (sync_staging.py ~line 787) — when a staged UPDATE has no image (light sync docs), fall back to the matched supplier_products image/images[0]. Frontend unchanged (renders product.image). Tested: unset staged image for 802234 → API returned the existing product's R2 image → restored.
+
+### [Aug 18, 2026] Collection "About This Product" — AI description fallback + size normalization
+**User report**: AI-generated descriptions "not generated properly" + "funny sizes" in the About This Product text (e.g. "30.0x60.0, 60.0x60.0, 300 x 600mm, 600 x 600mm, 600x600mm").
+**RCA**:
+1. The funny text is the frontend AUTO-TEMPLATE in CollectionDetailPage.js — shown because the freshly AI-generated per-product descriptions weren't picked up: collection page only read admin custom_description or series_description; the backend product-description fallback (tiles.py:1724) only checks db.tiles, and the user's 4 Smart Lux products are DRAFTS (supplier_products only, not yet in tiles).
+2. Sizes were raw un-normalized strings deduped as strings — same physical size in 3 formats listed 3 times.
+**Fixes (CollectionDetailPage.js)**:
+- Both About This Product blocks (desktop ~2120, mobile ~3405) now fall back to `selectedProduct.description` (AI text, included in collection API payload incl. draft preview merge) before the auto-template.
+- New module helpers `canonicalSizeLabel`/`dedupeSizeLabels`: normalize any size ("30.0x60.0"→"300x600mm", explicit cm/mm units respected, outdoor thickness kept "600x600x20mm") and dedupe; template uses deduped labels. Unit-tested with user's exact values: 5 variants → "300x600mm, 600x600mm".
+**Verified**: JSX parses; Dolomite Onyx collection page renders description block correctly in preview.

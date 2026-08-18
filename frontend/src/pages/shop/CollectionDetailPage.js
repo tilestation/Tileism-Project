@@ -73,6 +73,23 @@ import { firstImageUrl, imageUrl } from '../../utils/imageUrl';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
 
+// Normalize any size string ("30.0x60.0", "300 x 600mm", "600x600mm") to one canonical mm label
+const canonicalSizeLabel = (s) => {
+  if (!s) return '';
+  const nums = (String(s).match(/\d+(?:\.\d+)?/g) || []).map(Number);
+  if (nums.length < 2) return String(s).trim();
+  const lower = String(s).toLowerCase();
+  const isMm = lower.includes('mm') ? true : lower.includes('cm') ? false : Math.max(nums[0], nums[1]) > 120;
+  const toMm = (v) => Math.round(isMm ? v : v * 10);
+  const parts = [toMm(nums[0]), toMm(nums[1])];
+  if (nums.length >= 3) {
+    const t = toMm(nums[2]);
+    if (t <= 30) parts.push(t);
+  }
+  return parts.join('x') + 'mm';
+};
+const dedupeSizeLabels = (sizes) => [...new Set((sizes || []).map(canonicalSizeLabel).filter(Boolean))];
+
 const CollectionDetailPage = () => {
   // Splat route: param name is '*' (allows slashes in collection names like "70 x 350 x 20/5mm")
   const params = useParams();
@@ -2104,11 +2121,14 @@ const CollectionDetailPage = () => {
             {/* On mobile, this moves below the Add to Cart button */}
             <div className="hidden lg:block">
             {selectedProduct && (() => {
-              // If admin has set a custom description, show that instead of auto-generated
-              if (collectionDescription && collectionDescription.trim()) {
+              // Priority: admin/series description → the product's own saved description
+              // (e.g. AI-generated per product) → auto-generated template
+              const savedDescription = (collectionDescription && collectionDescription.trim())
+                || (selectedProduct.description || '').trim();
+              if (savedDescription) {
                 // Split description into paragraphs for readability
                 // If it has explicit line breaks, use those. Otherwise, split every 2-3 sentences.
-                const rawText = collectionDescription.trim();
+                const rawText = savedDescription;
                 let paragraphs;
                 if (rawText.includes('\n')) {
                   paragraphs = rawText.split(/\n+/).filter(p => p.trim());
@@ -2145,9 +2165,10 @@ const CollectionDetailPage = () => {
               const styles = p.styles || [];
               const features = p.features || [];
               
-              // Determine indoor/outdoor from sizes
-              const indoorSizes = allSizes.filter(s => (s.match(/x/gi) || []).length < 2);
-              const outdoorSizes = allSizes.filter(s => (s.match(/x/gi) || []).length >= 2);
+              // Determine indoor/outdoor from sizes (normalized + deduped labels)
+              const sizeLabels = dedupeSizeLabels(allSizes);
+              const indoorSizes = sizeLabels.filter(s => (s.match(/x/gi) || []).length < 2);
+              const outdoorSizes = sizeLabels.filter(s => (s.match(/x/gi) || []).length >= 2);
               const hasIndoor = indoorSizes.length > 0;
               const hasOutdoor = outdoorSizes.length > 0;
               
@@ -2177,13 +2198,13 @@ const CollectionDetailPage = () => {
               }
               
               // Sizes — grouped by indoor/outdoor
-              if (allSizes.length > 0) {
+              if (sizeLabels.length > 0) {
                 if (hasIndoor && hasOutdoor) {
                   sentences.push(`The collection is available in ${indoorSizes.join(', ')} for indoor use, alongside ${outdoorSizes.join(', ')} thicker options suited for patios, driveways and outdoor areas.`);
-                } else if (allSizes.length > 2) {
-                  sentences.push(`Offered in a range of sizes — ${allSizes.join(', ')} — giving you flexibility across different room layouts and spaces.`);
+                } else if (sizeLabels.length > 2) {
+                  sentences.push(`Offered in a range of sizes — ${sizeLabels.join(', ')} — giving you flexibility across different room layouts and spaces.`);
                 } else {
-                  sentences.push(`Available in ${allSizes.join(' and ')}.`);
+                  sentences.push(`Available in ${sizeLabels.join(' and ')}.`);
                 }
               }
               
@@ -3390,8 +3411,10 @@ const CollectionDetailPage = () => {
             {/* Collection Description - MOBILE ONLY (shown after Add to Cart) */}
             <div className="lg:hidden">
             {selectedProduct && (() => {
-              if (collectionDescription && collectionDescription.trim()) {
-                const rawText = collectionDescription.trim();
+              const savedDescription = (collectionDescription && collectionDescription.trim())
+                || (selectedProduct.description || '').trim();
+              if (savedDescription) {
+                const rawText = savedDescription;
                 let paragraphs;
                 if (rawText.includes('\n')) {
                   paragraphs = rawText.split(/\n+/).filter(p => p.trim());
@@ -3424,8 +3447,9 @@ const CollectionDetailPage = () => {
               const rooms = p.rooms || [];
               const styles = p.styles || [];
               const features = p.features || [];
-              const indoorSizes = allSizes.filter(s => (s.match(/x/gi) || []).length < 2);
-              const outdoorSizes = allSizes.filter(s => (s.match(/x/gi) || []).length >= 2);
+              const sizeLabelsM = dedupeSizeLabels(allSizes);
+              const indoorSizes = sizeLabelsM.filter(s => (s.match(/x/gi) || []).length < 2);
+              const outdoorSizes = sizeLabelsM.filter(s => (s.match(/x/gi) || []).length >= 2);
               const hasIndoor = indoorSizes.length > 0;
               const hasOutdoor = outdoorSizes.length > 0;
               const collectionColors = colorOptions.map(c => c.name);
