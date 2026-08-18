@@ -928,7 +928,8 @@ const ManagerPageShell = ({
         onOpenChange={setShowAssignColours}
         selectedList={bulk.getSelectedList()}
         attributeOptions={(() => {
-          const seen = new Set(['color']);
+          // Supplier is internal-only — never a storefront allocation attribute
+          const seen = new Set(['color', 'supplier']);
           const out = [];
           (config?.filter_facets || []).forEach(f => {
             const key = f.field || f.key;
@@ -941,6 +942,9 @@ const ManagerPageShell = ({
             seen.add(f.key);
             out.push({ key: f.key, label: f.label || f.key, arrayField: null });
           });
+          // Always-available extras
+          if (!seen.has('made_in')) out.push({ key: 'made_in', label: 'Made In', arrayField: null });
+          if (!seen.has('thickness')) out.push({ key: 'thickness', label: 'Thickness', arrayField: null });
           return out;
         })()}
         onSuccess={() => { bulk.clearAll(); fetchProducts(); }}

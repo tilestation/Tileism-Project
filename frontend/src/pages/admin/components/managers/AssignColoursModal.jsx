@@ -26,6 +26,16 @@ const API_URL = process.env.REACT_APP_BACKEND_URL;
 
 const COLOUR_ATTR = { key: 'color', label: 'Colour', arrayField: 'colors' };
 
+// Countries → flag emoji for the "Made In" attribute
+const COUNTRY_FLAGS = {
+  italy: '🇮🇹', spain: '🇪🇸', portugal: '🇵🇹', turkey: '🇹🇷', india: '🇮🇳', china: '🇨🇳',
+  poland: '🇵🇱', germany: '🇩🇪', uk: '🇬🇧', 'united kingdom': '🇬🇧', france: '🇫🇷',
+  belgium: '🇧🇪', brazil: '🇧🇷', morocco: '🇲🇦', egypt: '🇪🇬', iran: '🇮🇷',
+  indonesia: '🇮🇩', vietnam: '🇻🇳', mexico: '🇲🇽', usa: '🇺🇸',
+};
+const flagFor = (attrKey, name) =>
+  attrKey === 'made_in' ? (COUNTRY_FLAGS[String(name || '').toLowerCase()] || '') : '';
+
 const AssignColoursModal = ({ open, onOpenChange, selectedList = [], onSuccess, attributeOptions = [] }) => {
   // The attribute being bucketed — Colour by default, switchable to any
   // Configure-defined filter/spec field (Finish, Size, Material, Thickness…)
@@ -134,6 +144,16 @@ const AssignColoursModal = ({ open, onOpenChange, selectedList = [], onSuccess, 
       else nextSkus.delete(sku);
       return { ...b, skus: nextSkus };
     }));
+  };
+
+  // One-click: move every unassigned product into the chosen bucket
+  const assignAllToBucket = (bucketName) => {
+    const skus = unassignedProducts.map(p => p.sku || p.supplier_code).filter(Boolean);
+    if (skus.length === 0) return;
+    setBuckets(prev => prev.map(b =>
+      b.name === bucketName ? { ...b, skus: new Set([...b.skus, ...skus]) } : b
+    ));
+    toast.success(`Moved ${skus.length} product(s) to "${bucketName}"`);
   };
 
   const removeSkuFromBucket = (sku, bucketIdx) => {
@@ -280,7 +300,7 @@ const AssignColoursModal = ({ open, onOpenChange, selectedList = [], onSuccess, 
                   className="px-2 py-0.5 rounded-full bg-orange-50 border border-orange-200 text-orange-800 text-[11px] hover:bg-orange-100 transition-colors"
                   data-testid={`bucket-suggestion-${i}`}
                 >
-                  + {s}
+                  + {flagFor(attr.key, s)} {s}
                 </button>
               ))}
           </div>
@@ -296,9 +316,25 @@ const AssignColoursModal = ({ open, onOpenChange, selectedList = [], onSuccess, 
             onDrop={(e) => handleDrop(e, 'pool')}
             onDragLeave={() => setDragOverBucket(null)}
           >
-            <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center justify-between mb-2 gap-2">
               <h4 className="font-semibold text-sm text-gray-700">Unassigned</h4>
-              <Badge variant="outline" className="text-xs">{unassignedProducts.length}</Badge>
+              <div className="flex items-center gap-1.5">
+                {unassignedProducts.length > 0 && buckets.length > 0 && (
+                  <select
+                    value=""
+                    onChange={(e) => { if (e.target.value) assignAllToBucket(e.target.value); }}
+                    className="h-6 text-[11px] border border-orange-300 rounded px-1 bg-orange-50 text-orange-800 font-medium max-w-[130px]"
+                    title="Move every unassigned product into one bucket in one go"
+                    data-testid="assign-all-select"
+                  >
+                    <option value="">Assign all to…</option>
+                    {buckets.map(b => (
+                      <option key={b.name} value={b.name}>{b.name}</option>
+                    ))}
+                  </select>
+                )}
+                <Badge variant="outline" className="text-xs">{unassignedProducts.length}</Badge>
+              </div>
             </div>
             {unassignedProducts.length === 0 ? (
               <p className="text-xs text-gray-400 text-center py-4">
@@ -370,7 +406,7 @@ const AssignColoursModal = ({ open, onOpenChange, selectedList = [], onSuccess, 
                   <div className="flex items-center justify-between px-3 py-2 border-b border-orange-200">
                     <div className="flex items-center gap-2">
                       <ArrowRight className="w-3.5 h-3.5 text-orange-600" />
-                      <span className="font-semibold text-sm text-orange-900">{bucket.name}</span>
+                      <span className="font-semibold text-sm text-orange-900">{flagFor(attr.key, bucket.name)} {bucket.name}</span>
                       <Badge variant="outline" className="text-[10px] bg-white">{bucket.skus.size}</Badge>
                     </div>
                     <button

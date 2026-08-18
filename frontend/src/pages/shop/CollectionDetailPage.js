@@ -2384,12 +2384,12 @@ const CollectionDetailPage = () => {
                 <div className="inline-flex items-center gap-2 mt-3 px-3 py-1.5 rounded-full bg-gradient-to-r from-gray-50 to-gray-100 border border-gray-200 shadow-sm" data-testid="product-detail-made-in">
                   <img 
                     src={`https://flagcdn.com/32x24/${({
-                      'Italy': 'it', 'Spain': 'es', 'Portugal': 'pt', 'Turkey': 'tr',
-                      'India': 'in', 'China': 'cn', 'Poland': 'pl', 'Germany': 'de',
-                      'UK': 'gb', 'United Kingdom': 'gb', 'France': 'fr', 'Belgium': 'be',
-                      'Brazil': 'br', 'Morocco': 'ma', 'Egypt': 'eg', 'Iran': 'ir',
-                      'Indonesia': 'id', 'Vietnam': 'vn', 'Mexico': 'mx', 'USA': 'us'
-                    })[selectedProduct.made_in] || 'eu'}.png`}
+                      'italy': 'it', 'spain': 'es', 'portugal': 'pt', 'turkey': 'tr',
+                      'india': 'in', 'china': 'cn', 'poland': 'pl', 'germany': 'de',
+                      'uk': 'gb', 'united kingdom': 'gb', 'france': 'fr', 'belgium': 'be',
+                      'brazil': 'br', 'morocco': 'ma', 'egypt': 'eg', 'iran': 'ir',
+                      'indonesia': 'id', 'vietnam': 'vn', 'mexico': 'mx', 'usa': 'us'
+                    })[String(selectedProduct.made_in).toLowerCase()] || 'eu'}.png`}
                     alt={selectedProduct.made_in}
                     className="inline-block rounded-sm shadow-sm"
                     width="32"

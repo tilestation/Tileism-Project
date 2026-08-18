@@ -40,9 +40,15 @@ def get_attribute_values(fields: str):
                     distinct_vals.add(str(v))
         except Exception:
             pass
-        # Manually saved values first, then everything already in use
+        # Manually saved values first, then everything already in use.
+        # Case-insensitive dedupe (e.g. 'Italy' vs 'italy' → keep one).
         seen = {s.lower() for s in saved_vals}
-        rest = sorted((v for v in distinct_vals if v.lower() not in seen), key=str.lower)
+        rest = []
+        for v in sorted(distinct_vals, key=str.lower):
+            if v.lower() in seen:
+                continue
+            seen.add(v.lower())
+            rest.append(v)
         out[f] = (saved_vals + rest)[:100]
     return {"values": out}
 
