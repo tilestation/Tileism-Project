@@ -3882,3 +3882,9 @@ Local repro published the 6 ULT-* products: card shows "6 VARIANTS" with 6 full-
 ## Aug 18, 2026 — Per Box Auto-Fill
 - New PerBoxAutoFill.jsx panel on the Tiles Per Box / M² Per Box tabs in Attribute Studio: parses tile size ('300x600mm'/'30x60cm'/'120X120' unit-less → cm convention, >150 → mm), computes tiles = m²box ÷ area (rounded, sanity 0.5–500) or m²box = tiles × area (3dp). Shows computable count, per-product preview chips, skip reasons, 'overwrite existing' checkbox (default fills only missing). Saves grouped by value via bulk-update-unified replace with verification.
 - E2E verified: 30x60cm+1.08 → 6, 60x60cm+1.44 → 4, saved as ints, panel flips to '2 already set', completeness meter updates. Fixture reset.
+
+## Aug 18, 2026 — Manager Completeness Column
+- computeCompleteness + arrayFieldFor exported from AssignColoursModal.jsx (modal's meter refactored to use it).
+- ManagerPageShell: attributeOptions IIFE extracted to studioAttributeOptions memo (shared); new seriesCompleteness memo maps every series group → % across Colour + all Studio attributes.
+- Series header rows now show a colour-coded '{pct}% complete' badge (green 100 / amber ≥50 / red <50) with hover tooltip listing exact gaps e.g. 'Missing: Material 1/2 · Slip 0/2 · Made In 0/2'. data-testid series-completeness-{series}.
+- E2E verified: 793 badges rendered on /admin/tiles with correct percentages + tooltips.

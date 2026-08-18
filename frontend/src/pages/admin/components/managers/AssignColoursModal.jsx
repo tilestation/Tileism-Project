@@ -43,10 +43,26 @@ const flagFor = (attrKey, name) =>
 
 // Plural array field per attribute — where multi-values are stored
 const ARRAY_FIELD_MAP = { color: 'colors', finish: 'finishes', size: 'sizes', material: 'materials', made_in: 'made_in_countries' };
-const arrayFieldFor = (attr) => attr.arrayField || ARRAY_FIELD_MAP[attr.key] || `${attr.key}s`;
+export const arrayFieldFor = (attr) => attr.arrayField || ARRAY_FIELD_MAP[attr.key] || `${attr.key}s`;
 
 // Numeric single-value fields — Replace mode only, stored as numbers
 const NUMERIC_ATTRS = new Set(['tiles_per_box', 'sqm_per_box']);
+
+// Shared with ManagerPageShell's series completeness badges
+export const computeCompleteness = (products, attributes) => {
+  const rows = attributes.map(a => {
+    const filled = products.filter(p => {
+      const arr = p[arrayFieldFor(a)];
+      if (Array.isArray(arr) && arr.length > 0) return true;
+      const v = p[a.key] ?? (p.attributes ? p.attributes[a.key] : undefined);
+      return v !== undefined && v !== null && String(v).trim() !== '';
+    }).length;
+    return { ...a, filled };
+  });
+  const total = products.length * rows.length;
+  const done = rows.reduce((s, r) => s + r.filled, 0);
+  return { rows, pct: total ? Math.round((done / total) * 100) : 0 };
+};
 
 const AssignColoursModal = ({ open, onOpenChange, selectedList = [], onSuccess, attributeOptions = [], subTabs = [], onCreateSubTab }) => {
   // The attribute being bucketed — Colour by default, switchable to any
@@ -315,20 +331,7 @@ const AssignColoursModal = ({ open, onOpenChange, selectedList = [], onSuccess, 
   };
 
   // Completeness meter — how many of the selection have each attribute filled
-  const completeness = useMemo(() => {
-    const rows = allAttributes.map(a => {
-      const filled = selectedList.filter(p => {
-        const arr = p[arrayFieldFor(a)];
-        if (Array.isArray(arr) && arr.length > 0) return true;
-        const v = p[a.key] ?? (p.attributes ? p.attributes[a.key] : undefined);
-        return v !== undefined && v !== null && String(v).trim() !== '';
-      }).length;
-      return { ...a, filled };
-    });
-    const total = selectedList.length * rows.length;
-    const done = rows.reduce((s, r) => s + r.filled, 0);
-    return { rows, pct: total ? Math.round((done / total) * 100) : 0 };
-  }, [selectedList, allAttributes]);
+  const completeness = useMemo(() => computeCompleteness(selectedList, allAttributes), [selectedList, allAttributes]);
 
   const productName = (p) => (p.our_product_name || p.product_name || p.name || p.sku || p.supplier_code);
 

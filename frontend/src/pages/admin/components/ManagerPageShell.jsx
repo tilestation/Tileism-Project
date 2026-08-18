@@ -51,7 +51,7 @@ import StorefrontPanel from './managers/StorefrontPanel';
 import ShopTabsAssignModal from './managers/ShopTabsAssignModal';
 import BulkPreviewModal from './managers/BulkPreviewModal';
 import { fetchShopTabDestinations, buildDestinationMap } from '../lib/shopTabDestinations';
-import AssignColoursModal from './managers/AssignColoursModal';
+import AssignColoursModal, { computeCompleteness } from './managers/AssignColoursModal';
 import TierPricingModal from './supplier-products/TierPricingModal';
 import BulkSaleModal from './supplier-products/BulkSaleModal';
 import { useManagerBulk } from './managers/useManagerBulk';
@@ -215,6 +215,31 @@ const ManagerPageShell = ({
     }));
   })();
   const effectiveEditFields = mergeConfig(config?.spec_fields, editFields);
+
+  // Studio attributes — shared by the Attribute Studio modal and series completeness badges
+  const studioAttributeOptions = useMemo(() => {
+    // Supplier is internal-only — never a storefront allocation attribute
+    const seen = new Set(['color', 'supplier']);
+    const out = [];
+    (config?.filter_facets || []).forEach(f => {
+      const key = f.field || f.key;
+      if (!key || seen.has(key)) return;
+      seen.add(key);
+      out.push({ key, label: f.label || key, arrayField: f.array_field || null });
+    });
+    (config?.spec_fields || []).forEach(f => {
+      if (!f.key || seen.has(f.key)) return;
+      seen.add(f.key);
+      out.push({ key: f.key, label: f.label || f.key, arrayField: null });
+    });
+    // Always-available extras
+    if (!seen.has('made_in')) out.push({ key: 'made_in', label: 'Made In', arrayField: null });
+    if (!seen.has('thickness')) out.push({ key: 'thickness', label: 'Thickness', arrayField: null });
+    if (!seen.has('tiles_per_box')) out.push({ key: 'tiles_per_box', label: 'Tiles Per Box', arrayField: null });
+    if (!seen.has('sqm_per_box')) out.push({ key: 'sqm_per_box', label: 'M² Per Box', arrayField: null });
+    return out;
+  }, [config]);
+
   const [tierPricingConfig, setTierPricingConfig] = useState({
     thresholds: [10, 50, 100],
     discounts: [0, 5, 10, 15],
@@ -424,6 +449,14 @@ const ManagerPageShell = ({
   // a final "Individual" bucket. Toggle-able via the workspace tab bar preference
   // in future — for now, always on so admins see grouping everywhere.
   const groupedProducts = useMemo(() => groupBySeries(filteredProducts), [filteredProducts]);
+
+  // Per-series completeness % across all Studio attributes (Colour + extras)
+  const seriesCompleteness = useMemo(() => {
+    const attrs = [{ key: 'color', label: 'Colour', arrayField: 'colors' }, ...studioAttributeOptions];
+    const map = {};
+    groupedProducts.forEach(g => { map[g.series] = computeCompleteness(g.products, attrs); });
+    return map;
+  }, [groupedProducts, studioAttributeOptions]);
   const seriesCount = groupedProducts.filter(g => g.series !== 'Individual').length;
 
   // Sub-tab counts (used to badge each tab)
@@ -796,6 +829,26 @@ const ManagerPageShell = ({
                             <Badge variant="outline" className="ml-1 text-[10px] font-normal">
                               {group.products.length} product{group.products.length !== 1 ? 's' : ''}
                             </Badge>
+                            {(() => {
+                              const comp = seriesCompleteness[group.series];
+                              if (!comp) return null;
+                              const cls = comp.pct === 100
+                                ? 'bg-emerald-100 text-emerald-800'
+                                : comp.pct >= 50 ? 'bg-amber-100 text-amber-800' : 'bg-red-100 text-red-700';
+                              const gaps = comp.rows.filter(r => r.filled < group.products.length);
+                              const title = gaps.length === 0
+                                ? 'All attributes filled'
+                                : `Missing: ${gaps.map(r => `${r.label} ${r.filled}/${group.products.length}`).join(' · ')}`;
+                              return (
+                                <Badge
+                                  className={`ml-1 text-[10px] font-normal border-0 cursor-help ${cls}`}
+                                  title={title}
+                                  data-testid={`series-completeness-${group.series}`}
+                                >
+                                  {comp.pct}% complete
+                                </Badge>
+                              );
+                            })()}
                             {group.products.some(p => bulk.isSelected(p)) && (
                               <Badge className="ml-1 text-[10px] font-normal bg-emerald-100 text-emerald-800 border-0">
                                 {group.products.filter(p => bulk.isSelected(p)).length} selected
@@ -922,28 +975,7 @@ const ManagerPageShell = ({
         open={showAssignColours}
         onOpenChange={setShowAssignColours}
         selectedList={bulk.getSelectedList()}
-        attributeOptions={(() => {
-          // Supplier is internal-only — never a storefront allocation attribute
-          const seen = new Set(['color', 'supplier']);
-          const out = [];
-          (config?.filter_facets || []).forEach(f => {
-            const key = f.field || f.key;
-            if (!key || seen.has(key)) return;
-            seen.add(key);
-            out.push({ key, label: f.label || key, arrayField: f.array_field || null });
-          });
-          (config?.spec_fields || []).forEach(f => {
-            if (!f.key || seen.has(f.key)) return;
-            seen.add(f.key);
-            out.push({ key: f.key, label: f.label || f.key, arrayField: null });
-          });
-          // Always-available extras
-          if (!seen.has('made_in')) out.push({ key: 'made_in', label: 'Made In', arrayField: null });
-          if (!seen.has('thickness')) out.push({ key: 'thickness', label: 'Thickness', arrayField: null });
-          if (!seen.has('tiles_per_box')) out.push({ key: 'tiles_per_box', label: 'Tiles Per Box', arrayField: null });
-          if (!seen.has('sqm_per_box')) out.push({ key: 'sqm_per_box', label: 'M² Per Box', arrayField: null });
-          return out;
-        })()}
+        attributeOptions={studioAttributeOptions}
         subTabs={effectiveSubTabs}
         onCreateSubTab={async (label) => {
           const clean = label.trim();
