@@ -51,3 +51,12 @@
 - New backend CRUD `/api/manager-definitions` (GET public, POST/PATCH/DELETE require supplier_products permission). Fields: slug, name, description, theme, icon, sub_categories[], field_definitions[], product_group.
 - New page `/admin/custom-manager/:slug` renders a data-driven Manager from a manager_definitions doc. Reuses AssignColoursModal, TierPricingModal, ManagerBulkBar, useManagerBulk. Products auto-classified by matching `product_group` OR `sub_categories` OR product name against the definition's keywords.
 - Custom Manager builder modal `CustomManagerBuilder.jsx` — accessible from the "+ New Custom Manager" pill in every workspace tab bar. Curl-verified round-trip: create (200), list (returns doc), delete (soft-delete via deleted_at + audit log entry), duplicate slug → 409.
+
+## Trade test account (Aug 18, 2026 — WAS price / sale flow testing)
+- Email: trade.test@tilestation.co.uk
+- Password: TradeTest123!
+- is_trade=True, trade_approved=True, trade_discount=5%
+- Login: storefront Sign In (or Trade Login) — used to verify trade discount stacks into sale/WAS savings
+
+## WAS-price sale fixture (Aug 18, 2026)
+- Tile LP-1214 (LEPORCE, "Dolomite Onyx Green 60x120cm Polished", series Dolomite Onyx): price £30 (unchanged), was_price £39.99, discount_percentage 25.0, sale_active=True — set via POST /api/supplier-sync/products/bulk-sale-pricing with {"was_price": 39.99}

@@ -556,6 +556,8 @@ export default function SupplierProducts() {
     labels: [],
     custom_labels: [],
     discount_percentage: '',
+    was_price: '',
+    saleMode: 'was',
     action: 'add', // 'add', 'remove', 'replace', 'clear'
     applyDiscount: false
   });
@@ -7849,14 +7851,18 @@ export default function SupplierProducts() {
         });
       }
 
-      // Apply discount if enabled
-      if (bulkSaleForm.applyDiscount && bulkSaleForm.discount_percentage) {
+      // Apply sale pricing if enabled — explicit WAS anchor or % off current price
+      const usingWasMode = (bulkSaleForm.saleMode || 'was') === 'was';
+      const saleInput = usingWasMode ? bulkSaleForm.was_price : bulkSaleForm.discount_percentage;
+      if (bulkSaleForm.applyDiscount && saleInput) {
         await fetch(`${API_URL}/api/supplier-sync/products/bulk-sale-pricing`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             product_ids: productIds,
-            discount_percentage: parseFloat(bulkSaleForm.discount_percentage),
+            ...(usingWasMode
+              ? { was_price: parseFloat(bulkSaleForm.was_price) }
+              : { discount_percentage: parseFloat(bulkSaleForm.discount_percentage) }),
             sale_active: true,
             clear_sale: false
           })
@@ -7881,6 +7887,8 @@ export default function SupplierProducts() {
         labels: [],
         custom_labels: [],
         discount_percentage: '',
+        was_price: '',
+        saleMode: 'was',
         action: 'add',
         applyDiscount: false
       });

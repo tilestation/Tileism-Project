@@ -1,0 +1,52 @@
+{
+  "summary": "Thoroughly tested the new WAS-price sale mode end-to-end: backend bulk-sale-pricing endpoint (explicit WAS + legacy % + clear_sale + low-WAS rejection), storefront guest flow (LP-1214 Dolomite Onyx Green/Polished/60x120cm), storefront trade flow, and admin bulk Sale/Labels modal (WAS default mode, % switch, data-testids). All flows PASS. LP-1214 left on sale as instructed.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_results": {
+    "backend": {
+      "test_bulk_sale_pricing_was.py": "4/4 PASS",
+      "cases": [
+        "TestExplicitWasMode::test_lp1214_fixture_is_active — LP-1214 sale_active=true, was_price=39.99, now_price=price=30, discount_percentage=25%",
+        "TestLegacyDiscountPercentMode::test_legacy_apply_and_clear — legacy {discount_percentage:10} works: was=price, now=price*0.9, then clear_sale removes all sale fields; price untouched",
+        "TestExplicitWasRejectLowWas::test_low_was_rejected — WAS below current price returns updated_count=0 with 'must be higher' error",
+        "TestExplicitWasSetAndClear::test_explicit_was_flow_with_tiles_mirror — explicit WAS sets was_price, now_price=price, price unchanged, derived % correct; tiles doc mirrored; cleanup clear performed"
+      ]
+    },
+    "storefront_guest_LP1214": {
+      "1m2": "SALE ribbon (data-testid=sale-price-ribbon) shows WAS £39.99, NOW £30.00, SAVE £9.99, 25% OFF — matches expected",
+      "15m2": "NOW £28.50, SAVE £11.49, 29% OFF; breakdown rows: 'Sale: 25% off | Volume: 4% off | Total: 29% off' — sale+volume compounding correct",
+      "regression": "Non-sale variant (Bianco/Matt/120x120cm) shows plain £30.00 with NO sale ribbon; Volume Pricing table still renders"
+    },
+    "storefront_trade": {
+      "login": "trade.test@tilestation.co.uk logged in, header switched to 'Trade Tester'",
+      "1m2": "WAS £33.33 (ex VAT), NOW £23.75, SAVE £9.58, 29% OFF; breakdown 'Sale: 25% off | Trade: 4% off | Total: 29% off'; '+ Extra 2% Credit Back' shown",
+      "15m2": "NOW £22.56, 32% OFF; breakdown 'Sale: 25% off | Volume: 4% off | Trade: 3% off | Total: 32% off'; total % OFF (32%) > guest 15m² (29%) as expected",
+      "logout": "Trade row absent for guests (verified in earlier guest run before login)"
+    },
+    "admin_bulk_sale_modal": {
+      "opened": "Bulk Sale & Labels modal opened on 2 selected products",
+      "apply_discount_toggle": "Enabling 'Apply discount to all selected products' reveals mode buttons and red explanation box: 'Your list price stays exactly as it is. The storefront shows WAS £54.99 with the current price in bold red as the SALE price...'",
+      "default_mode": "'Set WAS price (£)' is DEFAULT (red highlighted); data-testid='sale-mode-was' present",
+      "was_input": "data-testid='bulk-was-price-input' visible with placeholder 'e.g. 54.99'",
+      "percent_mode_switch": "Clicking data-testid='sale-mode-percent' reveals data-testid='bulk-discount-percent-input' (visible=true); switching back to WAS restores WAS input",
+      "not_applied": "Did NOT dispatch a WAS apply from the modal to avoid polluting real products; the backend explicit-WAS branch (which the modal calls) is fully covered by pytest test_explicit_was_flow_with_tiles_mirror"
+    }
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_bulk_sale_pricing_was.py",
+    "/app/test_reports/pytest/iter231_bulk_sale.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "supplier_sync.py file is very large (>7500 lines) — recommend splitting into route modules (products, sale-pricing, tiers, sync) for maintainability.",
+    "Explicit-WAS branch and legacy branch live in the same endpoint; consider clear docstring or splitting to prevent future duplicate-Pydantic-class regressions like the one just fixed."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100% (4/4)", "frontend": "100% (all flows verified)"},
+  "test_credentials": "Admin admin@test.com / admin123; Trade trade.test@tilestation.co.uk / TradeTest123!",
+  "seed_data_creation": "None. LP-1214 fixture left on sale as instructed; any transient sales set during pytest were cleared in the same test.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "WAS-price sale feature is fully working across backend + guest storefront + trade storefront + admin bulk modal. Ribbon selector: [data-testid='sale-price-ribbon']. Admin modal testids: sale-mode-was (default), sale-mode-percent, bulk-was-price-input, bulk-discount-percent-input. LP-1214 is the pinned live fixture (Dolomite Onyx Green/Polished/60x120cm, WAS £39.99 / NOW £30 / 25% off).",
+  "rca of the issue": "N/A — no bugs found in this run."
+}

@@ -159,7 +159,7 @@ const ManagerPageShell = ({
   // Bulk Sale/Labels modal state (Sale %, Sale, Clearance, New Arrival, etc.)
   const [showBulkSaleLabels, setShowBulkSaleLabels] = useState(false);
   const [bulkSaleForm, setBulkSaleForm] = useState({
-    labels: [], custom_labels: [], discount_percentage: '', action: 'add', applyDiscount: false,
+    labels: [], custom_labels: [], discount_percentage: '', was_price: '', saleMode: 'was', action: 'add', applyDiscount: false,
   });
   const [bulkSaleSaving, setBulkSaleSaving] = useState(false);
 
@@ -974,14 +974,18 @@ const ManagerPageShell = ({
                 }),
               });
             }
-            // Sale discount %
-            if (bulkSaleForm.applyDiscount && bulkSaleForm.discount_percentage) {
+            // Sale pricing — explicit WAS anchor or % off current price
+            const usingWas = (bulkSaleForm.saleMode || 'was') === 'was';
+            const saleValue = usingWas ? bulkSaleForm.was_price : bulkSaleForm.discount_percentage;
+            if (bulkSaleForm.applyDiscount && saleValue) {
               await fetch(`${API_URL}/api/supplier-sync/products/bulk-sale-pricing`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                   product_ids: productIds,
-                  discount_percentage: parseFloat(bulkSaleForm.discount_percentage),
+                  ...(usingWas
+                    ? { was_price: parseFloat(bulkSaleForm.was_price) }
+                    : { discount_percentage: parseFloat(bulkSaleForm.discount_percentage) }),
                   sale_active: true,
                   clear_sale: false,
                 }),
@@ -997,7 +1001,7 @@ const ManagerPageShell = ({
             }
             toast.success(`Updated ${scopedList.length} product${scopedList.length !== 1 ? 's' : ''}`);
             setShowBulkSaleLabels(false);
-            setBulkSaleForm({ labels: [], custom_labels: [], discount_percentage: '', action: 'add', applyDiscount: false });
+            setBulkSaleForm({ labels: [], custom_labels: [], discount_percentage: '', was_price: '', saleMode: 'was', action: 'add', applyDiscount: false });
             bulk.clearAll();
             fetchProducts();
           } catch (err) {

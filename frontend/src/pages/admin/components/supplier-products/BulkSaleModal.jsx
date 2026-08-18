@@ -141,16 +141,67 @@ const BulkSaleModal = ({
               </div>
 
               {form.applyDiscount && (
-                <div className="flex items-center gap-3">
-                  <Input
-                    type="number"
-                    step="0.1"
-                    value={form.discount_percentage}
-                    onChange={(e) => setForm(prev => ({ ...prev, discount_percentage: e.target.value }))}
-                    placeholder="Discount %"
-                    className="w-32"
-                  />
-                  <span className="text-sm text-gray-500">% off current price</span>
+                <div className="space-y-3">
+                  {/* Sale mode selector */}
+                  <div className="flex gap-2">
+                    {[
+                      { value: 'was', label: 'Set WAS price (£)' },
+                      { value: 'percent', label: '% off current price' },
+                    ].map(({ value, label }) => (
+                      <button
+                        key={value}
+                        type="button"
+                        onClick={() => setForm(prev => ({ ...prev, saleMode: value }))}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                          (form.saleMode || 'was') === value
+                            ? 'bg-red-600 text-white'
+                            : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                        }`}
+                        data-testid={`sale-mode-${value}`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+
+                  {(form.saleMode || 'was') === 'was' ? (
+                    <div>
+                      <div className="flex items-center gap-3">
+                        <span className="text-sm font-semibold text-gray-700">WAS £</span>
+                        <Input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          value={form.was_price || ''}
+                          onChange={(e) => setForm(prev => ({ ...prev, was_price: e.target.value }))}
+                          placeholder="e.g. 54.99"
+                          className="w-32"
+                          data-testid="bulk-was-price-input"
+                        />
+                        <span className="text-sm text-gray-500">crossed-out anchor price</span>
+                      </div>
+                      <p className="text-xs text-gray-500 mt-2 bg-red-50 border border-red-100 rounded-lg p-2">
+                        Your list price stays exactly as it is. The storefront shows
+                        <span className="line-through mx-1">WAS £{form.was_price || '54.99'}</span>
+                        with the current price in <b className="text-red-600">bold red as the SALE price</b>, and the
+                        total % saved (WAS → final price, including volume tiers and the extra trade
+                        discount once a trade customer signs in).
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-3">
+                      <Input
+                        type="number"
+                        step="0.1"
+                        value={form.discount_percentage}
+                        onChange={(e) => setForm(prev => ({ ...prev, discount_percentage: e.target.value }))}
+                        placeholder="Discount %"
+                        className="w-32"
+                        data-testid="bulk-discount-percent-input"
+                      />
+                      <span className="text-sm text-gray-500">% off current price</span>
+                    </div>
+                  )}
                 </div>
               )}
             </div>

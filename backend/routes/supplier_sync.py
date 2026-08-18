@@ -5430,6 +5430,7 @@ class BulkLabelsRequest(BaseModel):
 class BulkSalePricingRequest(BaseModel):
     product_ids: List[dict]  # [{"sku": "...", "supplier": "..."}]
     discount_percentage: Optional[float] = None  # Apply this discount to all
+    was_price: Optional[float] = None  # Explicit WAS anchor price — selling price stays unchanged
     was_price_markup: Optional[float] = None  # Markup over cost_price for was_price
     sale_active: bool = True
     clear_sale: bool = False  # If true, removes all sale pricing
@@ -7090,7 +7091,7 @@ def update_product_sale_pricing(data: ProductSalePricingRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-class BulkSalePricingRequest(BaseModel):
+class BulkSalePricingPutRequest(BaseModel):
     products: List[dict]  # List of {supplier, sku}
     sale_active: bool = True
     was_markup_percent: Optional[float] = None
@@ -7099,7 +7100,7 @@ class BulkSalePricingRequest(BaseModel):
 
 
 @router.put("/products/bulk-sale-pricing")
-def bulk_update_sale_pricing(data: BulkSalePricingRequest):
+def bulk_update_sale_pricing_put(data: BulkSalePricingPutRequest):
     """
     Bulk update sale pricing and labels for multiple products.
     
@@ -7567,18 +7568,29 @@ def bulk_update_sale_pricing(data: BulkSalePricingRequest):
                 else:
                     cost_price = product.get("cost_price", 0) or 0
                     current_price = product.get("price", 0) or 0
-                    
-                    # Calculate was_price
-                    if data.was_price_markup and cost_price > 0:
-                        was_price = round(cost_price * (1 + data.was_price_markup / 100), 2)
-                    else:
-                        was_price = current_price
-                    
-                    # Calculate now_price from discount
-                    if data.discount_percentage and was_price > 0:
-                        now_price = round(was_price * (1 - data.discount_percentage / 100), 2)
-                    else:
+                    discount_pct = data.discount_percentage
+
+                    if data.was_price and data.was_price > 0:
+                        # Explicit WAS mode: the selling price stays unchanged;
+                        # WAS is the crossed-out anchor. Derive the sale % from it.
+                        was_price = round(float(data.was_price), 2)
                         now_price = current_price
+                        if current_price <= 0 or was_price <= current_price:
+                            errors.append(f"{sku}: WAS price £{was_price} must be higher than the current price £{current_price}")
+                            continue
+                        discount_pct = round((was_price - current_price) / was_price * 100, 1)
+                    else:
+                        # Calculate was_price
+                        if data.was_price_markup and cost_price > 0:
+                            was_price = round(cost_price * (1 + data.was_price_markup / 100), 2)
+                        else:
+                            was_price = current_price
+
+                        # Calculate now_price from discount
+                        if data.discount_percentage and was_price > 0:
+                            now_price = round(was_price * (1 - data.discount_percentage / 100), 2)
+                        else:
+                            now_price = current_price
                     
                     # Calculate profit
                     profit = round(now_price - cost_price, 2) if cost_price > 0 else 0
@@ -7588,7 +7600,7 @@ def bulk_update_sale_pricing(data: BulkSalePricingRequest):
                         "$set": {
                             "was_price": was_price,
                             "now_price": now_price,
-                            "discount_percentage": data.discount_percentage,
+                            "discount_percentage": discount_pct,
                             "sale_active": data.sale_active,
                             "sale_profit": profit,
                             "sale_profit_margin": profit_margin,
@@ -7601,7 +7613,7 @@ def bulk_update_sale_pricing(data: BulkSalePricingRequest):
                         "name": product.get("product_name", ""),
                         "was_price": was_price,
                         "now_price": now_price,
-                        "discount": data.discount_percentage,
+                        "discount": discount_pct,
                         "profit": profit
                     })
                 
@@ -7619,13 +7631,29 @@ def bulk_update_sale_pricing(data: BulkSalePricingRequest):
                             "$unset": {"was_price": "", "now_price": "", "discount_percentage": ""}
                         }
                     )
+                    db.tiles.update_many(
+                        {"sku": sku},
+                        {
+                            "$set": {"sale_active": False},
+                            "$unset": {"was_price": "", "now_price": "", "discount_percentage": ""}
+                        }
+                    )
                 else:
                     db.products.update_one(
                         {"sku": sku},
                         {"$set": {
                             "was_price": was_price,
                             "now_price": now_price,
-                            "discount_percentage": data.discount_percentage,
+                            "discount_percentage": discount_pct,
+                            "sale_active": data.sale_active
+                        }}
+                    )
+                    db.tiles.update_many(
+                        {"sku": sku},
+                        {"$set": {
+                            "was_price": was_price,
+                            "now_price": now_price,
+                            "discount_percentage": discount_pct,
                             "sale_active": data.sale_active
                         }}
                     )
