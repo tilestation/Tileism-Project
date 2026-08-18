@@ -1,0 +1,57 @@
+{
+  "summary": "Full save→display parity sweep on TestSeries fixture (LP-3611 / LP-6611). Backend pytest 17/18 pass, one real bug found: sale-display fields do NOT compute discount_percentage/sale_savings in preview serializer, and the storefront PDP does NOT render the WAS-price strikethrough nor a %-OFF sale chip. Every other attribute — color, finish (incl. finishes[] multi-value), material, thickness, slip_rating (R10), suitability, made_in (Italy flag row rendered near price), tiles_per_box (auto-computed sqm_per_box=1.08 for 30x60), custom_specs (FROST PROOF card), field_label_overrides (finish → SURFACE), list_price↔price↔room_lot_price both directions, draft path with is_draft=true full pass-through — SAVES AND DISPLAYS correctly. Fixture fully restored (LP-3611 price=49.99, LP-6611 price=28.99, colors/custom_specs/field_label_overrides cleared).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "GET /api/tiles/collection/{series}?preview=1",
+        "issue": "When sale_active=true and was_price is set, serializer returns discount_percentage=None and sale_savings=None. Expected: discount_percentage = round((was_price-price)/was_price*100) = ~19% for was 52.99 / price 42.99. Verified via API: {price:42.99, was_price:52.99, sale_active:true, discount_percentage:null, sale_savings:null, was_markup_percent:null}. This appears to break the frontend sale chip render."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "CollectionDetailPage.js — sale display",
+        "issue": "With sale_active=true & was_price=52.99 & list_price=42.99 saved on LP-3611, the PDP shows '£42.99/m²' but does NOT render the crossed-out WAS £52.99 nor a '% OFF' badge/chip. The Volume Pricing table renders correctly (Your Price £42.99, Extra 5/10/15% off tiers) but the requested sale visualisation is missing. Likely because backend returns discount_percentage=null (see backend minor issue) and the sale-strike component may be gated on that field being truthy.",
+        "selector": "PDP price area near '£42.99/m²' / expected .line-through span with £52.99",
+        "priority": "HIGH"
+      }
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_results": {
+    "backend_pytest_summary": "17 passed, 1 failed (test_sale_fields_flow — see backend minor issue).",
+    "attribute_parity_sweep_via_api": "PASS on all 7 scalar attrs (color, finish, material, thickness, slip_rating, suitability, made_in), finishes[] array, tiles_per_box→sqm_per_box auto-compute (6 tiles × 0.18m² = 1.08 m² verified), custom_specs, field_label_overrides. All values echoed back correctly by /api/tiles/collection/TestSeries?preview=1.",
+    "price_parity_both_directions": "PASS. Saving {list_price:42.99} → preview price=42.99 & room_lot_price=42.99. Saving {price:55.99} → list_price/room_lot_price follow to 55.99.",
+    "draft_path_full_pass_through": "PASS. Deleted LP-6611 from db.tiles + db.products (with backup+restore), preview API returned LP-6611 with is_draft=true AND all saved fields (color='Emerald', finish='Polished') preserved.",
+    "regression_health": "PASS — /api/health returns healthy in <1s.",
+    "regression_non_preview_collection": "PASS — /api/tiles/collection/TestSeries (no preview flag) returns products with correct prices.",
+    "frontend_pdp_lp3611_render_after_selecting_30x60_size": "PASS on 13/14 assertions — visible on page: Made in Italy flag (Italian tricolour flag icon) near price box, £42.99/m² price, SURFACE spec card (renamed from Finish) showing 'Matt, Semi Polished', MATERIAL Porcelain, THICKNESS 9mm, SUITABILITY Wall & Floor, SLIP RATING R10, COUNTRY OF ORIGIN Italy, TILES PER BOX 6, COVERAGE PER BOX 1.08 m², FROST PROOF: Yes (custom spec card), Colour Black chip. FAIL: no WAS £52.99 strikethrough / no %-OFF sale chip.",
+    "sizes_cross_filter": "PASS — with Matt finish selected (only LP-3611 has it) size chips show ONLY '30x60cm £42.99'. Selecting Semi Polished (both tiles have it) shows BOTH '30x60cm £42.99' and '60x60cm £28.99'. Cross-filter working as designed.",
+    "console_errors_non_blocking": "Repeated 'Error fetching tier pricing / cross-group recommendations: TypeError: Failed to fetch' — appears to be from emergent-main.js network interception on preview mode; does not block rendering of the tested features."
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_save_display_parity.py",
+    "/app/test_reports/pytest/save_display_parity.xml"
+  ],
+  "action_items": [
+    "FIX serializer_tile_for_shop in /app/backend/tiles.py to compute discount_percentage and sale_savings when sale_active=true and was_price>price (formula: round((was-price)/was*100) for %, was-price for £ savings). Currently these come back as null in preview API output.",
+    "VERIFY the CollectionDetailPage sale-display component: even when discount_percentage is present, ensure the WAS £{was_price} strikethrough and % OFF chip actually render (they were absent in the current build with sale_active=true, was_price=52.99). Suspected root cause: component reads discount_percentage which was null."
+  ],
+  "critical_code_review_comments": [
+    "backend serializer: sale_savings & discount_percentage & was_markup_percent should ALWAYS be derived server-side when sale_active is true, not left as raw persisted fields, to avoid frontend having to duplicate the math.",
+    "PDP defaulted to a 60x120 sibling product instead of LP-3611 even when ?sku=LP-3611 was passed in the URL — the sku URL param is not respected by the initial-product selector. Not a blocker (user can click the 30x60 size chip) but worth wiring."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_save_display_parity.py"
+  ],
+  "success_rate": { "backend": "94% (17/18)", "frontend": "93% (13/14 PDP render checks + all cross-filter/size/price/made-in/custom-spec checks)" },
+  "test_credentials": "admin@test.com / admin123 via /api/auth/login",
+  "seed_data_creation": "None persisted. LP-3611 fully restored: price=49.99, color='', custom_specs=[], field_label_overrides={}, sale_active=false, was_price=null, made_in='', tiles_per_box=0. LP-6611 restored: price=28.99, color=''. (Note: 'finish' field could not be reset to empty string — remained as 'Matt'/'Polished' from prior state; NOT caused by this run.)",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Sale-display bug is the single outstanding issue from the parity sweep. Once main agent fixes serializer to emit discount_percentage/sale_savings for sale_active=true rows AND ensures PDP renders the strikethrough+%-OFF chip, re-run test_sale_fields_flow in /app/backend/tests/test_save_display_parity.py plus a quick browser check on /shop/collection/TestSeries?preview=1 → select 30x60 size → confirm WAS £52.99 strikethrough visible and a % OFF chip near the £42.99 price. Also note: PDP initial-product routing via ?sku= URL param is not honoured — user has to click the size chip to switch products.",
+  "rca of the issue": "Sale strike/chip missing on PDP root cause: /api/tiles/collection/{series}?preview=1 serializer returns discount_percentage=null and sale_savings=null even when sale_active=true & was_price>price are persisted. Frontend sale-badge JSX in CollectionDetailPage.js appears to gate on discount_percentage being truthy → nothing renders. Fix in serialize_tile_for_shop (tiles.py ~line 97): after resolving price and was_price, if sale_active and was_price>0 and was_price>price: discount_percentage = round((was_price-price)/was_price*100, 0); sale_savings = round(was_price-price, 2)."
+}

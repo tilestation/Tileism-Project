@@ -2609,7 +2609,7 @@ def publish_supplier_products_to_website(
                 
                 # Calculate prices
                 cost_price = sp.get('cost_price') or 0
-                list_price = sp.get('price') or sp.get('list_price') or 0
+                list_price = sp.get('list_price') or sp.get('price') or 0
                 
                 # If no list price, calculate from cost (e.g., 2x markup)
                 if not list_price and cost_price:
@@ -12541,6 +12541,11 @@ def bulk_update_unified(data: dict):
         if "price" in set_fields:
             set_fields["list_price"] = set_fields["price"]
             set_fields["room_lot_price"] = set_fields["price"]
+        elif "list_price" in set_fields:
+            # Admin's manual List £ IS the storefront price — sync it forward so
+            # the website never keeps showing the old supplier-sync price
+            set_fields["price"] = set_fields["list_price"]
+            set_fields["room_lot_price"] = set_fields["list_price"]
         
         # IMPORTANT: Sync main_category to product_group for customer-facing page queries
         # The customer-facing collections page filters by product_group, so when admin
@@ -12649,6 +12654,11 @@ def bulk_update_unified(data: dict):
                 continue
             set_fields[k] = v
 
+        # Manual List £ arrives via the catch-all above — it IS the storefront
+        # price, so sync it forward (unless an explicit price was also sent)
+        if "list_price" in set_fields and "price" not in updates:
+            set_fields["price"] = set_fields["list_price"]
+            set_fields["room_lot_price"] = set_fields["list_price"]
         
         staging_updated = 0
         supplier_updated = 0
@@ -12872,7 +12882,7 @@ def bulk_update_unified(data: dict):
                         
                         display_code = sp.get('display_code', '')
                         cost_price = sp.get('cost_price') or 0
-                        list_price = sp.get('price') or sp.get('list_price') or 0
+                        list_price = sp.get('list_price') or sp.get('price') or 0
                         if not list_price and cost_price:
                             list_price = round(cost_price * 2, 2)
                         
@@ -13134,7 +13144,16 @@ def bulk_update_unified(data: dict):
                     logger.warning(f"Bulk save verification: {len(verification_failures)} field mismatch(es) across {verification_checked} products (100% checked)")
         except Exception as ver_err:
             logger.warning(f"Bulk save verification skipped: {ver_err}")
-        
+
+        # Bust storefront caches so admin saves reflect on the website immediately
+        try:
+            from utils.endpoint_cache import endpoint_cache
+            endpoint_cache.invalidate("tiles_collections")
+            endpoint_cache.invalidate("collection_products")
+            endpoint_cache.invalidate("tiles_related")
+        except Exception:
+            pass
+
         return {
             "success": True,
             "staging_updated": staging_updated,

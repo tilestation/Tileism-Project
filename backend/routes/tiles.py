@@ -216,12 +216,19 @@ def serialize_tile_for_shop(tile: dict) -> dict:
         "quote_disabled": tile.get("quote_disabled", False),
         "custom_quote_threshold": tile.get("custom_quote_threshold"),
         "tier_pricing_disabled": tile.get("tier_pricing_disabled", False),
-        # Sale pricing (WAS/NOW display)
+        # Sale pricing (WAS/NOW display) — always derive % and savings
+        # server-side so the storefront never gets a sale without its chip
         "sale_active": tile.get("sale_active", False),
         "was_price": tile.get("was_price"),
         "was_markup_percent": tile.get("was_markup_percent"),
-        "discount_percentage": tile.get("discount_percentage"),
-        "sale_savings": tile.get("sale_savings"),
+        "discount_percentage": tile.get("discount_percentage") or (
+            round(((tile.get("was_price") or 0) - room_lot_price) / (tile.get("was_price") or 1) * 100)
+            if tile.get("sale_active") and (tile.get("was_price") or 0) > room_lot_price > 0 else None
+        ),
+        "sale_savings": tile.get("sale_savings") or (
+            round((tile.get("was_price") or 0) - room_lot_price, 2)
+            if tile.get("sale_active") and (tile.get("was_price") or 0) > room_lot_price > 0 else None
+        ),
         "labels": tile.get("labels", []),
         # Box info for tile calculator
         "tiles_per_box": tile.get("tiles_per_box"),
@@ -1948,7 +1955,8 @@ async def _get_collection_products_impl(
             # Show the product name EXACTLY as it appears in Supplier Products —
             # no size suffix (size renders separately on the landing page).
             d_name = base_name.strip()
-            d_price = sp.get("price") or sp.get("list_price") or 0
+            # Manual admin list price wins over the supplier-sync price
+            d_price = sp.get("list_price") or sp.get("price") or 0
             if not d_price and sp.get("cost_price"):
                 d_price = round(sp["cost_price"] * 2, 2)
             # FULL pass-through of the supplier product — whatever the admin
