@@ -90,6 +90,32 @@ const canonicalSizeLabel = (s) => {
 };
 const dedupeSizeLabels = (sizes) => [...new Set((sizes || []).map(canonicalSizeLabel).filter(Boolean))];
 
+// Real-colour vocabulary — used to auto-label the variant selector
+// ("Colour" vs "Design" vs "Colour / Design") for collections whose variants
+// are design names (e.g. Romantic, Leaf, Garden) rather than colours.
+const COLOUR_WORDS = new Set([
+  'white', 'black', 'grey', 'gray', 'beige', 'cream', 'ivory', 'brown', 'taupe', 'sand',
+  'anthracite', 'charcoal', 'graphite', 'silver', 'gold', 'blue', 'navy', 'teal', 'aqua',
+  'turquoise', 'green', 'olive', 'sage', 'mint', 'red', 'terracotta', 'burgundy', 'maroon',
+  'pink', 'blush', 'rose', 'purple', 'violet', 'lilac', 'lavender', 'yellow', 'mustard',
+  'ochre', 'orange', 'amber', 'copper', 'bronze', 'rust', 'mocha', 'coffee', 'chocolate',
+  'tan', 'camel', 'greige', 'pearl', 'smoke', 'ash', 'bone', 'multicolour', 'multicolor', 'multi',
+  // Italian / Spanish colour names common in tile ranges
+  'bianco', 'blanco', 'nero', 'negro', 'grigio', 'gris', 'crema', 'marfil', 'avorio',
+  'antracite', 'marrone', 'marron', 'azul', 'azzurro', 'verde', 'rosso', 'rojo', 'rosa',
+  'oro', 'plata', 'perla', 'arena', 'tortora', 'moka', 'cotto',
+]);
+const isRealColour = (name) =>
+  String(name || '').toLowerCase().split(/[^a-z]+/).some(w => COLOUR_WORDS.has(w));
+
+const hexIsDark = (hex) => {
+  const m = /^#?([0-9a-f]{6})$/i.exec(String(hex || ''));
+  if (!m) return false;
+  const n = parseInt(m[1], 16);
+  const lum = 0.299 * ((n >> 16) & 255) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255);
+  return lum < 140;
+};
+
 const CollectionDetailPage = () => {
   // Splat route: param name is '*' (allows slashes in collection names like "70 x 350 x 20/5mm")
   const params = useParams();
@@ -110,6 +136,7 @@ const CollectionDetailPage = () => {
   const [productTradeDiscount, setProductTradeDiscount] = useState(null);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [collectionDescription, setCollectionDescription] = useState('');
+  const [variantLabelOverride, setVariantLabelOverride] = useState('');
   const [descriptionSource, setDescriptionSource] = useState(''); // 'custom', 'series', or 'auto'
   const [isAddingToCart, setIsAddingToCart] = useState(false);
   const [cartAdded, setCartAdded] = useState(false);  
@@ -345,6 +372,7 @@ const CollectionDetailPage = () => {
         }
         
         // Get custom description (admin-set) or series-level description
+        setVariantLabelOverride(data.variant_label || '');
         const desc = (data.custom_description && data.custom_description.trim()) 
           ? data.custom_description 
           : (data.series_description && data.series_description.trim()) 
@@ -875,6 +903,18 @@ const CollectionDetailPage = () => {
   }, [products, selectedColor, hasMultipleFinishes, matchesSelectedVariant]);
 
   // Get all sizes — indoor first sorted by area (width × height), outdoor at the end
+  // Row label for the variant selector: admin override → auto-detect from the
+  // variant names (all colours → "Colour", none → "Design", mixed → "Colour / Design")
+  const variantRowLabel = useMemo(() => {
+    if (variantLabelOverride) return variantLabelOverride;
+    if (colorOptions.length === 0) return 'Colour';
+    if (!colorOptions.some(c => c.variantType === 'color')) return 'Variant';
+    const colourish = colorOptions.filter(o => isRealColour(o.name)).length;
+    if (colourish === colorOptions.length) return 'Colour';
+    if (colourish === 0) return 'Design';
+    return 'Colour / Design';
+  }, [colorOptions, variantLabelOverride]);
+
   const allSizes = useMemo(() => {
     const sizes = products.map(p => p.size || (p.attributes && p.attributes.size) || '').filter(Boolean);
     const parseDims = (s) => {
@@ -2616,8 +2656,8 @@ const CollectionDetailPage = () => {
             {/* Color Selector — hidden for material collections */}
             {!isMaterialCollection && colorOptions.length > 0 && (
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  {colorOptions.some(c => c.variantType === 'color') ? 'Colour' : 'Variant'}: <span className={`font-normal ${selectedColor ? 'text-gray-500' : 'text-amber-600'}`}>
+                <label className="block text-sm font-medium text-gray-700 mb-2" data-testid="variant-row-label">
+                  {variantRowLabel}: <span className={`font-normal ${selectedColor ? 'text-gray-500' : 'text-amber-600'}`}>
                     {selectedColor ? formatColorName(selectedColor) : 'Please select'}
                   </span>
                 </label>
@@ -2682,9 +2722,13 @@ const CollectionDetailPage = () => {
                         </div>
                       ) : (
                         <div 
-                          className="w-20 h-20 rounded-lg border border-gray-200"
+                          className="w-20 h-20 rounded-lg border border-gray-200 flex items-center justify-center px-1"
                           style={{ backgroundColor: color.hex }}
-                        />
+                        >
+                          <span className={`text-[10px] font-semibold text-center leading-tight break-words ${hexIsDark(color.hex) ? 'text-white' : 'text-gray-600'}`}>
+                            {formatColorName(color.name)}
+                          </span>
+                        </div>
                       )}
                       {selectedColor === color.name && (
                         <div className="absolute inset-0 flex items-center justify-center bg-black/20 rounded-lg" style={{width: '80px', height: '80px'}}>
@@ -3329,7 +3373,7 @@ const CollectionDetailPage = () => {
                 {selectedProduct?._isPreview && isSurfaceProduct && (
                   <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800">
                     Please select {[
-                      colorOptions.length > 0 && !selectedColor ? (colorOptions.some(c => c.variantType === 'color') ? 'Colour' : 'Variant') : null,
+                      colorOptions.length > 0 && !selectedColor ? variantRowLabel : null,
                       hasMultipleFinishes && finishOptions.length > 0 && !selectedFinish ? 'Finish' : null,
                       styleOptions.length > 1 && !selectedStyle ? styleSelectorLabel : null,
                       availableSizes.length > 0 && !selectedSize ? 'Size' : null

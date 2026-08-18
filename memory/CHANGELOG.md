@@ -3827,3 +3827,11 @@ Local repro published the 6 ULT-* products: card shows "6 VARIANTS" with 6 full-
 3. `BulkSpecsFiltersModal.jsx`: clickable suggestion chips under every text-input filter/spec row (fills value + auto-ticks); every applied text value auto-saved as a preset.
 4. `ManagerPageShell.jsx` passes attributeOptions (config.filter_facets + spec_fields) — per-manager as requested.
 **Tested**: iteration_232 100% (7/7): switcher pills, chips, finish bucket e2e assign + persistence + restore, spec chips fill+tick, typed-value auto-save appears as chip, colour regression. Post-test polish: modal state resets on open (Colour default), save-loop cleaned.
+
+### [Aug 18, 2026] Variant selector smart label ("Colour" vs "Design") + admin override — SHIPPED & TESTED
+**User ask**: collections like Botticino have design NAMES (Romantic, Leaf, Garden) or a mix in the colour field — how to show properly on collection/PDP. User approved: auto-label + per-collection override.
+**Built**:
+1. `CollectionDetailPage.js`: COLOUR_WORDS vocabulary (English + Italian/Spanish tile colours: bianco/grigio/blanco…), `isRealColour`, `variantRowLabel` useMemo — override → else all colours='Colour', none='Design', mixed='Colour / Design'. Applied to the selector label (data-testid variant-row-label) + "Please select" hint list. Blank chips (no image) now show the variant name centered with contrast-aware text (hexIsDark).
+2. Per-collection override: `variant_label` in `collection_settings` — whitelisted in PUT /api/website-admin/collections/{series}, returned by GET /api/tiles/collection/{series} AND the admin collections list (added to BOTH the custom_settings extraction ~2277 and collections.append).
+3. `CollectionManager.jsx`: "Variant label" select (Auto/Colour/Design/Pattern/Style/Range) on grid cards (default view) AND reorder list rows; testid variant-label-select-{series}.
+**Tested**: unit (Botticino mix → 'Colour / Design'; pure sets correct), e2e override set → storefront "Design: Bianco", cleared → auto "Colour: Bianco", admin grid select renders. GOTCHA: /api/tiles/collection has a ~60s response cache — changes take up to a minute to appear (cache key includes query params).

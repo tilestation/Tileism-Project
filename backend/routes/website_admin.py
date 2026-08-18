@@ -2281,6 +2281,7 @@ async def get_all_collections():
                 "is_featured": setting.get("is_featured", False),
                 "display_order": setting.get("display_order", 0),
                 "is_hidden": setting.get("is_hidden", False),
+                "variant_label": setting.get("variant_label"),
             }
         
         # Build collections list
@@ -2302,6 +2303,7 @@ async def get_all_collections():
                 "hero_image": settings.get("custom_hero_image") or auto_image,
                 "custom_title": settings.get("custom_title"),
                 "custom_description": settings.get("custom_description"),
+                "variant_label": settings.get("variant_label"),
                 "is_featured": settings.get("is_featured", False),
                 "display_order": settings.get("display_order", 0),
                 "is_hidden": settings.get("is_hidden", False),
@@ -2344,6 +2346,8 @@ async def update_collection_settings(series_name: str, settings: dict):
             update_data["display_order"] = settings["display_order"]
         if "is_hidden" in settings:
             update_data["is_hidden"] = settings["is_hidden"]
+        if "variant_label" in settings:
+            update_data["variant_label"] = settings["variant_label"]
         
         await db.collection_settings.update_one(
             {"series_name": series_name},

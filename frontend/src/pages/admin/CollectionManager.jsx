@@ -572,6 +572,18 @@ export default function CollectionManager({ embedded = false }) {
                 
                 {/* Actions */}
                 <div className="flex items-center gap-2">
+                  <select
+                    value={collection.variant_label || ''}
+                    onChange={(e) => handleUpdateSettings(collection.series_name, { variant_label: e.target.value || null })}
+                    className="h-8 text-xs border border-gray-200 rounded-md px-1.5 bg-white text-gray-600"
+                    title="Storefront variant selector label — Auto detects colour vs design names"
+                    data-testid={`variant-label-select-${collection.series_name}`}
+                  >
+                    <option value="">Label: Auto</option>
+                    {['Colour', 'Design', 'Pattern', 'Style', 'Range'].map(o => (
+                      <option key={o} value={o}>{o}</option>
+                    ))}
+                  </select>
                   <Button
                     size="sm"
                     variant="outline"
@@ -620,6 +632,7 @@ export default function CollectionManager({ embedded = false }) {
               onRemoveImage={handleRemoveCustomImage}
               onToggleFeatured={toggleFeatured}
               onToggleHidden={toggleHidden}
+              onUpdateSettings={handleUpdateSettings}
               isUploading={uploadingFor === collection.series_name}
               isR2Url={isR2Url}
             />
@@ -642,6 +655,7 @@ function CollectionCard({
   onRemoveImage,
   onToggleFeatured, 
   onToggleHidden,
+  onUpdateSettings,
   isUploading,
   isR2Url
 }) {
@@ -761,6 +775,23 @@ function CollectionCard({
         <p className="text-sm text-gray-500">
           {collection.product_count} products
         </p>
+
+        {/* Storefront variant selector label (Colour vs Design etc.) */}
+        <div className="flex items-center gap-1.5 mt-2">
+          <span className="text-[10px] uppercase tracking-wide text-gray-400">Variant label</span>
+          <select
+            value={collection.variant_label || ''}
+            onChange={(e) => onUpdateSettings && onUpdateSettings(collection.series_name, { variant_label: e.target.value || null })}
+            className="h-6 text-[11px] border border-gray-200 rounded px-1 bg-white text-gray-600 flex-1"
+            title="How the variant row is labelled on the collection page — Auto detects colours vs design names"
+            data-testid={`variant-label-select-${collection.series_name}`}
+          >
+            <option value="">Auto</option>
+            {['Colour', 'Design', 'Pattern', 'Style', 'Range'].map(o => (
+              <option key={o} value={o}>{o}</option>
+            ))}
+          </select>
+        </div>
 
         {/* Action buttons */}
         <div className="flex gap-1 mt-3">
