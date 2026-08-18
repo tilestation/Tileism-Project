@@ -274,11 +274,10 @@ const AssignColoursModal = ({ open, onOpenChange, selectedList = [], onSuccess, 
         );
         console.warn('[Assign Attributes] Verification failures:', allVerFailures);
       } else {
-        toast.success(`Assigned ${attr.label.toLowerCase()} to ${totalUpdated} product(s) across ${nonEmpty.length} bucket(s)`);
+        toast.success(`Assigned ${attr.label.toLowerCase()} to ${totalUpdated} product(s) — keep assigning or close when done`);
       }
-      onOpenChange(false);
+      // Stay open with buckets + selection intact — user closes when done
       if (onSuccess) onSuccess({ updated: totalUpdated, failures: allVerFailures });
-      setBuckets([]);
     } catch (err) {
       console.error('[Assign Attributes] Save failed', err);
       toast.error(`Save failed: ${err.message}`);

@@ -947,7 +947,7 @@ const ManagerPageShell = ({
           if (!seen.has('thickness')) out.push({ key: 'thickness', label: 'Thickness', arrayField: null });
           return out;
         })()}
-        onSuccess={() => { bulk.clearAll(); fetchProducts(); }}
+        onSuccess={() => fetchProducts()}
       />
       <CustomManagerBuilder open={builderOpen} onOpenChange={setBuilderOpen} />
       <BulkFieldsModal open={showBulkFields} onOpenChange={setShowBulkFields} selectedList={bulk.getSelectedList()} themeColor={theme} onSuccess={() => { bulk.clearAll(); fetchProducts(); }} />

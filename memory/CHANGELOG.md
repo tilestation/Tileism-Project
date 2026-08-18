@@ -3845,3 +3845,8 @@ Local repro published the 6 ULT-* products: card shows "6 VARIANTS" with 6 full-
 - Saved-value chips get a hover × delete — POST /api/attribute-values/remove pulls the value AND adds it to a 'hidden' list so in-use values stop resurfacing; re-saving un-hides.
 - Smart Variant Labels moved into the Assign modal's Colour tab: indigo 'Storefront variant label' panel lists every series in the selection with Auto/Colour/Design/Pattern/Style/Range dropdowns, saving instantly via PUT /api/website-admin/collections/{series}. Removed both variant-label dropdowns from CollectionManager.jsx (one-place management).
 - E2E verified via screenshot: panel renders 20 series, label change toasts + persists, chip delete works, instant bucket save works. Test data cleaned up.
+
+## Aug 18, 2026 — Assign modal stays open after save (bug fix)
+- handleSave no longer calls onOpenChange(false)/setBuckets([]) — modal stays open with buckets + toast 'keep assigning or close when done'.
+- ManagerPageShell AssignColoursModal onSuccess no longer calls bulk.clearAll() — product selection survives save AND manual close (selection persisted in localStorage by useManagerBulk).
+- E2E verified: save 2 TestSeries products → modal open, buckets intact; Escape → '2 selected' bulk bar still shown. Fixture colour reset afterwards.
