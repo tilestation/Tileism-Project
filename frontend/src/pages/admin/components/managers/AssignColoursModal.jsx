@@ -19,11 +19,12 @@ import { Button } from '../../../../components/ui/button';
 import { Input } from '../../../../components/ui/input';
 import { Badge } from '../../../../components/ui/badge';
 import {
-  Palette, Plus, X, Save, RefreshCw, ArrowRight, CheckCircle, AlertCircle, GripVertical, Tags, Layers, Sliders,
+  Palette, Plus, X, Save, RefreshCw, ArrowRight, CheckCircle, AlertCircle, GripVertical, Tags, Layers, Sliders, LayoutGrid,
 } from 'lucide-react';
 import { getSeriesName } from '../../lib/series';
 import { SubCategoriesTab } from './SubCategoriesTab';
 import { CustomSpecsTab } from './CustomSpecsTab';
+import { ShopTabsPanel } from './ShopTabsAssignModal';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
 
@@ -77,16 +78,17 @@ const AssignColoursModal = ({ open, onOpenChange, selectedList = [], onSuccess, 
       .catch(() => setSuggestions([]));
   }, [open, attr]);
 
-  // Multi-value mode: products can live in MULTIPLE buckets and saving APPENDS
-  // (e.g. a tile that is both Matt AND Semi Polished). Replace mode = one value.
-  const [multiMode, setMultiMode] = useState(false);
+  // Save mode: 'replace' (one value per product) | 'add' (append multi-value)
+  // | 'remove' (strip the bucket's value from the products in it)
+  const [saveMode, setSaveMode] = useState('replace');
+  const isMulti = saveMode !== 'replace';
 
   const switchAttribute = (a) => {
     if (a.key === attr.key) return;
     setAttr(a);
     setBuckets([]);   // buckets are per-attribute
     setNewColour('');
-    setMultiMode(false);
+    setSaveMode('replace');
   };
 
   // Delete a saved-value chip (also hides it from in-use suggestions)
@@ -179,8 +181,8 @@ const AssignColoursModal = ({ open, onOpenChange, selectedList = [], onSuccess, 
     [selectedList, assignedSkus]
   );
 
-  // Pool shown on the left: in multi mode products never leave the pool
-  const poolProducts = multiMode ? selectedList : unassignedProducts;
+  // Pool shown on the left: in add/remove modes products never leave the pool
+  const poolProducts = isMulti ? selectedList : unassignedProducts;
 
   const addBucket = (presetName) => {
     const name = (presetName ?? newColour).trim();
@@ -210,7 +212,7 @@ const AssignColoursModal = ({ open, onOpenChange, selectedList = [], onSuccess, 
     setBuckets(prev => prev.map((b, i) => {
       const nextSkus = new Set(b.skus);
       if (i === bucketIdx) nextSkus.add(sku);
-      else if (!multiMode) nextSkus.delete(sku);
+      else if (!isMulti) nextSkus.delete(sku);
       return { ...b, skus: nextSkus };
     }));
   };
@@ -218,13 +220,13 @@ const AssignColoursModal = ({ open, onOpenChange, selectedList = [], onSuccess, 
   // One-click: move every pool product into the chosen bucket
   const assignAllToBucket = (bucketName) => {
     const target = buckets.find(b => b.name === bucketName);
-    const source = multiMode ? selectedList : unassignedProducts;
+    const source = isMulti ? selectedList : unassignedProducts;
     const skus = source.map(p => p.sku || p.supplier_code).filter(s => s && !(target && target.skus.has(s)));
     if (skus.length === 0) return;
     setBuckets(prev => prev.map(b =>
       b.name === bucketName ? { ...b, skus: new Set([...b.skus, ...skus]) } : b
     ));
-    toast.success(`${multiMode ? 'Added' : 'Moved'} ${skus.length} product(s) to "${bucketName}"`);
+    toast.success(`${isMulti ? 'Added' : 'Moved'} ${skus.length} product(s) to "${bucketName}"`);
   };
 
   const removeSkuFromBucket = (sku, bucketIdx) => {
@@ -256,9 +258,9 @@ const AssignColoursModal = ({ open, onOpenChange, selectedList = [], onSuccess, 
           if (p.sku) idsSku.push(p.sku);
           else if (p.supplier_code) idsSupplierCode.push(p.supplier_code);
         });
-        const updates = multiMode
-          ? { [arrayFieldFor(attr)]: [bucket.name] }
-          : { [attr.key]: bucket.name, ...(attr.arrayField ? { [attr.arrayField]: [bucket.name] } : {}) };
+        const updates = saveMode === 'replace'
+          ? { [attr.key]: bucket.name, ...(attr.arrayField ? { [attr.arrayField]: [bucket.name] } : {}) }
+          : { [arrayFieldFor(attr)]: [bucket.name] };
         for (const [ids, idField] of [[idsSku, 'sku'], [idsSupplierCode, 'supplier_code']]) {
           if (ids.length === 0) continue;
           const res = await fetch(`${API_URL}/api/supplier-sync/products/bulk-update-unified`, {
@@ -268,7 +270,7 @@ const AssignColoursModal = ({ open, onOpenChange, selectedList = [], onSuccess, 
               product_ids: ids,
               id_field: idField,
               updates,
-              mode: multiMode ? 'append' : 'replace',
+              mode: saveMode === 'add' ? 'append' : saveMode,
             }),
           });
           if (!res.ok) throw new Error(`HTTP ${res.status} on bucket "${bucket.name}"`);
@@ -292,7 +294,9 @@ const AssignColoursModal = ({ open, onOpenChange, selectedList = [], onSuccess, 
         );
         console.warn('[Assign Attributes] Verification failures:', allVerFailures);
       } else {
-        toast.success(`${multiMode ? 'Added' : 'Assigned'} ${attr.label.toLowerCase()} ${multiMode ? 'value(s) on' : 'to'} ${totalUpdated} product(s) — keep assigning or close when done`);
+        const verb = saveMode === 'add' ? 'Added' : saveMode === 'remove' ? 'Removed' : 'Assigned';
+        const prep = saveMode === 'remove' ? 'from' : saveMode === 'add' ? 'on' : 'to';
+        toast.success(`${verb} ${attr.label.toLowerCase()} value(s) ${prep} ${totalUpdated} product(s) — keep assigning or close when done`);
       }
       // Stay open with buckets + selection intact — user closes when done
       if (onSuccess) onSuccess({ updated: totalUpdated, failures: allVerFailures });
@@ -321,9 +325,11 @@ const AssignColoursModal = ({ open, onOpenChange, selectedList = [], onSuccess, 
           <p className="text-xs text-gray-500">
             {attr.key === '__subcats'
               ? 'Add or remove sub-category tags across the whole selection — with 100% verification and Undo.'
-              : attr.key === '__custom'
+              : attr.key === '__shoptabs'
+                ? 'Tick every website tab these products should appear under — multiple tabs are fine. Amber − means only some of the selection is there now.'
+                : attr.key === '__custom'
                 ? 'Add your own spec fields (saved for reuse) and rename field labels across the selection.'
-                : `Create a bucket per ${attr.label.toLowerCase()}, then move SKUs into the matching bucket. Each bucket becomes a separate save with 100% verification. ${multiMode ? 'Multi-value mode: products can sit in several buckets and each save ADDS the value.' : 'Products can only be in one bucket at a time.'}`}
+                : `Create a bucket per ${attr.label.toLowerCase()}, then move SKUs into the matching bucket. Each bucket becomes a separate save with 100% verification. ${saveMode === 'add' ? 'Multi-value mode: products can sit in several buckets and each save ADDS the value.' : saveMode === 'remove' ? 'Remove mode: each bucket STRIPS that value from the products you put in it.' : 'Products can only be in one bucket at a time.'}`}
           </p>
         </DialogHeader>
 
@@ -360,6 +366,16 @@ const AssignColoursModal = ({ open, onOpenChange, selectedList = [], onSuccess, 
             )}
             <button
               type="button"
+              onClick={() => switchAttribute({ key: '__shoptabs', label: 'Shop Tabs' })}
+              className={`px-2.5 py-1 rounded-full text-xs font-semibold transition-all inline-flex items-center gap-1 ${
+                attr.key === '__shoptabs' ? 'bg-blue-600 text-white' : 'bg-blue-50 text-blue-700 hover:bg-blue-100'
+              }`}
+              data-testid="assign-attr-__shoptabs"
+            >
+              <LayoutGrid className="w-3 h-3" /> Shop Tabs
+            </button>
+            <button
+              type="button"
               onClick={() => switchAttribute({ key: '__custom', label: 'Custom Specs' })}
               className={`px-2.5 py-1 rounded-full text-xs font-semibold transition-all inline-flex items-center gap-1 ${
                 attr.key === '__custom' ? 'bg-violet-600 text-white' : 'bg-violet-50 text-violet-700 hover:bg-violet-100'
@@ -373,6 +389,9 @@ const AssignColoursModal = ({ open, onOpenChange, selectedList = [], onSuccess, 
 
         {attr.key === '__subcats' && (
           <SubCategoriesTab selectedList={selectedList} subTabs={taggableSubTabs} onSuccess={onSuccess} />
+        )}
+        {attr.key === '__shoptabs' && (
+          <ShopTabsPanel selectedProducts={selectedList} onSaved={onSuccess} embedded />
         )}
         {attr.key === '__custom' && (
           <CustomSpecsTab selectedList={selectedList} attributeOptions={allAttributes} onSuccess={onSuccess} />
@@ -409,31 +428,41 @@ const AssignColoursModal = ({ open, onOpenChange, selectedList = [], onSuccess, 
           </div>
         )}
 
-        {/* Save mode: Replace (single value) vs Add (multi-value) */}
+        {/* Save mode: Replace (single) vs Add (multi-value) vs Remove (strip value) */}
         <div className="flex items-center gap-2 pt-1">
           <span className="text-[10px] uppercase tracking-wide text-gray-400">Save as:</span>
           <div className="inline-flex rounded-full border border-gray-200 overflow-hidden text-[11px] font-medium">
             <button
               type="button"
-              onClick={() => setMultiMode(false)}
-              className={`px-2.5 py-1 transition-colors ${!multiMode ? 'bg-orange-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}
+              onClick={() => setSaveMode('replace')}
+              className={`px-2.5 py-1 transition-colors ${saveMode === 'replace' ? 'bg-orange-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}
               data-testid="mode-replace-btn"
             >
               Replace value
             </button>
             <button
               type="button"
-              onClick={() => setMultiMode(true)}
-              className={`px-2.5 py-1 transition-colors ${multiMode ? 'bg-emerald-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}
+              onClick={() => setSaveMode('add')}
+              className={`px-2.5 py-1 transition-colors ${saveMode === 'add' ? 'bg-emerald-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}
               data-testid="mode-add-btn"
             >
               + Add (multi-value)
             </button>
+            <button
+              type="button"
+              onClick={() => setSaveMode('remove')}
+              className={`px-2.5 py-1 transition-colors ${saveMode === 'remove' ? 'bg-red-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}
+              data-testid="mode-remove-btn"
+            >
+              − Remove value
+            </button>
           </div>
           <span className="text-[10px] text-gray-400">
-            {multiMode
+            {saveMode === 'add'
               ? `Products can sit in several buckets — each bucket ADDS a ${attr.label.toLowerCase()} without replacing existing ones`
-              : `One ${attr.label.toLowerCase()} per product — saving replaces the old value`}
+              : saveMode === 'remove'
+                ? `Each bucket STRIPS that ${attr.label.toLowerCase()} from the products you put in it — existing other values stay`
+                : `One ${attr.label.toLowerCase()} per product — saving replaces the old value`}
           </span>
         </div>
 
@@ -497,17 +526,17 @@ const AssignColoursModal = ({ open, onOpenChange, selectedList = [], onSuccess, 
             onDragLeave={() => setDragOverBucket(null)}
           >
             <div className="flex items-center justify-between mb-2 gap-2">
-              <h4 className="font-semibold text-sm text-gray-700">{multiMode ? 'All products' : 'Unassigned'}</h4>
+              <h4 className="font-semibold text-sm text-gray-700">{isMulti ? 'All products' : 'Unassigned'}</h4>
               <div className="flex items-center gap-1.5">
                 {poolProducts.length > 0 && buckets.length > 0 && (
                   <select
                     value=""
                     onChange={(e) => { if (e.target.value) assignAllToBucket(e.target.value); }}
                     className="h-6 text-[11px] border border-orange-300 rounded px-1 bg-orange-50 text-orange-800 font-medium max-w-[130px]"
-                    title={multiMode ? 'Add every product to one bucket in one go' : 'Move every unassigned product into one bucket in one go'}
+                    title={isMulti ? 'Add every product to one bucket in one go' : 'Move every unassigned product into one bucket in one go'}
                     data-testid="assign-all-select"
                   >
-                    <option value="">{multiMode ? 'Add all to…' : 'Assign all to…'}</option>
+                    <option value="">{isMulti ? 'Add all to…' : 'Assign all to…'}</option>
                     {buckets.map(b => (
                       <option key={b.name} value={b.name}>{b.name}</option>
                     ))}
@@ -525,7 +554,7 @@ const AssignColoursModal = ({ open, onOpenChange, selectedList = [], onSuccess, 
               <ul className="space-y-1">
                 {poolProducts.map(p => {
                   const sku = p.sku || p.supplier_code;
-                  const memberships = multiMode ? buckets.filter(b => b.skus.has(sku)).map(b => b.name) : [];
+                  const memberships = isMulti ? buckets.filter(b => b.skus.has(sku)).map(b => b.name) : [];
                   const curArr = Array.isArray(p[arrayFieldFor(attr)]) && p[arrayFieldFor(attr)].length > 0 ? p[arrayFieldFor(attr)] : null;
                   const cur = curArr ? curArr.join(', ') : (p[attr.key] || null);
                   return (
@@ -542,7 +571,9 @@ const AssignColoursModal = ({ open, onOpenChange, selectedList = [], onSuccess, 
                           {p.supplier} · {sku}
                           {cur && <span className="ml-1 text-orange-600">(current: {cur})</span>}
                           {memberships.length > 0 && (
-                            <span className="ml-1 text-emerald-700 font-medium">[in: {memberships.join(', ')}]</span>
+                            <span className={`ml-1 font-medium ${saveMode === 'remove' ? 'text-red-600' : 'text-emerald-700'}`}>
+                              [{saveMode === 'remove' ? 'remove' : 'in'}: {memberships.join(', ')}]
+                            </span>
                           )}
                         </div>
                       </div>
@@ -553,9 +584,9 @@ const AssignColoursModal = ({ open, onOpenChange, selectedList = [], onSuccess, 
                           onChange={(e) => { if (e.target.value !== '') moveSkuToBucket(sku, Number(e.target.value)); }}
                           data-testid={`move-to-bucket-${sku}`}
                         >
-                          <option value="">{multiMode ? 'Add to…' : 'Move to…'}</option>
+                          <option value="">{isMulti ? (saveMode === 'remove' ? 'Strip via…' : 'Add to…') : 'Move to…'}</option>
                           {buckets.map((b, i) => (
-                            <option key={i} value={i} disabled={multiMode && b.skus.has(sku)}>{b.name}</option>
+                            <option key={i} value={i} disabled={isMulti && b.skus.has(sku)}>{b.name}</option>
                           ))}
                         </select>
                       )}

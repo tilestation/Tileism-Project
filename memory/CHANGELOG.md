@@ -3864,3 +3864,8 @@ Local repro published the 6 ULT-* products: card shows "6 VARIANTS" with 6 full-
 - Shop wiring: shop_category.py facets read finishes/sizes/materials arrays; product filtering matches scalar OR array (finish/size/material); projection includes the arrays.
 - CollectionDetailPage: getProductFinishes()/productHasFinish() helpers — finish selector options, colour↔finish availability, product filtering and the spec panel are all multi-finish aware (scalar fallback preserved).
 - E2E verified: curl round-trips (append dedupes 'matt' vs 'Matt', filter finds product by 2nd finish, facets list all), modal multi-mode screenshot flow (2 products × 2 buckets → finishes=['Matt','Semi Polished'] in DB), collection page smoke OK. Fixture restored.
+
+## Aug 18, 2026 — Shop Tabs tab in Attribute Studio + Remove-value save mode
+- ShopTabsAssignModal.jsx refactored: inner ShopTabsPanel exported and embedded as a blue 'Shop Tabs' tab (__shoptabs) inside Attribute Studio (embedded mode stays open after Apply). Bulk-bar 'Shop Tabs' button unchanged (same panel).
+- Save-mode toggle now 3-way: Replace / + Add (multi-value) / − Remove value. Remove mode: buckets = values to strip; save uses mode='remove'; red [remove: X] badges + 'Strip via…' dropdowns.
+- Backend remove branch generalised: REMOVE_SCALAR_MAP (colors/materials/sub_categories/finishes/sizes/made_in_countries) — scalar seeded into the list, removing the primary promotes the next value to scalar, scalar-only products fully cleared. Curl-verified: Matt/Semi Polished promotion, case-insensitive, scalar-only Gloss removal. UI E2E screenshots pass. Fixture restored.

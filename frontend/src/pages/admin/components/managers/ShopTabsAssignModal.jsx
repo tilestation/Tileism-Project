@@ -1,10 +1,11 @@
 /**
- * ShopTabsAssignModal — "where should these products appear?"
+ * ShopTabsPanel + ShopTabsAssignModal — "where should these products appear?"
  * Lists every shop page's tabs as tick-boxes. Ticking a tab adds the
  * underlying website category to the selected products' sub_categories
  * (the exact field the storefront tab URLs filter by), so products show
  * under that tab immediately. Multiple tabs per product fully supported.
  * Also supports creating a brand-new tab on the spot ("+ New tab").
+ * The panel is exported standalone so Attribute Studio can embed it as a tab.
  */
 import React, { useState, useEffect, useMemo } from 'react';
 import { toast } from 'sonner';
@@ -17,7 +18,7 @@ import { fetchShopTabDestinations, clearShopTabDestinationsCache } from '../../l
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
 
-const ShopTabsAssignModal = ({ open, onOpenChange, selectedProducts = [], onSaved }) => {
+export const ShopTabsPanel = ({ selectedProducts = [], onSaved, onDone, embedded = false }) => {
   const [pages, setPages] = useState([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -27,7 +28,6 @@ const ShopTabsAssignModal = ({ open, onOpenChange, selectedProducts = [], onSave
   const [creatingTab, setCreatingTab] = useState(false);
 
   useEffect(() => {
-    if (!open) return;
     setDesired({});
     setNewTabFor(null);
     setNewTabLabel('');
@@ -35,7 +35,7 @@ const ShopTabsAssignModal = ({ open, onOpenChange, selectedProducts = [], onSave
     fetchShopTabDestinations(true)
       .then(setPages)
       .finally(() => setLoading(false));
-  }, [open]);
+  }, []);
 
   // category_name -> 'all' | 'some' | 'none' based on the current selection
   const initialState = useMemo(() => {
@@ -113,8 +113,9 @@ const ShopTabsAssignModal = ({ open, onOpenChange, selectedProducts = [], onSave
       if (!res.ok) { const err = await res.json().catch(() => ({})); toast.error(err.detail || 'Failed to update shop tabs'); return; }
       const data = await res.json();
       toast.success(`${data.updated} product(s) updated — live on the website now`);
+      setDesired({});
       onSaved?.();
-      onOpenChange(false);
+      onDone?.();
     } catch { toast.error('Failed to update shop tabs'); }
     finally { setSaving(false); }
   };
@@ -131,98 +132,111 @@ const ShopTabsAssignModal = ({ open, onOpenChange, selectedProducts = [], onSave
   );
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto" data-testid="shop-tabs-assign-modal">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <LayoutGrid className="w-5 h-5 text-emerald-600" />
-            Shop Tabs — where should these appear?
-          </DialogTitle>
-          <DialogDescription>
-            {selectedProducts.length} product(s) selected. Tick every tab they should show under — multiple tabs are fine.
-            <span className="inline-flex items-center gap-1 ml-1 text-amber-600"><Minus className="w-3 h-3 bg-amber-400 text-white rounded-sm" /> = only some of your selection is there now.</span>
-          </DialogDescription>
-        </DialogHeader>
-
-        {loading ? (
-          <p className="text-sm text-gray-400 py-8 text-center">Loading shop pages…</p>
-        ) : (
-          <div className="space-y-4 py-1">
-            {pages.map(page => (
-              <div key={page.group_slug} className="border border-gray-200 rounded-lg overflow-hidden" data-testid={`shop-tabs-page-${page.group_slug}`}>
-                <div className="px-3 py-2 bg-gray-50 border-b border-gray-200 flex items-center gap-2">
-                  <Store className="w-3.5 h-3.5 text-gray-500" />
-                  <span className="text-sm font-semibold text-gray-800">{page.group_name} page</span>
-                  <button
-                    type="button"
-                    onClick={() => { setNewTabFor(newTabFor === page.group_slug ? null : page.group_slug); setNewTabLabel(''); }}
-                    className="ml-auto text-[11px] font-medium text-emerald-600 hover:text-emerald-800 flex items-center gap-0.5"
-                    data-testid={`shop-tabs-new-tab-btn-${page.group_slug}`}
-                  >
-                    <Plus className="w-3 h-3" /> New tab
-                  </button>
-                </div>
-                {newTabFor === page.group_slug && (
-                  <div className="px-3 py-2 bg-emerald-50/60 border-b border-emerald-100 flex items-center gap-2" data-testid={`shop-tabs-new-tab-form-${page.group_slug}`}>
-                    <input
-                      type="text"
-                      value={newTabLabel}
-                      onChange={(e) => setNewTabLabel(e.target.value)}
-                      onKeyDown={(e) => e.key === 'Enter' && createTab(page.group_slug)}
-                      placeholder="New tab name, e.g. Cleaning & Maintenance"
-                      className="flex-1 h-8 text-sm border border-emerald-300 rounded px-2 bg-white"
-                      autoFocus
-                      data-testid={`shop-tabs-new-tab-input-${page.group_slug}`}
-                    />
-                    <Button size="sm" onClick={() => createTab(page.group_slug)} disabled={creatingTab} className="bg-emerald-600 hover:bg-emerald-700 text-white h-8" data-testid={`shop-tabs-new-tab-create-${page.group_slug}`}>
-                      {creatingTab ? 'Creating…' : 'Create'}
-                    </Button>
-                  </div>
-                )}
-                <div className="divide-y">
-                  {page.tabs.map((tab, i) => tab.assignable ? (
-                    <button
-                      key={`${page.group_slug}-${i}`}
-                      type="button"
-                      onClick={() => toggle(tab.category_name)}
-                      className="w-full flex items-center gap-2.5 px-3 py-2 text-left hover:bg-emerald-50/50 transition-colors"
-                      data-testid={`shop-tab-option-${page.group_slug}-${tab.category_slug}`}
-                    >
-                      <CheckBox state={displayState(tab.category_name)} />
-                      <span className="text-sm font-medium text-gray-800">{tab.label}</span>
-                      <span className="text-[11px] text-gray-400 ml-auto font-mono">{tab.url}</span>
-                    </button>
-                  ) : (
-                    <div key={`${page.group_slug}-${i}`} className="flex items-center gap-2.5 px-3 py-2 opacity-50" title="Products appear here automatically when they're in this Manager">
-                      <span className="w-[18px] h-[18px] rounded border border-dashed border-gray-300 flex-shrink-0" />
-                      <span className="text-sm text-gray-500">{tab.label}</span>
-                      <span className="text-[10px] text-gray-400 ml-auto italic">automatic — shows everything in this Manager</span>
-                    </div>
-                  ))}
-                </div>
+    <div data-testid="shop-tabs-panel">
+      {loading ? (
+        <p className="text-sm text-gray-400 py-8 text-center">Loading shop pages…</p>
+      ) : (
+        <div className="space-y-4 py-1">
+          {pages.map(page => (
+            <div key={page.group_slug} className="border border-gray-200 rounded-lg overflow-hidden" data-testid={`shop-tabs-page-${page.group_slug}`}>
+              <div className="px-3 py-2 bg-gray-50 border-b border-gray-200 flex items-center gap-2">
+                <Store className="w-3.5 h-3.5 text-gray-500" />
+                <span className="text-sm font-semibold text-gray-800">{page.group_name} page</span>
+                <button
+                  type="button"
+                  onClick={() => { setNewTabFor(newTabFor === page.group_slug ? null : page.group_slug); setNewTabLabel(''); }}
+                  className="ml-auto text-[11px] font-medium text-emerald-600 hover:text-emerald-800 flex items-center gap-0.5"
+                  data-testid={`shop-tabs-new-tab-btn-${page.group_slug}`}
+                >
+                  <Plus className="w-3 h-3" /> New tab
+                </button>
               </div>
-            ))}
-            {pages.length === 0 && <p className="text-sm text-gray-400 py-6 text-center">No shop tabs found — add some via the Storefront button first.</p>}
-          </div>
-        )}
-
-        <div className="flex items-center justify-between pt-3 border-t">
-          <div className="text-xs text-gray-500" data-testid="shop-tabs-change-summary">
-            {adds.length > 0 && <span className="text-emerald-600 font-medium">+{adds.length} destination{adds.length > 1 ? 's' : ''}</span>}
-            {adds.length > 0 && removes.length > 0 && <span> · </span>}
-            {removes.length > 0 && <span className="text-red-500 font-medium">−{removes.length} removed</span>}
-            {adds.length === 0 && removes.length === 0 && <span>No changes yet — tick or untick a tab</span>}
-          </div>
-          <div className="flex gap-2">
-            <Button variant="outline" size="sm" onClick={() => onOpenChange(false)} data-testid="shop-tabs-cancel-btn">Cancel</Button>
-            <Button size="sm" onClick={apply} disabled={saving || (adds.length === 0 && removes.length === 0)} className="bg-emerald-600 hover:bg-emerald-700 text-white" data-testid="shop-tabs-apply-btn">
-              {saving ? 'Applying…' : 'Apply'}
-            </Button>
-          </div>
+              {newTabFor === page.group_slug && (
+                <div className="px-3 py-2 bg-emerald-50/60 border-b border-emerald-100 flex items-center gap-2" data-testid={`shop-tabs-new-tab-form-${page.group_slug}`}>
+                  <input
+                    type="text"
+                    value={newTabLabel}
+                    onChange={(e) => setNewTabLabel(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && createTab(page.group_slug)}
+                    placeholder="New tab name, e.g. Cleaning & Maintenance"
+                    className="flex-1 h-8 text-sm border border-emerald-300 rounded px-2 bg-white"
+                    autoFocus
+                    data-testid={`shop-tabs-new-tab-input-${page.group_slug}`}
+                  />
+                  <Button size="sm" onClick={() => createTab(page.group_slug)} disabled={creatingTab} className="bg-emerald-600 hover:bg-emerald-700 text-white h-8" data-testid={`shop-tabs-new-tab-create-${page.group_slug}`}>
+                    {creatingTab ? 'Creating…' : 'Create'}
+                  </Button>
+                </div>
+              )}
+              <div className="divide-y">
+                {page.tabs.map((tab, i) => tab.assignable ? (
+                  <button
+                    key={`${page.group_slug}-${i}`}
+                    type="button"
+                    onClick={() => toggle(tab.category_name)}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 text-left hover:bg-emerald-50/50 transition-colors"
+                    data-testid={`shop-tab-option-${page.group_slug}-${tab.category_slug}`}
+                  >
+                    <CheckBox state={displayState(tab.category_name)} />
+                    <span className="text-sm font-medium text-gray-800">{tab.label}</span>
+                    <span className="text-[11px] text-gray-400 ml-auto font-mono">{tab.url}</span>
+                  </button>
+                ) : (
+                  <div key={`${page.group_slug}-${i}`} className="flex items-center gap-2.5 px-3 py-2 opacity-50" title="Products appear here automatically when they're in this Manager">
+                    <span className="w-[18px] h-[18px] rounded border border-dashed border-gray-300 flex-shrink-0" />
+                    <span className="text-sm text-gray-500">{tab.label}</span>
+                    <span className="text-[10px] text-gray-400 ml-auto italic">automatic — shows everything in this Manager</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+          {pages.length === 0 && <p className="text-sm text-gray-400 py-6 text-center">No shop tabs found — add some via the Storefront button first.</p>}
         </div>
-      </DialogContent>
-    </Dialog>
+      )}
+
+      <div className="flex items-center justify-between pt-3 border-t">
+        <div className="text-xs text-gray-500" data-testid="shop-tabs-change-summary">
+          {adds.length > 0 && <span className="text-emerald-600 font-medium">+{adds.length} destination{adds.length > 1 ? 's' : ''}</span>}
+          {adds.length > 0 && removes.length > 0 && <span> · </span>}
+          {removes.length > 0 && <span className="text-red-500 font-medium">−{removes.length} removed</span>}
+          {adds.length === 0 && removes.length === 0 && <span>No changes yet — tick or untick a tab</span>}
+        </div>
+        <div className="flex gap-2">
+          {!embedded && (
+            <Button variant="outline" size="sm" onClick={() => onDone?.()} data-testid="shop-tabs-cancel-btn">Cancel</Button>
+          )}
+          <Button size="sm" onClick={apply} disabled={saving || (adds.length === 0 && removes.length === 0)} className="bg-emerald-600 hover:bg-emerald-700 text-white" data-testid="shop-tabs-apply-btn">
+            {saving ? 'Applying…' : `Apply to ${selectedProducts.length} product(s)`}
+          </Button>
+        </div>
+      </div>
+    </div>
   );
 };
+
+const ShopTabsAssignModal = ({ open, onOpenChange, selectedProducts = [], onSaved }) => (
+  <Dialog open={open} onOpenChange={onOpenChange}>
+    <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto" data-testid="shop-tabs-assign-modal">
+      <DialogHeader>
+        <DialogTitle className="flex items-center gap-2">
+          <LayoutGrid className="w-5 h-5 text-emerald-600" />
+          Shop Tabs — where should these appear?
+        </DialogTitle>
+        <DialogDescription>
+          {selectedProducts.length} product(s) selected. Tick every tab they should show under — multiple tabs are fine.
+          <span className="inline-flex items-center gap-1 ml-1 text-amber-600"><Minus className="w-3 h-3 bg-amber-400 text-white rounded-sm" /> = only some of your selection is there now.</span>
+        </DialogDescription>
+      </DialogHeader>
+      {open && (
+        <ShopTabsPanel
+          selectedProducts={selectedProducts}
+          onSaved={onSaved}
+          onDone={() => onOpenChange(false)}
+        />
+      )}
+    </DialogContent>
+  </Dialog>
+);
 
 export default ShopTabsAssignModal;

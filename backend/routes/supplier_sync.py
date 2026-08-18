@@ -12664,6 +12664,10 @@ def bulk_update_unified(data: dict):
                             count += 1
             elif mode == "remove" and array_updates:
                 # Remove mode: pull the given values from each product's arrays (case-insensitive)
+                REMOVE_SCALAR_MAP = {
+                    "colors": "color", "materials": "material", "sub_categories": "category",
+                    "finishes": "finish", "sizes": "size", "made_in_countries": "made_in",
+                }
                 for sku in product_ids:
                     per_q3 = {qf: sku}
                     if supplier_filter and not skip_supplier_filter:
@@ -12675,11 +12679,19 @@ def bulk_update_unified(data: dict):
                             update_doc["$unset"] = unset_fields
                         for arr_field, remove_vals in array_updates.items():
                             remove_lower = {str(v).strip().lower() for v in remove_vals}
-                            existing = doc.get(arr_field) or []
+                            existing = [v for v in (doc.get(arr_field) or []) if v not in (None, "")]
+                            scalar_field = REMOVE_SCALAR_MAP.get(arr_field)
+                            scalar_val = doc.get(scalar_field) if scalar_field else None
+                            # Seed the scalar so single-value products are covered too
+                            if scalar_val and str(scalar_val).strip().lower() not in {str(v).strip().lower() for v in existing}:
+                                existing.insert(0, scalar_val)
                             remaining = [v for v in existing if str(v).strip().lower() not in remove_lower]
                             update_doc["$set"][arr_field] = remaining
-                            if arr_field == "sub_categories":
-                                update_doc["$set"]["category"] = remaining[0] if remaining else ""
+                            if scalar_field:
+                                if scalar_val and str(scalar_val).strip().lower() in remove_lower:
+                                    update_doc["$set"][scalar_field] = remaining[0] if remaining else ""
+                                elif not scalar_val and remaining:
+                                    update_doc["$set"][scalar_field] = remaining[0]
                         collection.update_one({qf: sku}, update_doc)
                         count += 1
             elif mode == "append" and array_updates:
