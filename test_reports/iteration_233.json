@@ -1,0 +1,48 @@
+{
+  "summary": "End-to-end verification of the merged 'Attribute Studio' modal (renamed from Assign Colour Bucket) plus its two new tabs (Sub-Categories, Custom Specs) and Rename Field Labels section. Backend pytest 4/4 pass, frontend flows all pass on SKUs LP-3611 / LP-6611. Full round-trip verified via API and all mutations restored.",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {
+        "screen": "Custom Specs — saved label chip flow",
+        "issues": [
+          "Clicking a saved label chip ('+ Frost Proof') correctly prefills the field-name input on a new row, but the previously-saved VALUE chip ('Yes') did not surface as a suggestion chip next to the value input in this session. Not a blocker (value can be typed) but the spec listed 'per-label value chips' — worth verifying whether GET /api/attribute-values?fields=custom_spec:frost_proof is being fetched on chip click."
+        ]
+      }
+    ]
+  },
+  "test_results": {
+    "backend_bulk_update_append_verification_ok": "PASS — appending {sub_categories:['Mosaic']} on LP-3611/LP-6611 returns verification_ok=true and preserves existing tags (mode-aware subset verification).",
+    "backend_bulk_update_remove_verification_ok": "PASS — mode='remove' with ['mosaic'] pulls case-insensitively from sub_categories and returns verification_ok=true (disjoint check).",
+    "backend_attribute_values_save_get_remove": "PASS — POST /api/attribute-values/save with field 'custom_spec_label' persists; GET returns it under values.custom_spec_label; POST /api/attribute-values/remove deletes it.",
+    "frontend_bulk_bar": "PASS — bar-assign-colours button renders text 'Attribute Studio'; bar-specs-filters is not present in DOM (count=0).",
+    "frontend_modal_title_and_tabs": "PASS — title 'Attribute Studio — 2 product(s)'; attribute pills render (Colour, Finish, Material, Size, Slip, Suitability, Made In, Thickness) + emerald Sub-Categories (assign-attr-__subcats) + violet Custom Specs (assign-attr-__custom). Note: testids for standard attrs use their key ids from config (e.g. assign-attr-color / assign-attr-slip_rating), not literal 'colour'/'slip' strings — this matches AssignColoursModal.jsx line 329.",
+    "frontend_colour_bucket_workflow": "PASS — created 'White' bucket, assign-all-select moved both SKUs in, Save fired; success toast 'Assigned colour to 2 product(s) — keep assigning or close when done', MODAL STAYED OPEN, White bucket + assigned SKUs still visible. After Close the bulk bar still showed '2 selected'. RESTORE via bulk-update-unified {color:null, colors:[]} returned 200.",
+    "frontend_subcategories_tab": "PASS — tag counts render correctly using substring matching against legacy stored variants: Wall 1/2 (LP-3611 has 'Wall Tiles'), Floor 1/2 (LP-6611 has 'Floor Tiles'), Mosaic 0/2, Feature 0/2. Click Mosaic once → emerald ADD state (chip shows '+ Mosaic 0/2'). Clicked subcats-apply-btn → success toast 'Sub-categories updated on 2 product(s) — 100% verified' with Undo action, modal stayed open. API verify: LP-3611 sub_categories now ['Small Format','mosaic','Wall Tiles','Plain']. Then clicked Mosaic twice more → REMOVE state → apply → mosaic pulled from both SKUs; originals fully preserved.",
+    "frontend_custom_specs_tab": "PASS — filled Field name='Frost Proof', Value='Yes'; custom-specs-apply-btn fired; success toast 'Applied to 2 product(s)' with Undo, modal stayed open. API verify: LP-3611 custom_specs = [{key:'frost_proof', label:'Frost Proof', value:'Yes'}]. Reopened tab: custom-label-chip-* count=1 with text '+ Frost Proof'. Clicking the chip prefills a new row correctly. (Minor: 'Yes' value chip did not render as a preset suggestion — see design_issues.)",
+    "frontend_rename_field_labels": "PASS — rename-btn-finish clicked, inline input appeared, typed 'Surface', clicked Apply → API verify: LP-3611 field_label_overrides = {finish:'Surface'}.",
+    "cleanup_and_restore": "PASS — all fixture data restored: LP-3611 subs=['Wall Tiles','Plain','Small Format'], LP-6611 subs=['Matt','Large Format','Floor Tiles'], custom_specs=[], color='', field_label_overrides={} on both. attribute-values/remove called for 'custom_spec_label'=Frost Proof and 'custom_spec:frost_proof'=Yes (both 200)."
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_attribute_studio.py",
+    "/app/test_reports/pytest/attribute_studio_results.xml"
+  ],
+  "action_items": [
+    "OPTIONAL: In CustomSpecsTab, when a saved label chip is clicked, also fetch/render the saved values for field 'custom_spec:<slug>' as value-suggestion chips next to the value input. Currently only the label preset comes back."
+  ],
+  "critical_code_review_comments": [
+    "AssignColoursModal.jsx: title correctly renamed to 'Attribute Studio'; handleSave keeps modal mounted after save (validated by 'MODAL STAYS OPEN' toast). Good.",
+    "SubCategoriesTab: substring counting works ('Wall' matches 'Wall Tiles', 'Floor' matches 'Floor Tiles'); ADD writes short key ('mosaic' lowercased) while REMOVE pulls every matching variant — asymmetric casing (short lowercased vs legacy title-cased) may cause duplicates over time; consider normalising ADD to a canonical Title-Case (e.g. 'Mosaic') to match the legacy convention.",
+    "Console noise (unrelated): AdminDashboard renders a list without unique 'key' prop and 4x 403 responses on non-critical resources on /admin route — not part of this feature but visible in every test run."
+  ],
+  "updated_files": ["/app/backend/tests/test_attribute_studio.py"],
+  "success_rate": { "backend": "100% (4/4)", "frontend": "100% (7/7 flows)" },
+  "test_credentials": "admin@test.com / admin123 via /api/auth/login",
+  "seed_data_creation": "None persisted — fixture SKUs LP-3611 and LP-6611 fully restored to original state after every test run (verified by final GET).",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Attribute Studio modal at /admin/tiles bulk bar (data-testid=bar-assign-colours). Note that standard attribute tab testids use the config key (assign-attr-color, assign-attr-slip_rating, assign-attr-made_in etc.) not literal English words. Special tabs are assign-attr-__subcats and assign-attr-__custom. Apply buttons per tab: subcats-apply-btn, custom-specs-apply-btn. Rename buttons: rename-btn-<key>. Fixture SKUs LP-3611 & LP-6611 are safe to mutate — always restore sub_categories to ['Wall Tiles','Plain','Small Format'] and ['Matt','Large Format','Floor Tiles'] respectively (order irrelevant) plus custom_specs=[], color='', field_label_overrides={} at end of test.",
+  "rca of the issue": "N/A — no bugs found in scoped feature."
+}

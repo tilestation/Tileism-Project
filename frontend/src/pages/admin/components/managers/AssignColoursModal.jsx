@@ -19,9 +19,11 @@ import { Button } from '../../../../components/ui/button';
 import { Input } from '../../../../components/ui/input';
 import { Badge } from '../../../../components/ui/badge';
 import {
-  Palette, Plus, X, Save, RefreshCw, ArrowRight, CheckCircle, AlertCircle, GripVertical, Tags,
+  Palette, Plus, X, Save, RefreshCw, ArrowRight, CheckCircle, AlertCircle, GripVertical, Tags, Layers, Sliders,
 } from 'lucide-react';
 import { getSeriesName } from '../../lib/series';
+import { SubCategoriesTab } from './SubCategoriesTab';
+import { CustomSpecsTab } from './CustomSpecsTab';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
 
@@ -37,7 +39,7 @@ const COUNTRY_FLAGS = {
 const flagFor = (attrKey, name) =>
   attrKey === 'made_in' ? (COUNTRY_FLAGS[String(name || '').toLowerCase()] || '') : '';
 
-const AssignColoursModal = ({ open, onOpenChange, selectedList = [], onSuccess, attributeOptions = [] }) => {
+const AssignColoursModal = ({ open, onOpenChange, selectedList = [], onSuccess, attributeOptions = [], subTabs = [] }) => {
   // The attribute being bucketed — Colour by default, switchable to any
   // Configure-defined filter/spec field (Finish, Size, Material, Thickness…)
   const [attr, setAttr] = useState(COLOUR_ATTR);
@@ -64,6 +66,7 @@ const AssignColoursModal = ({ open, onOpenChange, selectedList = [], onSuccess, 
   const [suggestions, setSuggestions] = useState([]);
   useEffect(() => {
     if (!open || !attr?.key) return;
+    if (attr.key.startsWith('__')) { setSuggestions([]); return; }
     fetch(`${API_URL}/api/attribute-values?fields=${encodeURIComponent(attr.key)}`)
       .then(res => (res.ok ? res.json() : null))
       .then(d => setSuggestions((d?.values?.[attr.key] || []).slice(0, 30)))
@@ -288,16 +291,24 @@ const AssignColoursModal = ({ open, onOpenChange, selectedList = [], onSuccess, 
 
   const productName = (p) => (p.our_product_name || p.product_name || p.name || p.sku || p.supplier_code);
 
+  // Special tabs merged in from the old Specs / Filters modal
+  const isSpecial = attr.key.startsWith('__');
+  const taggableSubTabs = (subTabs || []).filter(t => t.key && t.key !== 'all');
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-4xl max-h-[92vh] overflow-y-auto" data-testid="assign-colours-modal">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Palette className="w-5 h-5 text-orange-600" />
-            Assign {attr.label} to {selectedList.length} product(s)
+            Attribute Studio — {selectedList.length} product(s)
           </DialogTitle>
           <p className="text-xs text-gray-500">
-            Create a bucket per {attr.label.toLowerCase()}, then move SKUs into the matching bucket. Each bucket becomes a separate save with 100% verification. Products can only be in one bucket at a time.
+            {attr.key === '__subcats'
+              ? 'Add or remove sub-category tags across the whole selection — with 100% verification and Undo.'
+              : attr.key === '__custom'
+                ? 'Add your own spec fields (saved for reuse) and rename field labels across the selection.'
+                : `Create a bucket per ${attr.label.toLowerCase()}, then move SKUs into the matching bucket. Each bucket becomes a separate save with 100% verification. Products can only be in one bucket at a time.`}
           </p>
         </DialogHeader>
 
@@ -320,9 +331,40 @@ const AssignColoursModal = ({ open, onOpenChange, selectedList = [], onSuccess, 
                 {a.label}
               </button>
             ))}
+            {taggableSubTabs.length > 0 && (
+              <button
+                type="button"
+                onClick={() => switchAttribute({ key: '__subcats', label: 'Sub-Categories' })}
+                className={`px-2.5 py-1 rounded-full text-xs font-semibold transition-all inline-flex items-center gap-1 ${
+                  attr.key === '__subcats' ? 'bg-emerald-600 text-white' : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                }`}
+                data-testid="assign-attr-__subcats"
+              >
+                <Layers className="w-3 h-3" /> Sub-Categories
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => switchAttribute({ key: '__custom', label: 'Custom Specs' })}
+              className={`px-2.5 py-1 rounded-full text-xs font-semibold transition-all inline-flex items-center gap-1 ${
+                attr.key === '__custom' ? 'bg-violet-600 text-white' : 'bg-violet-50 text-violet-700 hover:bg-violet-100'
+              }`}
+              data-testid="assign-attr-__custom"
+            >
+              <Sliders className="w-3 h-3" /> Custom Specs
+            </button>
           </div>
         )}
 
+        {attr.key === '__subcats' && (
+          <SubCategoriesTab selectedList={selectedList} subTabs={taggableSubTabs} onSuccess={onSuccess} />
+        )}
+        {attr.key === '__custom' && (
+          <CustomSpecsTab selectedList={selectedList} attributeOptions={allAttributes} onSuccess={onSuccess} />
+        )}
+
+        {!isSpecial && (
+        <>
         {/* Storefront variant label — Colour tab only, saved per series instantly */}
         {attr.key === 'color' && seriesList.length > 0 && (
           <div className="rounded-lg border border-indigo-200 bg-indigo-50/50 px-3 py-2" data-testid="variant-label-panel">
@@ -554,9 +596,14 @@ const AssignColoursModal = ({ open, onOpenChange, selectedList = [], onSuccess, 
             {unassignedProducts.length} product(s) still unassigned — they won't be updated
           </div>
         )}
+        </>
+        )}
 
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>Cancel</Button>
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving} data-testid="studio-close-btn">
+            {isSpecial ? 'Close' : 'Cancel'}
+          </Button>
+          {!isSpecial && (
           <Button
             onClick={handleSave}
             disabled={saving || buckets.every(b => b.skus.size === 0)}
@@ -566,6 +613,7 @@ const AssignColoursModal = ({ open, onOpenChange, selectedList = [], onSuccess, 
             {saving ? <RefreshCw className="w-4 h-4 mr-1 animate-spin" /> : <Save className="w-4 h-4 mr-1" />}
             Save {buckets.reduce((sum, b) => sum + b.skus.size, 0)} product(s)
           </Button>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>

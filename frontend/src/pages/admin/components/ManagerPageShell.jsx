@@ -39,7 +39,6 @@ import { bucketSelectionByManager } from './managers/classifyProductToManager';
 import ManagerFiltersPanel, { applyManagerFilters } from './managers/ManagerFiltersPanel';
 import CustomManagerBuilder from './managers/CustomManagerBuilder';
 import BulkFieldsModal from './managers/BulkFieldsModal';
-import BulkSpecsFiltersModal from './managers/BulkSpecsFiltersModal';
 import QuickEditProductDrawer from './managers/QuickEditProductDrawer';
 import BulkAIDescriptionsModal from './managers/BulkAIDescriptionsModal';
 import BulkImageUploadModal from './managers/BulkImageUploadModal';
@@ -162,9 +161,6 @@ const ManagerPageShell = ({
     labels: [], custom_labels: [], discount_percentage: '', was_price: '', saleMode: 'was', action: 'add', applyDiscount: false,
   });
   const [bulkSaleSaving, setBulkSaleSaving] = useState(false);
-
-  // Bulk Specs / Filters modal state (Configure-driven fields)
-  const [showBulkSpecs, setShowBulkSpecs] = useState(false);
 
   // ---- Per-Manager config (facets, sub-tabs, spec fields) from the DB ----
   const { config, save: saveConfig, refresh: refreshConfig } = useManagerConfig(categoryKey);
@@ -914,7 +910,6 @@ const ManagerPageShell = ({
         onOpenAIDescriptions={() => setShowAIDescriptions(true)}
         onOpenBulkImages={() => setShowBulkImages(true)}
         onOpenSaleLabels={() => setShowBulkSaleLabels(true)}
-        onOpenBulkSpecs={() => setShowBulkSpecs(true)}
         onOpenReassignCategory={bulk.bulkAssignCategory}
         onOpenShopTabs={() => setShowShopTabs(true)}
         onOpenPreview={() => setShowBulkPreview(true)}
@@ -947,21 +942,12 @@ const ManagerPageShell = ({
           if (!seen.has('thickness')) out.push({ key: 'thickness', label: 'Thickness', arrayField: null });
           return out;
         })()}
+        subTabs={effectiveSubTabs}
         onSuccess={() => fetchProducts()}
       />
       <CustomManagerBuilder open={builderOpen} onOpenChange={setBuilderOpen} />
       <BulkFieldsModal open={showBulkFields} onOpenChange={setShowBulkFields} selectedList={bulk.getSelectedList()} themeColor={theme} onSuccess={() => { bulk.clearAll(); fetchProducts(); }} />
 
-      {/* Bulk Specs / Filters / Sub-Categories — driven by the Manager's Configure schema */}
-      <BulkSpecsFiltersModal
-        open={showBulkSpecs}
-        onOpenChange={setShowBulkSpecs}
-        config={config}
-        selectedProducts={bulk.getSelectedList()}
-        categoryLabel={title}
-        themeColor={theme}
-        onSuccess={() => { bulk.clearAll(); fetchProducts(); }}
-      />
       <BulkAIDescriptionsModal open={showAIDescriptions} onOpenChange={setShowAIDescriptions} selectedList={bulk.getSelectedList()} themeColor={theme} onSuccess={() => fetchProducts()} />
       <BulkImageUploadModal open={showBulkImages} onOpenChange={setShowBulkImages} selectedList={bulk.getSelectedList()} themeColor={theme} onSuccess={() => { bulk.clearAll(); fetchProducts(); }} />
 

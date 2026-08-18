@@ -96,10 +96,10 @@ const ManagerBulkBar = ({
           disabled={saving}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/15 hover:bg-white/25 transition text-[13px] font-medium"
           data-testid="bar-assign-colours"
-          title="Assign colours to selected products — or switch to Finish, Size, Material and any other Configure attribute inside"
+          title="Attribute Studio — Colour, Finish, Size, Made In buckets + Sub-Categories & Custom Specs, all in one box"
         >
           <Palette className="w-3.5 h-3.5" />
-          Colours / Assign
+          Attribute Studio
         </button>
       )}
       {!hidden.has('category') && onOpenBulkCategory && (
@@ -180,20 +180,6 @@ const ManagerBulkBar = ({
           Sale / Labels
         </button>
       )}
-      {!hidden.has('specs') && onOpenBulkSpecs && (
-        <button
-          type="button"
-          onClick={onOpenBulkSpecs}
-          disabled={saving}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/15 hover:bg-white/25 transition text-[13px] font-medium"
-          data-testid="bar-specs-filters"
-          title="Bulk-edit any Filter, Spec Field or Sub-Category you configured for this Manager"
-        >
-          <Sliders className="w-3.5 h-3.5" />
-          Specs / Filters
-        </button>
-      )}
-
       {/* Landing page preview — see it before publishing */}
       {!hidden.has('preview') && onOpenPreview && (
         <button

@@ -12551,6 +12551,8 @@ def bulk_update_unified(data: dict):
             'sub_categories': 'category',
         }
         for arr_field, scalar_field in array_to_scalar_sync.items():
+            if mode == "remove":
+                break  # remove mode handles scalar sync per-product with the remaining values
             if arr_field in array_updates and scalar_field not in set_fields:
                 arr_val = array_updates[arr_field]
                 if arr_val and len(arr_val) > 0:
@@ -12660,6 +12662,26 @@ def bulk_update_unified(data: dict):
                                 update_op["$unset"] = unset_fields
                             collection.update_one({qf: sku}, update_op)
                             count += 1
+            elif mode == "remove" and array_updates:
+                # Remove mode: pull the given values from each product's arrays (case-insensitive)
+                for sku in product_ids:
+                    per_q3 = {qf: sku}
+                    if supplier_filter and not skip_supplier_filter:
+                        per_q3["supplier"] = supplier_filter
+                    doc = collection.find_one(per_q3)
+                    if doc:
+                        update_doc = {"$set": set_fields.copy()}
+                        if unset_fields:
+                            update_doc["$unset"] = unset_fields
+                        for arr_field, remove_vals in array_updates.items():
+                            remove_lower = {str(v).strip().lower() for v in remove_vals}
+                            existing = doc.get(arr_field) or []
+                            remaining = [v for v in existing if str(v).strip().lower() not in remove_lower]
+                            update_doc["$set"][arr_field] = remaining
+                            if arr_field == "sub_categories":
+                                update_doc["$set"]["category"] = remaining[0] if remaining else ""
+                        collection.update_one({qf: sku}, update_doc)
+                        count += 1
             elif mode == "append" and array_updates:
                 # Append mode for arrays only (legacy behavior)
                 for sku in product_ids:
@@ -12998,9 +13020,18 @@ def bulk_update_unified(data: dict):
                         for k, expected in intended.items():
                             actual = sp_doc.get(k)
                             # Normalise for comparison
-                            if isinstance(expected, list) and isinstance(actual, list):
-                                if set(map(str, expected)) != set(map(str, actual)):
-                                    verification_failures.append({"sku": pid, "field": k, "expected": expected, "actual": actual})
+                            if isinstance(expected, list):
+                                exp_set = {str(x).strip().lower() for x in expected}
+                                actual_list = actual if isinstance(actual, list) else ([] if actual in (None, "") else [actual])
+                                act_set = {str(x).strip().lower() for x in actual_list}
+                                if mode == "append":
+                                    arr_ok = exp_set.issubset(act_set)
+                                elif mode == "remove":
+                                    arr_ok = exp_set.isdisjoint(act_set)
+                                else:
+                                    arr_ok = exp_set == act_set
+                                if not arr_ok:
+                                    verification_failures.append({"sku": pid, "field": k, "expected": expected, "actual": actual, "mode": mode})
                             elif expected != actual:
                                 # Allow None ≈ "" ≈ 0 flex — anything else is a real mismatch
                                 if not (expected in (None, "", 0) and actual in (None, "", 0)):

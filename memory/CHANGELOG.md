@@ -3850,3 +3850,10 @@ Local repro published the 6 ULT-* products: card shows "6 VARIANTS" with 6 full-
 - handleSave no longer calls onOpenChange(false)/setBuckets([]) — modal stays open with buckets + toast 'keep assigning or close when done'.
 - ManagerPageShell AssignColoursModal onSuccess no longer calls bulk.clearAll() — product selection survives save AND manual close (selection persisted in localStorage by useManagerBulk).
 - E2E verified: save 2 TestSeries products → modal open, buckets intact; Escape → '2 selected' bulk bar still shown. Fixture colour reset afterwards.
+
+## Aug 18, 2026 — Attribute Studio (merged Specs/Filters into Assign modal)
+- Renamed Assign modal → 'Attribute Studio'; bulk bar button renamed; old 'Specs / Filters' button + BulkSpecsFiltersModal removed from ManagerPageShell.
+- New Sub-Categories tab: 3-state tag chips (add/remove/clear) with counts using substring matching vs legacy variants ('Wall' matches 'Wall Tiles'); ADD appends Title-Case label only to non-matching products; REMOVE pulls every matching stored variant; 100% verification + 15s Undo.
+- New Custom Specs tab: label/value custom fields saved as reusable presets (custom_spec_label + custom_spec:{key} via attribute-values API) with label chips + value chips; Rename Field Labels (field_label_overrides); Undo.
+- Backend bulk-update-unified: new mode='remove' (case-insensitive array pull + scalar category re-sync to first remaining); mode-aware verification (append=subset, remove=disjoint, replace=set equality) — fixed pre-existing false verification failures in append mode.
+- Testing agent iteration_233: 100% backend (4/4) + 100% frontend (7/7). Post-test fixes: value-suggestion cache no longer stuck empty (always refetch+merge), ADD normalised to Title-Case label.
