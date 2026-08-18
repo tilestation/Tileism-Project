@@ -787,6 +787,10 @@ def get_staged_by_supplier(supplier: str):
             if existing:
                 product_data["is_update"] = True
                 product_data["matched_product_id"] = existing.get("_id_str")  # Store matched product ID
+                # Light syncs don't pull images — show the existing product's photo instead of a blank
+                if not product_data["image"]:
+                    existing_imgs = existing.get("images") or []
+                    product_data["image"] = existing.get("image") or (existing_imgs[0] if existing_imgs else None)
                 # Handle different field names: stock_quantity, stock_m2, stock_sqm
                 product_data["current_stock"] = existing.get("stock_quantity") or existing.get("stock_m2") or existing.get("stock_sqm")
                 # Handle different price fields: price, room_lot_price

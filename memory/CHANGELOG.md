@@ -3796,3 +3796,7 @@ Local repro published the 6 ULT-* products: card shows "6 VARIANTS" with 6 full-
 **Heal**: `/api/sync-staging/warnings/auto-verify` now ALSO restores `supplier_products.name` to the supplier's incoming name for each safe-verified warning — permanently repairing records damaged by the old bug (warning never regenerates).
 **Safe for Name Guard**: drift check compares tiles vs `product_name` (not `name`) — no false drift.
 **Tested on preview**: rename via /apply → name UNCHANGED, product_name/display_name/tiles mirror updated → restored. Heal sim: damaged name → auto-verify → name restored to staged supplier name → restored test data.
+
+### [Aug 18, 2026] Sync Hub updates list — image fallback for light syncs
+- User asked why nightly sync shows no images. BY DESIGN: nightly = light sync (stock+cost only, no images — images come from Full/Deep sync).
+- UX fix: `get_staged_by_supplier` (sync_staging.py ~line 787) — when a staged UPDATE has no image (light sync docs), fall back to the matched supplier_products image/images[0]. Frontend unchanged (renders product.image). Tested: unset staged image for 802234 → API returned the existing product's R2 image → restored.
