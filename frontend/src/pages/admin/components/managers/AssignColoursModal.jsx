@@ -19,8 +19,9 @@ import { Button } from '../../../../components/ui/button';
 import { Input } from '../../../../components/ui/input';
 import { Badge } from '../../../../components/ui/badge';
 import {
-  Palette, Plus, X, Save, RefreshCw, ArrowRight, CheckCircle, AlertCircle, GripVertical,
+  Palette, Plus, X, Save, RefreshCw, ArrowRight, CheckCircle, AlertCircle, GripVertical, Tags,
 } from 'lucide-react';
+import { getSeriesName } from '../../lib/series';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
 
@@ -74,6 +75,50 @@ const AssignColoursModal = ({ open, onOpenChange, selectedList = [], onSuccess, 
     setAttr(a);
     setBuckets([]);   // buckets are per-attribute
     setNewColour('');
+  };
+
+  // Delete a saved-value chip (also hides it from in-use suggestions)
+  const deleteSavedValue = (value) => {
+    setSuggestions(prev => prev.filter(s => s !== value));
+    fetch(`${API_URL}/api/attribute-values/remove`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ field: attr.key, value }),
+    }).then(() => toast.success(`Removed saved value "${value}"`)).catch(() => {});
+  };
+
+  // ---- Storefront variant label (Colour tab) — per-series Colour/Design/… selector ----
+  const [seriesLabels, setSeriesLabels] = useState({});
+  const seriesList = useMemo(() => {
+    const s = new Set();
+    selectedList.forEach(p => { const n = getSeriesName(p); if (n) s.add(n); });
+    return [...s].slice(0, 20);
+  }, [selectedList]);
+
+  useEffect(() => {
+    if (!open || seriesList.length === 0) return;
+    Promise.all(seriesList.map(sn =>
+      fetch(`${API_URL}/api/website-admin/collection-settings/${encodeURIComponent(sn)}`)
+        .then(r => (r.ok ? r.json() : null))
+        .then(d => [sn, d?.settings?.variant_label || ''])
+        .catch(() => [sn, ''])
+    )).then(pairs => setSeriesLabels(Object.fromEntries(pairs)));
+  }, [open, seriesList]);
+
+  const setVariantLabel = async (sn, value) => {
+    setSeriesLabels(prev => ({ ...prev, [sn]: value }));
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch(`${API_URL}/api/website-admin/collections/${encodeURIComponent(sn)}`, {
+        method: 'PUT',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ variant_label: value || null }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      toast.success(`"${sn}" storefront label → ${value || 'Auto'}`);
+    } catch {
+      toast.error(`Failed to update label for "${sn}"`);
+    }
   };
 
   const productLookup = useMemo(() => {
@@ -131,6 +176,15 @@ const AssignColoursModal = ({ open, onOpenChange, selectedList = [], onSuccess, 
     }
     setBuckets(prev => [...prev, { name, skus: new Set() }]);
     if (presetName === undefined) setNewColour('');
+    // Persist immediately so the value survives even if this session is cancelled
+    if (!suggestions.some(s => s.toLowerCase() === name.toLowerCase())) {
+      setSuggestions(prev => [name, ...prev]);
+      fetch(`${API_URL}/api/attribute-values/save`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ field: attr.key, values: [name] }),
+      }).catch(() => {});
+    }
   };
 
   const removeBucket = (idx) => {
@@ -270,6 +324,35 @@ const AssignColoursModal = ({ open, onOpenChange, selectedList = [], onSuccess, 
           </div>
         )}
 
+        {/* Storefront variant label — Colour tab only, saved per series instantly */}
+        {attr.key === 'color' && seriesList.length > 0 && (
+          <div className="rounded-lg border border-indigo-200 bg-indigo-50/50 px-3 py-2" data-testid="variant-label-panel">
+            <div className="flex items-center gap-2 mb-1.5">
+              <Tags className="w-3.5 h-3.5 text-indigo-600" />
+              <span className="text-xs font-semibold text-indigo-900">Storefront variant label</span>
+              <span className="text-[10px] text-indigo-500">how the selector row is titled on Collection &amp; Product pages — Auto detects colour vs design names. Saves instantly.</span>
+            </div>
+            <div className="flex flex-wrap gap-x-4 gap-y-1.5">
+              {seriesList.map(sn => (
+                <label key={sn} className="flex items-center gap-1.5 text-xs text-gray-700">
+                  <span className="font-medium truncate max-w-[180px]" title={sn}>{sn}</span>
+                  <select
+                    value={seriesLabels[sn] || ''}
+                    onChange={(e) => setVariantLabel(sn, e.target.value)}
+                    className="h-6 text-[11px] border border-indigo-200 rounded px-1 bg-white text-gray-700"
+                    data-testid={`variant-label-${sn}`}
+                  >
+                    <option value="">Auto</option>
+                    {['Colour', 'Design', 'Pattern', 'Style', 'Range'].map(o => (
+                      <option key={o} value={o}>{o}</option>
+                    ))}
+                  </select>
+                </label>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Add-a-bucket bar */}
         <div className="flex items-center gap-2 py-2">
           <Input
@@ -293,15 +376,28 @@ const AssignColoursModal = ({ open, onOpenChange, selectedList = [], onSuccess, 
               .filter(s => !buckets.some(b => b.name.toLowerCase() === s.toLowerCase()))
               .slice(0, 14)
               .map((s, i) => (
-                <button
+                <span
                   key={s}
-                  type="button"
-                  onClick={() => addBucket(s)}
-                  className="px-2 py-0.5 rounded-full bg-orange-50 border border-orange-200 text-orange-800 text-[11px] hover:bg-orange-100 transition-colors"
-                  data-testid={`bucket-suggestion-${i}`}
+                  className="group/chip inline-flex items-center rounded-full bg-orange-50 border border-orange-200 text-orange-800 text-[11px] hover:bg-orange-100 transition-colors"
                 >
-                  + {flagFor(attr.key, s)} {s}
-                </button>
+                  <button
+                    type="button"
+                    onClick={() => addBucket(s)}
+                    className="pl-2 pr-1 py-0.5"
+                    data-testid={`bucket-suggestion-${i}`}
+                  >
+                    + {flagFor(attr.key, s)} {s}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); deleteSavedValue(s); }}
+                    className="pr-1.5 pl-0.5 py-0.5 text-orange-300 hover:text-red-600 opacity-0 group-hover/chip:opacity-100 transition-opacity"
+                    title={`Delete saved value "${s}"`}
+                    data-testid={`delete-suggestion-${i}`}
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </span>
               ))}
           </div>
         )}

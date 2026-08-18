@@ -3839,3 +3839,9 @@ Local repro published the 6 ULT-* products: card shows "6 VARIANTS" with 6 full-
 ## Aug 18, 2026 — Post-fork verification
 - Verified Assign Modal v2 in browser (admin/tiles): Assign All dropdown works (moved 930 → bucket in one click), Supplier tab removed from attribute tabs, Made In shows country flags (🇨🇳 🇮🇳 🇮🇹) on saved values and buckets. No data saved during test.
 - Observation: 128 of 1058 tiles have no SKU/supplier_code so they cannot be bucket-assigned — likely the legacy April-import products (ties into Legacy Import Cleanup backlog item).
+
+## Aug 18, 2026 — Assign Modal v3 (saved values + variant labels)
+- Bucket names now save to attribute_value_presets IMMEDIATELY on Add Bucket (survive cancelled sessions).
+- Saved-value chips get a hover × delete — POST /api/attribute-values/remove pulls the value AND adds it to a 'hidden' list so in-use values stop resurfacing; re-saving un-hides.
+- Smart Variant Labels moved into the Assign modal's Colour tab: indigo 'Storefront variant label' panel lists every series in the selection with Auto/Colour/Design/Pattern/Style/Range dropdowns, saving instantly via PUT /api/website-admin/collections/{series}. Removed both variant-label dropdowns from CollectionManager.jsx (one-place management).
+- E2E verified via screenshot: panel renders 20 series, label change toasts + persists, chip delete works, instant bucket save works. Test data cleaned up.
