@@ -531,7 +531,7 @@ const AssignColoursModal = ({ open, onOpenChange, selectedList = [], onSuccess, 
           </div>
           <span className="text-[10px] text-gray-400">
             {NUMERIC_ATTRS.has(attr.key)
-              ? `Numeric field — one ${attr.label.toLowerCase()} per product, shown on the Product detail page`
+              ? `Numeric field — one ${attr.label.toLowerCase()} per product, shown on the Product detail page${attr.key === 'tiles_per_box' ? '. M² per box auto-calculates from tile size when you save' : ''}`
               : saveMode === 'add'
               ? `Products can sit in several buckets — each bucket ADDS a ${attr.label.toLowerCase()} without replacing existing ones`
               : saveMode === 'remove'

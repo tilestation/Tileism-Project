@@ -12394,6 +12394,33 @@ def clear_new_tags(supplier: Optional[str] = None):
 
 # ============ UNIFIED BULK UPDATE ENDPOINT ============
 
+def _parse_tile_area_m2(size_str):
+    """'300 x 600mm' / '30x60cm' / '120X120' (unit-less → cm, >150 → mm) → tile area in m²."""
+    if not size_str:
+        return None
+    s = str(size_str).lower().replace(",", ".")
+    m = re.search(r"(\d+(?:\.\d+)?)\s*[x×]\s*(\d+(?:\.\d+)?)", s)
+    if not m:
+        return None
+    try:
+        a, b = float(m.group(1)), float(m.group(2))
+    except ValueError:
+        return None
+    if not a or not b:
+        return None
+    if "mm" in s:
+        unit = "mm"
+    elif "cm" in s:
+        unit = "cm"
+    elif re.search(r"\d\s*m\b", s):
+        unit = "m"
+    else:
+        unit = "mm" if (a > 150 or b > 150) else "cm"
+    div = 1000 if unit == "mm" else 100 if unit == "cm" else 1
+    area = (a / div) * (b / div)
+    return area if area > 0 else None
+
+
 @router.post("/products/bulk-update-unified")
 def bulk_update_unified(data: dict):
     """
@@ -12730,6 +12757,26 @@ def bulk_update_unified(data: dict):
                             if scalar_field and not scalar_val and merged:
                                 update_doc["$set"][scalar_field] = merged[0]
 
+                        collection.update_one({qf: sku}, update_doc)
+                        count += 1
+            elif "tiles_per_box" in set_fields and "sqm_per_box" not in set_fields:
+                # Auto-sync: m² per box = tiles per box × tile area (per product size)
+                try:
+                    tiles_val = float(set_fields.get("tiles_per_box") or 0)
+                except (TypeError, ValueError):
+                    tiles_val = 0
+                for sku in product_ids:
+                    per_q4 = {qf: sku}
+                    if supplier_filter and not skip_supplier_filter:
+                        per_q4["supplier"] = supplier_filter
+                    doc = collection.find_one(per_q4)
+                    if doc:
+                        update_doc = {"$set": {**set_fields, **array_updates}}
+                        if unset_fields:
+                            update_doc["$unset"] = unset_fields
+                        area = _parse_tile_area_m2(doc.get("size") or doc.get("dimensions") or "")
+                        if area and tiles_val > 0:
+                            update_doc["$set"]["sqm_per_box"] = round(tiles_val * area, 3)
                         collection.update_one({qf: sku}, update_doc)
                         count += 1
             else:

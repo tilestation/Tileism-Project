@@ -3888,3 +3888,8 @@ Local repro published the 6 ULT-* products: card shows "6 VARIANTS" with 6 full-
 - ManagerPageShell: attributeOptions IIFE extracted to studioAttributeOptions memo (shared); new seriesCompleteness memo maps every series group → % across Colour + all Studio attributes.
 - Series header rows now show a colour-coded '{pct}% complete' badge (green 100 / amber ≥50 / red <50) with hover tooltip listing exact gaps e.g. 'Missing: Material 1/2 · Slip 0/2 · Made In 0/2'. data-testid series-completeness-{series}.
 - E2E verified: 793 badges rendered on /admin/tiles with correct percentages + tooltips.
+
+## Aug 18, 2026 — M² per box auto-calculates from tiles per box
+- bulk-update-unified: new per-product branch — when updates set tiles_per_box (and sqm_per_box isn't explicitly provided), each product's sqm_per_box is auto-computed as tiles × tile area from its own size (_parse_tile_area_m2 helper mirrors the frontend parser: mm/cm/m units, unit-less >150 → mm else cm). Explicit sqm_per_box in the same payload wins.
+- Studio tiles_per_box tab hint updated: 'M² per box auto-calculates from tile size when you save'.
+- Curl-verified: tiles=6 → 30x60cm → 1.08, 60x60cm → 2.16, verification_ok, fixture reset.
