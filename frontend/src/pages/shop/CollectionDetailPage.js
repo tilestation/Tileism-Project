@@ -3692,64 +3692,77 @@ const CollectionDetailPage = () => {
         <div className="bg-white border border-t-0 border-gray-200 rounded-b-xl p-6">
 
           {/* Specifications Tab */}
-          {(openAccordions.activeTab || 'specs') === 'specs' && (
+          {(openAccordions.activeTab || 'specs') === 'specs' && (() => {
+            const flo = selectedProduct?.field_label_overrides || {};
+            const specLabel = (k, fb) => flo[k] || fb;
+            return (
             <div className="grid grid-cols-2 md:grid-cols-4 gap-6" data-testid="tab-content-specs">
               {selectedProduct?.size && (
                 <div className="bg-gray-50 rounded-lg p-4">
-                  <span className="text-xs text-gray-400 uppercase tracking-wider">Size</span>
+                  <span className="text-xs text-gray-400 uppercase tracking-wider">{specLabel('size', 'Size')}</span>
                   <p className="font-semibold text-gray-900 mt-1">{selectedProduct.size}</p>
                 </div>
               )}
-              {(selectedProduct?.finish || selectedProduct?.attributes?.finish) && (
+              {getProductFinishes(selectedProduct || {}).length > 0 && (
                 <div className="bg-gray-50 rounded-lg p-4">
-                  <span className="text-xs text-gray-400 uppercase tracking-wider">Finish</span>
-                  <p className="font-semibold text-gray-900 mt-1 capitalize">{getProductFinishes(selectedProduct).join(', ') || selectedProduct.finish || selectedProduct.attributes?.finish}</p>
+                  <span className="text-xs text-gray-400 uppercase tracking-wider">{specLabel('finish', 'Finish')}</span>
+                  <p className="font-semibold text-gray-900 mt-1 capitalize">{getProductFinishes(selectedProduct).join(', ')}</p>
                 </div>
               )}
               {(selectedProduct?.material || selectedProduct?.attributes?.material) && (
                 <div className="bg-gray-50 rounded-lg p-4">
-                  <span className="text-xs text-gray-400 uppercase tracking-wider">Material</span>
+                  <span className="text-xs text-gray-400 uppercase tracking-wider">{specLabel('material', 'Material')}</span>
                   <p className="font-semibold text-gray-900 mt-1">{selectedProduct.material || selectedProduct.attributes?.material}</p>
                 </div>
               )}
               {(selectedProduct?.thickness || selectedProduct?.attributes?.thickness) && (
                 <div className="bg-gray-50 rounded-lg p-4">
-                  <span className="text-xs text-gray-400 uppercase tracking-wider">Thickness</span>
+                  <span className="text-xs text-gray-400 uppercase tracking-wider">{specLabel('thickness', 'Thickness')}</span>
                   <p className="font-semibold text-gray-900 mt-1">{selectedProduct.thickness || selectedProduct.attributes?.thickness}</p>
                 </div>
               )}
               {(selectedProduct?.suitability || selectedProduct?.attributes?.suitability) && (
                 <div className="bg-gray-50 rounded-lg p-4">
-                  <span className="text-xs text-gray-400 uppercase tracking-wider">Suitability</span>
+                  <span className="text-xs text-gray-400 uppercase tracking-wider">{specLabel('suitability', 'Suitability')}</span>
                   <p className="font-semibold text-gray-900 mt-1">{(selectedProduct.suitability || selectedProduct.attributes?.suitability || '').split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' & ')}</p>
                 </div>
               )}
               {(selectedProduct?.slip_rating || selectedProduct?.attributes?.slip_rating) && (
                 <div className="bg-gray-50 rounded-lg p-4">
-                  <span className="text-xs text-gray-400 uppercase tracking-wider">Slip Rating</span>
+                  <span className="text-xs text-gray-400 uppercase tracking-wider">{specLabel('slip_rating', 'Slip Rating')}</span>
                   <p className="font-semibold text-gray-900 mt-1">{(selectedProduct.slip_rating || selectedProduct.attributes?.slip_rating || '').toUpperCase()}</p>
                 </div>
               )}
               {selectedProduct?.made_in && (
                 <div className="bg-gray-50 rounded-lg p-4">
-                  <span className="text-xs text-gray-400 uppercase tracking-wider">Country of Origin</span>
+                  <span className="text-xs text-gray-400 uppercase tracking-wider">{specLabel('made_in', 'Country of Origin')}</span>
                   <p className="font-semibold text-gray-900 mt-1">{selectedProduct.made_in}</p>
                 </div>
               )}
               {isSurfaceProduct && selectedProduct?.tiles_per_box && (
                 <div className="bg-gray-50 rounded-lg p-4">
-                  <span className="text-xs text-gray-400 uppercase tracking-wider">Tiles per Box</span>
+                  <span className="text-xs text-gray-400 uppercase tracking-wider">{specLabel('tiles_per_box', 'Tiles per Box')}</span>
                   <p className="font-semibold text-gray-900 mt-1">{selectedProduct.tiles_per_box}</p>
                 </div>
               )}
               {isSurfaceProduct && sqmPerBox && (
                 <div className="bg-gray-50 rounded-lg p-4">
-                  <span className="text-xs text-gray-400 uppercase tracking-wider">Coverage per Box</span>
+                  <span className="text-xs text-gray-400 uppercase tracking-wider">{specLabel('sqm_per_box', 'Coverage per Box')}</span>
                   <p className="font-semibold text-gray-900 mt-1">{sqmPerBox} m&sup2;</p>
                 </div>
               )}
+              {/* Admin-defined custom spec fields (e.g. Frost Proof → Yes) */}
+              {(Array.isArray(selectedProduct?.custom_specs) ? selectedProduct.custom_specs : [])
+                .filter(cs => cs && cs.label && cs.value !== '' && cs.value !== null && cs.value !== undefined)
+                .map(cs => (
+                  <div key={cs.key || cs.label} className="bg-gray-50 rounded-lg p-4" data-testid={`spec-custom-${cs.key || cs.label}`}>
+                    <span className="text-xs text-gray-400 uppercase tracking-wider">{cs.label}</span>
+                    <p className="font-semibold text-gray-900 mt-1">{String(cs.value)}</p>
+                  </div>
+                ))}
             </div>
-          )}
+            );
+          })()}
 
           {/* Delivery Tab */}
           {(openAccordions.activeTab || 'specs') === 'delivery' && (

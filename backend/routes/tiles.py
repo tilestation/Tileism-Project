@@ -242,6 +242,11 @@ def serialize_tile_for_shop(tile: dict) -> dict:
         # unique colour / style / feature swatch groups.
         "colors": tile.get("colors") or ([tile.get("color")] if tile.get("color") else []),
         "materials": tile.get("materials") or ([tile.get("material")] if tile.get("material") else []),
+        "finishes": tile.get("finishes") or ([tile.get("finish")] if tile.get("finish") else []),
+        "sizes": tile.get("sizes") or ([tile.get("size")] if tile.get("size") else []),
+        "made_in_countries": tile.get("made_in_countries") or ([tile.get("made_in")] if tile.get("made_in") else []),
+        "custom_specs": tile.get("custom_specs", []),
+        "field_label_overrides": tile.get("field_label_overrides", {}),
         "styles": tile.get("styles", []),
         "features": tile.get("features", []),
         "rooms": tile.get("rooms", []),
@@ -1946,45 +1951,27 @@ async def _get_collection_products_impl(
             d_price = sp.get("price") or sp.get("list_price") or 0
             if not d_price and sp.get("cost_price"):
                 d_price = round(sp["cost_price"] * 2, 2)
-            pseudo = {
+            # FULL pass-through of the supplier product — whatever the admin
+            # saves (specs, sale prices, per-box data, arrays…) must reflect
+            # in the preview. serialize_tile_for_shop whitelists the output.
+            pseudo = {k: v for k, v in sp.items() if k != "_id"}
+            pseudo.update({
                 "_id": f"draft-{d_sku}",
                 "sku": d_sku,
                 "supplier_code": sp.get("supplier_code") or d_sku,
                 "name": d_name,
                 "display_name": d_name,
-                "display_code": sp.get("display_code", ""),
                 "slug": re.sub(r"[^a-z0-9]+", "-", d_name.lower()).strip("-"),
-                "description": sp.get("description", ""),
                 "supplier_name": sp.get("supplier", ""),
                 "price": d_price,
-                "room_lot_price": d_price,
-                "images": sp.get("images", []),
-                "finish": sp.get("finish") or "",
-                "material": sp.get("material") or "",
-                "size": sp.get("size") or "",
-                "color": sp.get("color") or "",
-                "attributes": {
-                    "finish": sp.get("finish") or "",
-                    "material": sp.get("material") or "",
-                    "size": sp.get("size") or "",
-                    "color": sp.get("color") or "",
-                },
-                "series": sp.get("series") or "",
-                "labels": sp.get("labels", []),
+                "room_lot_price": sp.get("room_lot_price") or d_price,
                 # Drafts mirror the admin's stock settings from Supplier Products
                 "in_stock": sp.get("stock_status") != "out_of_stock",
                 "stock_status": sp.get("stock_status") or "in_stock",
                 "always_in_stock": sp.get("always_in_stock", False),
                 "stock": sp.get("stock_m2") or sp.get("stock_quantity") or 0,
                 "product_group": sp.get("product_group") or "tiles",
-                "main_category": sp.get("main_category", ""),
-                "sub_categories": sp.get("sub_categories", []),
-                "colors": sp.get("colors", []),
-                "materials": sp.get("materials", []),
-                "styles": sp.get("styles", []),
-                "features": sp.get("features", []),
-                "rooms": sp.get("rooms", []),
-            }
+            })
             card = serialize_tile_for_shop(pseudo)
             card["is_draft"] = True
             serialized.append(card)
