@@ -3914,3 +3914,9 @@ Local repro published the 6 ULT-* products: card shows "6 VARIANTS" with 6 full-
 - SWEEP RESULTS (iteration_234): all attributes save AND display — colours, multi-finishes, material, thickness, slip, suitability, Made In flag (renders near price), tiles_per_box (+sqm auto), custom specs, SURFACE label rename, draft pass-through, both price directions. Sizes 'showing only one' EXPLAINED: correct cross-filtering (60x60 doesn't exist in Matt; picking Semi Polished shows both sizes).
 - Known minor: PDP ?sku= URL param not honoured for initial product selection (user must click size chip).
 - NOTE FOR USER: live site needs a GitHub push → Railway deploy to pick all of this up.
+
+## Aug 18, 2026 — Stale array on Replace fixed (user's 'Matt still showing' report)
+- ROOT CAUSE: array_to_scalar_sync / scalar_to_array_sync maps only covered colors/materials/sub_categories. Replacing scalar finish left the old finishes ARRAY (from a prior multi-value test) untouched — and the storefront prefers the array (getProductFinishes), so 'Matt' kept displaying.
+- FIX: map extended with finishes→finish, sizes→size, made_in_countries→made_in. Replace-mode scalar saves now reset the plural array to [new value] (reverse sync), and replace-mode array saves set the scalar (forward sync). Append/remove modes unaffected (per-product logic).
+- Repro verified: append ['Matt','Semi Polished (Sparkle Sugar)'] then Replace finish='Semi Polished (Sparkle Sugar)' → finishes==['Semi Polished (Sparkle Sugar)'] in supplier_products AND tiles, storefront shows Matt gone.
+- LIVE DATA NOTE: user must re-save finish once on Smart Lux after deploying to purge the stale Matt already stored.

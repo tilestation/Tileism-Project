@@ -12597,6 +12597,9 @@ def bulk_update_unified(data: dict):
             'colors': 'color',
             'materials': 'material',
             'sub_categories': 'category',
+            'finishes': 'finish',
+            'sizes': 'size',
+            'made_in_countries': 'made_in',
         }
         for arr_field, scalar_field in array_to_scalar_sync.items():
             if mode in ("remove", "append"):
