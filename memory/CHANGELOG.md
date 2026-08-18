@@ -3835,3 +3835,7 @@ Local repro published the 6 ULT-* products: card shows "6 VARIANTS" with 6 full-
 2. Per-collection override: `variant_label` in `collection_settings` — whitelisted in PUT /api/website-admin/collections/{series}, returned by GET /api/tiles/collection/{series} AND the admin collections list (added to BOTH the custom_settings extraction ~2277 and collections.append).
 3. `CollectionManager.jsx`: "Variant label" select (Auto/Colour/Design/Pattern/Style/Range) on grid cards (default view) AND reorder list rows; testid variant-label-select-{series}.
 **Tested**: unit (Botticino mix → 'Colour / Design'; pure sets correct), e2e override set → storefront "Design: Bianco", cleared → auto "Colour: Bianco", admin grid select renders. GOTCHA: /api/tiles/collection has a ~60s response cache — changes take up to a minute to appear (cache key includes query params).
+
+## Aug 18, 2026 — Post-fork verification
+- Verified Assign Modal v2 in browser (admin/tiles): Assign All dropdown works (moved 930 → bucket in one click), Supplier tab removed from attribute tabs, Made In shows country flags (🇨🇳 🇮🇳 🇮🇹) on saved values and buckets. No data saved during test.
+- Observation: 128 of 1058 tiles have no SKU/supplier_code so they cannot be bucket-assigned — likely the legacy April-import products (ties into Legacy Import Cleanup backlog item).
