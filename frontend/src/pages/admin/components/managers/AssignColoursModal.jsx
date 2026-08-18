@@ -25,6 +25,7 @@ import { getSeriesName } from '../../lib/series';
 import { SubCategoriesTab } from './SubCategoriesTab';
 import { CustomSpecsTab } from './CustomSpecsTab';
 import { ShopTabsPanel } from './ShopTabsAssignModal';
+import { PerBoxAutoFill } from './PerBoxAutoFill';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
 
@@ -535,6 +536,11 @@ const AssignColoursModal = ({ open, onOpenChange, selectedList = [], onSuccess, 
                 : `One ${attr.label.toLowerCase()} per product — saving replaces the old value`}
           </span>
         </div>
+
+        {/* Per-box auto-fill — computes the value from tile size, one click to save */}
+        {NUMERIC_ATTRS.has(attr.key) && (
+          <PerBoxAutoFill attr={attr} selectedList={selectedList} onSuccess={onSuccess} />
+        )}
 
         {/* Add-a-bucket bar */}
         <div className="flex items-center gap-2 py-2">
