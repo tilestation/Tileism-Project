@@ -3869,3 +3869,7 @@ Local repro published the 6 ULT-* products: card shows "6 VARIANTS" with 6 full-
 - ShopTabsAssignModal.jsx refactored: inner ShopTabsPanel exported and embedded as a blue 'Shop Tabs' tab (__shoptabs) inside Attribute Studio (embedded mode stays open after Apply). Bulk-bar 'Shop Tabs' button unchanged (same panel).
 - Save-mode toggle now 3-way: Replace / + Add (multi-value) / − Remove value. Remove mode: buckets = values to strip; save uses mode='remove'; red [remove: X] badges + 'Strip via…' dropdowns.
 - Backend remove branch generalised: REMOVE_SCALAR_MAP (colors/materials/sub_categories/finishes/sizes/made_in_countries) — scalar seeded into the list, removing the primary promotes the next value to scalar, scalar-only products fully cleared. Curl-verified: Matt/Semi Polished promotion, case-insensitive, scalar-only Gloss removal. UI E2E screenshots pass. Fixture restored.
+
+## Aug 18, 2026 — Studio Completeness Meter
+- Attribute Studio now shows a live 'Completeness' bar under the ASSIGN BY switcher: overall % (green ≥100, amber ≥50, red <50) + one chip per attribute showing filled/total counts (green tick = complete, amber = partial, red = none). Chips are clickable — jump straight to that attribute tab to fill the gap. Counts arrays (finishes etc.) and attributes subdoc. Refreshes automatically after each save via onSuccess→fetchProducts.
+- E2E verified: 56% for TestSeries fixture, 8 chips with correct states, chip click switches tab.

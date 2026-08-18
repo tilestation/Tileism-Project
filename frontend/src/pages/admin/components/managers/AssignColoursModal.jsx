@@ -308,6 +308,22 @@ const AssignColoursModal = ({ open, onOpenChange, selectedList = [], onSuccess, 
     }
   };
 
+  // Completeness meter — how many of the selection have each attribute filled
+  const completeness = useMemo(() => {
+    const rows = allAttributes.map(a => {
+      const filled = selectedList.filter(p => {
+        const arr = p[arrayFieldFor(a)];
+        if (Array.isArray(arr) && arr.length > 0) return true;
+        const v = p[a.key] ?? (p.attributes ? p.attributes[a.key] : undefined);
+        return v !== undefined && v !== null && String(v).trim() !== '';
+      }).length;
+      return { ...a, filled };
+    });
+    const total = selectedList.length * rows.length;
+    const done = rows.reduce((s, r) => s + r.filled, 0);
+    return { rows, pct: total ? Math.round((done / total) * 100) : 0 };
+  }, [selectedList, allAttributes]);
+
   const productName = (p) => (p.our_product_name || p.product_name || p.name || p.sku || p.supplier_code);
 
   // Special tabs merged in from the old Specs / Filters modal
@@ -384,6 +400,49 @@ const AssignColoursModal = ({ open, onOpenChange, selectedList = [], onSuccess, 
             >
               <Sliders className="w-3 h-3" /> Custom Specs
             </button>
+          </div>
+        )}
+
+        {/* Completeness meter — live gaps overview, click a chip to jump to that attribute */}
+        {selectedList.length > 0 && (
+          <div className="rounded-lg border border-gray-200 bg-gray-50/60 px-3 py-2" data-testid="studio-progress-bar">
+            <div className="flex items-center gap-2 mb-1.5">
+              <span className="text-[10px] uppercase tracking-wide font-semibold text-gray-500">Completeness</span>
+              <div className="flex-1 h-1.5 bg-gray-200 rounded-full overflow-hidden">
+                <div
+                  className={`h-full rounded-full transition-all duration-500 ${
+                    completeness.pct === 100 ? 'bg-emerald-500' : completeness.pct >= 50 ? 'bg-amber-400' : 'bg-red-400'
+                  }`}
+                  style={{ width: `${completeness.pct}%` }}
+                />
+              </div>
+              <span className="text-[11px] font-semibold text-gray-600" data-testid="studio-progress-pct">{completeness.pct}%</span>
+            </div>
+            <div className="flex flex-wrap gap-1">
+              {completeness.rows.map(r => {
+                const full = r.filled === selectedList.length;
+                const empty = r.filled === 0;
+                return (
+                  <button
+                    key={r.key}
+                    type="button"
+                    onClick={() => switchAttribute(r)}
+                    title={full ? `Every selected product has a ${r.label.toLowerCase()}` : `${selectedList.length - r.filled} product(s) missing ${r.label.toLowerCase()} — click to fill`}
+                    className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] font-medium transition-colors ${
+                      full
+                        ? 'bg-emerald-50 border-emerald-300 text-emerald-700'
+                        : empty
+                          ? 'bg-red-50 border-red-200 text-red-600 hover:bg-red-100'
+                          : 'bg-amber-50 border-amber-300 text-amber-700 hover:bg-amber-100'
+                    }`}
+                    data-testid={`progress-chip-${r.key}`}
+                  >
+                    {full && <CheckCircle className="w-2.5 h-2.5" />}
+                    {r.label} {r.filled}/{selectedList.length}
+                  </button>
+                );
+              })}
+            </div>
           </div>
         )}
 
