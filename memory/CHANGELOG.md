@@ -3902,3 +3902,8 @@ Local repro published the 6 ULT-* products: card shows "6 VARIANTS" with 6 full-
 - User's Railway deploys flaky: (1) 'Initialization > Snapshot code' = Railway platform-stage transient error (retry fixes); (2) 'Failed to connect before the deadline' = /api/health pinged Mongo with NO timeout — Motor's 30s server-selection default made probes hang at boot when the Mongo service wasn't ready yet, blowing the 60s healthcheck deadline.
 - Fixes: health ping wrapped in asyncio.wait_for(timeout=2) so probes always answer fast (returns 200 with status unhealthy while DB warms up); backend/railway.json healthcheckTimeout 60 → 300.
 - Verified: /api/health responds in 0.38s. Changes need a push to GitHub (Save to Github) to reach Railway.
+
+## Aug 18, 2026 — Publish visibility + cache invalidation
+- User: published Smart Lux but it wasn't on the Collections page (only via search). Causes: (1) multi-layer caching (60s in-memory + 300s CDN s-maxage + stale-while-revalidate 3600) served the pre-publish list; (2) collections list sorts by featured → display_order → PRODUCT COUNT desc, so a 4-product new series lands pages deep; (3) NEW COLLECTIONS nav filters on labels containing 'NEW' — publishing doesn't add that label.
+- Fix: publish-to-website + unpublish-from-website now invalidate endpoint_cache namespaces tiles_collections + tiles_related on success.
+- Guidance given: add the NEW label (Sale/Labels bulk tool) to appear under NEW COLLECTIONS; use Collection Manager featured/display_order to float new series; Customers Also Liked is auto (material/finish/effect/price-match) and You May Also Need supports per-collection pinning via the Edit drawer's Related Products panel.

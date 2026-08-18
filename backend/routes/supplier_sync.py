@@ -2750,6 +2750,14 @@ def publish_supplier_products_to_website(
             except Exception as e:
                 errors.append(f"{sp.get('sku', 'unknown')}: {str(e)[:50]}")
         
+        # Bust the collections/related caches so new publishes appear immediately
+        try:
+            from utils.endpoint_cache import endpoint_cache
+            endpoint_cache.invalidate("tiles_collections")
+            endpoint_cache.invalidate("tiles_related")
+        except Exception:
+            pass
+
         return {
             "success": True,
             "message": f"Published {published} new, updated {updated} products to website",
@@ -3118,6 +3126,14 @@ def unpublish_from_website(
             )
             supplier_updated = sp_result.modified_count
         
+        # Bust the collections/related caches so removals disappear immediately
+        try:
+            from utils.endpoint_cache import endpoint_cache
+            endpoint_cache.invalidate("tiles_collections")
+            endpoint_cache.invalidate("tiles_related")
+        except Exception:
+            pass
+
         return {
             "success": True,
             "message": f"Unpublished {deleted_count} products from website, updated {supplier_updated} supplier records",
