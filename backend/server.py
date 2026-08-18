@@ -1194,10 +1194,11 @@ async def login(input: UserLogin, request: Request):
 # Health check endpoint (no auth required)
 @api_router.get("/health")
 async def health_check():
-    """Health check endpoint to verify the backend is ready."""
+    """Health check endpoint to verify the backend is ready.
+    Must respond FAST — Railway's deploy healthcheck probes this and a
+    hanging Mongo ping (30s server-selection default) fails the deadline."""
     try:
-        # Quick DB ping to verify connection
-        await db.command("ping")
+        await asyncio.wait_for(db.command("ping"), timeout=2)
         return {
             "status": "healthy",
             "database": "connected",
