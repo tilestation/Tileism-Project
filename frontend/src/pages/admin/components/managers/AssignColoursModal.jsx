@@ -44,7 +44,10 @@ const flagFor = (attrKey, name) =>
 const ARRAY_FIELD_MAP = { color: 'colors', finish: 'finishes', size: 'sizes', material: 'materials', made_in: 'made_in_countries' };
 const arrayFieldFor = (attr) => attr.arrayField || ARRAY_FIELD_MAP[attr.key] || `${attr.key}s`;
 
-const AssignColoursModal = ({ open, onOpenChange, selectedList = [], onSuccess, attributeOptions = [], subTabs = [] }) => {
+// Numeric single-value fields — Replace mode only, stored as numbers
+const NUMERIC_ATTRS = new Set(['tiles_per_box', 'sqm_per_box']);
+
+const AssignColoursModal = ({ open, onOpenChange, selectedList = [], onSuccess, attributeOptions = [], subTabs = [], onCreateSubTab }) => {
   // The attribute being bucketed — Colour by default, switchable to any
   // Configure-defined filter/spec field (Finish, Size, Material, Thickness…)
   const [attr, setAttr] = useState(COLOUR_ATTR);
@@ -258,9 +261,11 @@ const AssignColoursModal = ({ open, onOpenChange, selectedList = [], onSuccess, 
           if (p.sku) idsSku.push(p.sku);
           else if (p.supplier_code) idsSupplierCode.push(p.supplier_code);
         });
+        const rawVal = bucket.name;
+        const numVal = NUMERIC_ATTRS.has(attr.key) && !isNaN(Number(rawVal)) ? Number(rawVal) : rawVal;
         const updates = saveMode === 'replace'
-          ? { [attr.key]: bucket.name, ...(attr.arrayField ? { [attr.arrayField]: [bucket.name] } : {}) }
-          : { [arrayFieldFor(attr)]: [bucket.name] };
+          ? { [attr.key]: numVal, ...(attr.arrayField ? { [attr.arrayField]: [rawVal] } : {}) }
+          : { [arrayFieldFor(attr)]: [rawVal] };
         for (const [ids, idField] of [[idsSku, 'sku'], [idsSupplierCode, 'supplier_code']]) {
           if (ids.length === 0) continue;
           const res = await fetch(`${API_URL}/api/supplier-sync/products/bulk-update-unified`, {
@@ -447,7 +452,7 @@ const AssignColoursModal = ({ open, onOpenChange, selectedList = [], onSuccess, 
         )}
 
         {attr.key === '__subcats' && (
-          <SubCategoriesTab selectedList={selectedList} subTabs={taggableSubTabs} onSuccess={onSuccess} />
+          <SubCategoriesTab selectedList={selectedList} subTabs={taggableSubTabs} onSuccess={onSuccess} onCreateTag={onCreateSubTab} />
         )}
         {attr.key === '__shoptabs' && (
           <ShopTabsPanel selectedProducts={selectedList} onSaved={onSuccess} embedded />
@@ -499,6 +504,8 @@ const AssignColoursModal = ({ open, onOpenChange, selectedList = [], onSuccess, 
             >
               Replace value
             </button>
+            {!NUMERIC_ATTRS.has(attr.key) && (
+            <>
             <button
               type="button"
               onClick={() => setSaveMode('add')}
@@ -515,9 +522,13 @@ const AssignColoursModal = ({ open, onOpenChange, selectedList = [], onSuccess, 
             >
               − Remove value
             </button>
+            </>
+            )}
           </div>
           <span className="text-[10px] text-gray-400">
-            {saveMode === 'add'
+            {NUMERIC_ATTRS.has(attr.key)
+              ? `Numeric field — one ${attr.label.toLowerCase()} per product, shown on the Product detail page`
+              : saveMode === 'add'
               ? `Products can sit in several buckets — each bucket ADDS a ${attr.label.toLowerCase()} without replacing existing ones`
               : saveMode === 'remove'
                 ? `Each bucket STRIPS that ${attr.label.toLowerCase()} from the products you put in it — existing other values stay`
@@ -528,7 +539,7 @@ const AssignColoursModal = ({ open, onOpenChange, selectedList = [], onSuccess, 
         {/* Add-a-bucket bar */}
         <div className="flex items-center gap-2 py-2">
           <Input
-            placeholder={`Type a ${attr.label.toLowerCase()} name (e.g. ${attr.key === 'color' ? 'Grey, White, Beige…' : attr.key === 'size' ? '30x60cm, 60x60cm…' : attr.key === 'finish' ? 'Matt, Polished…' : 'value…'})`}
+            placeholder={`Type a ${attr.label.toLowerCase()} ${NUMERIC_ATTRS.has(attr.key) ? 'number' : 'name'} (e.g. ${attr.key === 'color' ? 'Grey, White, Beige…' : attr.key === 'size' ? '30x60cm, 60x60cm…' : attr.key === 'finish' ? 'Matt, Polished…' : attr.key === 'tiles_per_box' ? '4, 6, 8…' : attr.key === 'sqm_per_box' ? '1.08, 1.44…' : 'value…'})`}
             value={newColour}
             onChange={(e) => setNewColour(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addBucket(); } }}

@@ -21,10 +21,29 @@ const postBulk = async (body) => {
   return res.json();
 };
 
-export const SubCategoriesTab = ({ selectedList = [], subTabs = [], onSuccess }) => {
+export const SubCategoriesTab = ({ selectedList = [], subTabs = [], onSuccess, onCreateTag }) => {
   const tags = useMemo(() => (subTabs || []).filter(t => t.key && t.key !== 'all'), [subTabs]);
   const [state, setState] = useState({});   // { key: 'add' | 'remove' }
   const [saving, setSaving] = useState(false);
+  const [newTag, setNewTag] = useState('');
+  const [creating, setCreating] = useState(false);
+
+  const createTag = async () => {
+    const label = newTag.trim();
+    if (!label) return;
+    if (tags.some(t => (t.label || t.key).toLowerCase() === label.toLowerCase())) {
+      toast.error(`Sub-category "${label}" already exists`);
+      return;
+    }
+    setCreating(true);
+    try {
+      const key = await onCreateTag(label);
+      setNewTag('');
+      if (key) setState(prev => ({ ...prev, [key]: 'add' }));   // pre-tick for this selection
+      toast.success(`Sub-category "${label}" created — ticked to add for your selection`);
+    } catch { /* saveConfig already toasts */ }
+    finally { setCreating(false); }
+  };
 
   // A product "has" a tag if any sub_categories entry contains the tag's key,
   // label or any keyword (same substring logic the Manager sub-tabs use) —
@@ -129,7 +148,7 @@ export const SubCategoriesTab = ({ selectedList = [], subTabs = [], onSuccess })
     }
   };
 
-  if (tags.length === 0) {
+  if (tags.length === 0 && !onCreateTag) {
     return <p className="text-sm text-gray-400 text-center py-8">No sub-categories configured for this Manager — add them via Configure.</p>;
   }
 
@@ -165,6 +184,30 @@ export const SubCategoriesTab = ({ selectedList = [], subTabs = [], onSuccess })
           );
         })}
       </div>
+      {/* Create a brand-new sub-category on the spot */}
+      {onCreateTag && (
+        <div className="flex items-center gap-2" data-testid="new-subcat-row">
+          <input
+            type="text"
+            value={newTag}
+            onChange={(e) => setNewTag(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); createTag(); } }}
+            placeholder="New sub-category name, e.g. Outdoor, Metro, Hexagon…"
+            className="flex-1 h-8 text-xs border border-emerald-200 rounded px-2 bg-white"
+            data-testid="new-subcat-input"
+          />
+          <Button
+            size="sm"
+            onClick={createTag}
+            disabled={creating || !newTag.trim()}
+            className="bg-emerald-600 hover:bg-emerald-700 text-white h-8"
+            data-testid="new-subcat-create-btn"
+          >
+            {creating ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5 mr-1" />}
+            {creating ? '' : 'Create'}
+          </Button>
+        </div>
+      )}
       <div className="flex items-center justify-between pt-2 border-t border-gray-100">
         <span className="text-xs text-gray-500" data-testid="subcats-pending-summary">
           {addTags.length > 0 && <span className="text-emerald-700 font-medium">+{addTags.length} to add</span>}

@@ -3873,3 +3873,8 @@ Local repro published the 6 ULT-* products: card shows "6 VARIANTS" with 6 full-
 ## Aug 18, 2026 — Studio Completeness Meter
 - Attribute Studio now shows a live 'Completeness' bar under the ASSIGN BY switcher: overall % (green ≥100, amber ≥50, red <50) + one chip per attribute showing filled/total counts (green tick = complete, amber = partial, red = none). Chips are clickable — jump straight to that attribute tab to fill the gap. Counts arrays (finishes etc.) and attributes subdoc. Refreshes automatically after each save via onSuccess→fetchProducts.
 - E2E verified: 56% for TestSeries fixture, 8 chips with correct states, chip click switches tab.
+
+## Aug 18, 2026 — New sub-category creation + Tiles/M² Per Box attributes
+- SubCategoriesTab: '+ New sub-category' input creates a sub_tab in the manager config on the spot (ManagerPageShell onCreateSubTab → PATCH /api/manager-definitions/{slug} sub_tabs append) and pre-ticks it to ADD for the current selection. Empty-state guard updated so the create row shows even with 0 tags.
+- Attribute Studio: 'Tiles Per Box' + 'M² Per Box' added as always-available attributes (keys tiles_per_box / sqm_per_box). Numeric handling: values stored as numbers (int/float), Add/Remove modes hidden for numeric fields, numeric placeholders. PDP already displays tiles_per_box in specs (CollectionDetailPage line ~3739) and uses sqm_per_box for box maths — no storefront change needed.
+- E2E verified: 'Outdoor' created + pre-ticked (config cleaned after), tiles_per_box=6 saved as int (fixture reset), completeness meter picked up the two new attributes automatically.

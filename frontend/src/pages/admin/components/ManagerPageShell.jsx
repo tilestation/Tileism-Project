@@ -940,9 +940,17 @@ const ManagerPageShell = ({
           // Always-available extras
           if (!seen.has('made_in')) out.push({ key: 'made_in', label: 'Made In', arrayField: null });
           if (!seen.has('thickness')) out.push({ key: 'thickness', label: 'Thickness', arrayField: null });
+          if (!seen.has('tiles_per_box')) out.push({ key: 'tiles_per_box', label: 'Tiles Per Box', arrayField: null });
+          if (!seen.has('sqm_per_box')) out.push({ key: 'sqm_per_box', label: 'M² Per Box', arrayField: null });
           return out;
         })()}
         subTabs={effectiveSubTabs}
+        onCreateSubTab={async (label) => {
+          const clean = label.trim();
+          const key = clean.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+          await saveConfig({ sub_tabs: [...(config?.sub_tabs || []), { key, label: clean, keywords: [clean.toLowerCase()] }] });
+          return key;
+        }}
         onSuccess={() => fetchProducts()}
       />
       <CustomManagerBuilder open={builderOpen} onOpenChange={setBuilderOpen} />
