@@ -39,6 +39,10 @@ const COUNTRY_FLAGS = {
 const flagFor = (attrKey, name) =>
   attrKey === 'made_in' ? (COUNTRY_FLAGS[String(name || '').toLowerCase()] || '') : '';
 
+// Plural array field per attribute — where multi-values are stored
+const ARRAY_FIELD_MAP = { color: 'colors', finish: 'finishes', size: 'sizes', material: 'materials', made_in: 'made_in_countries' };
+const arrayFieldFor = (attr) => attr.arrayField || ARRAY_FIELD_MAP[attr.key] || `${attr.key}s`;
+
 const AssignColoursModal = ({ open, onOpenChange, selectedList = [], onSuccess, attributeOptions = [], subTabs = [] }) => {
   // The attribute being bucketed — Colour by default, switchable to any
   // Configure-defined filter/spec field (Finish, Size, Material, Thickness…)
@@ -73,11 +77,16 @@ const AssignColoursModal = ({ open, onOpenChange, selectedList = [], onSuccess, 
       .catch(() => setSuggestions([]));
   }, [open, attr]);
 
+  // Multi-value mode: products can live in MULTIPLE buckets and saving APPENDS
+  // (e.g. a tile that is both Matt AND Semi Polished). Replace mode = one value.
+  const [multiMode, setMultiMode] = useState(false);
+
   const switchAttribute = (a) => {
     if (a.key === attr.key) return;
     setAttr(a);
     setBuckets([]);   // buckets are per-attribute
     setNewColour('');
+    setMultiMode(false);
   };
 
   // Delete a saved-value chip (also hides it from in-use suggestions)
@@ -170,6 +179,9 @@ const AssignColoursModal = ({ open, onOpenChange, selectedList = [], onSuccess, 
     [selectedList, assignedSkus]
   );
 
+  // Pool shown on the left: in multi mode products never leave the pool
+  const poolProducts = multiMode ? selectedList : unassignedProducts;
+
   const addBucket = (presetName) => {
     const name = (presetName ?? newColour).trim();
     if (!name) return;
@@ -198,19 +210,21 @@ const AssignColoursModal = ({ open, onOpenChange, selectedList = [], onSuccess, 
     setBuckets(prev => prev.map((b, i) => {
       const nextSkus = new Set(b.skus);
       if (i === bucketIdx) nextSkus.add(sku);
-      else nextSkus.delete(sku);
+      else if (!multiMode) nextSkus.delete(sku);
       return { ...b, skus: nextSkus };
     }));
   };
 
-  // One-click: move every unassigned product into the chosen bucket
+  // One-click: move every pool product into the chosen bucket
   const assignAllToBucket = (bucketName) => {
-    const skus = unassignedProducts.map(p => p.sku || p.supplier_code).filter(Boolean);
+    const target = buckets.find(b => b.name === bucketName);
+    const source = multiMode ? selectedList : unassignedProducts;
+    const skus = source.map(p => p.sku || p.supplier_code).filter(s => s && !(target && target.skus.has(s)));
     if (skus.length === 0) return;
     setBuckets(prev => prev.map(b =>
       b.name === bucketName ? { ...b, skus: new Set([...b.skus, ...skus]) } : b
     ));
-    toast.success(`Moved ${skus.length} product(s) to "${bucketName}"`);
+    toast.success(`${multiMode ? 'Added' : 'Moved'} ${skus.length} product(s) to "${bucketName}"`);
   };
 
   const removeSkuFromBucket = (sku, bucketIdx) => {
@@ -242,8 +256,9 @@ const AssignColoursModal = ({ open, onOpenChange, selectedList = [], onSuccess, 
           if (p.sku) idsSku.push(p.sku);
           else if (p.supplier_code) idsSupplierCode.push(p.supplier_code);
         });
-        const updates = { [attr.key]: bucket.name };
-        if (attr.arrayField) updates[attr.arrayField] = [bucket.name];
+        const updates = multiMode
+          ? { [arrayFieldFor(attr)]: [bucket.name] }
+          : { [attr.key]: bucket.name, ...(attr.arrayField ? { [attr.arrayField]: [bucket.name] } : {}) };
         for (const [ids, idField] of [[idsSku, 'sku'], [idsSupplierCode, 'supplier_code']]) {
           if (ids.length === 0) continue;
           const res = await fetch(`${API_URL}/api/supplier-sync/products/bulk-update-unified`, {
@@ -253,7 +268,7 @@ const AssignColoursModal = ({ open, onOpenChange, selectedList = [], onSuccess, 
               product_ids: ids,
               id_field: idField,
               updates,
-              mode: 'replace',
+              mode: multiMode ? 'append' : 'replace',
             }),
           });
           if (!res.ok) throw new Error(`HTTP ${res.status} on bucket "${bucket.name}"`);
@@ -277,7 +292,7 @@ const AssignColoursModal = ({ open, onOpenChange, selectedList = [], onSuccess, 
         );
         console.warn('[Assign Attributes] Verification failures:', allVerFailures);
       } else {
-        toast.success(`Assigned ${attr.label.toLowerCase()} to ${totalUpdated} product(s) — keep assigning or close when done`);
+        toast.success(`${multiMode ? 'Added' : 'Assigned'} ${attr.label.toLowerCase()} ${multiMode ? 'value(s) on' : 'to'} ${totalUpdated} product(s) — keep assigning or close when done`);
       }
       // Stay open with buckets + selection intact — user closes when done
       if (onSuccess) onSuccess({ updated: totalUpdated, failures: allVerFailures });
@@ -308,7 +323,7 @@ const AssignColoursModal = ({ open, onOpenChange, selectedList = [], onSuccess, 
               ? 'Add or remove sub-category tags across the whole selection — with 100% verification and Undo.'
               : attr.key === '__custom'
                 ? 'Add your own spec fields (saved for reuse) and rename field labels across the selection.'
-                : `Create a bucket per ${attr.label.toLowerCase()}, then move SKUs into the matching bucket. Each bucket becomes a separate save with 100% verification. Products can only be in one bucket at a time.`}
+                : `Create a bucket per ${attr.label.toLowerCase()}, then move SKUs into the matching bucket. Each bucket becomes a separate save with 100% verification. ${multiMode ? 'Multi-value mode: products can sit in several buckets and each save ADDS the value.' : 'Products can only be in one bucket at a time.'}`}
           </p>
         </DialogHeader>
 
@@ -394,6 +409,34 @@ const AssignColoursModal = ({ open, onOpenChange, selectedList = [], onSuccess, 
           </div>
         )}
 
+        {/* Save mode: Replace (single value) vs Add (multi-value) */}
+        <div className="flex items-center gap-2 pt-1">
+          <span className="text-[10px] uppercase tracking-wide text-gray-400">Save as:</span>
+          <div className="inline-flex rounded-full border border-gray-200 overflow-hidden text-[11px] font-medium">
+            <button
+              type="button"
+              onClick={() => setMultiMode(false)}
+              className={`px-2.5 py-1 transition-colors ${!multiMode ? 'bg-orange-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}
+              data-testid="mode-replace-btn"
+            >
+              Replace value
+            </button>
+            <button
+              type="button"
+              onClick={() => setMultiMode(true)}
+              className={`px-2.5 py-1 transition-colors ${multiMode ? 'bg-emerald-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}
+              data-testid="mode-add-btn"
+            >
+              + Add (multi-value)
+            </button>
+          </div>
+          <span className="text-[10px] text-gray-400">
+            {multiMode
+              ? `Products can sit in several buckets — each bucket ADDS a ${attr.label.toLowerCase()} without replacing existing ones`
+              : `One ${attr.label.toLowerCase()} per product — saving replaces the old value`}
+          </span>
+        </div>
+
         {/* Add-a-bucket bar */}
         <div className="flex items-center gap-2 py-2">
           <Input
@@ -454,34 +497,37 @@ const AssignColoursModal = ({ open, onOpenChange, selectedList = [], onSuccess, 
             onDragLeave={() => setDragOverBucket(null)}
           >
             <div className="flex items-center justify-between mb-2 gap-2">
-              <h4 className="font-semibold text-sm text-gray-700">Unassigned</h4>
+              <h4 className="font-semibold text-sm text-gray-700">{multiMode ? 'All products' : 'Unassigned'}</h4>
               <div className="flex items-center gap-1.5">
-                {unassignedProducts.length > 0 && buckets.length > 0 && (
+                {poolProducts.length > 0 && buckets.length > 0 && (
                   <select
                     value=""
                     onChange={(e) => { if (e.target.value) assignAllToBucket(e.target.value); }}
                     className="h-6 text-[11px] border border-orange-300 rounded px-1 bg-orange-50 text-orange-800 font-medium max-w-[130px]"
-                    title="Move every unassigned product into one bucket in one go"
+                    title={multiMode ? 'Add every product to one bucket in one go' : 'Move every unassigned product into one bucket in one go'}
                     data-testid="assign-all-select"
                   >
-                    <option value="">Assign all to…</option>
+                    <option value="">{multiMode ? 'Add all to…' : 'Assign all to…'}</option>
                     {buckets.map(b => (
                       <option key={b.name} value={b.name}>{b.name}</option>
                     ))}
                   </select>
                 )}
-                <Badge variant="outline" className="text-xs">{unassignedProducts.length}</Badge>
+                <Badge variant="outline" className="text-xs">{poolProducts.length}</Badge>
               </div>
             </div>
-            {unassignedProducts.length === 0 ? (
+            {poolProducts.length === 0 ? (
               <p className="text-xs text-gray-400 text-center py-4">
                 <CheckCircle className="w-5 h-5 mx-auto mb-1 text-emerald-500" />
                 All selected products are in a bucket
               </p>
             ) : (
               <ul className="space-y-1">
-                {unassignedProducts.map(p => {
+                {poolProducts.map(p => {
                   const sku = p.sku || p.supplier_code;
+                  const memberships = multiMode ? buckets.filter(b => b.skus.has(sku)).map(b => b.name) : [];
+                  const curArr = Array.isArray(p[arrayFieldFor(attr)]) && p[arrayFieldFor(attr)].length > 0 ? p[arrayFieldFor(attr)] : null;
+                  const cur = curArr ? curArr.join(', ') : (p[attr.key] || null);
                   return (
                     <li
                       key={sku || p._id}
@@ -494,7 +540,10 @@ const AssignColoursModal = ({ open, onOpenChange, selectedList = [], onSuccess, 
                         <div className="font-medium text-gray-800 truncate" title={productName(p)}>{productName(p)}</div>
                         <div className="text-[10px] text-gray-500 truncate">
                           {p.supplier} · {sku}
-                          {p[attr.key] && <span className="ml-1 text-orange-600">(current: {Array.isArray(p[attr.key]) ? p[attr.key].join(', ') : p[attr.key]})</span>}
+                          {cur && <span className="ml-1 text-orange-600">(current: {cur})</span>}
+                          {memberships.length > 0 && (
+                            <span className="ml-1 text-emerald-700 font-medium">[in: {memberships.join(', ')}]</span>
+                          )}
                         </div>
                       </div>
                       {buckets.length > 0 && (
@@ -504,9 +553,9 @@ const AssignColoursModal = ({ open, onOpenChange, selectedList = [], onSuccess, 
                           onChange={(e) => { if (e.target.value !== '') moveSkuToBucket(sku, Number(e.target.value)); }}
                           data-testid={`move-to-bucket-${sku}`}
                         >
-                          <option value="">Move to…</option>
+                          <option value="">{multiMode ? 'Add to…' : 'Move to…'}</option>
                           {buckets.map((b, i) => (
-                            <option key={i} value={i}>{b.name}</option>
+                            <option key={i} value={i} disabled={multiMode && b.skus.has(sku)}>{b.name}</option>
                           ))}
                         </select>
                       )}

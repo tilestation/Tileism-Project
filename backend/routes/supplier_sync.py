@@ -12551,8 +12551,8 @@ def bulk_update_unified(data: dict):
             'sub_categories': 'category',
         }
         for arr_field, scalar_field in array_to_scalar_sync.items():
-            if mode == "remove":
-                break  # remove mode handles scalar sync per-product with the remaining values
+            if mode in ("remove", "append"):
+                break  # remove/append modes handle scalar sync per-product
             if arr_field in array_updates and scalar_field not in set_fields:
                 arr_val = array_updates[arr_field]
                 if arr_val and len(arr_val) > 0:
@@ -12683,7 +12683,12 @@ def bulk_update_unified(data: dict):
                         collection.update_one({qf: sku}, update_doc)
                         count += 1
             elif mode == "append" and array_updates:
-                # Append mode for arrays only (legacy behavior)
+                # Append mode: case-insensitive ordered merge; scalar stays as the
+                # primary value — only set it when currently empty
+                APPEND_SCALAR_MAP = {
+                    "colors": "color", "materials": "material", "sub_categories": "category",
+                    "finishes": "finish", "sizes": "size", "made_in_countries": "made_in",
+                }
                 for sku in product_ids:
                     per_q2 = {qf: sku}
                     if supplier_filter and not skip_supplier_filter:
@@ -12693,13 +12698,26 @@ def bulk_update_unified(data: dict):
                         update_doc = {"$set": set_fields.copy()}
                         if unset_fields:
                             update_doc["$unset"] = unset_fields
-                        
-                        # Merge arrays
+
                         for arr_field in array_updates:
-                            existing = set(doc.get(arr_field, []))
-                            new_values = set(array_updates[arr_field])
-                            update_doc["$set"][arr_field] = list(existing | new_values)
-                        
+                            existing = [v for v in (doc.get(arr_field) or []) if v not in (None, "")]
+                            scalar_field = APPEND_SCALAR_MAP.get(arr_field)
+                            scalar_val = doc.get(scalar_field) if scalar_field else None
+                            merged = list(existing)
+                            seen_l = {str(v).strip().lower() for v in existing}
+                            # Seed the primary scalar into the array so it stays the complete list
+                            if scalar_val and str(scalar_val).strip().lower() not in seen_l:
+                                merged.insert(0, scalar_val)
+                                seen_l.add(str(scalar_val).strip().lower())
+                            for v in array_updates[arr_field]:
+                                vl = str(v).strip().lower()
+                                if vl not in seen_l:
+                                    merged.append(v)
+                                    seen_l.add(vl)
+                            update_doc["$set"][arr_field] = merged
+                            if scalar_field and not scalar_val and merged:
+                                update_doc["$set"][scalar_field] = merged[0]
+
                         collection.update_one({qf: sku}, update_doc)
                         count += 1
             else:

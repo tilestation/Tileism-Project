@@ -3857,3 +3857,10 @@ Local repro published the 6 ULT-* products: card shows "6 VARIANTS" with 6 full-
 - New Custom Specs tab: label/value custom fields saved as reusable presets (custom_spec_label + custom_spec:{key} via attribute-values API) with label chips + value chips; Rename Field Labels (field_label_overrides); Undo.
 - Backend bulk-update-unified: new mode='remove' (case-insensitive array pull + scalar category re-sync to first remaining); mode-aware verification (append=subset, remove=disjoint, replace=set equality) — fixed pre-existing false verification failures in append mode.
 - Testing agent iteration_233: 100% backend (4/4) + 100% frontend (7/7). Post-test fixes: value-suggestion cache no longer stuck empty (always refetch+merge), ADD normalised to Title-Case label.
+
+## Aug 18, 2026 — Multi-value attributes (Add mode) in Attribute Studio
+- New 'Save as: Replace value / + Add (multi-value)' toggle per attribute tab. In Add mode products can sit in SEVERAL buckets (pool shows all products with [in: bucket,...] badges, dropdowns become 'Add to…'), and saving APPENDS to the plural array field (finishes/sizes/materials/colors/made_in_countries) via mode='append' — never touching existing values.
+- Backend append mode rewritten: case-insensitive ordered merge, primary scalar seeded into the array (finish='Matt' → finishes always contains 'Matt'), scalar only set when empty (append/remove no longer overwrite the primary via global scalar sync).
+- Shop wiring: shop_category.py facets read finishes/sizes/materials arrays; product filtering matches scalar OR array (finish/size/material); projection includes the arrays.
+- CollectionDetailPage: getProductFinishes()/productHasFinish() helpers — finish selector options, colour↔finish availability, product filtering and the spec panel are all multi-finish aware (scalar fallback preserved).
+- E2E verified: curl round-trips (append dedupes 'matt' vs 'Matt', filter finds product by 2nd finish, facets list all), modal multi-mode screenshot flow (2 products × 2 buckets → finishes=['Matt','Semi Polished'] in DB), collection page smoke OK. Fixture restored.

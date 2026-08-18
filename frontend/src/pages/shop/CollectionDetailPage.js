@@ -48,6 +48,16 @@ import { useCart } from '../../contexts/TileCartContext';
 import { useSampleCart } from '../../contexts/SampleCartContext';
 import { useWishlist } from '../../contexts/WishlistContext';
 import { toast } from 'sonner';
+
+// Multi-finish helpers — products may carry a `finishes` array alongside the scalar `finish`
+const getProductFinishes = (p) => {
+  const arr = Array.isArray(p?.finishes) ? p.finishes.map(f => String(f).trim()).filter(Boolean) : [];
+  if (arr.length > 0) return arr;
+  const single = (p?.finish || p?.attributes?.finish || '').trim();
+  return single ? [single] : [];
+};
+const productHasFinish = (p, f) =>
+  getProductFinishes(p).some(x => x.toLowerCase() === String(f || '').trim().toLowerCase());
 import LiveChatWidget from '../../components/shop/LiveChatWidget';
 import { RecentlyViewedSection, YouMayAlsoNeed, trackRecentView } from '../../components/shop/CrossSellSections';
 import { usePageTracking } from '../../hooks/usePageTracking';
@@ -499,15 +509,10 @@ const CollectionDetailPage = () => {
 
   // Check if products have finishes (show selector even with 1 finish, consistent with color/size)
   const hasFinishes = useMemo(() => {
-    return products.some(p => {
-      const finish = p.finish || (p.attributes && p.attributes.finish) || '';
-      return finish && finish.trim();
-    });
+    return products.some(p => getProductFinishes(p).length > 0);
   }, [products]);
   const hasMultipleFinishes = useMemo(() => {
-    const finishes = products
-      .map(p => p.finish || (p.attributes && p.attributes.finish) || '')
-      .filter(f => f && f.trim());
+    const finishes = products.flatMap(p => getProductFinishes(p)).map(f => f.toLowerCase());
     return new Set(finishes).size > 1;
   }, [products]);
 
@@ -575,7 +580,7 @@ const CollectionDetailPage = () => {
       filtered = filtered.filter(p => matchesSelectedVariant(p, selectedColor));
     }
     if (selectedFinish) {
-      filtered = filtered.filter(p => (p.finish || p.attributes?.finish || '') === selectedFinish);
+      filtered = filtered.filter(p => productHasFinish(p, selectedFinish));
     }
     if (selectedSize) {
       const normSize = (selectedSize || '').toLowerCase().replace(/\s+/g, '').replace(/cm$/i, '');
@@ -685,10 +690,7 @@ const CollectionDetailPage = () => {
     
     // Filter by finish if selected
     if (hasMultipleFinishes && selectedFinish) {
-      filtered = filtered.filter(p => {
-        const finish = p.finish || (p.attributes && p.attributes.finish);
-        return finish === selectedFinish;
-      });
+      filtered = filtered.filter(p => productHasFinish(p, selectedFinish));
     }
     
     // Filter by style if selected (e.g. "Linear Decor" vs "Stripe Decor")
@@ -862,10 +864,12 @@ const CollectionDetailPage = () => {
   // Get unique finishes
   const finishOptions = useMemo(() => {
     if (!hasFinishes) return [];
-    const finishes = products
-      .map(p => p.finish || (p.attributes && p.attributes.finish) || '')
-      .filter(f => f && f.trim());
-    return [...new Set(finishes)].sort();
+    const seen = new Map();
+    products.flatMap(p => getProductFinishes(p)).forEach(f => {
+      const k = f.toLowerCase();
+      if (!seen.has(k)) seen.set(k, f);
+    });
+    return [...seen.values()].sort();
   }, [products, hasFinishes]);
 
   // Get which colors are available for the currently selected finish
@@ -873,8 +877,7 @@ const CollectionDetailPage = () => {
     if (!selectedFinish || !hasMultipleFinishes) return null; // null = all available
     const variants = new Set();
     products.forEach(p => {
-      const finish = p.finish || (p.attributes && p.attributes.finish);
-      if (finish === selectedFinish) {
+      if (productHasFinish(p, selectedFinish)) {
         const color = getProductColor(p);
         if (color) {
           variants.add(color);
@@ -895,8 +898,7 @@ const CollectionDetailPage = () => {
     const finishes = new Set();
     products.forEach(p => {
       if (matchesSelectedVariant(p, selectedColor)) {
-        const finish = p.finish || (p.attributes && p.attributes.finish);
-        if (finish) finishes.add(finish);
+        getProductFinishes(p).forEach(f => finishes.add(f));
       }
     });
     return finishes;
@@ -941,10 +943,7 @@ const CollectionDetailPage = () => {
       filtered = filtered.filter(p => matchesSelectedVariant(p, selectedColor));
     }
     if (hasMultipleFinishes && selectedFinish) {
-      filtered = filtered.filter(p => {
-        const finish = p.finish || (p.attributes && p.attributes.finish);
-        return finish === selectedFinish;
-      });
+      filtered = filtered.filter(p => productHasFinish(p, selectedFinish));
     }
     
     const sizes = filtered.map(p => p.size || (p.attributes && p.attributes.size) || '').filter(Boolean);
@@ -1005,10 +1004,7 @@ const CollectionDetailPage = () => {
       filtered = filtered.filter(p => matchesSelectedVariant(p, selectedColor));
     }
     if (hasMultipleFinishes && selectedFinish) {
-      filtered = filtered.filter(p => {
-        const finish = p.finish || (p.attributes && p.attributes.finish);
-        return finish === selectedFinish;
-      });
+      filtered = filtered.filter(p => productHasFinish(p, selectedFinish));
     }
     if (selectedStyle && styleOptions.length > 0) {
       filtered = filtered.filter(p => matchesStyle(p, selectedStyle));
@@ -1051,7 +1047,7 @@ const CollectionDetailPage = () => {
         filtered = filtered.filter(p => matchesSelectedVariant(p, selectedColor));
       }
       if (hasMultipleFinishes && selectedFinish) {
-        filtered = filtered.filter(p => (p.finish || p.attributes?.finish) === selectedFinish);
+        filtered = filtered.filter(p => productHasFinish(p, selectedFinish));
       }
       const cheapest = filtered.reduce((min, curr) => {
         const currPrice = curr.room_lot_price || curr.price || Infinity;
@@ -1117,10 +1113,7 @@ const CollectionDetailPage = () => {
       filtered = filtered.filter(p => matchesSelectedVariant(p, selectedColor));
     }
     if (hasMultipleFinishes && selectedFinish) {
-      filtered = filtered.filter(p => {
-        const finish = p.finish || (p.attributes && p.attributes.finish);
-        return finish === selectedFinish;
-      });
+      filtered = filtered.filter(p => productHasFinish(p, selectedFinish));
     }
     if (selectedStyle && styleOptions.length > 0) {
       filtered = filtered.filter(p => matchesStyle(p, selectedStyle));
@@ -3710,7 +3703,7 @@ const CollectionDetailPage = () => {
               {(selectedProduct?.finish || selectedProduct?.attributes?.finish) && (
                 <div className="bg-gray-50 rounded-lg p-4">
                   <span className="text-xs text-gray-400 uppercase tracking-wider">Finish</span>
-                  <p className="font-semibold text-gray-900 mt-1 capitalize">{selectedProduct.finish || selectedProduct.attributes?.finish}</p>
+                  <p className="font-semibold text-gray-900 mt-1 capitalize">{getProductFinishes(selectedProduct).join(', ') || selectedProduct.finish || selectedProduct.attributes?.finish}</p>
                 </div>
               )}
               {(selectedProduct?.material || selectedProduct?.attributes?.material) && (

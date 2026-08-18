@@ -34,17 +34,17 @@ router = APIRouter(prefix="/shop/category", tags=["shop-category"])
 # Category → { facet_key → list of product fields to pluck from }
 FACET_CONFIG: Dict[str, List[Dict[str, Any]]] = {
     "tiles": [
-        {"key": "sizes",         "field": "size"},
-        {"key": "finishes",      "field": "finish"},
-        {"key": "materials",     "field": "material"},
+        {"key": "sizes",         "field": "size",          "array_field": "sizes"},
+        {"key": "finishes",      "field": "finish",        "array_field": "finishes"},
+        {"key": "materials",     "field": "material",      "array_field": "materials"},
         {"key": "colors",        "field": "color",         "array_field": "colors"},
         {"key": "slip_ratings",  "field": "slip_rating"},
         {"key": "suppliers",     "field": "supplier"},
     ],
     "flooring": [
-        {"key": "sizes",         "field": "size"},
-        {"key": "finishes",      "field": "finish"},
-        {"key": "materials",     "field": "material"},
+        {"key": "sizes",         "field": "size",          "array_field": "sizes"},
+        {"key": "finishes",      "field": "finish",        "array_field": "finishes"},
+        {"key": "materials",     "field": "material",      "array_field": "materials"},
         {"key": "colors",        "field": "color",         "array_field": "colors"},
         {"key": "thicknesses",   "field": "thickness"},
         {"key": "click_systems", "field": "click_system"},
@@ -59,8 +59,8 @@ FACET_CONFIG: Dict[str, List[Dict[str, Any]]] = {
     "bathroom": [
         {"key": "sub_types",     "field": "type"},
         {"key": "brands",        "field": "brand"},
-        {"key": "finishes",      "field": "finish"},
-        {"key": "materials",     "field": "material"},
+        {"key": "finishes",      "field": "finish",        "array_field": "finishes"},
+        {"key": "materials",     "field": "material",      "array_field": "materials"},
         {"key": "colors",        "field": "color",         "array_field": "colors"},
         {"key": "sizes",         "field": "dimensions"},
         {"key": "suppliers",     "field": "supplier"},
@@ -222,13 +222,16 @@ async def get_category_products(
         ]})
     if color:
         extra_and.append({"$or": [{"color": color}, {"colors": color}]})
+    if finish:
+        extra_and.append({"$or": [{"finish": finish}, {"finishes": finish}]})
+    if size:
+        extra_and.append({"$or": [{"size": size}, {"sizes": size}]})
+    if material:
+        extra_and.append({"$or": [{"material": material}, {"materials": material}]})
     if extra_and:
         query["$and"] = (query.get("$and") or []) + extra_and
 
     if supplier:      query["supplier"] = supplier
-    if finish:        query["finish"] = finish
-    if size:          query["size"] = size
-    if material:      query["material"] = material
     if brand:         query["brand"] = brand
     if sub_type:      query["type"] = sub_type
     if slip_rating:   query["slip_rating"] = slip_rating
@@ -264,6 +267,7 @@ async def get_category_products(
         "image_url": 1, "images": 1, "list_price": 1, "retail_price": 1,
         "cost_price": 1, "sale_pct": 1, "description": 1, "size": 1,
         "finish": 1, "color": 1, "colors": 1, "material": 1, "brand": 1,
+        "finishes": 1, "sizes": 1, "materials": 1,
         "type": 1, "thickness": 1, "dimensions": 1, "slip_rating": 1,
         "warehouse_stock": 1, "pricing_unit": 1, "product_group": 1,
         "main_category": 1, "sub_categories": 1, "kit_size_m2": 1, "voltage": 1,
