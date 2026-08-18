@@ -923,7 +923,28 @@ const ManagerPageShell = ({
         hideActions={['category']}
       />
 
-      <AssignColoursModal open={showAssignColours} onOpenChange={setShowAssignColours} selectedList={bulk.getSelectedList()} onSuccess={() => { bulk.clearAll(); fetchProducts(); }} />
+      <AssignColoursModal
+        open={showAssignColours}
+        onOpenChange={setShowAssignColours}
+        selectedList={bulk.getSelectedList()}
+        attributeOptions={(() => {
+          const seen = new Set(['color']);
+          const out = [];
+          (config?.filter_facets || []).forEach(f => {
+            const key = f.field || f.key;
+            if (!key || seen.has(key)) return;
+            seen.add(key);
+            out.push({ key, label: f.label || key, arrayField: f.array_field || null });
+          });
+          (config?.spec_fields || []).forEach(f => {
+            if (!f.key || seen.has(f.key)) return;
+            seen.add(f.key);
+            out.push({ key: f.key, label: f.label || f.key, arrayField: null });
+          });
+          return out;
+        })()}
+        onSuccess={() => { bulk.clearAll(); fetchProducts(); }}
+      />
       <CustomManagerBuilder open={builderOpen} onOpenChange={setBuilderOpen} />
       <BulkFieldsModal open={showBulkFields} onOpenChange={setShowBulkFields} selectedList={bulk.getSelectedList()} themeColor={theme} onSuccess={() => { bulk.clearAll(); fetchProducts(); }} />
 

@@ -146,6 +146,7 @@ from .product_name_sanity import router as product_name_sanity_router
 from .live_sync import router as live_sync_router
 from .nightly_sync import router as nightly_sync_router
 from .sync_alerts import router as sync_alerts_router
+from .attribute_values import router as attribute_values_router
 from .series_manager import router as series_manager_router
 from .variants import router as variants_router
 
@@ -302,6 +303,7 @@ api_router.include_router(product_name_sanity_router)
 api_router.include_router(live_sync_router)
 api_router.include_router(nightly_sync_router)
 api_router.include_router(sync_alerts_router)
+api_router.include_router(attribute_values_router)
 api_router.include_router(series_manager_router)
 api_router.include_router(variants_router)
 __all__ = [

@@ -96,10 +96,10 @@ const ManagerBulkBar = ({
           disabled={saving}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/15 hover:bg-white/25 transition text-[13px] font-medium"
           data-testid="bar-assign-colours"
-          title="Assign colours to selected products (with per-value scoping)"
+          title="Assign colours to selected products — or switch to Finish, Size, Material and any other Configure attribute inside"
         >
           <Palette className="w-3.5 h-3.5" />
-          Colours
+          Colours / Assign
         </button>
       )}
       {!hidden.has('category') && onOpenBulkCategory && (

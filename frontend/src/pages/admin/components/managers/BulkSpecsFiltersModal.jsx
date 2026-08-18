@@ -10,7 +10,7 @@
  * promise: if you add a filter/spec/sub-tab via Configure, it lands here
  * without needing a code change.
  */
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { toast } from 'sonner';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
@@ -82,6 +82,20 @@ const BulkSpecsFiltersModal = ({ open, onOpenChange, config, selectedProducts, c
   const [customFields, setCustomFields] = useState([]); // [{label, value}]
 
   const themeBtn = themeBtnCls[themeColor] || themeBtnCls.orange;
+
+  // Saved / previously-used values per field — "pick instead of type"
+  const [suggestions, setSuggestions] = useState({});
+  useEffect(() => {
+    if (!open || rows.length === 0) return;
+    const keys = rows
+      .filter(r => r.source !== 'sub_tabs' && !(r.type === 'select' && r.options))
+      .map(r => r.key);
+    if (keys.length === 0) return;
+    fetch(`${API_URL}/api/attribute-values?fields=${encodeURIComponent(keys.join(','))}`)
+      .then(res => (res.ok ? res.json() : null))
+      .then(d => setSuggestions(d?.values || {}))
+      .catch(() => setSuggestions({}));
+  }, [open, rows]);
 
   const toggle = (key) => setChecked(prev => ({ ...prev, [key]: !prev[key] }));
   const setVal = (key, v) => setValues(prev => ({ ...prev, [key]: v }));
@@ -264,6 +278,17 @@ const BulkSpecsFiltersModal = ({ open, onOpenChange, config, selectedProducts, c
         }
       }
       // Success — show a 15-second undo toast so a mistyped change can be reversed.
+      // Also remember every typed value so it appears as a one-click chip next time.
+      for (const r of rows) {
+        if (!checked[r.key] || r.source === 'sub_tabs') continue;
+        const v = values[r.key];
+        if (v === undefined || v === '' || r.type === 'number') continue;
+        fetch(`${API_URL}/api/attribute-values/save`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ field: r.key, values: [String(v)] }),
+        }).catch((e) => console.warn('attribute-values/save failed', e));
+      }
       const appliedTotal = checkedCount + extraWritesCount;
       toast.success(
         `Applied ${appliedTotal} field${appliedTotal !== 1 ? 's' : ''} to ${selectedProducts.length} product${selectedProducts.length !== 1 ? 's' : ''}`,
@@ -451,14 +476,36 @@ const BulkSpecsFiltersModal = ({ open, onOpenChange, config, selectedProducts, c
                               {r.options.map(o => <option key={o} value={o}>{o}</option>)}
                             </select>
                           ) : (
-                            <Input
-                              type={r.type === 'number' ? 'number' : 'text'}
-                              value={values[r.key] ?? ''}
-                              onChange={(e) => { setVal(r.key, e.target.value); if (!checked[r.key] && e.target.value !== '') toggle(r.key); }}
-                              placeholder={r.hint || 'e.g. Grey, 60x60, Matt'}
-                              className="h-8 text-xs"
-                              data-testid={`bulk-field-input-${r.key}`}
-                            />
+                            <>
+                              <Input
+                                type={r.type === 'number' ? 'number' : 'text'}
+                                value={values[r.key] ?? ''}
+                                onChange={(e) => { setVal(r.key, e.target.value); if (!checked[r.key] && e.target.value !== '') toggle(r.key); }}
+                                placeholder={r.hint || 'e.g. Grey, 60x60, Matt'}
+                                className="h-8 text-xs"
+                                data-testid={`bulk-field-input-${r.key}`}
+                              />
+                              {(suggestions[r.key] || []).length > 0 && (
+                                <div className="flex flex-wrap gap-1 mt-1" data-testid={`bulk-field-suggestions-${r.key}`}>
+                                  {(suggestions[r.key] || []).slice(0, 6).map((s, i) => (
+                                    <button
+                                      key={s}
+                                      type="button"
+                                      onClick={() => { setVal(r.key, s); if (!checked[r.key]) toggle(r.key); }}
+                                      className={`px-1.5 py-0.5 rounded text-[10px] border transition-colors ${
+                                        values[r.key] === s
+                                          ? 'bg-slate-700 border-slate-700 text-white'
+                                          : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
+                                      }`}
+                                      title={s}
+                                      data-testid={`value-chip-${r.key}-${i}`}
+                                    >
+                                      {s.length > 26 ? s.slice(0, 24) + '…' : s}
+                                    </button>
+                                  ))}
+                                </div>
+                              )}
+                            </>
                           )}
                         </div>
                       </div>

@@ -10,7 +10,7 @@
  * Full 100% verification runs on each save; failures surface in a warning toast.
  */
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { toast } from 'sonner';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
@@ -24,11 +24,47 @@ import {
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
 
-const AssignColoursModal = ({ open, onOpenChange, selectedList = [], onSuccess }) => {
+const COLOUR_ATTR = { key: 'color', label: 'Colour', arrayField: 'colors' };
+
+const AssignColoursModal = ({ open, onOpenChange, selectedList = [], onSuccess, attributeOptions = [] }) => {
+  // The attribute being bucketed — Colour by default, switchable to any
+  // Configure-defined filter/spec field (Finish, Size, Material, Thickness…)
+  const [attr, setAttr] = useState(COLOUR_ATTR);
+  const allAttributes = useMemo(() => {
+    const extras = (attributeOptions || []).filter(a => a.key && a.key !== 'color');
+    return [COLOUR_ATTR, ...extras];
+  }, [attributeOptions]);
+
   // Buckets: { colourName: Set<productKey> }
   const [buckets, setBuckets] = useState([]);      // [{name: 'Grey', skus: Set<sku>}, ...]
   const [newColour, setNewColour] = useState('');
   const [saving, setSaving] = useState(false);
+
+  // Fresh start on every open — Colour selected, no leftover buckets
+  useEffect(() => {
+    if (open) {
+      setAttr(COLOUR_ATTR);
+      setBuckets([]);
+      setNewColour('');
+    }
+  }, [open]);
+
+  // Saved/previously-used values for the current attribute — one-click bucket creation
+  const [suggestions, setSuggestions] = useState([]);
+  useEffect(() => {
+    if (!open || !attr?.key) return;
+    fetch(`${API_URL}/api/attribute-values?fields=${encodeURIComponent(attr.key)}`)
+      .then(res => (res.ok ? res.json() : null))
+      .then(d => setSuggestions((d?.values?.[attr.key] || []).slice(0, 30)))
+      .catch(() => setSuggestions([]));
+  }, [open, attr]);
+
+  const switchAttribute = (a) => {
+    if (a.key === attr.key) return;
+    setAttr(a);
+    setBuckets([]);   // buckets are per-attribute
+    setNewColour('');
+  };
 
   const productLookup = useMemo(() => {
     const m = new Map();
@@ -76,15 +112,15 @@ const AssignColoursModal = ({ open, onOpenChange, selectedList = [], onSuccess }
     [selectedList, assignedSkus]
   );
 
-  const addBucket = () => {
-    const name = newColour.trim();
+  const addBucket = (presetName) => {
+    const name = (presetName ?? newColour).trim();
     if (!name) return;
     if (buckets.some(b => b.name.toLowerCase() === name.toLowerCase())) {
       toast.error(`Bucket "${name}" already exists`);
       return;
     }
     setBuckets(prev => [...prev, { name, skus: new Set() }]);
-    setNewColour('');
+    if (presetName === undefined) setNewColour('');
   };
 
   const removeBucket = (idx) => {
@@ -112,7 +148,7 @@ const AssignColoursModal = ({ open, onOpenChange, selectedList = [], onSuccess }
   const handleSave = async () => {
     const nonEmpty = buckets.filter(b => b.skus.size > 0);
     if (nonEmpty.length === 0) {
-      toast.error('No colours assigned yet — add a bucket and drag SKUs in.');
+      toast.error(`No ${attr.label.toLowerCase()}s assigned yet — add a bucket and drag SKUs in.`);
       return;
     }
     setSaving(true);
@@ -129,6 +165,8 @@ const AssignColoursModal = ({ open, onOpenChange, selectedList = [], onSuccess }
           if (p.sku) idsSku.push(p.sku);
           else if (p.supplier_code) idsSupplierCode.push(p.supplier_code);
         });
+        const updates = { [attr.key]: bucket.name };
+        if (attr.arrayField) updates[attr.arrayField] = [bucket.name];
         for (const [ids, idField] of [[idsSku, 'sku'], [idsSupplierCode, 'supplier_code']]) {
           if (ids.length === 0) continue;
           const res = await fetch(`${API_URL}/api/supplier-sync/products/bulk-update-unified`, {
@@ -137,7 +175,7 @@ const AssignColoursModal = ({ open, onOpenChange, selectedList = [], onSuccess }
             body: JSON.stringify({
               product_ids: ids,
               id_field: idField,
-              updates: { color: bucket.name, colors: [bucket.name] },
+              updates,
               mode: 'replace',
             }),
           });
@@ -149,20 +187,26 @@ const AssignColoursModal = ({ open, onOpenChange, selectedList = [], onSuccess }
           }
         }
       }
+      // Remember the used values so they appear as one-click chips next time
+      fetch(`${API_URL}/api/attribute-values/save`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ field: attr.key, values: nonEmpty.map(b => b.name) }),
+      }).catch(() => {});
       if (allVerFailures.length > 0) {
         toast.warning(
           `Saved ${totalUpdated} products, but ${allVerFailures.length} verification failure(s) — check console`,
           { duration: 12000 }
         );
-        console.warn('[Assign Colours] Verification failures:', allVerFailures);
+        console.warn('[Assign Attributes] Verification failures:', allVerFailures);
       } else {
-        toast.success(`Assigned colours to ${totalUpdated} product(s) across ${nonEmpty.length} colour bucket(s)`);
+        toast.success(`Assigned ${attr.label.toLowerCase()} to ${totalUpdated} product(s) across ${nonEmpty.length} bucket(s)`);
       }
       onOpenChange(false);
       if (onSuccess) onSuccess({ updated: totalUpdated, failures: allVerFailures });
       setBuckets([]);
     } catch (err) {
-      console.error('[Assign Colours] Save failed', err);
+      console.error('[Assign Attributes] Save failed', err);
       toast.error(`Save failed: ${err.message}`);
     } finally {
       setSaving(false);
@@ -177,27 +221,70 @@ const AssignColoursModal = ({ open, onOpenChange, selectedList = [], onSuccess }
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Palette className="w-5 h-5 text-orange-600" />
-            Assign Colours to {selectedList.length} product(s)
+            Assign {attr.label} to {selectedList.length} product(s)
           </DialogTitle>
           <p className="text-xs text-gray-500">
-            Create a bucket per colour, then move SKUs into the matching bucket. Each bucket becomes a separate save with 100% verification. Products can only be in one bucket at a time.
+            Create a bucket per {attr.label.toLowerCase()}, then move SKUs into the matching bucket. Each bucket becomes a separate save with 100% verification. Products can only be in one bucket at a time.
           </p>
         </DialogHeader>
+
+        {/* Attribute switcher — Colour + every Configure-defined filter/spec field */}
+        {allAttributes.length > 1 && (
+          <div className="flex flex-wrap items-center gap-1.5" data-testid="assign-attribute-switcher">
+            <span className="text-[10px] uppercase tracking-wide text-gray-400 mr-1">Assign by:</span>
+            {allAttributes.map(a => (
+              <button
+                key={a.key}
+                type="button"
+                onClick={() => switchAttribute(a)}
+                className={`px-2.5 py-1 rounded-full text-xs font-semibold transition-all ${
+                  attr.key === a.key
+                    ? 'bg-orange-600 text-white'
+                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                }`}
+                data-testid={`assign-attr-${a.key}`}
+              >
+                {a.label}
+              </button>
+            ))}
+          </div>
+        )}
 
         {/* Add-a-bucket bar */}
         <div className="flex items-center gap-2 py-2">
           <Input
-            placeholder="Type a colour name (e.g. Grey, White, Beige…)"
+            placeholder={`Type a ${attr.label.toLowerCase()} name (e.g. ${attr.key === 'color' ? 'Grey, White, Beige…' : attr.key === 'size' ? '30x60cm, 60x60cm…' : attr.key === 'finish' ? 'Matt, Polished…' : 'value…'})`}
             value={newColour}
             onChange={(e) => setNewColour(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addBucket(); } }}
             className="flex-1"
             data-testid="new-colour-input"
           />
-          <Button onClick={addBucket} className="bg-orange-600 hover:bg-orange-700 text-white" data-testid="add-bucket-btn">
+          <Button onClick={() => addBucket()} className="bg-orange-600 hover:bg-orange-700 text-white" data-testid="add-bucket-btn">
             <Plus className="w-4 h-4 mr-1" /> Add Bucket
           </Button>
         </div>
+
+        {/* Saved / previously-used values — one click creates the bucket */}
+        {suggestions.length > 0 && (
+          <div className="flex flex-wrap items-center gap-1 -mt-1 mb-1" data-testid="bucket-suggestions">
+            <span className="text-[10px] text-gray-400 mr-1">Saved values:</span>
+            {suggestions
+              .filter(s => !buckets.some(b => b.name.toLowerCase() === s.toLowerCase()))
+              .slice(0, 14)
+              .map((s, i) => (
+                <button
+                  key={s}
+                  type="button"
+                  onClick={() => addBucket(s)}
+                  className="px-2 py-0.5 rounded-full bg-orange-50 border border-orange-200 text-orange-800 text-[11px] hover:bg-orange-100 transition-colors"
+                  data-testid={`bucket-suggestion-${i}`}
+                >
+                  + {s}
+                </button>
+              ))}
+          </div>
+        )}
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {/* Left: unassigned pool */}
@@ -234,7 +321,7 @@ const AssignColoursModal = ({ open, onOpenChange, selectedList = [], onSuccess }
                         <div className="font-medium text-gray-800 truncate" title={productName(p)}>{productName(p)}</div>
                         <div className="text-[10px] text-gray-500 truncate">
                           {p.supplier} · {sku}
-                          {p.color && <span className="ml-1 text-orange-600">(current: {p.color})</span>}
+                          {p[attr.key] && <span className="ml-1 text-orange-600">(current: {Array.isArray(p[attr.key]) ? p[attr.key].join(', ') : p[attr.key]})</span>}
                         </div>
                       </div>
                       {buckets.length > 0 && (
@@ -256,7 +343,7 @@ const AssignColoursModal = ({ open, onOpenChange, selectedList = [], onSuccess }
               </ul>
             )}
             <p className="text-[10px] text-gray-400 text-center mt-2 italic">
-              💡 Drag products right → into a colour bucket
+              💡 Drag products right → into a {attr.label.toLowerCase()} bucket
             </p>
           </div>
 
@@ -265,8 +352,8 @@ const AssignColoursModal = ({ open, onOpenChange, selectedList = [], onSuccess }
             {buckets.length === 0 ? (
               <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
                 <Palette className="w-8 h-8 mx-auto text-gray-400 mb-2" />
-                <p className="text-sm text-gray-500">No colour buckets yet</p>
-                <p className="text-xs text-gray-400 mt-1">Type a colour above and click &quot;Add Bucket&quot;</p>
+                <p className="text-sm text-gray-500">No {attr.label.toLowerCase()} buckets yet</p>
+                <p className="text-xs text-gray-400 mt-1">Type a {attr.label.toLowerCase()} above or click a saved value</p>
               </div>
             ) : (
               buckets.map((bucket, bi) => (

@@ -1,0 +1,47 @@
+{
+  "summary": "Frontend-only e2e test of the new generic 'Assign by attribute' bucket modal and the saved-value chips in the Bulk Specs & Filters modal on /admin/tiles. All 7 requested flows pass. Only one minor UX observation and no functional bugs.",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {
+        "screen": "AssignColoursModal (attribute switcher)",
+        "issues": [
+          "Modal preserves the previously-selected attribute across close/reopen (component stays mounted). If admin last used Finish, reopening keeps Finish selected instead of resetting to Colour. Not a blocker but the requirement stated 'Colour pill selected by default' — currently true only on the very first open in the session.",
+          "Any buckets typed but not saved are also preserved on reopen (setBuckets([]) only runs after successful Save, not on Cancel). Minor state-leak between sessions."
+        ]
+      }
+    ]
+  },
+  "test_results": {
+    "1_modal_opens_with_switcher": "PASS — bar-assign-colours opens assign-colours-modal; assign-attribute-switcher renders 7 pills: Colour, Finish, Material, Size, Slip (slip_rating), Supplier, Suitability (from Tiles Manager Configure).",
+    "2_colour_suggestions": "PASS — with Colour selected, bucket-suggestions block renders 13 chips (Beige, bianco, Black, Blue, crema, Green, Grey, Ivory, Oak, Red, Sand, White, white). Clicking a chip instantly creates a bucket of that name.",
+    "3_switch_to_finish": "PASS — clicking assign-attr-finish pill: title changes to 'Assign Finish to 2 product(s)', buckets reset, suggestion chips repopulate with finish values (Aged Grey Oak, Aged Oak, Antique Brown Oak, Antique Colour Brushed Handscraped UV Lacquered, Matt, Polished, etc.).",
+    "4_end_to_end_assign_finish": "PASS — created 'Matt' bucket, used move-to-bucket-{sku} dropdown for both SKUs (5445 and TEST-DRAFT-PO1), Save fired POST /api/supplier-sync/products/bulk-update-unified and returned success toast 'Assigned finish to 2 product(s) across 1 bucket(s)'. Persistence verified: reopened modal → switched to Finish → pool rows now show '(current: Matt)' for both SKUs. RESTORED: 5445 → Polished, TEST-DRAFT-PO1 → Matt (2-bucket save, success toast).",
+    "5_bulk_specs_chips": "PASS — bulk-field-suggestions blocks render on 6 text-type filter rows (color, finish, material, size, slip_rating, supplier) + 6 spec rows (size, finish, material, color, slip_rating, suitability). Clicking value-chip-finish-0 ('Matt') fills the input AND auto-ticks bulk-field-check-finish. Sub-Categories rows correctly show NO chips (they render a tick-only 'Will add tag' hint).",
+    "6_auto_save_typed_value": "PASS — typed 'ZZ Test Finish 99' into finish input (auto-ticked), clicked Apply → 'Applied 2 fields to 2 products' toast with Undo action. Clicked Undo → 'Undo complete — 2 products reverted' toast. Reopened Specs modal → 'ZZ Test Finish 99' appears in finish chip block (saved values listed FIRST, before alphabetical suggestions). Note: chip stays saved on the backend (expected — cleanup left as-is per task instructions).",
+    "7_colour_regression": "PASS — modal opens, Colour bucket can be created (typed), Cancel closes with no errors and no error toasts. NB: on this reopen the active pill was Finish, not Colour (see design_issues #1) — no functional impact, just default-attr state persistence."
+  },
+  "verification_data": {
+    "sku_5445_previous_finish": "Polished (restored)",
+    "sku_TEST-DRAFT-PO1_previous_finish": "Matt (restored)",
+    "attribute_values_endpoint_confirmed": "GET /api/attribute-values returned finish + material + size values which populated chips correctly.",
+    "auto_save_endpoint_confirmed": "POST /api/attribute-values/save persisted 'ZZ Test Finish 99' — verified via next-open chip appearance."
+  },
+  "test_report_links": [],
+  "action_items": [
+    "OPTIONAL (minor UX): reset attr state to COLOUR_ATTR and clear buckets when AssignColoursModal transitions open false→true, so each open starts consistent with the 'Colour selected by default' promise."
+  ],
+  "critical_code_review_comments": [
+    "AssignColoursModal: attr/buckets/newColour state persists across close/reopen since parent keeps the modal mounted. Consider a useEffect on `open` to reset when the dialog opens (setAttr(COLOUR_ATTR); setBuckets([]); setNewColour(''); ). Non-blocking.",
+    "BulkSpecsFiltersModal.handleSave: the `savePromises` array is built but never awaited/collected (line 283-294) — attribute-values/save fetches are fire-and-forget which is fine, but the local `savePromises` var is dead code that could be removed for clarity.",
+    "Both modals fire attribute-values/save without error handling on non-2xx (silent catch). Acceptable for a UX save-history feature but consider console.warn to aid future debugging."
+  ],
+  "updated_files": [],
+  "success_rate": { "backend": "n/a (frontend-only test)", "frontend": "100% (7/7 flows pass)" },
+  "seed_data_creation": "Left 'ZZ Test Finish 99' saved in attribute_values.finish list per task instruction ('fine to leave the preset value saved'). LP-1214 sale fields NOT touched. Restored SKUs 5445 (Polished) and TEST-DRAFT-PO1 (Matt) to their pre-test finish values.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Feature is fully working. Any future changes to AssignColoursModal should re-verify: (a) attribute switcher pills render from ManagerPageShell attributeOptions (config.filter_facets + spec_fields), (b) bucket-suggestions repopulate on attr switch, (c) POST /api/supplier-sync/products/bulk-update-unified writes {[attr.key]: value} plus arrayField twin only for color, (d) POST /api/attribute-values/save is fired with used bucket names after Save."
+}
