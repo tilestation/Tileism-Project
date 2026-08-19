@@ -569,17 +569,17 @@ async def get_tile_collections(
 
     # Browser + Cloudflare cache strategy:
     #   • max-age=60        — browser keeps response fresh for 1 min.
-    #   • s-maxage=300      — Cloudflare/edge keeps it for 5 min (the CDN
+    #   • s-maxage=60       — Cloudflare/edge keeps it for 1 min (the CDN
     #                          serves it instantly to ALL visitors hitting
     #                          that POP, not just the one who warmed it).
-    #   • stale-while-revalidate=3600 — for the next hour the edge MAY
+    #   • stale-while-revalidate=120 — briefly serve stale while refreshing so
     #                          serve a slightly stale response while it
     #                          refreshes in the background, so the
     #                          customer never waits on a cold cache miss.
     # Net effect: TTFB for /api/tiles/collections drops from ~600ms (UK→
     # us-west2 round trip) to ~30ms (UK customer → London CDN edge).
     public_cache_headers = {
-        "Cache-Control": "public, max-age=60, s-maxage=300, stale-while-revalidate=3600",
+        "Cache-Control": "public, max-age=30, s-maxage=60, stale-while-revalidate=120",
         "Vary": "Accept-Encoding",
     }
     # Headers used when we're returning empty/error/fallback data — tell
@@ -1661,7 +1661,7 @@ async def get_collection_products(
     _lkg_key = f"lkg:{_cache_key}"
 
     public_cache_headers = {
-        "Cache-Control": "public, max-age=60, s-maxage=300, stale-while-revalidate=3600",
+        "Cache-Control": "public, max-age=30, s-maxage=60, stale-while-revalidate=120",
         "Vary": "Accept-Encoding",
     }
     no_store_headers = {

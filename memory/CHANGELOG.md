@@ -3920,3 +3920,9 @@ Local repro published the 6 ULT-* products: card shows "6 VARIANTS" with 6 full-
 - FIX: map extended with finishes→finish, sizes→size, made_in_countries→made_in. Replace-mode scalar saves now reset the plural array to [new value] (reverse sync), and replace-mode array saves set the scalar (forward sync). Append/remove modes unaffected (per-product logic).
 - Repro verified: append ['Matt','Semi Polished (Sparkle Sugar)'] then Replace finish='Semi Polished (Sparkle Sugar)' → finishes==['Semi Polished (Sparkle Sugar)'] in supplier_products AND tiles, storefront shows Matt gone.
 - LIVE DATA NOTE: user must re-save finish once on Smart Lux after deploying to purge the stale Matt already stored.
+
+## Aug 19, 2026 — All 4 live complaints validated as fixed-in-code + CDN cache shortened
+- Combined proof on /shop/collection/TestSeries: price £42.99 ✓, finish purged to Sparkle Sugar only ✓, collection description (custom_description) shown over per-product text ✓, both sizes visible ✓.
+- Cache-Control on collection endpoints reduced from max-age=60/s-maxage=300/SWR=3600 → max-age=30/s-maxage=60/SWR=120 (hour-stale edge pages were masking correct saves on live).
+- USER LIVE RECOVERY (after push→Railway BACKEND deploy succeeds): 1) re-save List £42.99 via Bulk £ editor (now syncs to storefront price), 2) Finish tab → Replace → re-save Semi Polished (Sparkle Sugar) (purges stale Matt array), 3) Collection Manager → Smart Lux → set/generate collection description, 4) wait ≤2 min for edge cache.
+- Description hierarchy confirmed: custom_description → series_description → selected product text.
