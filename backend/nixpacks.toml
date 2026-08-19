@@ -1,0 +1,6 @@
+[variables]
+PLAYWRIGHT_BROWSERS_PATH = "/pw-browsers"
+
+[phases.playwright]
+dependsOn = ["install"]
+cmds = ["python -m playwright install chromium"]

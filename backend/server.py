@@ -9691,6 +9691,14 @@ async def startup_scheduler():
     import asyncio
     asyncio.create_task(safe_cleanup_on_startup())
 
+    # Self-heal Playwright browsers — Railway rebuilds can lose the chromium
+    # download, which killed all supplier syncs (19 Aug). Idempotent, background.
+    try:
+        from services.playwright_guard import ensure_chromium_background
+        ensure_chromium_background()
+    except Exception as e:
+        logger.warning(f"[pw-guard] startup check failed: {e}")
+
     # 5 Jun 2026 — purge stale noindex flags on safe-listed paths so
     # the homepage / new-collection / clearance etc. can never stay
     # stuck noindex'd between deploys. One-shot, idempotent, runs in

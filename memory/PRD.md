@@ -8993,3 +8993,10 @@ See `/app/memory/test_credentials.md`
 - **Why user's fresh deep syncs were low**: (1) their deploy RESTARTED Railway mid-sync, killing runs (statuses zeroed); (2) NEW BUG: login-failure path left `is_running=True` forever → "Sync already in progress" until restart. FIXED in all 3 services (5 spots) — needs next deploy. Un-stuck production via existing /splendour/server-sync/force-reset.
 - **Production re-runs (fresh=1) PROVED sync works**: Wallcano 86/86 (0 fail), Ceramica 466/466 (0 fail; staged 456 = 71 NEW + 385 updates), Splendour discovered 807 unique (378 subcats + search), syncing with 2 fails at 62% — left completing (~30 min).
 - **OPERATIONAL RULE for user: never deploy while a sync is running** — the restart kills it (resume within 24h now works though).
+
+## Aug 19, 2026 Session — Production Sync Failure Fix (Playwright browsers missing)
+- **Root cause of 3-supplier nightly sync failure (19 Aug 00:00 UTC)**: Railway builds with NIXPACKS (railway.json), which IGNORES backend/Dockerfile — so `playwright install chromium` never ran in the rebuilt image; Playwright 1.49.1 couldn't find `/pw-browsers/chromium_headless_shell-1148`. Sync alert emails worked as designed.
+- **Fix layer 1 (build)**: new `/app/backend/nixpacks.toml` — pins `PLAYWRIGHT_BROWSERS_PATH=/pw-browsers` and adds a `playwright` phase running `python -m playwright install chromium` after pip install.
+- **Fix layer 2 (runtime self-heal)**: new `/app/backend/services/playwright_guard.py` (`ensure_chromium()` = idempotent install). Hooked into server.py startup (background thread, never blocks) + nightly_sync.py preflight before supplier loop.
+- Verified in preview: guard success message on boot (stdout: `[pw-guard] chromium browsers verified/installed`), headless chromium launch OK, /api/health 200.
+- **USER ACTION**: Save to GitHub → Railway auto-deploys; then re-run supplier syncs (or wait for tonight's nightly). Reminder: never deploy while a sync is running.

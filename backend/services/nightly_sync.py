@@ -80,6 +80,12 @@ async def run_nightly_light_syncs(manual: bool = False):
     started = datetime.now(timezone.utc)
     results = {}
     try:
+        from services.playwright_guard import ensure_chromium
+        if not await asyncio.to_thread(ensure_chromium):
+            logger.warning("[NIGHTLY SYNC] Playwright browser preflight failed — syncs may fail")
+    except Exception:
+        logger.exception("[NIGHTLY SYNC] browser preflight crashed")
+    try:
         for name, runner, get_state in _runners():
             try:
                 if get_state().get("is_running"):
