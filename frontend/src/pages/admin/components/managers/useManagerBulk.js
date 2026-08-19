@@ -213,6 +213,39 @@ export function useManagerBulk({ products = [], onRefresh, storageKey = null }) 
     }, { label: 'Deleted' });
   }, [selectedProducts.size, bulkUpdate]);
 
+  // Bulk Feature — pins selected products to the storefront homepage
+  // "Featured Tiles" section (or removes them when featured=false).
+  const bulkFeature = useCallback(async (featured) => {
+    if (selectedProducts.size === 0) return toast.error('No products selected');
+    const skus = [...new Set(getSelectedList().map(p => p.sku || p.supplier_code).filter(Boolean))];
+    setBulkSaving(true);
+    try {
+      const res = await fetch(`${API_URL}/api/supplier-sync/products/bulk-feature`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ skus, featured }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.detail || `HTTP ${res.status}`);
+      }
+      const data = await res.json();
+      if (featured) {
+        toast.success(`⭐ ${data.supplier_products_updated} product(s) now featured on the homepage`);
+        if ((data.tiles_updated || 0) < skus.length) {
+          toast.info(`${skus.length - (data.tiles_updated || 0)} of them aren't published yet — Publish them so they show on the front page`, { duration: 8000 });
+        }
+      } else {
+        toast.success(`${data.supplier_products_updated} product(s) removed from the homepage`);
+      }
+      if (onRefresh) onRefresh();
+    } catch (err) {
+      toast.error(`Feature update failed: ${err.message}`);
+    } finally {
+      setBulkSaving(false);
+    }
+  }, [selectedProducts.size, getSelectedList, onRefresh]);
+
   // Bulk Assign Category — routes selected products to a specific Manager
   const bulkAssignCategory = useCallback(async (productGroup) => {
     if (selectedProducts.size === 0) return toast.error('No products selected');
@@ -262,6 +295,7 @@ export function useManagerBulk({ products = [], onRefresh, storageKey = null }) 
     bulkArchive,
     bulkDelete,
     bulkAssignCategory,
+    bulkFeature,
     // UI state
     bulkSaving,
     lastBulkResult,

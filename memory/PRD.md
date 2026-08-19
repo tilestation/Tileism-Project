@@ -9007,3 +9007,9 @@ See `/app/memory/test_credentials.md`
 - **Auto-repair**: `repair_stamped_supplier_name_fields()` unsets original_series/unique_name where == range_name on rows with `range_assigned_by` stamp → display falls back to untouched `name` field. Runs on EVERY server startup (background, idempotent) + manual `POST /api/admin/series/repair-supplier-names`. Production heals automatically on next deploy.
 - **Bulk Rename button restored**: modal existed but button was lost in a refactor — now in floating bulk bar (`data-testid="qa-bulk-rename"`) next to Set Series.
 - Tests updated: tests/test_series_bulk_assign.py asserts preservation (3 passed). E2E verified with seeded damaged rows + screenshot.
+
+## Aug 19, 2026 Session — Feature on Homepage + Selected panel (both requested)
+- **Feature on Homepage**: amber "Feature" button in ManagerBulkBar (all Category Managers) → dropdown Feature/Remove. New endpoint `POST /api/supplier-sync/products/bulk-feature` {skus, featured} sets is_featured+featured_at on supplier_products AND tiles, purges tiles_featured cache. `/api/tiles/featured` now returns explicitly-featured products FIRST (mode "products", requires featured_at stamp so legacy is_featured flags are excluded) — homepage "Featured Tiles" section renders them prominently. Star badge shows on featured rows in managers (is_featured added to /supplier-sync/products serializer).
+- **Selected panel**: "N selected" in bulk bar is now clickable → popover listing ticked products (thumb, name, sku, untick X). Plus "Show selected" toggle filters the table to ticked rows only (auto-off when selection empties).
+- Lesson: showSelectedOnly state must be declared BEFORE the filteredProducts useMemo in ManagerPageShell (TDZ crash otherwise).
+- Tested E2E: curl (feature/unfeature/cache purge/legacy exclusion) + screenshots (homepage section, panel, toggle, dropdown). Preview has LP-1611, LP-3611, BLUE-GR-60 featured for demo.

@@ -4256,6 +4256,7 @@ def get_all_supplier_products(
                 "dimension_fix_applied": p.get("dimension_fix_applied", False),
                 "dimension_fix_date": p.get("dimension_fix_date").isoformat() if p.get("dimension_fix_date") and hasattr(p.get("dimension_fix_date"), 'isoformat') else p.get("dimension_fix_date"),
                 "recently_updated": p.get("recently_updated", False),
+                "is_featured": p.get("is_featured", False),  # Featured on homepage (Feature bulk action)
                 "website_categories": p.get("website_categories"),  # Website categories for e-commerce
                 "show_on_website": p.get("show_on_website", False),  # Show on e-commerce website
                 "products_db_id": p.get("products_db_id"),  # ID in main products DB if synced
@@ -12435,6 +12436,40 @@ def _parse_tile_area_m2(size_str):
     div = 1000 if unit == "mm" else 100 if unit == "cm" else 1
     area = (a / div) * (b / div)
     return area if area > 0 else None
+
+
+@router.post("/products/bulk-feature")
+def bulk_feature_products(data: dict):
+    """Feature/unfeature products on the storefront homepage.
+
+    Sets `is_featured` (+ `featured_at`) on BOTH supplier_products and the live
+    tiles collection, then purges the /api/tiles/featured cache so the front
+    page updates immediately. Body: {"skus": [...], "featured": true|false}
+    """
+    db = get_db()
+    skus = [s for s in (data.get("skus") or []) if s]
+    featured = bool(data.get("featured", True))
+    if not skus:
+        raise HTTPException(status_code=400, detail="skus required")
+    now = datetime.now(timezone.utc).isoformat()
+    if featured:
+        update = {"$set": {"is_featured": True, "featured_at": now, "updated_at": now}}
+    else:
+        update = {"$set": {"is_featured": False, "updated_at": now}, "$unset": {"featured_at": ""}}
+    q = {"$or": [{"sku": {"$in": skus}}, {"supplier_code": {"$in": skus}}]}
+    sp = db.supplier_products.update_many(q, update)
+    tl = db.tiles.update_many(q, update)
+    try:
+        from utils.endpoint_cache import endpoint_cache
+        endpoint_cache.invalidate("tiles_featured")
+    except Exception:
+        pass
+    return {
+        "ok": True,
+        "featured": featured,
+        "supplier_products_updated": sp.modified_count,
+        "tiles_updated": tl.modified_count,
+    }
 
 
 @router.post("/products/bulk-update-unified")

@@ -2312,6 +2312,17 @@ async def get_featured_tiles(limit: int = 8):
     db = get_tile_db()
     import re as _re
 
+    # Priority 1 — products an admin explicitly featured via the Managers'
+    # "Feature on Homepage" bulk action (featured_at stamp required so legacy
+    # is_featured flags from older edit paths can't sneak onto the front page).
+    # Newest featured first, shown as individual product cards prominently.
+    explicit = list(
+        db.tiles.find({"is_featured": True, "featured_at": {"$exists": True}})
+        .sort("featured_at", -1).limit(limit)
+    )
+    if explicit:
+        return {"mode": "products", "items": [serialize_tile_for_shop(t) for t in explicit]}
+
     # Find all tiles assigned to "Feature Tiles" category
     featured_tiles = list(db.tiles.find(
         {"sub_categories": {"$regex": "Feature", "$options": "i"}},

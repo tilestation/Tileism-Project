@@ -9,11 +9,15 @@
 import React, { useState } from 'react';
 import { Button } from '../../../../components/ui/button';
 import {
-  X, CheckSquare, Trash2, Archive, Globe, Eye, EyeOff, Percent, Palette, Layers, Grid3X3, Package, PoundSterling, Sparkles, Image as ImageIcon, Tag, Sliders, LayoutGrid,
+  X, CheckSquare, Trash2, Archive, Globe, Eye, EyeOff, Percent, Palette, Layers, Grid3X3, Package, PoundSterling, Sparkles, Image as ImageIcon, Tag, Sliders, LayoutGrid, Star, ChevronUp, ListFilter,
 } from 'lucide-react';
 
 const ManagerBulkBar = ({
   selectedCount,
+  selectedList = null,
+  onUnselectProduct,
+  showSelectedOnly = false,
+  onToggleShowSelectedOnly,
   onClearAll,
   onSelectAll,
   onBulkPublish,
@@ -21,6 +25,7 @@ const ManagerBulkBar = ({
   onBulkStock,
   onBulkArchive,
   onBulkDelete,
+  onBulkFeature,
   onOpenTierPricing,
   onOpenAssignColours,
   onOpenBulkCategory,
@@ -37,6 +42,8 @@ const ManagerBulkBar = ({
   hideActions = [],
 }) => {
   const [assignCategoryOpen, setAssignCategoryOpen] = useState(false);
+  const [featureOpen, setFeatureOpen] = useState(false);
+  const [selectionOpen, setSelectionOpen] = useState(false);
   if (selectedCount === 0) return null;
 
   const themes = {
@@ -55,10 +62,19 @@ const ManagerBulkBar = ({
       className={`fixed bottom-4 left-1/2 -translate-x-1/2 z-40 bg-gradient-to-r ${themes[themeColor] || themes.orange} text-white rounded-xl shadow-2xl px-4 py-2 flex items-center gap-2 flex-wrap max-w-[95vw]`}
       data-testid="manager-bulk-bar"
     >
-      {/* Selection info */}
-      <div className="flex items-center gap-2 pr-2 border-r border-white/20">
-        <CheckSquare className="w-4 h-4" />
-        <span className="text-sm font-semibold">{selectedCount} selected</span>
+      {/* Selection info — click the count to open the Selected panel */}
+      <div className="flex items-center gap-2 pr-2 border-r border-white/20 relative">
+        <button
+          type="button"
+          onClick={() => setSelectionOpen(v => !v)}
+          className="flex items-center gap-1.5 hover:bg-white/15 rounded-lg px-1.5 py-1 transition"
+          data-testid="bar-selection-toggle"
+          title="See exactly which products are ticked"
+        >
+          <CheckSquare className="w-4 h-4" />
+          <span className="text-sm font-semibold">{selectedCount} selected</span>
+          <ChevronUp className={`w-3.5 h-3.5 opacity-70 transition-transform ${selectionOpen ? 'rotate-180' : ''}`} />
+        </button>
         {onSelectAll && (
           <button
             onClick={onSelectAll}
@@ -67,6 +83,69 @@ const ManagerBulkBar = ({
           >
             select all
           </button>
+        )}
+        {onToggleShowSelectedOnly && (
+          <button
+            type="button"
+            onClick={onToggleShowSelectedOnly}
+            className={`flex items-center gap-1 text-[11px] px-2 py-1 rounded-md transition ${showSelectedOnly ? 'bg-white text-gray-900 font-semibold' : 'bg-white/15 hover:bg-white/25'}`}
+            data-testid="bar-show-selected-only"
+            title="Show only the ticked products in the list below"
+          >
+            <ListFilter className="w-3 h-3" />
+            {showSelectedOnly ? 'Showing selected' : 'Show selected'}
+          </button>
+        )}
+
+        {/* Selected products panel */}
+        {selectionOpen && Array.isArray(selectedList) && (
+          <div
+            className="absolute bottom-full mb-2 left-0 bg-white text-gray-900 rounded-xl shadow-2xl border border-gray-200 w-[380px] max-h-[50vh] overflow-hidden flex flex-col z-50"
+            data-testid="bar-selection-panel"
+          >
+            <div className="px-3 py-2 flex items-center justify-between border-b bg-gray-50 rounded-t-xl">
+              <span className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Selected products ({selectedList.length})</span>
+              <button onClick={() => setSelectionOpen(false)} className="text-gray-400 hover:text-gray-700" data-testid="bar-selection-close">
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+            <div className="overflow-y-auto divide-y divide-gray-100">
+              {selectedList.map((p) => {
+                const img = (Array.isArray(p.images) ? p.images.filter(Boolean)[0] : null) || p.image;
+                const pname = p.our_product_name || p.product_name || p.name || p.sku;
+                return (
+                  <div key={`${p.supplier}|${p.sku || p.supplier_code}`} className="flex items-center gap-2.5 px-3 py-1.5 hover:bg-gray-50" data-testid={`bar-selected-item-${p.sku || p.supplier_code}`}>
+                    <div className="w-8 h-8 rounded bg-gray-100 overflow-hidden flex-shrink-0">
+                      {img ? <img src={img} alt="" className="w-full h-full object-cover" /> : null}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-[13px] font-medium text-gray-900 truncate flex items-center gap-1">
+                        {p.is_featured && <Star className="w-3 h-3 text-amber-500 fill-amber-400 flex-shrink-0" />}
+                        {pname}
+                      </div>
+                      <div className="text-[11px] text-gray-500 truncate">{p.supplier} · {p.sku || p.supplier_code}</div>
+                    </div>
+                    {onUnselectProduct && (
+                      <button
+                        type="button"
+                        onClick={() => onUnselectProduct(p)}
+                        className="text-gray-300 hover:text-red-500 transition flex-shrink-0"
+                        title="Untick this product"
+                        data-testid={`bar-unselect-${p.sku || p.supplier_code}`}
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+              {selectedList.length === 0 && (
+                <div className="px-3 py-4 text-center text-xs text-gray-400">
+                  Ticked products aren't loaded on this page/filter
+                </div>
+              )}
+            </div>
+          </div>
         )}
       </div>
 
@@ -193,6 +272,44 @@ const ManagerBulkBar = ({
           <Eye className="w-3.5 h-3.5" />
           Preview
         </button>
+      )}
+
+      {/* Feature on Homepage — pins selected products to the front page */}
+      {!hidden.has('feature') && onBulkFeature && (
+        <div className="relative">
+          <button
+            type="button"
+            onClick={() => setFeatureOpen(v => !v)}
+            disabled={saving}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-400/90 hover:bg-amber-400 text-gray-900 transition text-[13px] font-semibold shadow"
+            data-testid="bar-feature"
+            title="Show the selected products prominently in the Featured section on the website front page"
+          >
+            <Star className="w-3.5 h-3.5" />
+            Feature
+          </button>
+          {featureOpen && (
+            <div className="absolute bottom-full mb-2 left-0 bg-white text-gray-900 rounded-lg shadow-xl border border-gray-200 py-1 w-64 z-50">
+              <div className="px-3 py-2 text-[11px] font-semibold text-gray-500 uppercase tracking-wide border-b">Homepage Featured section</div>
+              <button
+                onClick={() => { onBulkFeature(true); setFeatureOpen(false); }}
+                className="w-full text-left px-3 py-2 text-sm hover:bg-amber-50 flex items-center gap-2"
+                data-testid="bar-feature-add"
+              >
+                <Star className="w-3.5 h-3.5 text-amber-500" />
+                Feature on Homepage
+              </button>
+              <button
+                onClick={() => { onBulkFeature(false); setFeatureOpen(false); }}
+                className="w-full text-left px-3 py-2 text-sm hover:bg-gray-100 flex items-center gap-2 text-gray-600"
+                data-testid="bar-feature-remove"
+              >
+                <X className="w-3.5 h-3.5" />
+                Remove from Homepage
+              </button>
+            </div>
+          )}
+        </div>
       )}
 
       {/* Publish actions */}
