@@ -15535,3 +15535,108 @@ def bulk_update_field(data: BulkUpdateFieldRequest):
         "tiles_updated": tiles_result.modified_count,
         "field": data.field
     }
+
+
+# ============ STALE VALUE SWEEP ============
+# Finds products whose plural array (finishes/sizes/…) disagrees with the
+# saved scalar value, or whose website price differs from the admin List £,
+# and repairs the whole catalogue in one click.
+
+STALE_VALUE_PAIRS = [
+    ("finish", "finishes"), ("size", "sizes"), ("color", "colors"),
+    ("material", "materials"), ("made_in", "made_in_countries"),
+]
+
+_SWEEP_FIELDS = {f: 1 for pair in STALE_VALUE_PAIRS for f in pair}
+_SWEEP_FIELDS.update({
+    "sku": 1, "supplier_code": 1, "our_product_name": 1, "product_name": 1,
+    "name": 1, "supplier": 1, "list_price": 1, "price": 1, "room_lot_price": 1, "_id": 0,
+})
+
+
+def _stale_issues_for_doc(doc):
+    issues = []
+    for scalar, arr in STALE_VALUE_PAIRS:
+        s = doc.get(scalar)
+        a = [v for v in (doc.get(arr) or []) if isinstance(v, str) and v.strip()]
+        s_clean = str(s).strip() if s else ""
+        if s_clean and a:
+            if s_clean.lower() not in {v.strip().lower() for v in a}:
+                # Array holds leftovers from before the Replace — scalar is the truth
+                issues.append({"type": "array_mismatch", "field": scalar, "keep": s_clean, "stale": a})
+        elif not s_clean and a:
+            issues.append({"type": "missing_scalar", "field": scalar, "keep": a[0], "stale": []})
+    lp = doc.get("list_price")
+    if isinstance(lp, (int, float)) and lp > 0:
+        for pf in ("price", "room_lot_price"):
+            pv = doc.get(pf)
+            if isinstance(pv, (int, float)) and abs(pv - lp) > 0.009:
+                issues.append({"type": "price_mismatch", "field": pf, "keep": lp, "stale": [pv]})
+                break
+    return issues
+
+
+@router.get("/products/stale-value-scan")
+def stale_value_scan(limit: int = 100):
+    """Dry run — report every inconsistency without changing anything."""
+    db = get_db()
+    summary = {}
+    examples = []
+    products_with_issues = 0
+    for doc in db.supplier_products.find({}, _SWEEP_FIELDS):
+        issues = _stale_issues_for_doc(doc)
+        if not issues:
+            continue
+        products_with_issues += 1
+        for i in issues:
+            key = f"{i['type']}:{i['field']}"
+            summary[key] = summary.get(key, 0) + 1
+        if len(examples) < limit:
+            examples.append({
+                "sku": doc.get("sku") or doc.get("supplier_code") or "",
+                "name": doc.get("our_product_name") or doc.get("product_name") or doc.get("name") or "",
+                "supplier": doc.get("supplier") or "",
+                "issues": issues,
+            })
+    return {"products_with_issues": products_with_issues, "summary": summary, "examples": examples}
+
+
+@router.post("/products/stale-value-sweep")
+def stale_value_sweep():
+    """One-click repair: scalar wins over stale arrays, List £ wins over price."""
+    db = get_db()
+    collections = [db.supplier_products, db.products, db.tiles, db.sync_staging]
+    fixed_products = 0
+    fixes = {"array_mismatch": 0, "missing_scalar": 0, "price_mismatch": 0}
+    arr_for = dict(STALE_VALUE_PAIRS)
+    for doc in db.supplier_products.find({}, _SWEEP_FIELDS):
+        issues = _stale_issues_for_doc(doc)
+        if not issues:
+            continue
+        sku = doc.get("sku") or doc.get("supplier_code")
+        if not sku:
+            continue
+        qf = "sku" if doc.get("sku") else "supplier_code"
+        set_fields = {}
+        for i in issues:
+            if i["type"] == "array_mismatch":
+                set_fields[arr_for[i["field"]]] = [i["keep"]]
+            elif i["type"] == "missing_scalar":
+                set_fields[i["field"]] = i["keep"]
+            elif i["type"] == "price_mismatch":
+                set_fields["price"] = i["keep"]
+                set_fields["room_lot_price"] = i["keep"]
+            fixes[i["type"]] += 1
+        set_fields["stale_sweep_at"] = datetime.now(timezone.utc).isoformat()
+        for coll in collections:
+            coll.update_one({qf: sku}, {"$set": set_fields})
+        fixed_products += 1
+    try:
+        from utils.endpoint_cache import endpoint_cache
+        endpoint_cache.invalidate("tiles_collections")
+        endpoint_cache.invalidate("collection_products")
+        endpoint_cache.invalidate("tiles_related")
+    except Exception:
+        pass
+    logger.info(f"[stale-sweep] repaired {fixed_products} products: {fixes}")
+    return {"fixed_products": fixed_products, "fixes": fixes}

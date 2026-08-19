@@ -45,7 +45,8 @@ import BulkImageUploadModal from './managers/BulkImageUploadModal';
 import CsvImportModal from './managers/CsvImportModal';
 import ProductImagesGridPanel from './managers/ProductImagesGridPanel';
 import { groupBySeries } from '../lib/series';
-import { Layers, LayoutGrid, List, ImageOff } from 'lucide-react';
+import { Layers, LayoutGrid, List, ImageOff, Wrench } from 'lucide-react';
+import StaleValueSweepModal from './managers/StaleValueSweepModal';
 import ManagerConfigModal from './managers/ManagerConfigModal';
 import StorefrontPanel from './managers/StorefrontPanel';
 import ShopTabsAssignModal from './managers/ShopTabsAssignModal';
@@ -161,6 +162,7 @@ const ManagerPageShell = ({
     labels: [], custom_labels: [], discount_percentage: '', was_price: '', saleMode: 'was', action: 'add', applyDiscount: false,
   });
   const [bulkSaleSaving, setBulkSaleSaving] = useState(false);
+  const [showStaleSweep, setShowStaleSweep] = useState(false);
 
   // ---- Per-Manager config (facets, sub-tabs, spec fields) from the DB ----
   const { config, save: saveConfig, refresh: refreshConfig } = useManagerConfig(categoryKey);
@@ -563,6 +565,9 @@ const ManagerPageShell = ({
             </Button>
             <Button size="sm" variant="outline" onClick={() => setShowCsvImport(true)} data-testid={`${categoryKey}-csv-import-btn`} title="Bulk import products from CSV">
               <FileSpreadsheet className="w-4 h-4 mr-1.5" /> CSV Import
+            </Button>
+            <Button size="sm" variant="outline" className="border-amber-300 text-amber-700 hover:bg-amber-50" onClick={() => setShowStaleSweep(true)} data-testid={`${categoryKey}-stale-sweep-btn`} title="Find & repair products whose finish/size lists disagree with the saved value or whose price differs from List £ — whole catalogue">
+              <Wrench className="w-4 h-4 mr-1.5" /> Repair
             </Button>
             <Button size="sm" variant="outline" onClick={fetchProducts} disabled={loading} data-testid={`${categoryKey}-refresh-btn`}>
               <RefreshCw className={`w-4 h-4 mr-1.5 ${loading ? 'animate-spin' : ''}`} />
@@ -986,6 +991,7 @@ const ManagerPageShell = ({
         onSuccess={() => fetchProducts()}
       />
       <CustomManagerBuilder open={builderOpen} onOpenChange={setBuilderOpen} />
+      <StaleValueSweepModal open={showStaleSweep} onOpenChange={setShowStaleSweep} onSuccess={() => fetchProducts()} />
       <BulkFieldsModal open={showBulkFields} onOpenChange={setShowBulkFields} selectedList={bulk.getSelectedList()} themeColor={theme} onSuccess={() => { bulk.clearAll(); fetchProducts(); }} />
 
       <BulkAIDescriptionsModal open={showAIDescriptions} onOpenChange={setShowAIDescriptions} selectedList={bulk.getSelectedList()} themeColor={theme} onSuccess={() => fetchProducts()} />
