@@ -20,7 +20,7 @@
  */
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams, useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import {
   ArrowLeft, RefreshCw, Search, Save, X, Edit2, Filter, ExternalLink, AlertCircle, CheckCircle, Plus, FileSpreadsheet, Settings, Store, Star,
@@ -55,7 +55,20 @@ import { fetchShopTabDestinations, buildDestinationMap } from '../lib/shopTabDes
 import AssignColoursModal, { computeCompleteness } from './managers/AssignColoursModal';
 import TierPricingModal from './supplier-products/TierPricingModal';
 import BulkSaleModal from './supplier-products/BulkSaleModal';
-import { useManagerBulk } from './managers/useManagerBulk';
+import { useManagerBulk, getProductKey } from './managers/useManagerBulk';
+import FeaturedOrderModal from './managers/FeaturedOrderModal';
+
+// product_group → Manager route, used by the Selected panel's "jump" lines
+const GROUP_TO_PATH = {
+  tiles: { path: '/admin/tiles', label: 'Tiles Manager' },
+  'wall-and-floor-tiles': { path: '/admin/tiles', label: 'Tiles Manager' },
+  materials: { path: '/admin/materials', label: 'Materials Manager' },
+  flooring: { path: '/admin/flooring', label: 'Flooring Manager' },
+  bathroom: { path: '/admin/bathroom', label: 'Bathroom Manager' },
+  underfloor_heating: { path: '/admin/underfloor-heating', label: 'UFH Manager' },
+  'underfloor-heating': { path: '/admin/underfloor-heating', label: 'UFH Manager' },
+  tools: { path: '/admin/tools', label: 'Tools Manager' },
+};
 import { useDraftRecovery } from './managers/useDraftRecovery';
 import { useManagerConfig } from './managers/useManagerConfig';
 
@@ -258,6 +271,7 @@ const ManagerPageShell = ({
   const themeCls = THEME_MAP[theme] || THEME_MAP.orange;
 
   // ---- Fetch ----
+  const [allIndex, setAllIndex] = useState(() => new Map());
   const fetchProducts = useCallback(async () => {
     setLoading(true);
     try {
@@ -265,6 +279,15 @@ const ManagerPageShell = ({
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       const all = data.products || [];
+      // Light lookup of EVERY product (pre-category-filter) so the Selected
+      // panel can name + route items ticked in other categories.
+      const idx = new Map();
+      all.forEach(p => idx.set(getProductKey(p), {
+        name: p.our_product_name || p.product_name || p.name || '',
+        image: (Array.isArray(p.images) ? p.images.filter(Boolean)[0] : null) || p.image || null,
+        product_group: p.product_group || null,
+      }));
+      setAllIndex(idx);
       const filtered = all.filter(isMatch);
       setProducts(filtered);
       setLastRefresh(new Date());
@@ -332,6 +355,20 @@ const ManagerPageShell = ({
     setSearchParams(next, { replace: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [products, searchParams]);
+
+  // ?highlight=SKU — set by "jump" from another Manager's Selected panel:
+  // filter the list down to that product so it's immediately visible.
+  useEffect(() => {
+    const hl = searchParams.get('highlight');
+    if (!hl) return;
+    setSearch(hl);
+    setSubTab(effectiveSubTabs?.[0]?.key || 'all');
+    toast.info(`Showing ${hl}`);
+    const next = new URLSearchParams(searchParams);
+    next.delete('highlight');
+    setSearchParams(next, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
 
   const filteredProducts = useMemo(() => {
     let list = products;
@@ -533,6 +570,23 @@ const ManagerPageShell = ({
     setForm: setEditForm,
     active: !!editingProduct,
   });
+
+  const navigate = useNavigate();
+  const [showFeaturedOrder, setShowFeaturedOrder] = useState(false);
+
+  // Enrich not-loaded selected entries with name/image/route from the full index
+  const missingSelectedEnriched = useMemo(() => {
+    return bulk.getMissingSelected().map(m => {
+      const info = allIndex.get(m.key) || {};
+      const route = GROUP_TO_PATH[String(info.product_group || '').toLowerCase()] || null;
+      return { ...m, name: info.name || null, image: info.image || null, path: route?.path || null, pathLabel: route?.label || null };
+    });
+  }, [bulk, allIndex]);
+
+  const jumpToProduct = useCallback((m) => {
+    const target = m.path ? `${m.path}?highlight=${encodeURIComponent(m.sku)}` : `/admin/supplier-products?search=${encodeURIComponent(m.sku)}`;
+    navigate(target);
+  }, [navigate]);
 
   return (
     <div className="min-h-screen bg-gray-50 pb-16">
@@ -969,9 +1023,10 @@ const ManagerPageShell = ({
       <ManagerBulkBar
         selectedCount={bulk.selectedProducts.size}
         selectedList={bulk.getSelectedList()}
-        missingSelected={bulk.getMissingSelected()}
+        missingSelected={missingSelectedEnriched}
         onUnselectProduct={(p) => bulk.toggleProduct(p)}
         onUnselectKey={bulk.unselectKey}
+        onJumpToProduct={jumpToProduct}
         showSelectedOnly={showSelectedOnly}
         onToggleShowSelectedOnly={() => setShowSelectedOnly(v => !v)}
         onClearAll={bulk.clearAll}
@@ -982,6 +1037,7 @@ const ManagerPageShell = ({
         onBulkArchive={bulk.bulkArchive}
         onBulkDelete={bulk.bulkDelete}
         onBulkFeature={bulk.bulkFeature}
+        onOpenFeaturedOrder={() => setShowFeaturedOrder(true)}
         onOpenAssignColours={() => setShowAssignColours(true)}
         onOpenTierPricing={() => setShowTierPricing(true)}
         onOpenBulkFields={() => setShowBulkFields(true)}
@@ -1012,6 +1068,7 @@ const ManagerPageShell = ({
       />
       <CustomManagerBuilder open={builderOpen} onOpenChange={setBuilderOpen} />
       <StaleValueSweepModal open={showStaleSweep} onOpenChange={setShowStaleSweep} onSuccess={() => fetchProducts()} />
+      <FeaturedOrderModal open={showFeaturedOrder} onOpenChange={setShowFeaturedOrder} />
       <BulkFieldsModal open={showBulkFields} onOpenChange={setShowBulkFields} selectedList={bulk.getSelectedList()} themeColor={theme} onSuccess={() => { bulk.clearAll(); fetchProducts(); }} />
 
       <BulkAIDescriptionsModal open={showAIDescriptions} onOpenChange={setShowAIDescriptions} selectedList={bulk.getSelectedList()} themeColor={theme} onSuccess={() => fetchProducts()} />

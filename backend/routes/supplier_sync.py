@@ -12472,6 +12472,28 @@ def bulk_feature_products(data: dict):
     }
 
 
+@router.post("/products/featured-order")
+def set_featured_order(data: dict):
+    """Persist the admin's drag-order for homepage featured products.
+    Body: {"skus": ["A", "B", ...]} — index in list = display position."""
+    db = get_db()
+    skus = [s for s in (data.get("skus") or []) if s]
+    if not skus:
+        raise HTTPException(status_code=400, detail="skus required")
+    now = datetime.now(timezone.utc).isoformat()
+    for idx, sku in enumerate(skus):
+        q = {"$or": [{"sku": sku}, {"supplier_code": sku}]}
+        upd = {"$set": {"featured_order": idx, "updated_at": now}}
+        db.supplier_products.update_many(q, upd)
+        db.tiles.update_many(q, upd)
+    try:
+        from utils.endpoint_cache import endpoint_cache
+        endpoint_cache.invalidate("tiles_featured")
+    except Exception:
+        pass
+    return {"ok": True, "count": len(skus)}
+
+
 @router.post("/products/bulk-update-unified")
 def bulk_update_unified(data: dict):
     """

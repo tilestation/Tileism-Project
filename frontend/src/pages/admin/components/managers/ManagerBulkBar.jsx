@@ -9,7 +9,7 @@
 import React, { useState } from 'react';
 import { Button } from '../../../../components/ui/button';
 import {
-  X, CheckSquare, Trash2, Archive, Globe, Eye, EyeOff, Percent, Palette, Layers, Grid3X3, Package, PoundSterling, Sparkles, Image as ImageIcon, Tag, Sliders, LayoutGrid, Star, ChevronUp, ListFilter,
+  X, CheckSquare, Trash2, Archive, Globe, Eye, EyeOff, Percent, Palette, Layers, Grid3X3, Package, PoundSterling, Sparkles, Image as ImageIcon, Tag, Sliders, LayoutGrid, Star, ChevronUp, ListFilter, GripVertical, ExternalLink,
 } from 'lucide-react';
 
 const ManagerBulkBar = ({
@@ -28,6 +28,8 @@ const ManagerBulkBar = ({
   onBulkArchive,
   onBulkDelete,
   onBulkFeature,
+  onOpenFeaturedOrder,
+  onJumpToProduct,
   onOpenTierPricing,
   onOpenAssignColours,
   onOpenBulkCategory,
@@ -141,16 +143,30 @@ const ManagerBulkBar = ({
                   </div>
                 );
               })}
-              {/* Ticked on another page/category — product line not loaded in this Manager */}
+              {/* Ticked on another page/category — click to open its Manager with the product highlighted */}
               {missingSelected.map((m) => (
-                <div key={m.key} className="flex items-center gap-2.5 px-3 py-1.5 bg-amber-50/60 hover:bg-amber-50" data-testid={`bar-selected-missing-${m.sku}`}>
-                  <div className="w-8 h-8 rounded bg-amber-100 flex items-center justify-center flex-shrink-0">
-                    <Package className="w-3.5 h-3.5 text-amber-500" />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="text-[13px] font-medium text-gray-800 truncate">{m.sku}</div>
-                    <div className="text-[11px] text-amber-700 truncate">{m.supplier} · not in this Manager's category</div>
-                  </div>
+                <div key={m.key} className="flex items-center gap-2.5 px-3 py-1.5 bg-amber-50/60 hover:bg-amber-100/70 transition" data-testid={`bar-selected-missing-${m.sku}`}>
+                  <button
+                    type="button"
+                    onClick={() => onJumpToProduct && onJumpToProduct(m)}
+                    disabled={!onJumpToProduct}
+                    className="flex items-center gap-2.5 min-w-0 flex-1 text-left"
+                    title={m.path ? `Open ${m.sku} in its Manager` : `Find ${m.sku} in All Products`}
+                    data-testid={`bar-jump-${m.sku}`}
+                  >
+                    <div className="w-8 h-8 rounded bg-amber-100 overflow-hidden flex items-center justify-center flex-shrink-0">
+                      {m.image ? <img src={m.image} alt="" className="w-full h-full object-cover" /> : <Package className="w-3.5 h-3.5 text-amber-500" />}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-[13px] font-medium text-gray-800 truncate flex items-center gap-1">
+                        {m.name || m.sku}
+                        <ExternalLink className="w-3 h-3 text-amber-500 flex-shrink-0" />
+                      </div>
+                      <div className="text-[11px] text-amber-700 truncate">
+                        {m.supplier} · {m.pathLabel ? `open in ${m.pathLabel}` : 'not in this Manager — click to locate'}
+                      </div>
+                    </div>
+                  </button>
                   {onUnselectKey && (
                     <button
                       type="button"
@@ -332,6 +348,16 @@ const ManagerBulkBar = ({
                 <X className="w-3.5 h-3.5" />
                 Remove from Homepage
               </button>
+              {onOpenFeaturedOrder && (
+                <button
+                  onClick={() => { onOpenFeaturedOrder(); setFeatureOpen(false); }}
+                  className="w-full text-left px-3 py-2 text-sm hover:bg-amber-50 flex items-center gap-2 text-gray-700 border-t"
+                  data-testid="bar-feature-reorder"
+                >
+                  <GripVertical className="w-3.5 h-3.5 text-amber-500" />
+                  Reorder Homepage…
+                </button>
+              )}
             </div>
           )}
         </div>

@@ -2315,13 +2315,12 @@ async def get_featured_tiles(limit: int = 8):
     # Priority 1 — products an admin explicitly featured via the Managers'
     # "Feature on Homepage" bulk action (featured_at stamp required so legacy
     # is_featured flags from older edit paths can't sneak onto the front page).
-    # Newest featured first, shown as individual product cards prominently.
-    explicit = list(
-        db.tiles.find({"is_featured": True, "featured_at": {"$exists": True}})
-        .sort("featured_at", -1).limit(limit)
-    )
+    # Admin drag-order (featured_order) wins; unordered items follow, newest first.
+    explicit = list(db.tiles.find({"is_featured": True, "featured_at": {"$exists": True}}))
     if explicit:
-        return {"mode": "products", "items": [serialize_tile_for_shop(t) for t in explicit]}
+        explicit.sort(key=lambda t: (t.get("featured_at") or ""), reverse=True)
+        explicit.sort(key=lambda t: t.get("featured_order") if isinstance(t.get("featured_order"), int) else 1_000_000)
+        return {"mode": "products", "items": [serialize_tile_for_shop(t) for t in explicit[:limit]]}
 
     # Find all tiles assigned to "Feature Tiles" category
     featured_tiles = list(db.tiles.find(

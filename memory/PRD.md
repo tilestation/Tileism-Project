@@ -9019,3 +9019,8 @@ See `/app/memory/test_credentials.md`
 - Selected panel shows product LINES for every ticked item: full row (thumb/name/sku) when loaded in the manager, amber fallback line "sku — supplier · not in this Manager's category" when not loaded (getMissingSelected/unselectKey in useManagerBulk).
 - Unticking in a Manager (panel X, row, or Clear All) also REMOVES the key from the Supplier Products list storage — two pages never disagree.
 - Verified via screenshot automation: carried 2 keys → "2 selected", 1 loaded + 1 missing line, untick synced back to SP storage.
+
+## Aug 19, 2026 Session — Jump to Manager + Featured Order Control
+- **Jump to Manager**: amber out-of-category lines in the Selected panel are now clickable — enriched with real name/image/product_group from a full-catalog index (allIndex Map in ManagerPageShell), routed via GROUP_TO_PATH to the right Manager with `?highlight=SKU` (auto-fills search + resets subtab so the product is instantly visible). Unmapped groups fall back to /admin/supplier-products?search=SKU.
+- **Featured Order Control**: "Reorder Homepage…" option in the Feature dropdown opens FeaturedOrderModal.jsx (@hello-pangea/dnd drag list, per-item unfeature X, Save Order). New endpoint `POST /api/supplier-sync/products/featured-order` {skus ordered} sets featured_order=index on both collections + purges tiles_featured cache. `/api/tiles/featured` sorts by featured_order asc (unordered items after, newest first).
+- Verified E2E via automation: jump navigated Tiles→Materials with SKU highlighted; keyboard drag reordered and saved; homepage endpoint returned the dragged order.
