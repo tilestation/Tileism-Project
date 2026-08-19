@@ -2683,6 +2683,7 @@ def publish_supplier_products_to_website(
                     "always_in_stock": sp.get('always_in_stock', False),
                     "special_order": bool(sp.get('special_order', False)),
                     "special_order_note": sp.get('special_order_note') or '',
+                    "samples_hidden": bool(sp.get('samples_hidden', False)),
                     "sqm_per_box": sp.get('sqm_per_box'),
                     "tiles_per_box": sp.get('tiles_per_box'),
                     "tile_width": sp.get('tile_width'),
@@ -4235,6 +4236,7 @@ def get_all_supplier_products(
                 "always_in_stock": p.get("always_in_stock", False),  # Always show as In Stock on website
                 "special_order": bool(p.get("special_order", False)),  # Special Order flag (Attribute Studio)
                 "special_order_note": p.get("special_order_note") or "",
+                "samples_hidden": bool(p.get("samples_hidden", False)),  # Samples toggle (Attribute Studio)
                 "visibility": p.get("visibility", "online"),  # online, in_store_only, hidden
                 "in_products_db": actual_in_products_db,  # Use verified status from products collection
                 # Live-truth published state — tile doc existence, not the stored flag

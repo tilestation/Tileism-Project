@@ -21,7 +21,7 @@ const postBulk = async (body) => {
   return res.json();
 };
 
-export const SubCategoriesTab = ({ selectedList = [], subTabs = [], onSuccess, onCreateTag }) => {
+export const SubCategoriesTab = ({ selectedList = [], subTabs = [], onSuccess, onCreateTag, onSwitchToBuckets }) => {
   const tags = useMemo(() => (subTabs || []).filter(t => t.key && t.key !== 'all'), [subTabs]);
   const [state, setState] = useState({});   // { key: 'add' | 'remove' }
   const [saving, setSaving] = useState(false);
@@ -156,7 +156,20 @@ export const SubCategoriesTab = ({ selectedList = [], subTabs = [], onSuccess, o
     <div className="space-y-3" data-testid="subcats-tab">
       <div className="rounded-lg border border-emerald-200 bg-emerald-50/50 px-3 py-2 text-xs text-emerald-800 flex items-center gap-2">
         <Layers className="w-3.5 h-3.5 flex-shrink-0" />
-        Click a tag once to <b>ADD</b> it to all {selectedList.length} selected, twice to <b>REMOVE</b> it, third click clears. Counts show how many already have each tag.
+        <span className="flex-1">
+          Click a tag once to <b>ADD</b> it to all {selectedList.length} selected, twice to <b>REMOVE</b> it, third click clears. Counts show how many already have each tag.
+        </span>
+        {onSwitchToBuckets && (
+          <button
+            type="button"
+            onClick={onSwitchToBuckets}
+            className="flex-shrink-0 text-[11px] font-semibold text-emerald-700 underline underline-offset-2 hover:text-emerald-900"
+            data-testid="subcats-per-product-link"
+            title="Different products need different sub-categories? Drag each product into its own sub-category bucket instead"
+          >
+            Different tags per product? →
+          </button>
+        )}
       </div>
       <div className="flex flex-wrap gap-2">
         {tags.map(t => {

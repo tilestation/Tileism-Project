@@ -185,6 +185,8 @@ def serialize_tile_for_shop(tile: dict) -> dict:
         # Special Order — set via Attribute Studio; note shows to customers on the PDP
         "special_order": bool(tile.get("special_order", False)),
         "special_order_note": tile.get("special_order_note") or "",
+        # Samples toggle — PDP hides the "Order a Sample" button when true
+        "samples_hidden": bool(tile.get("samples_hidden", False)),
         "images": tile.get("images", []),
         # If the admin has explicitly marked this SKU as out of stock,
         # ALWAYS surface in_stock=False even if a previous supplier sync

@@ -19,11 +19,12 @@ import { Button } from '../../../../components/ui/button';
 import { Input } from '../../../../components/ui/input';
 import { Badge } from '../../../../components/ui/badge';
 import {
-  Palette, Plus, X, Save, RefreshCw, ArrowRight, CheckCircle, AlertCircle, GripVertical, Tags, Layers, Sliders, LayoutGrid,
+  Palette, Plus, X, Save, RefreshCw, ArrowRight, CheckCircle, AlertCircle, GripVertical, Tags, Layers, Sliders, LayoutGrid, FlaskConical,
 } from 'lucide-react';
 import { getSeriesName } from '../../lib/series';
 import { SubCategoriesTab } from './SubCategoriesTab';
 import { CustomSpecsTab } from './CustomSpecsTab';
+import { SamplesTab } from './SamplesTab';
 import { ShopTabsPanel } from './ShopTabsAssignModal';
 import { PerBoxAutoFill } from './PerBoxAutoFill';
 
@@ -53,6 +54,10 @@ const NUMERIC_ATTRS = new Set(['tiles_per_box', 'sqm_per_box']);
 // Remove mode clears both. Shown to customers on the product detail page.
 const SPECIAL_ORDER_ATTR = { key: 'special_order_note', label: 'Special Order' };
 
+// Sub-Category buckets — per-product assignment (unlike the Sub-Categories tab
+// which tags the WHOLE selection). Default mode is Add so existing tags stay.
+const SUBCAT_BUCKET_ATTR = { key: 'category', label: 'Sub-Category', arrayField: 'sub_categories' };
+
 // Shared with ManagerPageShell's series completeness badges
 export const computeCompleteness = (products, attributes) => {
   const rows = attributes.map(a => {
@@ -74,8 +79,8 @@ const AssignColoursModal = ({ open, onOpenChange, selectedList = [], onSuccess, 
   // Configure-defined filter/spec field (Finish, Size, Material, Thickness…)
   const [attr, setAttr] = useState(COLOUR_ATTR);
   const allAttributes = useMemo(() => {
-    const extras = (attributeOptions || []).filter(a => a.key && a.key !== 'color' && a.key !== 'special_order_note');
-    return [COLOUR_ATTR, ...extras, SPECIAL_ORDER_ATTR];
+    const extras = (attributeOptions || []).filter(a => a.key && !['color', 'special_order_note', 'category'].includes(a.key));
+    return [COLOUR_ATTR, ...extras, SUBCAT_BUCKET_ATTR, SPECIAL_ORDER_ATTR];
   }, [attributeOptions]);
 
   // Buckets: { colourName: Set<productKey> }
@@ -97,11 +102,25 @@ const AssignColoursModal = ({ open, onOpenChange, selectedList = [], onSuccess, 
   useEffect(() => {
     if (!open || !attr?.key) return;
     if (attr.key.startsWith('__')) { setSuggestions([]); return; }
+    // Sub-Category buckets: seed suggestions with the Manager's existing tags
+    const seed = attr.key === 'category'
+      ? (subTabs || []).filter(t => t.key && t.key !== 'all').map(t => t.label || t.key)
+      : [];
     fetch(`${API_URL}/api/attribute-values?fields=${encodeURIComponent(attr.key)}`)
       .then(res => (res.ok ? res.json() : null))
-      .then(d => setSuggestions((d?.values?.[attr.key] || []).slice(0, 30)))
-      .catch(() => setSuggestions([]));
-  }, [open, attr]);
+      .then(d => {
+        const fetched = d?.values?.[attr.key] || [];
+        const seen = new Set();
+        const merged = [...seed, ...fetched].filter(v => {
+          const k = String(v).toLowerCase();
+          if (seen.has(k)) return false;
+          seen.add(k);
+          return true;
+        });
+        setSuggestions(merged.slice(0, 30));
+      })
+      .catch(() => setSuggestions(seed.slice(0, 30)));
+  }, [open, attr, subTabs]);
 
   // Save mode: 'replace' (one value per product) | 'add' (append multi-value)
   // | 'remove' (strip the bucket's value from the products in it)
@@ -113,7 +132,8 @@ const AssignColoursModal = ({ open, onOpenChange, selectedList = [], onSuccess, 
     setAttr(a);
     setBuckets([]);   // buckets are per-attribute
     setNewColour('');
-    setSaveMode('replace');
+    // Sub-Category buckets default to Add — products keep their other tags
+    setSaveMode(a.key === 'category' ? 'add' : 'replace');
   };
 
   // Delete a saved-value chip (also hides it from in-use suggestions)
@@ -368,6 +388,8 @@ const AssignColoursModal = ({ open, onOpenChange, selectedList = [], onSuccess, 
                 ? 'Tick every website tab these products should appear under — multiple tabs are fine. Amber − means only some of the selection is there now.'
                 : attr.key === '__custom'
                 ? 'Add your own spec fields (saved for reuse) and rename field labels across the selection.'
+                : attr.key === '__samples'
+                ? 'Turn the "Order a Sample" button off (or back on) for the selected products on the website.'
                 : `Create a bucket per ${attr.label.toLowerCase()}, then move SKUs into the matching bucket. Each bucket becomes a separate save with 100% verification. ${saveMode === 'add' ? 'Multi-value mode: products can sit in several buckets and each save ADDS the value.' : saveMode === 'remove' ? 'Remove mode: each bucket STRIPS that value from the products you put in it.' : 'Products can only be in one bucket at a time.'}`}
           </p>
         </DialogHeader>
@@ -423,6 +445,16 @@ const AssignColoursModal = ({ open, onOpenChange, selectedList = [], onSuccess, 
             >
               <Sliders className="w-3 h-3" /> Custom Specs
             </button>
+            <button
+              type="button"
+              onClick={() => switchAttribute({ key: '__samples', label: 'Samples' })}
+              className={`px-2.5 py-1 rounded-full text-xs font-semibold transition-all inline-flex items-center gap-1 ${
+                attr.key === '__samples' ? 'bg-rose-600 text-white' : 'bg-rose-50 text-rose-700 hover:bg-rose-100'
+              }`}
+              data-testid="assign-attr-__samples"
+            >
+              <FlaskConical className="w-3 h-3" /> Samples
+            </button>
           </div>
         )}
 
@@ -470,7 +502,16 @@ const AssignColoursModal = ({ open, onOpenChange, selectedList = [], onSuccess, 
         )}
 
         {attr.key === '__subcats' && (
-          <SubCategoriesTab selectedList={selectedList} subTabs={taggableSubTabs} onSuccess={onSuccess} onCreateTag={onCreateSubTab} />
+          <SubCategoriesTab
+            selectedList={selectedList}
+            subTabs={taggableSubTabs}
+            onSuccess={onSuccess}
+            onCreateTag={onCreateSubTab}
+            onSwitchToBuckets={() => switchAttribute(SUBCAT_BUCKET_ATTR)}
+          />
+        )}
+        {attr.key === '__samples' && (
+          <SamplesTab selectedList={selectedList} onSuccess={onSuccess} />
         )}
         {attr.key === '__shoptabs' && (
           <ShopTabsPanel selectedProducts={selectedList} onSaved={onSuccess} embedded />
