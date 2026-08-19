@@ -141,19 +141,17 @@ export const getSeriesNameFromString = (productName) => {
 /**
  * Resolve the effective series name for a product object OR raw string.
  * Priority (each filtered by looksLikeCleanSeriesName except the fallback):
- *   1. original_series  (admin manual override, if clean)
- *   2. range_name       (Auto-Assign / Bulk Set Series audit field)
- *   3. series           (canonical field the API returns)
- *   4. series_name      (legacy alias)
+ *   1. range_name       (explicit admin assignment — Auto-Assign / Bulk Set Series)
+ *   2. series           (canonical field the API returns)
+ *   3. series_name      (legacy alias)
+ *   4. original_series  (LOW priority — on Verona/Canopy rows this holds the
+ *                        ORIGINAL SUPPLIER PRODUCT NAME, never overwritten)
  *   5. unique_name      (older Canopy-imports store the range here)
  *   6. fallback: smart parse of the display name
  */
 export const getSeriesName = (productOrName) => {
   if (productOrName && typeof productOrName === 'object') {
-    if (looksLikeCleanSeriesName(productOrName.original_series)) {
-      return String(productOrName.original_series).trim();
-    }
-    for (const k of ['range_name', 'series', 'series_name', 'unique_name']) {
+    for (const k of ['range_name', 'series', 'series_name', 'original_series', 'unique_name']) {
       const v = productOrName[k];
       if (looksLikeCleanSeriesName(v)) return String(v).trim();
     }

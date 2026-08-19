@@ -42,6 +42,7 @@ def fixtures(db):
             "supplier": SUPPLIER,
             "product_name": f"Cleaning & Maintenance - UltrTile Item {i}",
             "unique_name": uname,
+            "original_series": f"Original Supplier Name {i}",
             "series": "",
             "range_name": "",
             "price": 10.0,
@@ -64,12 +65,17 @@ def test_bulk_assign_updates_all_six(admin_token, fixtures, db):
     assert data.get("ok") is True
     assert data.get("updated") == 6, f"expected 6 updated, got {data.get('updated')} failed={data.get('failed')}"
 
-    # DB verify — all FIVE series-carrying fields overwritten
-    for sku in fixtures:
+    # DB verify — the three PURE series fields are overwritten, while the
+    # supplier-name-carrying fields (unique_name / original_series) are
+    # PRESERVED (19 Aug incident: overwriting them wiped supplier names).
+    for i, sku in enumerate(fixtures, start=1):
         doc = db.supplier_products.find_one({"sku": sku})
         assert doc is not None
-        for field in ("series", "range_name", "series_name", "unique_name", "original_series"):
+        for field in ("series", "range_name", "series_name"):
             assert doc.get(field) == TARGET_SERIES, f"{sku} {field} mismatch: {doc.get(field)}"
+        expected_unique = LONG_UNIQUE if i == 6 else "UltrTile Easy Clean"
+        assert doc.get("unique_name") == expected_unique, f"{sku} unique_name was clobbered: {doc.get('unique_name')}"
+        assert doc.get("original_series") == f"Original Supplier Name {i}", f"{sku} original_series was clobbered: {doc.get('original_series')}"
 
 
 def test_supplier_sync_list_returns_series_and_range(admin_token, fixtures):
@@ -87,7 +93,8 @@ def test_supplier_sync_list_returns_series_and_range(admin_token, fixtures):
     for p in matches:
         assert p.get("series") == TARGET_SERIES, f"{p.get('sku')} series={p.get('series')}"
         assert p.get("range_name") == TARGET_SERIES, f"{p.get('sku')} range_name={p.get('range_name')}"
-        assert p.get("unique_name") == TARGET_SERIES, f"{p.get('sku')} unique_name={p.get('unique_name')}"
+        # unique_name must NOT be overwritten by bulk-assign (supplier-name field)
+        assert p.get("unique_name") != TARGET_SERIES, f"{p.get('sku')} unique_name was clobbered"
         # New: /api/supplier-sync/products must include series_name in payload
         assert "series_name" in p, f"{p.get('sku')} missing series_name key in response"
         assert p.get("series_name") == TARGET_SERIES, f"{p.get('sku')} series_name={p.get('series_name')}"

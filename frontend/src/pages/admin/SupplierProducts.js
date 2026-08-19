@@ -16910,6 +16910,19 @@ export default function SupplierProducts() {
               Archive
             </button>
 
+            {/* Bulk Rename — opens the name-change editor (insert text, word
+                replacements, template mode) for every ticked product. */}
+            <button
+              type="button"
+              data-testid="qa-bulk-rename"
+              onClick={openBulkRenameModal}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-500/90 hover:bg-rose-500 transition-all text-[13px] font-medium shadow-md shadow-rose-500/20"
+              title="Bulk change product names — insert text, replace words, or rename per-product in template mode"
+            >
+              <PenLine className="w-3.5 h-3.5" />
+              Bulk Rename
+            </button>
+
             {/* Bulk Set Series — assigns the same range_name to every ticked
                 product. Prompts for a series name and posts to
                 /api/admin/series/bulk-assign. */}

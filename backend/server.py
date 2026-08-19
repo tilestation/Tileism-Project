@@ -9699,6 +9699,20 @@ async def startup_scheduler():
     except Exception as e:
         logger.warning(f"[pw-guard] startup check failed: {e}")
 
+    # One-shot repair (19 Aug incident): the old Set Series bulk-assign stamped
+    # the series into original_series/unique_name, clobbering supplier product
+    # names. Unstamp any remaining rows in the background. Idempotent.
+    async def _repair_series_stamps():
+        try:
+            from routes.series_manager import repair_stamped_supplier_name_fields
+            from config import get_db as _get_series_db
+            res = await repair_stamped_supplier_name_fields(_get_series_db())
+            if res.get("original_series_restored") or res.get("unique_name_restored"):
+                print(f"[series-repair] restored supplier-name fields: {res}", flush=True)
+        except Exception:
+            logger.exception("[series-repair] startup repair failed")
+    asyncio.create_task(_repair_series_stamps())
+
     # 5 Jun 2026 — purge stale noindex flags on safe-listed paths so
     # the homepage / new-collection / clearance etc. can never stay
     # stuck noindex'd between deploys. One-shot, idempotent, runs in

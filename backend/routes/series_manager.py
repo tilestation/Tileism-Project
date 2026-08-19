@@ -181,22 +181,19 @@ async def bulk_assign_series(
         if payload.supplier:
             q["supplier"] = payload.supplier
         try:
-            # Write to BOTH `series` (what the /supplier-sync/products list endpoint
-            # returns to the frontend) AND `range_name` (kept as an admin
-            # override audit-friendly field). We also OVERWRITE `unique_name`,
-            # `series_name`, and `original_series` unconditionally — legacy
-            # Canopy imports dumped the full product name into those fields,
-            # which would win the display priority chain and drag the row
-            # into a phantom series bucket. Setting them all to the new
-            # value keeps every downstream code path in sync.
+            # Write ONLY the three pure series fields: `series` (canonical),
+            # `range_name` (admin assignment, wins the frontend grouping
+            # chain) and `series_name` (legacy alias). NEVER touch
+            # `original_series` or `unique_name` — on Verona/Canopy rows those
+            # hold the ORIGINAL SUPPLIER PRODUCT NAME which must never be
+            # overwritten (19 Aug incident: overwriting them wiped supplier
+            # names across a whole series).
             res = await db.supplier_products.update_one(
                 q,
                 {"$set": {
                     "series": it.series.strip(),
                     "range_name": it.series.strip(),
                     "series_name": it.series.strip(),
-                    "unique_name": it.series.strip(),
-                    "original_series": it.series.strip(),
                     "updated_at": now,
                     "range_assigned_by": current_user.get("email"),
                 }},
@@ -218,6 +215,45 @@ async def bulk_assign_series(
         after_data={"updated": updated, "failed_count": len(failed), "supplier_filter": payload.supplier, "sample_items": [it.dict() for it in payload.items[:5]]},
     )
     return {"ok": True, "updated": updated, "failed": failed}
+
+
+async def repair_stamped_supplier_name_fields(db) -> dict:
+    """Undo the old bulk-assign overwrite: it stamped the assigned series into
+    `original_series`/`unique_name`, clobbering supplier product names on
+    Verona/Canopy rows. Unset those fields wherever they still equal the
+    stamped `range_name` so the UI falls back to the untouched `name` field.
+    Idempotent — safe to run on every startup."""
+    base = {"range_assigned_by": {"$exists": True}, "range_name": {"$nin": [None, ""]}}
+    r1 = await db.supplier_products.update_many(
+        {**base, "$expr": {"$eq": ["$original_series", "$range_name"]}},
+        {"$unset": {"original_series": ""}},
+    )
+    r2 = await db.supplier_products.update_many(
+        {**base, "$expr": {"$eq": ["$unique_name", "$range_name"]}},
+        {"$unset": {"unique_name": ""}},
+    )
+    return {
+        "original_series_restored": r1.modified_count,
+        "unique_name_restored": r2.modified_count,
+    }
+
+
+@router.post("/repair-supplier-names")
+async def repair_supplier_names(current_user: dict = Depends(get_current_user)):
+    """Manual trigger for the supplier-name repair (also runs automatically on
+    every server startup)."""
+    if not has_permission(current_user, "supplier_products"):
+        raise HTTPException(403, "You need the Supplier Products permission")
+    res = await repair_stamped_supplier_name_fields(get_db())
+    await log_audit(
+        action="SERIES_SUPPLIER_NAME_REPAIR",
+        entity_type="supplier_product",
+        user=current_user,
+        entity_id="bulk-repair",
+        entity_name=f"Restored supplier-name fields on stamped rows",
+        after_data=res,
+    )
+    return {"ok": True, **res}
 
 
 @router.post("/apply-suggestions")

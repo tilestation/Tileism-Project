@@ -9000,3 +9000,10 @@ See `/app/memory/test_credentials.md`
 - **Fix layer 2 (runtime self-heal)**: new `/app/backend/services/playwright_guard.py` (`ensure_chromium()` = idempotent install). Hooked into server.py startup (background thread, never blocks) + nightly_sync.py preflight before supplier loop.
 - Verified in preview: guard success message on boot (stdout: `[pw-guard] chromium browsers verified/installed`), headless chromium launch OK, /api/health 200.
 - **USER ACTION**: Save to GitHub → Railway auto-deploys; then re-run supplier syncs (or wait for tonight's nightly). Reminder: never deploy while a sync is running.
+
+## Aug 19, 2026 Session — Set Series clobbered supplier names (FIXED + auto-repair)
+- **Root cause**: `/api/admin/series/bulk-assign` (Set Series bulk action) unconditionally overwrote `original_series` + `unique_name` with the assigned series — those fields hold the ORIGINAL SUPPLIER PRODUCT NAME on Verona/Canopy rows. HARD USER RULE: never touch supplier names.
+- **Fix**: bulk-assign now writes ONLY `series`/`range_name`/`series_name`. Frontend grouping chain (lib/series.js) reordered: range_name → series → series_name → original_series → unique_name (so assignment wins without clobbering).
+- **Auto-repair**: `repair_stamped_supplier_name_fields()` unsets original_series/unique_name where == range_name on rows with `range_assigned_by` stamp → display falls back to untouched `name` field. Runs on EVERY server startup (background, idempotent) + manual `POST /api/admin/series/repair-supplier-names`. Production heals automatically on next deploy.
+- **Bulk Rename button restored**: modal existed but button was lost in a refactor — now in floating bulk bar (`data-testid="qa-bulk-rename"`) next to Set Series.
+- Tests updated: tests/test_series_bulk_assign.py asserts preservation (3 passed). E2E verified with seeded damaged rows + screenshot.
