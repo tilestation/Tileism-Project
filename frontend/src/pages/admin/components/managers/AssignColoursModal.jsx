@@ -48,6 +48,11 @@ export const arrayFieldFor = (attr) => attr.arrayField || ARRAY_FIELD_MAP[attr.k
 // Numeric single-value fields — Replace mode only, stored as numbers
 const NUMERIC_ATTRS = new Set(['tiles_per_box', 'sqm_per_box']);
 
+// Special Order — flag + customer-facing note (e.g. "2-3 weeks delivery").
+// Bucket name = the note text; saving sets special_order=true + the note,
+// Remove mode clears both. Shown to customers on the product detail page.
+const SPECIAL_ORDER_ATTR = { key: 'special_order_note', label: 'Special Order' };
+
 // Shared with ManagerPageShell's series completeness badges
 export const computeCompleteness = (products, attributes) => {
   const rows = attributes.map(a => {
@@ -69,8 +74,8 @@ const AssignColoursModal = ({ open, onOpenChange, selectedList = [], onSuccess, 
   // Configure-defined filter/spec field (Finish, Size, Material, Thickness…)
   const [attr, setAttr] = useState(COLOUR_ATTR);
   const allAttributes = useMemo(() => {
-    const extras = (attributeOptions || []).filter(a => a.key && a.key !== 'color');
-    return [COLOUR_ATTR, ...extras];
+    const extras = (attributeOptions || []).filter(a => a.key && a.key !== 'color' && a.key !== 'special_order_note');
+    return [COLOUR_ATTR, ...extras, SPECIAL_ORDER_ATTR];
   }, [attributeOptions]);
 
   // Buckets: { colourName: Set<productKey> }
@@ -280,9 +285,14 @@ const AssignColoursModal = ({ open, onOpenChange, selectedList = [], onSuccess, 
         });
         const rawVal = bucket.name;
         const numVal = NUMERIC_ATTRS.has(attr.key) && !isNaN(Number(rawVal)) ? Number(rawVal) : rawVal;
-        const updates = saveMode === 'replace'
+        const updates = attr.key === 'special_order_note'
+          ? (saveMode === 'remove'
+              ? { special_order_note: '', special_order: false }
+              : { special_order_note: rawVal, special_order: true })
+          : saveMode === 'replace'
           ? { [attr.key]: numVal, ...(attr.arrayField ? { [attr.arrayField]: [rawVal] } : {}) }
           : { [arrayFieldFor(attr)]: [rawVal] };
+        const requestMode = attr.key === 'special_order_note' ? 'replace' : (saveMode === 'add' ? 'append' : saveMode);
         for (const [ids, idField] of [[idsSku, 'sku'], [idsSupplierCode, 'supplier_code']]) {
           if (ids.length === 0) continue;
           const res = await fetch(`${API_URL}/api/supplier-sync/products/bulk-update-unified`, {
@@ -292,7 +302,7 @@ const AssignColoursModal = ({ open, onOpenChange, selectedList = [], onSuccess, 
               product_ids: ids,
               id_field: idField,
               updates,
-              mode: saveMode === 'add' ? 'append' : saveMode,
+              mode: requestMode,
             }),
           });
           if (!res.ok) throw new Error(`HTTP ${res.status} on bucket "${bucket.name}"`);
@@ -331,7 +341,11 @@ const AssignColoursModal = ({ open, onOpenChange, selectedList = [], onSuccess, 
   };
 
   // Completeness meter — how many of the selection have each attribute filled
-  const completeness = useMemo(() => computeCompleteness(selectedList, allAttributes), [selectedList, allAttributes]);
+  // (Special Order is optional, so it never counts against completeness)
+  const completeness = useMemo(
+    () => computeCompleteness(selectedList, allAttributes.filter(a => a.key !== 'special_order_note')),
+    [selectedList, allAttributes]
+  );
 
   const productName = (p) => (p.our_product_name || p.product_name || p.name || p.sku || p.supplier_code);
 
@@ -510,6 +524,7 @@ const AssignColoursModal = ({ open, onOpenChange, selectedList = [], onSuccess, 
             </button>
             {!NUMERIC_ATTRS.has(attr.key) && (
             <>
+            {attr.key !== 'special_order_note' && (
             <button
               type="button"
               onClick={() => setSaveMode('add')}
@@ -518,6 +533,7 @@ const AssignColoursModal = ({ open, onOpenChange, selectedList = [], onSuccess, 
             >
               + Add (multi-value)
             </button>
+            )}
             <button
               type="button"
               onClick={() => setSaveMode('remove')}
@@ -530,7 +546,11 @@ const AssignColoursModal = ({ open, onOpenChange, selectedList = [], onSuccess, 
             )}
           </div>
           <span className="text-[10px] text-gray-400">
-            {NUMERIC_ATTRS.has(attr.key)
+            {attr.key === 'special_order_note'
+              ? saveMode === 'remove'
+                ? 'Each bucket CLEARS the Special Order flag + note from the products you put in it'
+                : 'Marks products as Special Order — the note is shown to customers on the product page (e.g. 2-3 weeks delivery)'
+              : NUMERIC_ATTRS.has(attr.key)
               ? `Numeric field — one ${attr.label.toLowerCase()} per product, shown on the Product detail page${attr.key === 'tiles_per_box' ? '. M² per box auto-calculates from tile size when you save' : ''}`
               : saveMode === 'add'
               ? `Products can sit in several buckets — each bucket ADDS a ${attr.label.toLowerCase()} without replacing existing ones`
@@ -548,7 +568,7 @@ const AssignColoursModal = ({ open, onOpenChange, selectedList = [], onSuccess, 
         {/* Add-a-bucket bar */}
         <div className="flex items-center gap-2 py-2">
           <Input
-            placeholder={`Type a ${attr.label.toLowerCase()} ${NUMERIC_ATTRS.has(attr.key) ? 'number' : 'name'} (e.g. ${attr.key === 'color' ? 'Grey, White, Beige…' : attr.key === 'size' ? '30x60cm, 60x60cm…' : attr.key === 'finish' ? 'Matt, Polished…' : attr.key === 'tiles_per_box' ? '4, 6, 8…' : attr.key === 'sqm_per_box' ? '1.08, 1.44…' : 'value…'})`}
+            placeholder={attr.key === 'special_order_note' ? 'Type the customer note (e.g. Special order — 2-3 weeks delivery)' : `Type a ${attr.label.toLowerCase()} ${NUMERIC_ATTRS.has(attr.key) ? 'number' : 'name'} (e.g. ${attr.key === 'color' ? 'Grey, White, Beige…' : attr.key === 'size' ? '30x60cm, 60x60cm…' : attr.key === 'finish' ? 'Matt, Polished…' : attr.key === 'tiles_per_box' ? '4, 6, 8…' : attr.key === 'sqm_per_box' ? '1.08, 1.44…' : 'value…'})`}
             value={newColour}
             onChange={(e) => setNewColour(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addBucket(); } }}

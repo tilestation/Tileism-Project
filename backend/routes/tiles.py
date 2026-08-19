@@ -182,6 +182,9 @@ def serialize_tile_for_shop(tile: dict) -> dict:
         # to None so the frontend can distinguish "admin hasn't touched"
         # from explicit "out_of_stock" / "low_stock" / "in_stock".
         "stock_status": tile.get("stock_status"),
+        # Special Order — set via Attribute Studio; note shows to customers on the PDP
+        "special_order": bool(tile.get("special_order", False)),
+        "special_order_note": tile.get("special_order_note") or "",
         "images": tile.get("images", []),
         # If the admin has explicitly marked this SKU as out of stock,
         # ALWAYS surface in_stock=False even if a previous supplier sync

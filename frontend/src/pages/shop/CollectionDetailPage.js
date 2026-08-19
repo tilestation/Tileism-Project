@@ -1174,6 +1174,10 @@ const CollectionDetailPage = () => {
     if (explicitStatus === 'special_order') {
       return { label: 'Special Order', color: 'text-blue-600', dotColor: 'bg-blue-500' };
     }
+    // Admin marked via Attribute Studio "Special Order" (2-3 week lead time)
+    if (product.special_order === true) {
+      return { label: 'Special Order', color: 'text-blue-600', dotColor: 'bg-blue-500' };
+    }
     // Admin explicitly set "In Stock" — authoritative even when the numeric
     // stock count is 0 (unit products often have no stock feed).
     if (explicitStatus === 'in_stock') {
@@ -2618,6 +2622,17 @@ const CollectionDetailPage = () => {
               <span className={`w-2.5 h-2.5 rounded-full ${stockStatus.dotColor}`}></span>
               <span className="font-medium">{stockStatus.label}</span>
             </div>
+
+            {/* Special Order notice — set via Attribute Studio, shows the admin's note */}
+            {(selectedProduct?.special_order || (selectedProduct?.stock_status || '').toLowerCase() === 'special_order') && (
+              <div className="flex items-start gap-2.5 rounded-lg border border-blue-200 bg-blue-50 px-3.5 py-2.5" data-testid="special-order-notice">
+                <Clock className="w-4 h-4 text-blue-600 mt-0.5 flex-shrink-0" />
+                <div className="text-sm text-blue-800">
+                  <span className="font-semibold">Special order item.</span>{' '}
+                  {selectedProduct?.special_order_note || 'Typically delivered in 2–3 weeks.'}
+                </div>
+              </div>
+            )}
 
             {/* Product Selector for Material/Tool collections */}
             {isMaterialCollection && (
