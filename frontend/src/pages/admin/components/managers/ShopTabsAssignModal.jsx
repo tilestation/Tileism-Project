@@ -9,7 +9,7 @@
  */
 import React, { useState, useEffect, useMemo } from 'react';
 import { toast } from 'sonner';
-import { LayoutGrid, Check, Minus, Store, Plus } from 'lucide-react';
+import { LayoutGrid, Check, Minus, Store, Plus, Maximize2 } from 'lucide-react';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
 } from '../../../../components/ui/dialog';
@@ -17,6 +17,26 @@ import { Button } from '../../../../components/ui/button';
 import { fetchShopTabDestinations, clearShopTabDestinationsCache } from '../../lib/shopTabDestinations';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
+
+// ---- Large Format detection ----
+// Rule (user-defined): any tile with a dimension ABOVE 60cm is large format.
+// 60x60 is NOT large; 80x80, 60x120, 45x90 etc. ARE. Handles cm + mm sizes.
+const parseSizesCm = (p) => {
+  const out = [];
+  const push = (w, h) => {
+    if (!w || !h) return;
+    if (w > 200 || h > 200) { w /= 10; h /= 10; } // mm → cm
+    out.push({ w, h });
+  };
+  if (Number(p.tile_width) && Number(p.tile_height)) push(Number(p.tile_width), Number(p.tile_height));
+  const candidates = [p.size, ...(Array.isArray(p.sizes) ? p.sizes : []), p.our_product_name || p.product_name || p.name];
+  candidates.filter(Boolean).forEach(s => {
+    const m = String(s).match(/(\d+(?:\.\d+)?)\s*[xX×]\s*(\d+(?:\.\d+)?)/);
+    if (m) push(parseFloat(m[1]), parseFloat(m[2]));
+  });
+  return out;
+};
+export const isLargeFormat = (p) => parseSizesCm(p).some(d => Math.max(d.w, d.h) > 60);
 
 export const ShopTabsPanel = ({ selectedProducts = [], onSaved, onDone, embedded = false }) => {
   const [pages, setPages] = useState([]);
@@ -99,6 +119,61 @@ export const ShopTabsPanel = ({ selectedProducts = [], onSaved, onDone, embedded
     finally { setCreatingTab(false); }
   };
 
+  // ---- Large Format auto-assign ----
+  // Finds the "Large Format" tab, detects which selected products are above
+  // 60x60, and assigns ONLY those (plus un-assigns wrongly-tagged small ones).
+  const largeFormatTab = useMemo(() => {
+    for (const page of pages) {
+      for (const tab of page.tabs || []) {
+        if (!tab.assignable || !tab.category_name) continue;
+        const label = `${tab.label || ''} ${tab.category_slug || ''}`.toLowerCase();
+        if (label.includes('large') && label.includes('format')) return tab;
+      }
+    }
+    return null;
+  }, [pages]);
+
+  const lfSplit = useMemo(() => {
+    if (!largeFormatTab) return null;
+    const needle = largeFormatTab.category_name.toLowerCase();
+    const hasTag = (p) => (Array.isArray(p.sub_categories) ? p.sub_categories : []).some(c => String(c).toLowerCase().includes(needle));
+    const large = selectedProducts.filter(isLargeFormat);
+    const toAdd = large.filter(p => !hasTag(p));
+    const toRemove = selectedProducts.filter(p => !isLargeFormat(p) && hasTag(p));
+    return { large, toAdd, toRemove };
+  }, [largeFormatTab, selectedProducts]);
+
+  const [lfSaving, setLfSaving] = useState(false);
+  const autoAssignLargeFormat = async () => {
+    if (!largeFormatTab || !lfSplit) return;
+    setLfSaving(true);
+    try {
+      let updated = 0;
+      for (const [list, key] of [[lfSplit.toAdd, 'add_categories'], [lfSplit.toRemove, 'remove_categories']]) {
+        if (list.length === 0) continue;
+        const res = await fetch(`${API_URL}/api/supplier-sync/products/assign-shop-tabs`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            skus: list.filter(p => p.sku).map(p => p.sku),
+            supplier_codes: list.filter(p => !p.sku && p.supplier_code).map(p => p.supplier_code),
+            [key]: [largeFormatTab.category_name],
+            [key === 'add_categories' ? 'remove_categories' : 'add_categories']: [],
+          }),
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        updated += data.updated || 0;
+      }
+      toast.success(`Large Format sorted — added ${lfSplit.toAdd.length}, removed ${lfSplit.toRemove.length} (sizes above 60x60 only)`);
+      onSaved?.();
+    } catch (err) {
+      toast.error(`Large Format auto-assign failed: ${err.message}`);
+    } finally {
+      setLfSaving(false);
+    }
+  };
+
   const apply = async () => {
     if (adds.length === 0 && removes.length === 0) { toast.info('No changes to apply'); return; }
     setSaving(true);
@@ -137,6 +212,31 @@ export const ShopTabsPanel = ({ selectedProducts = [], onSaved, onDone, embedded
         <p className="text-sm text-gray-400 py-8 text-center">Loading shop pages…</p>
       ) : (
         <div className="space-y-4 py-1">
+          {/* Large Format smart assign — detects sizes above 60x60 in the selection */}
+          {largeFormatTab && lfSplit && (lfSplit.large.length > 0 || lfSplit.toRemove.length > 0) && (
+            <div className="rounded-lg border border-indigo-200 bg-indigo-50/60 px-3 py-2.5 flex items-center gap-2.5" data-testid="large-format-banner">
+              <Maximize2 className="w-4 h-4 text-indigo-600 flex-shrink-0" />
+              <div className="text-xs text-indigo-900 flex-1">
+                {lfSplit.large.length > 0
+                  ? <><b>{lfSplit.large.length} of {selectedProducts.length}</b> selected are Large Format (above 60x60 — e.g. 80x80, 60x120).</>
+                  : <>None of the selection is above 60x60,</>}
+                {(lfSplit.toAdd.length > 0 || lfSplit.toRemove.length > 0)
+                  ? <> One click {lfSplit.toAdd.length > 0 ? <>assigns only those to the <b>{largeFormatTab.label}</b> tab</> : <>fixes the <b>{largeFormatTab.label}</b> tab</>}{lfSplit.toRemove.length > 0 ? ` — removing ${lfSplit.toRemove.length} wrongly-tagged smaller tile(s) (60x60 and below)` : ''}.</>
+                  : <> All correctly tagged already.</>}
+              </div>
+              {(lfSplit.toAdd.length > 0 || lfSplit.toRemove.length > 0) && (
+                <Button
+                  size="sm"
+                  onClick={autoAssignLargeFormat}
+                  disabled={lfSaving}
+                  className="bg-indigo-600 hover:bg-indigo-700 text-white h-8 flex-shrink-0"
+                  data-testid="large-format-auto-btn"
+                >
+                  {lfSaving ? 'Assigning…' : `Auto-assign (${lfSplit.toAdd.length > 0 ? `+${lfSplit.toAdd.length}` : ''}${lfSplit.toAdd.length > 0 && lfSplit.toRemove.length > 0 ? ' · ' : ''}${lfSplit.toRemove.length > 0 ? `−${lfSplit.toRemove.length}` : ''})`}
+                </Button>
+              )}
+            </div>
+          )}
           {pages.map(page => (
             <div key={page.group_slug} className="border border-gray-200 rounded-lg overflow-hidden" data-testid={`shop-tabs-page-${page.group_slug}`}>
               <div className="px-3 py-2 bg-gray-50 border-b border-gray-200 flex items-center gap-2">

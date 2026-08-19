@@ -23,7 +23,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Link, useSearchParams, useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import {
-  ArrowLeft, RefreshCw, Search, Save, X, Edit2, Filter, ExternalLink, AlertCircle, CheckCircle, Plus, FileSpreadsheet, Settings, Store, Star,
+  ArrowLeft, RefreshCw, Search, Save, X, Edit2, Filter, ExternalLink, AlertCircle, CheckCircle, Plus, FileSpreadsheet, Settings, Store, Star, FlaskConical,
 } from 'lucide-react';
 import { Button } from '../../../components/ui/button';
 import { Input } from '../../../components/ui/input';
@@ -950,6 +950,7 @@ const ManagerPageShell = ({
                           <td className="px-3 py-2">
                             <div className="font-medium text-gray-900 line-clamp-1 flex items-center gap-1">
                               {p.is_featured && <Star className="w-3.5 h-3.5 text-amber-500 fill-amber-400 flex-shrink-0" title="Featured on the website front page" />}
+                              {p.samples_hidden && <FlaskConical className="w-3.5 h-3.5 text-rose-400 flex-shrink-0" title="Sample requests disabled for this product" data-testid={`no-samples-icon-${p.sku || p.supplier_code}`} />}
                               {name}
                             </div>
                             <div className="text-xs text-gray-500">
