@@ -969,7 +969,9 @@ const ManagerPageShell = ({
       <ManagerBulkBar
         selectedCount={bulk.selectedProducts.size}
         selectedList={bulk.getSelectedList()}
+        missingSelected={bulk.getMissingSelected()}
         onUnselectProduct={(p) => bulk.toggleProduct(p)}
+        onUnselectKey={bulk.unselectKey}
         showSelectedOnly={showSelectedOnly}
         onToggleShowSelectedOnly={() => setShowSelectedOnly(v => !v)}
         onClearAll={bulk.clearAll}

@@ -36,9 +36,14 @@ export function useManagerBulk({ products = [], onRefresh, storageKey = null }) 
     if (!storageKey) return new Set();
     try {
       const raw = localStorage.getItem(`managerBulk:${storageKey}:selected`);
-      if (!raw) return new Set();
-      const arr = JSON.parse(raw);
-      return Array.isArray(arr) ? new Set(arr) : new Set();
+      const arr = raw ? JSON.parse(raw) : [];
+      const set = Array.isArray(arr) ? new Set(arr) : new Set();
+      // Cross-page carry-over: merge whatever is ticked on the Supplier
+      // Products list so "select there → open a Manager" keeps the selection.
+      const spRaw = localStorage.getItem('supplierProducts_selectedProducts');
+      const spArr = spRaw ? JSON.parse(spRaw) : [];
+      if (Array.isArray(spArr)) spArr.forEach(k => set.add(k));
+      return set;
     } catch { return new Set(); }
   });
   const [bulkSaving, setBulkSaving] = useState(false);
@@ -53,11 +58,29 @@ export function useManagerBulk({ products = [], onRefresh, storageKey = null }) 
     } catch { /* silent — storage disabled */ }
   }, [selectedProducts, storageKey]);
 
+  // Removing a tick in a Manager also unticks it on the Supplier Products list
+  // so the two pages never disagree about what's selected.
+  const removeFromSupplierListSelection = (keys) => {
+    try {
+      const raw = localStorage.getItem('supplierProducts_selectedProducts');
+      if (!raw) return;
+      const arr = JSON.parse(raw);
+      if (!Array.isArray(arr)) return;
+      const drop = new Set(keys);
+      localStorage.setItem('supplierProducts_selectedProducts', JSON.stringify(arr.filter(k => !drop.has(k))));
+    } catch { /* silent */ }
+  };
+
   const toggleProduct = useCallback((product) => {
     const key = getProductKey(product);
     setSelectedProducts(prev => {
       const next = new Set(prev);
-      if (next.has(key)) next.delete(key); else next.add(key);
+      if (next.has(key)) {
+        next.delete(key);
+        removeFromSupplierListSelection([key]);
+      } else {
+        next.add(key);
+      }
       return next;
     });
   }, []);
@@ -66,13 +89,41 @@ export function useManagerBulk({ products = [], onRefresh, storageKey = null }) 
     setSelectedProducts(new Set(visibleProducts.map(p => getProductKey(p))));
   }, []);
 
-  const clearAll = useCallback(() => setSelectedProducts(new Set()), []);
+  const clearAll = useCallback(() => {
+    setSelectedProducts(prev => {
+      removeFromSupplierListSelection([...prev]);
+      return new Set();
+    });
+  }, []);
 
   const isSelected = useCallback((product) => selectedProducts.has(getProductKey(product)), [selectedProducts]);
 
   const getSelectedList = useCallback(() => {
     return products.filter(p => selectedProducts.has(getProductKey(p)));
   }, [products, selectedProducts]);
+
+  // Selected keys whose product is NOT in this Manager's loaded list (e.g.
+  // ticked on the Supplier Products page in a different category). Parsed from
+  // the key format `supplier|||sku` so the Selected panel can still show them.
+  const getMissingSelected = useCallback(() => {
+    const loaded = new Set(products.map(p => getProductKey(p)));
+    return [...selectedProducts]
+      .filter(k => !loaded.has(k))
+      .map(k => {
+        const [supplier, sku] = String(k).split('|||');
+        return { key: k, supplier: supplier || 'unknown', sku: sku || k };
+      });
+  }, [products, selectedProducts]);
+
+  // Untick by raw key (used by the Selected panel for not-loaded entries)
+  const unselectKey = useCallback((key) => {
+    setSelectedProducts(prev => {
+      const next = new Set(prev);
+      next.delete(key);
+      removeFromSupplierListSelection([key]);
+      return next;
+    });
+  }, []);
 
   // Group selected products by their identifier field for the bulk-update-unified endpoint
   const splitByIdField = useCallback((selectedList) => {
@@ -288,6 +339,8 @@ export function useManagerBulk({ products = [], onRefresh, storageKey = null }) 
     clearAll,
     isSelected,
     getSelectedList,
+    getMissingSelected,
+    unselectKey,
     // Bulk ops
     bulkUpdate,
     bulkPublish,

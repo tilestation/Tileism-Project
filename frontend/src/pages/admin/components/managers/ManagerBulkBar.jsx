@@ -15,7 +15,9 @@ import {
 const ManagerBulkBar = ({
   selectedCount,
   selectedList = null,
+  missingSelected = [],
   onUnselectProduct,
+  onUnselectKey,
   showSelectedOnly = false,
   onToggleShowSelectedOnly,
   onClearAll,
@@ -104,7 +106,7 @@ const ManagerBulkBar = ({
             data-testid="bar-selection-panel"
           >
             <div className="px-3 py-2 flex items-center justify-between border-b bg-gray-50 rounded-t-xl">
-              <span className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Selected products ({selectedList.length})</span>
+              <span className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Selected products ({selectedList.length + missingSelected.length})</span>
               <button onClick={() => setSelectionOpen(false)} className="text-gray-400 hover:text-gray-700" data-testid="bar-selection-close">
                 <X className="w-3.5 h-3.5" />
               </button>
@@ -139,7 +141,30 @@ const ManagerBulkBar = ({
                   </div>
                 );
               })}
-              {selectedList.length === 0 && (
+              {/* Ticked on another page/category — product line not loaded in this Manager */}
+              {missingSelected.map((m) => (
+                <div key={m.key} className="flex items-center gap-2.5 px-3 py-1.5 bg-amber-50/60 hover:bg-amber-50" data-testid={`bar-selected-missing-${m.sku}`}>
+                  <div className="w-8 h-8 rounded bg-amber-100 flex items-center justify-center flex-shrink-0">
+                    <Package className="w-3.5 h-3.5 text-amber-500" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[13px] font-medium text-gray-800 truncate">{m.sku}</div>
+                    <div className="text-[11px] text-amber-700 truncate">{m.supplier} · not in this Manager's category</div>
+                  </div>
+                  {onUnselectKey && (
+                    <button
+                      type="button"
+                      onClick={() => onUnselectKey(m.key)}
+                      className="text-gray-300 hover:text-red-500 transition flex-shrink-0"
+                      title="Untick this product"
+                      data-testid={`bar-unselect-missing-${m.sku}`}
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+              ))}
+              {selectedList.length === 0 && missingSelected.length === 0 && (
                 <div className="px-3 py-4 text-center text-xs text-gray-400">
                   Ticked products aren't loaded on this page/filter
                 </div>

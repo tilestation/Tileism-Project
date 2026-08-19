@@ -9013,3 +9013,9 @@ See `/app/memory/test_credentials.md`
 - **Selected panel**: "N selected" in bulk bar is now clickable → popover listing ticked products (thumb, name, sku, untick X). Plus "Show selected" toggle filters the table to ticked rows only (auto-off when selection empties).
 - Lesson: showSelectedOnly state must be declared BEFORE the filteredProducts useMemo in ManagerPageShell (TDZ crash otherwise).
 - Tested E2E: curl (feature/unfeature/cache purge/legacy exclusion) + screenshots (homepage section, panel, toggle, dropdown). Preview has LP-1611, LP-3611, BLUE-GR-60 featured for demo.
+
+## Aug 19, 2026 Session — Cross-page selection visibility in Managers
+- Managers now IMPORT the ticked selection from the Supplier Products list on mount (localStorage `supplierProducts_selectedProducts`, same `supplier|||sku` key format) and merge it with their own persisted selection.
+- Selected panel shows product LINES for every ticked item: full row (thumb/name/sku) when loaded in the manager, amber fallback line "sku — supplier · not in this Manager's category" when not loaded (getMissingSelected/unselectKey in useManagerBulk).
+- Unticking in a Manager (panel X, row, or Clear All) also REMOVES the key from the Supplier Products list storage — two pages never disagree.
+- Verified via screenshot automation: carried 2 keys → "2 selected", 1 loaded + 1 missing line, untick synced back to SP storage.
