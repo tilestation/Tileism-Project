@@ -45,8 +45,10 @@ import BulkImageUploadModal from './managers/BulkImageUploadModal';
 import CsvImportModal from './managers/CsvImportModal';
 import ProductImagesGridPanel from './managers/ProductImagesGridPanel';
 import { groupBySeries } from '../lib/series';
-import { Layers, LayoutGrid, List, ImageOff, Wrench } from 'lucide-react';
+import { Layers, LayoutGrid, List, ImageOff, Wrench, Maximize2 } from 'lucide-react';
 import StaleValueSweepModal from './managers/StaleValueSweepModal';
+import LargeFormatSweepModal from './managers/LargeFormatSweepModal';
+import { isLargeFormat } from './managers/ShopTabsAssignModal';
 import ManagerConfigModal from './managers/ManagerConfigModal';
 import StorefrontPanel from './managers/StorefrontPanel';
 import ShopTabsAssignModal from './managers/ShopTabsAssignModal';
@@ -176,6 +178,7 @@ const ManagerPageShell = ({
   });
   const [bulkSaleSaving, setBulkSaleSaving] = useState(false);
   const [showStaleSweep, setShowStaleSweep] = useState(false);
+  const [showLfSweep, setShowLfSweep] = useState(false);
 
   // ---- Per-Manager config (facets, sub-tabs, spec fields) from the DB ----
   const { config, save: saveConfig, refresh: refreshConfig } = useManagerConfig(categoryKey);
@@ -633,6 +636,9 @@ const ManagerPageShell = ({
             <Button size="sm" variant="outline" className="border-amber-300 text-amber-700 hover:bg-amber-50" onClick={() => setShowStaleSweep(true)} data-testid={`${categoryKey}-stale-sweep-btn`} title="Find & repair products whose finish/size lists disagree with the saved value or whose price differs from List £ — whole catalogue">
               <Wrench className="w-4 h-4 mr-1.5" /> Repair
             </Button>
+            <Button size="sm" variant="outline" className="border-indigo-300 text-indigo-700 hover:bg-indigo-50" onClick={() => setShowLfSweep(true)} data-testid={`${categoryKey}-lf-sweep-btn`} title="Check EVERY product against the 60x60+ rule and fix the Large Format tab in one go">
+              <Maximize2 className="w-4 h-4 mr-1.5" /> LF Sweep
+            </Button>
             <Button size="sm" variant="outline" onClick={fetchProducts} disabled={loading} data-testid={`${categoryKey}-refresh-btn`}>
               <RefreshCw className={`w-4 h-4 mr-1.5 ${loading ? 'animate-spin' : ''}`} />
               Refresh
@@ -960,7 +966,18 @@ const ManagerPageShell = ({
                           </td>
                           {columns.map(c => (
                             <td key={c.key} className="px-3 py-2 text-gray-700">
-                              {c.render ? c.render(p) : (p[c.key] ?? '—')}
+                              {c.key === 'size' ? (
+                                <span className="inline-flex items-center gap-1.5">
+                                  {c.render ? c.render(p) : (p[c.key] ?? '—')}
+                                  {isLargeFormat(p) && (
+                                    <span className="inline-flex px-1 py-0.5 rounded text-[9px] font-bold bg-indigo-100 text-indigo-700 border border-indigo-200 leading-none" title="Large Format — above 60x60" data-testid={`lf-badge-${p.sku || p.supplier_code}`}>
+                                      LF
+                                    </span>
+                                  )}
+                                </span>
+                              ) : (
+                                c.render ? c.render(p) : (p[c.key] ?? '—')
+                              )}
                             </td>
                           ))}
                           <td className="px-3 py-2" data-testid={`${categoryKey}-desttabs-${p.sku || p.supplier_code}`}>
@@ -1069,6 +1086,7 @@ const ManagerPageShell = ({
       />
       <CustomManagerBuilder open={builderOpen} onOpenChange={setBuilderOpen} />
       <StaleValueSweepModal open={showStaleSweep} onOpenChange={setShowStaleSweep} onSuccess={() => fetchProducts()} />
+      <LargeFormatSweepModal open={showLfSweep} onOpenChange={setShowLfSweep} products={products} onSuccess={() => fetchProducts()} />
       <FeaturedOrderModal open={showFeaturedOrder} onOpenChange={setShowFeaturedOrder} />
       <BulkFieldsModal open={showBulkFields} onOpenChange={setShowBulkFields} selectedList={bulk.getSelectedList()} themeColor={theme} onSuccess={() => { bulk.clearAll(); fetchProducts(); }} />
 

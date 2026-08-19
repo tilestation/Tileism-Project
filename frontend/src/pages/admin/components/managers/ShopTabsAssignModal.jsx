@@ -36,7 +36,9 @@ const parseSizesCm = (p) => {
   });
   return out;
 };
-export const isLargeFormat = (p) => parseSizesCm(p).some(d => Math.max(d.w, d.h) > 60);
+// A tile counts as Large Format when its longest side is ABOVE 60cm AND the
+// short side is at least 10cm (filters out trims/strips like 2440x12mm).
+export const isLargeFormat = (p) => parseSizesCm(p).some(d => Math.max(d.w, d.h) > 60 && Math.min(d.w, d.h) >= 10);
 
 export const ShopTabsPanel = ({ selectedProducts = [], onSaved, onDone, embedded = false }) => {
   const [pages, setPages] = useState([]);
