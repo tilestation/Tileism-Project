@@ -356,13 +356,15 @@ const TierPricingModal = ({
                 <input
                   type="number"
                   step="0.5"
-                  value={tierPricingConfig.credit_back_default || 2}
-                  onChange={(e) => setTierPricingConfig(prev => ({ ...prev, credit_back_default: parseFloat(e.target.value) || 2 }))}
+                  value={tierPricingConfig.credit_back_default ?? ''}
+                  onChange={(e) => setTierPricingConfig(prev => ({ ...prev, credit_back_default: e.target.value === '' ? '' : parseFloat(e.target.value) }))}
+                  placeholder="2"
                   className="w-full px-3 py-2 pr-8 border border-gray-300 rounded-lg text-sm"
+                  data-testid="credit-back-input"
                 />
                 <span className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400">%</span>
               </div>
-              <p className="text-xs text-gray-400 mt-1">% credited back on trade orders (deducted from profit)</p>
+              <p className="text-xs text-gray-400 mt-1">% credited back on trade orders (deducted from profit). Leave blank for the default 2%.</p>
             </div>
           </div>
 
@@ -660,10 +662,8 @@ const TierPricingModal = ({
             {(() => {
               if (selectedProducts.size === 0) return 'Save Global Settings';
               const sizeLabel = pricingSizeFilter !== 'all' ? ` (${filterLabel})` : '';
-              if (tierPricingConfig.disabled) {
-                return `Disable for ${scopedCount} Product${scopedCount !== 1 ? 's' : ''}${sizeLabel}`;
-              }
-              return `Save for ${scopedCount} Product${scopedCount !== 1 ? 's' : ''}${sizeLabel}`;
+              const base = `Save for ${scopedCount} Product${scopedCount !== 1 ? 's' : ''}${sizeLabel}`;
+              return tierPricingConfig.disabled ? `${base} — tiers off` : base;
             })()}
           </Button>
         </DialogFooter>

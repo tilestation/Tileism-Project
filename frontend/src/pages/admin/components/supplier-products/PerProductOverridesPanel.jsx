@@ -127,7 +127,7 @@ const PerProductOverridesPanel = ({ products, overrides, setOverrides, globalCre
                   const tradePrice = o.trade_price !== undefined && o.trade_price !== '' ? Number(o.trade_price) : null;
                   const cbRate = o.credit_back_rate !== undefined && o.credit_back_rate !== ''
                     ? Number(o.credit_back_rate)
-                    : Number(globalCreditBack ?? 2);
+                    : ((globalCreditBack === '' || globalCreditBack == null) ? 2 : Number(globalCreditBack));
                   // Shop margin formula: trade price is inc-VAT → ÷1.2 for ex-VAT,
                   // minus cost (ex-VAT), minus credit back (% of the ex-VAT price).
                   const hasPreview = tradePrice !== null && !Number.isNaN(tradePrice) && tradePrice > 0 && !o.disabled;

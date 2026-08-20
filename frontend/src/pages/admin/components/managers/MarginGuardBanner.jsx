@@ -12,9 +12,9 @@ import { ShieldAlert, ChevronDown, ChevronUp, Percent, Eye, EyeOff } from 'lucid
 import { getProductKey, productDisplayName } from './useManagerBulk';
 
 export const computeMarginGuard = (products, defaults = {}) => {
-  const dTd = Number(defaults.tradeDiscount ?? 5);
+  const dTd = (defaults.tradeDiscount === '' || defaults.tradeDiscount == null) ? 5 : Number(defaults.tradeDiscount);
   const dType = defaults.tradeType === 'fixed' ? 'fixed' : 'percent';
-  const dCb = Number(defaults.creditBack ?? 2);
+  const dCb = (defaults.creditBack === '' || defaults.creditBack == null) ? 2 : Number(defaults.creditBack);
   const flagged = [];
   (products || []).forEach(p => {
     const list = Number(p.list_price ?? p.price ?? p.room_lot_price ?? p.retail_price ?? 0);

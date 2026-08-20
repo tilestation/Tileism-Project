@@ -160,6 +160,7 @@ const ManagerPageShell = ({
   useEffect(() => {
     if (searchParams.get('gaps') === '1') setGapOnly(true);
     if (searchParams.get('noimages') === '1') setNoImagesOnly(true);
+    if (searchParams.get('margin') === '1') setMarginGuardOnly(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const [showBulkPreview, setShowBulkPreview] = useState(false);
@@ -185,6 +186,9 @@ const ManagerPageShell = ({
   const [marginGuardOnly, setMarginGuardOnly] = useState(false);
   // Delivery rules modal (mandatory charge + parcel shipping)
   const [showDeliveryCharge, setShowDeliveryCharge] = useState(false);
+  // Delivery rules quick filters
+  const [filterDeliveryCharge, setFilterDeliveryCharge] = useState(false);
+  const [filterParcel, setFilterParcel] = useState(false);
 
   // ---- Per-Manager config (facets, sub-tabs, spec fields) from the DB ----
   const { config, save: saveConfig, refresh: refreshConfig } = useManagerConfig(categoryKey);
@@ -319,9 +323,11 @@ const ManagerPageShell = ({
     creditBack: tierPricingConfig.credit_back_default,
   }), [products, tierPricingConfig.trade_discount_default, tierPricingConfig.trade_discount_type, tierPricingConfig.credit_back_default]);
   const marginFlaggedKeys = useMemo(() => new Set(marginFlagged.map(f => f.key)), [marginFlagged]);
+  const deliveryChargeCount = useMemo(() => products.filter(p => p.delivery_charge_required).length, [products]);
+  const parcelCount = useMemo(() => products.filter(p => p.parcel_delivery).length, [products]);
   useEffect(() => {
-    if (marginFlagged.length === 0 && marginGuardOnly) setMarginGuardOnly(false);
-  }, [marginFlagged.length, marginGuardOnly]);
+    if (products.length > 0 && marginFlagged.length === 0 && marginGuardOnly) setMarginGuardOnly(false);
+  }, [products.length, marginFlagged.length, marginGuardOnly]);
 
   // Show-selected-only — filter the table down to just the ticked rows
   const [showSelectedOnly, setShowSelectedOnly] = useState(false);
@@ -419,6 +425,10 @@ const ManagerPageShell = ({
     if (noImagesOnly) {
       list = list.filter(p => !((Array.isArray(p.images) ? p.images : []).filter(Boolean).length > 0 || p.image));
     }
+    // Delivery rules filter — mandatory charge and/or parcel products
+    if (filterDeliveryCharge || filterParcel) {
+      list = list.filter(p => (filterDeliveryCharge && p.delivery_charge_required) || (filterParcel && p.parcel_delivery));
+    }
     // Margin Guard filter — only loss-making products
     if (marginGuardOnly) {
       list = list.filter(p => marginFlaggedKeys.has(getProductKey(p)));
@@ -428,7 +438,7 @@ const ManagerPageShell = ({
       list = list.filter(p => bulk.isSelected(p));
     }
     return list;
-  }, [products, subTab, filters, search, effectiveSubTabs, effectiveFilterFacets, facetCategory, gapOnly, destMap, hasShopTab, noImagesOnly, showSelectedOnly, bulk, marginGuardOnly, marginFlaggedKeys]);
+  }, [products, subTab, filters, search, effectiveSubTabs, effectiveFilterFacets, facetCategory, gapOnly, destMap, hasShopTab, noImagesOnly, showSelectedOnly, bulk, marginGuardOnly, marginFlaggedKeys, filterDeliveryCharge, filterParcel]);
 
   const noImagesCount = useMemo(
     () => products.filter(p => !((Array.isArray(p.images) ? p.images : []).filter(Boolean).length > 0 || p.image)).length,
@@ -770,6 +780,31 @@ const ManagerPageShell = ({
             >
               <ImageOff className="w-3 h-3" />
               {noImagesCount} no photos
+            </button>
+          )}
+          {/* Delivery rules filters — products with a mandatory charge / parcel shipping */}
+          {deliveryChargeCount > 0 && (
+            <button
+              type="button"
+              onClick={() => setFilterDeliveryCharge(v => !v)}
+              className={`inline-flex items-center gap-1 px-2 py-1 rounded-full border text-xs font-medium transition-colors ${filterDeliveryCharge ? 'bg-amber-500 border-amber-500 text-white' : 'bg-amber-50 border-amber-200 text-amber-700 hover:bg-amber-100'}`}
+              title={filterDeliveryCharge ? 'Showing only products with a mandatory delivery charge — click to show all' : 'Show only products that always carry a delivery charge'}
+              data-testid={`${categoryKey}-delivery-charge-filter-btn`}
+            >
+              <Truck className="w-3 h-3" />
+              {deliveryChargeCount} delivery charge
+            </button>
+          )}
+          {parcelCount > 0 && (
+            <button
+              type="button"
+              onClick={() => setFilterParcel(v => !v)}
+              className={`inline-flex items-center gap-1 px-2 py-1 rounded-full border text-xs font-medium transition-colors ${filterParcel ? 'bg-sky-500 border-sky-500 text-white' : 'bg-sky-50 border-sky-200 text-sky-700 hover:bg-sky-100'}`}
+              title={filterParcel ? 'Showing only parcel-shipped products — click to show all' : 'Show only products that ship as parcels (non-palletised)'}
+              data-testid={`${categoryKey}-parcel-filter-btn`}
+            >
+              <Package className="w-3 h-3" />
+              {parcelCount} parcel
             </button>
           )}
           {/* View-mode toggle: Table vs Images (replaces the deleted
@@ -1305,7 +1340,7 @@ const ManagerPageShell = ({
                 tier_discounts: tierPricingConfig.discounts,
                 trade_discount: tierPricingConfig.trade_discount_default,
                 trade_discount_type: tierPricingConfig.trade_discount_type || 'percent',
-                credit_back_rate: tierPricingConfig.credit_back_default,
+                credit_back_rate: (tierPricingConfig.credit_back_default === '' || tierPricingConfig.credit_back_default == null) ? 2 : Number(tierPricingConfig.credit_back_default),
                 disabled: tierPricingConfig.disabled || false,
                 pallet_enabled: !!tierPricingConfig.pallet_enabled,
                 pallet_price: tierPricingConfig.pallet_price,

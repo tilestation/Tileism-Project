@@ -6730,6 +6730,63 @@ def bulk_update_product_delivery_settings(data: BulkDeliverySettingsRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/products/margin-guard-summary")
+def margin_guard_summary():
+    """
+    Catalog-wide Margin Guard for the admin dashboard.
+    Flags products where (ex-VAT trade price − cost − credit back) < 0 using the
+    shop's formula: trade price (inc VAT) ÷ 1.2, credit back = cb% of ex-VAT.
+    Defaults when unset: 5% trade discount, 2% credit back.
+    """
+    try:
+        db = get_db()
+        groups = {}
+        total = 0
+        total_loss = 0.0
+        worst = []
+        cursor = db.supplier_products.find({}, {
+            "_id": 0, "sku": 1, "supplier": 1, "product_group": 1,
+            "product_name": 1, "display_name": 1, "our_product_name": 1, "name": 1,
+            "list_price": 1, "price": 1, "room_lot_price": 1, "retail_price": 1,
+            "cost_price": 1, "wholesale_price": 1,
+            "trade_discount": 1, "trade_discount_type": 1, "credit_back_rate": 1,
+        })
+        for p in cursor:
+            lp = p.get("list_price") or p.get("price") or p.get("room_lot_price") or p.get("retail_price") or 0
+            cost = p.get("cost_price") or p.get("wholesale_price") or 0
+            if not lp or not cost:
+                continue
+            td = p.get("trade_discount") if p.get("trade_discount") is not None else 5
+            ttype = str(p.get("trade_discount_type") or "percent").lower()
+            trade = max(0, lp - td) if ttype == "fixed" else lp * (1 - td / 100)
+            ex_vat = trade / 1.2
+            cb = p.get("credit_back_rate") if p.get("credit_back_rate") is not None else 2
+            profit = ex_vat - cost - ex_vat * (cb / 100)
+            if profit >= 0:
+                continue
+            total += 1
+            total_loss += -profit
+            grp = p.get("product_group") or "tiles"
+            groups[grp] = groups.get(grp, 0) + 1
+            worst.append({
+                "sku": p.get("sku"),
+                "supplier": p.get("supplier"),
+                "name": p.get("product_name") or p.get("display_name") or p.get("our_product_name") or p.get("name"),
+                "loss": round(-profit, 2),
+                "group": grp,
+            })
+        worst.sort(key=lambda x: x["loss"], reverse=True)
+        return {
+            "flagged_count": total,
+            "total_loss": round(total_loss, 2),
+            "groups": groups,
+            "worst": worst[:5],
+        }
+    except Exception as e:
+        logger.error(f"Error in margin guard summary: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ============================================================
 # PRICING UNIT SETTINGS UPDATE ENDPOINT
 # ============================================================
