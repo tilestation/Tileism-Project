@@ -9046,3 +9046,9 @@ See `/app/memory/test_credentials.md`
 - **isLargeFormat hardened**: added min-dimension >= 10cm guard so trims/strips (2440x12mm) never count. Rule: max side > 60cm AND min side >= 10cm.
 - **LF badge**: indigo "LF" chip in the size column of manager rows (data-testid lf-badge-{sku}) — special-cased in the generic columns renderer of ManagerPageShell.
 - Verified E2E: badge on 80x80 row; sweep scanned 1059 → 395 LF, applied +395/−1 (LP-6611 60x60 wrongly-tagged removed, LF-TEST-1 80x80 added), done panel + DB confirmed. NOTE: preview DB now has 395 products tagged Large Format (sweep test run); LF-TEST-1 is a seeded demo tile.
+
+## Aug 20, 2026 Session — Manager name parity with Supplier Products list
+- **Bug**: Managers showed the SUPPLIER name as row title while Supplier Products showed the admin's formatted name. Root cause: Managers used `our_product_name || product_name || name` — on some rows `our_product_name` holds the supplier-ish name; Supplier Products titles use `product_name` first.
+- **Fix**: shared helper `productDisplayName(p) = product_name || display_name || our_product_name || name` in useManagerBulk.js. Applied to: ManagerPageShell rows/toast/allIndex, ManagerBulkBar selected panel, AssignColoursModal, LargeFormatSweepModal, PerBoxAutoFill, BulkFieldsModal, BulkAIDescriptionsModal, BulkImageUploadModal, BulkPreviewModal. Manager search haystack now matches ALL name fields.
+- **Pollution path closed**: QuickEditProductDrawer prefilled display_name/product_name from `display_name || our_product_name` — a no-change save could overwrite the good product_name with the supplier name. Prefill now starts with product_name.
+- Verified: screenshot — Tiles Manager shows "Burlington White 60x60cm Matt" (product_name) instead of "Mediterranean White" (polluted our_product_name).

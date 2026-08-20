@@ -57,7 +57,7 @@ import { fetchShopTabDestinations, buildDestinationMap } from '../lib/shopTabDes
 import AssignColoursModal, { computeCompleteness } from './managers/AssignColoursModal';
 import TierPricingModal from './supplier-products/TierPricingModal';
 import BulkSaleModal from './supplier-products/BulkSaleModal';
-import { useManagerBulk, getProductKey } from './managers/useManagerBulk';
+import { useManagerBulk, getProductKey, productDisplayName } from './managers/useManagerBulk';
 import FeaturedOrderModal from './managers/FeaturedOrderModal';
 
 // product_group → Manager route, used by the Selected panel's "jump" lines
@@ -286,7 +286,7 @@ const ManagerPageShell = ({
       // panel can name + route items ticked in other categories.
       const idx = new Map();
       all.forEach(p => idx.set(getProductKey(p), {
-        name: p.our_product_name || p.product_name || p.name || '',
+        name: productDisplayName(p),
         image: (Array.isArray(p.images) ? p.images.filter(Boolean)[0] : null) || p.image || null,
         product_group: p.product_group || null,
       }));
@@ -386,7 +386,7 @@ const ManagerPageShell = ({
     if (search.trim()) {
       const q = search.trim().toLowerCase();
       list = list.filter(p => {
-        const name = String(p.our_product_name || p.product_name || p.name || '').toLowerCase();
+        const name = String(`${p.product_name || ''} ${p.our_product_name || ''} ${p.name || ''}`).toLowerCase();
         const sku = String(p.sku || p.supplier_code || '').toLowerCase();
         const supplier = String(p.supplier || '').toLowerCase();
         return name.includes(q) || sku.includes(q) || supplier.includes(q);
@@ -553,7 +553,7 @@ const ManagerPageShell = ({
         toast.warning(`Saved, but ${result.verification_failures.length} field(s) didn't stick — see console`);
         console.warn(`[${categoryKey} Manager] Verification failures:`, result.verification_failures);
       } else {
-        toast.success(`Saved ${editingProduct.our_product_name || productId}`);
+        toast.success(`Saved ${productDisplayName(editingProduct)}`);
       }
       draft.clearDraft();
       closeEdit();
@@ -942,7 +942,7 @@ const ManagerPageShell = ({
                     )}
                     {group.products.map((p) => {
                       const key = `${p.supplier || 'unk'}|||${p.sku || p.supplier_code || p._id}`;
-                      const name = p.our_product_name || p.product_name || p.name || '(no name)';
+                      const name = productDisplayName(p);
                       return (
                         <tr key={key} className={`border-b border-gray-100 hover:bg-gray-50 ${bulk.isSelected(p) ? themeCls.rowHi : ''}`} data-testid={`${categoryKey}-row-${p.sku || p.supplier_code}`}>
                           <td className="px-3 py-2 text-center">

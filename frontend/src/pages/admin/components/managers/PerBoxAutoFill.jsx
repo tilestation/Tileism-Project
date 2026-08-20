@@ -51,7 +51,7 @@ export const PerBoxAutoFill = ({ attr, selectedList = [], onSuccess }) => {
     return {
       id: p.sku || p.supplier_code,
       idField: p.sku ? 'sku' : 'supplier_code',
-      name: p.our_product_name || p.product_name || p.name || p.sku,
+      name: p.product_name || p.display_name || p.our_product_name || p.name || p.sku,
       size, computed, current, missing,
     };
   }), [selectedList, attr.key]);

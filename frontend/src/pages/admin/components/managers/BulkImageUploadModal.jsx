@@ -217,7 +217,7 @@ const BulkImageUploadModal = ({ open, onOpenChange, selectedList = [], onSuccess
             const key = productKey(p);
             const staged = stagedByKey[key] || { urls: [], uploading: 0 };
             const existingImg = p.image_url || (Array.isArray(p.images) && p.images[0]);
-            const name = p.our_product_name || p.product_name || p.name || key;
+            const name = p.product_name || p.display_name || p.our_product_name || p.name || key;
             return (
               <div
                 key={key}

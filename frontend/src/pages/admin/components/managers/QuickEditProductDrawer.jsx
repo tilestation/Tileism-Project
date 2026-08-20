@@ -107,7 +107,7 @@ const QuickEditProductDrawer = ({ open, onOpenChange, product, onSaved, previewI
     const productImages = product.images && product.images.length > 0
       ? product.images
       : (product.image ? [product.image] : []);
-    const displayName = product.display_name || product.our_product_name || product.product_name || product.name || '';
+    const displayName = product.product_name || product.display_name || product.our_product_name || product.name || '';
     const displayCode = product.display_code || '';
     setForm({
       name: product.name || '',

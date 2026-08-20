@@ -33,10 +33,10 @@ const BulkPreviewModal = ({ open, onOpenChange, selectedProducts = [] }) => {
         if (!map.has(key)) map.set(key, { name: series, slug: key, path: `/shop/collection/${encodeURIComponent(series)}?preview=1` });
       } else if (p.live_slug) {
         const key = `p:${p.live_slug}`;
-        const nm = (p.our_product_name || p.product_name || p.display_name || p.name || p.live_slug).trim();
+        const nm = (p.product_name || p.display_name || p.our_product_name || p.name || p.live_slug).trim();
         if (!map.has(key)) map.set(key, { name: nm, slug: key, path: `/tiles/${p.live_slug}?preview=1` });
       } else {
-        const nm = (p.our_product_name || p.product_name || p.display_name || p.name || '').trim();
+        const nm = (p.product_name || p.display_name || p.our_product_name || p.name || '').trim();
         if (nm) {
           const key = `c:${nm.toLowerCase()}`;
           if (!map.has(key)) map.set(key, { name: nm, slug: key, path: `/shop/collection/${encodeURIComponent(nm)}?preview=1` });
@@ -126,7 +126,7 @@ const BulkPreviewModal = ({ open, onOpenChange, selectedProducts = [] }) => {
                   key={p.sku || p.supplier_code || p._id}
                   className="px-2 py-0.5 rounded-full bg-white border border-amber-200 text-[11px] text-amber-700"
                 >
-                  {p.our_product_name || p.product_name || p.display_name || p.name || p.sku}
+                  {p.product_name || p.display_name || p.our_product_name || p.name || p.sku}
                 </span>
               ))}
               {unpublished.length > 8 && (

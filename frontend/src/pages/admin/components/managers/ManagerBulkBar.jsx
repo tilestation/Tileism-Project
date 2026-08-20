@@ -11,6 +11,7 @@ import { Button } from '../../../../components/ui/button';
 import {
   X, CheckSquare, Trash2, Archive, Globe, Eye, EyeOff, Percent, Palette, Layers, Grid3X3, Package, PoundSterling, Sparkles, Image as ImageIcon, Tag, Sliders, LayoutGrid, Star, ChevronUp, ListFilter, GripVertical, ExternalLink,
 } from 'lucide-react';
+import { productDisplayName } from './useManagerBulk';
 
 const ManagerBulkBar = ({
   selectedCount,
@@ -116,7 +117,7 @@ const ManagerBulkBar = ({
             <div className="overflow-y-auto divide-y divide-gray-100">
               {selectedList.map((p) => {
                 const img = (Array.isArray(p.images) ? p.images.filter(Boolean)[0] : null) || p.image;
-                const pname = p.our_product_name || p.product_name || p.name || p.sku;
+                const pname = productDisplayName(p);
                 return (
                   <div key={`${p.supplier}|${p.sku || p.supplier_code}`} className="flex items-center gap-2.5 px-3 py-1.5 hover:bg-gray-50" data-testid={`bar-selected-item-${p.sku || p.supplier_code}`}>
                     <div className="w-8 h-8 rounded bg-gray-100 overflow-hidden flex-shrink-0">

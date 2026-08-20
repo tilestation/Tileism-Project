@@ -64,7 +64,7 @@ const BulkAIDescriptionsModal = ({ open, onOpenChange, selectedList = [], onSucc
             ...(token ? { Authorization: `Bearer ${token}` } : {}),
           },
           body: JSON.stringify({
-            name: p.our_product_name || p.product_name || p.name || sku,
+            name: p.product_name || p.display_name || p.our_product_name || p.name || sku,
             category: p.main_category || '',
             material: p.material || '',
             finish: p.finish || '',

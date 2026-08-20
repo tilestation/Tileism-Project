@@ -201,7 +201,7 @@ const EditEachMode = ({ selectedList, edits, setEdits }) => {
             {selectedList.map(p => {
               const sku = p.sku || p.supplier_code;
               const row = edits[sku] || {};
-              const name = p.our_product_name || p.product_name || p.name || sku;
+              const name = p.product_name || p.display_name || p.our_product_name || p.name || sku;
               return (
                 <tr key={sku} className="border-b border-gray-100" data-testid={`bulk-edit-row-${sku}`}>
                   <td className="px-2 py-1 max-w-[220px]">

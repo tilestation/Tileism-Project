@@ -367,7 +367,7 @@ const AssignColoursModal = ({ open, onOpenChange, selectedList = [], onSuccess, 
     [selectedList, allAttributes]
   );
 
-  const productName = (p) => (p.our_product_name || p.product_name || p.name || p.sku || p.supplier_code);
+  const productName = (p) => (p.product_name || p.display_name || p.our_product_name || p.name || p.sku || p.supplier_code);
 
   // Special tabs merged in from the old Specs / Filters modal
   const isSpecial = attr.key.startsWith('__');

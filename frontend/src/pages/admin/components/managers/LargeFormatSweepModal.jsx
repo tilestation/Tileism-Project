@@ -18,7 +18,7 @@ const API_URL = process.env.REACT_APP_BACKEND_URL;
 const Row = ({ p }) => (
   <div className="flex items-center gap-2 px-2.5 py-1 text-[12px]">
     <span className="font-mono text-gray-400 w-24 truncate flex-shrink-0">{p.sku || p.supplier_code}</span>
-    <span className="text-gray-800 truncate flex-1">{p.our_product_name || p.product_name || p.name}</span>
+    <span className="text-gray-800 truncate flex-1">{p.product_name || p.display_name || p.our_product_name || p.name}</span>
     <span className="text-gray-500 flex-shrink-0">{p.size || (Array.isArray(p.sizes) ? p.sizes[0] : '') || '—'}</span>
   </div>
 );

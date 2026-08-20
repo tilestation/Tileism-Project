@@ -29,6 +29,13 @@ const API_URL = process.env.REACT_APP_BACKEND_URL;
 // Must match getProductKey in SupplierProducts.js exactly for cross-page compat
 export const getProductKey = (p) => `${p.supplier || 'unknown'}|||${p.sku || p.supplier_code || p._id}`;
 
+// Admin display name — MUST match the Supplier Products list title exactly
+// (product_name first — the admin's formatted name; never the supplier `name`
+// unless nothing else exists). 20 Aug bug: our_product_name held the supplier
+// name on some rows so the Managers showed the wrong title.
+export const productDisplayName = (p) =>
+  p.product_name || p.display_name || p.our_product_name || p.name || '(no name)';
+
 export function useManagerBulk({ products = [], onRefresh, storageKey = null }) {
   // If storageKey is provided, persist selection so a browser refresh (F5) keeps
   // the ticked rows. Legacy SupplierProducts.js already does this — Managers now match.
