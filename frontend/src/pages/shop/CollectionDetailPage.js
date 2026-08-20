@@ -1030,20 +1030,16 @@ const CollectionDetailPage = () => {
       if (selectedColor) fallback = fallback.filter(p => matchesSelectedVariant(p, selectedColor));
       const fb = fallback.find(p => normalizeSize(p.size || (p.attributes && p.attributes.size) || '') === normalizedTarget);
       if (!fb) return null;
-      // Use sale price if product is on sale (but never higher than regular)
-      const rawBase = fb.room_lot_price || fb.price || 0;
-      const base = (fb.sale_active && fb.discount_percentage && fb.was_price) 
-        ? Math.min(Math.round(fb.was_price * (1 - fb.discount_percentage / 100) * 100) / 100, rawBase)
-        : rawBase;
+      // The stored price IS the current selling price (backend bakes sales in).
+      // NEVER recompute from was_price × discount_percentage — that % goes
+      // stale when the admin later edits the price (20 Aug: £39 vs £42.99 bug).
+      const base = fb.room_lot_price || fb.price || 0;
       const volumeDiscount = volumeDiscountPercent > 0 ? (1 - volumeDiscountPercent / 100) : 1;
       const adjusted = base * volumeDiscount;
       return isTrade ? Math.round((adjusted * (1 - (productTradeDiscount || 0) / 100) / 1.20) * 100) / 100 : Math.round(adjusted * 100) / 100;
     }
-    // Use sale price if product is on sale (but never higher than regular)
-    const rawBase = match.room_lot_price || match.price || 0;
-    const base = (match.sale_active && match.discount_percentage && match.was_price) 
-      ? Math.min(Math.round(match.was_price * (1 - match.discount_percentage / 100) * 100) / 100, rawBase)
-      : rawBase;
+    // Stored price IS the selling price — see comment in the fallback above.
+    const base = match.room_lot_price || match.price || 0;
     const volumeDiscount = volumeDiscountPercent > 0 ? (1 - volumeDiscountPercent / 100) : 1;
     const adjusted = base * volumeDiscount;
     const tradeAdj = (isTrade && productTradeDiscount) ? (1 - productTradeDiscount / 100) : 1;
@@ -1261,19 +1257,18 @@ const CollectionDetailPage = () => {
   const hasSaleLabel = selectedProduct?.labels?.some(l => 
     ['sale', 'clearance', 'on sale'].includes(l?.toLowerCase?.())
   );
-  const hasExplicitSale = selectedProduct?.sale_active && 
-    selectedProduct?.was_price > 0 && 
-    selectedProduct?.discount_percentage > 0;
+  const hasExplicitSale = selectedProduct?.sale_active &&
+    selectedProduct?.was_price > 0 &&
+    selectedProduct?.was_price > regularSellingPrice;
   const isOnSale = hasExplicitSale || hasSaleLabel;
 
-  // Calculate the actual sale price when on sale
-  const saleSellingPrice = hasExplicitSale 
-    ? Math.round(selectedProduct.was_price * (1 - selectedProduct.discount_percentage / 100) * 100) / 100
-    : regularSellingPrice;
-  // Never let the "sale" price be higher than the regular price
-  const currentSellingPrice = hasExplicitSale 
-    ? Math.min(saleSellingPrice, regularSellingPrice) 
-    : regularSellingPrice;
+  // The stored `price` IS the current (sale) selling price — the backend
+  // updates it when a sale is applied. NEVER recompute from
+  // was_price × discount_percentage: that % goes stale when the admin later
+  // edits the list price (20 Aug bug: PDP showed £39.00 instead of £42.99).
+  // was_price is display-only (the WAS strike-through / savings maths).
+  const saleSellingPrice = regularSellingPrice;
+  const currentSellingPrice = regularSellingPrice;
 
   // Get current price based on quantity (tier pricing) and sale
   const getCurrentPrice = () => {
@@ -1292,10 +1287,8 @@ const CollectionDetailPage = () => {
     
     // Use sale price as base when product is on sale (but never higher than regular)
     const regularBase = selectedProduct.room_lot_price || selectedProduct.price || 0;
-    const saleBase = hasExplicitSale 
-      ? Math.min(Math.round(selectedProduct.was_price * (1 - selectedProduct.discount_percentage / 100) * 100) / 100, regularBase) 
-      : regularBase;
-    const basePrice = hasExplicitSale ? saleBase : regularBase;
+    // Stored price IS the selling price (sale already baked in by the backend)
+    const basePrice = regularBase;
     const effectiveQty = getEffectiveSqmQuantity();
     
     // Check tier pricing first
@@ -1479,7 +1472,11 @@ const CollectionDetailPage = () => {
   // *Raw* rates (used internally / when displaying the trade badge in some
   // places) are still exposed as saleRate/volumeRate/tradeRate.
   const discountBreakdown = (() => {
-    const saleRate = selectedProduct?.discount_percentage || 0;
+    // Effective sale % from ACTUAL prices (was → current selling price), not
+    // the stored discount_percentage which goes stale after price edits.
+    const saleRate = (hasExplicitSale && selectedProduct?.was_price > 0 && currentSellingPrice < selectedProduct.was_price)
+      ? Math.round(((selectedProduct.was_price - currentSellingPrice) / selectedProduct.was_price) * 1000) / 10
+      : 0;
     const volumeRate = currentTierDiscount || 0;
     const tradeRate = (isTrade && productTradeDiscount) ? productTradeDiscount : 0;
 

@@ -9072,3 +9072,9 @@ See `/app/memory/test_credentials.md`
 - Root cause: the variant-matching effect (CollectionDetailPage ~1142) set selectedProduct=NULL when the transient filter (stale size/finish from previous colour) matched nothing → entire right column + gallery collapsed for a frame → document shrank → browser clamped scrollY (measured -454px jump) → felt like refresh.
 - Fixes: (1) never null selectedProduct — keep previous product while effects settle; (2) stale-size convergence: retry match without size filter and adopt the found product's size; (3) mainImageIndex reset only when a product is actually found; (4) preload each variant's first 2 images on collection load (new Image()) so swaps are instant; (5) .pdp-img-fade crossfade (index.css keyframes) + key on main img.
 - Verified: swatch-switch scroll delta 0 (was -454) both directions; selection resolves correctly with per-variant finish/size updates.
+
+## Aug 20, 2026 Session — Wrong sale price (£39.00 vs £42.99) FIXED
+- User report (production, Smart Lux): PDP showed NOW £39.00/m² while list/tier price is £42.99. Production API returns price=42.99 correctly.
+- Root cause: FRONTEND recomputed the sale price as was_price × (1 − discount_percentage/100) in FOUR places (CollectionDetailPage: size-pill priceForSize ×2, saleSellingPrice, getCurrentPrice basePrice). Stored discount_percentage (26.4) went stale after the admin edited the price → 52.99×0.736=39.00.
+- Fix: the stored `price` (room_lot_price || price) IS the selling price everywhere — sale already baked in by the backend; was_price is display-only. discountBreakdown saleRate now derived from actual prices ((was−current)/was → 19%), and hasExplicitSale now requires was_price > current price (no negative savings; no dependency on stale discount_percentage).
+- Verified with the exact production data pattern seeded in preview: pill £42.99/m², Your Price £42.99, SAVE £10.00, 19% OFF, no 39.00/26% anywhere. Test data restored after.
