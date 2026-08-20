@@ -9058,3 +9058,7 @@ See `/app/memory/test_credentials.md`
 - sizePill.js defaults: BASE 3200→6400 px², MAX_LONG 130→175, MIN_SHORT 42→58 (pills now ~116x58 / 95x95 vs ~82x41 / 67x67).
 - CollectionDetailPage.js: swatches w-20→w-24 (sm:w-28), swatch labels text-xs→text-sm, check overlay now aspect-square (no hardcoded 80px), Finish/Style buttons px-5 py-2.5 text-base, section labels text-base font-semibold, size pill text tight/proportional bumped (text-xs/text-sm, price 10/11px), non-proportional pill min-w-110px text-base.
 - Verified via screenshots + bounding boxes on TestSeries PDP.
+
+## Aug 20, 2026 Session — Per-product samples toggles
+- SamplesTab.jsx rewritten: bulk "Disable all / Re-enable all" buttons PLUS a per-product list — each selected product shows name/sku/size, a Samples ON/OFF badge, and an individual toggle (optimistic update, single-sku bulk-update-unified save, auto-revert on error).
+- Verified E2E via screenshot automation: toggled LP-6611 individually (1/2 → 2/2 disabled), toast confirmed, restored after.
