@@ -1858,6 +1858,30 @@ async def _get_collection_products_impl(
         products = list(db.tiles.aggregate(pipeline))
     else:
         products = list(db.tiles.find(query).sort(sort_field, sort_order).skip(skip).limit(limit))
+
+    # Variant-label fallback: the admin saves the "Storefront variant label"
+    # keyed by the Manager's series (range_name), which can differ from the
+    # storefront collection name in the URL. If the primary lookup found
+    # nothing, retry using the products' own range/series names (20 Aug bug:
+    # "Range" saved under "Ultra Tile Adhesives", PDP looked up
+    # "UltraTile Flexible Adhesive" and fell back to "Design").
+    if not variant_label and products:
+        try:
+            alt_names = set()
+            for t in products[:50]:
+                for k in ("range_name", "series", "series_name"):
+                    v = t.get(k)
+                    if v and v != series_name:
+                        alt_names.add(v)
+            if alt_names:
+                alt = db.collection_settings.find_one({
+                    "series_name": {"$in": list(alt_names)},
+                    "variant_label": {"$nin": [None, ""]},
+                })
+                if alt:
+                    variant_label = alt["variant_label"]
+        except Exception:
+            pass
     
     # Get collection summary info
     all_products = list(db.tiles.find(query, {"color": 1, "finish": 1, "size": 1, "attributes.color": 1, "attributes.size": 1, "attributes.finish": 1, "room_lot_price": 1}))

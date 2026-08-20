@@ -531,6 +531,23 @@ const AssignColoursModal = ({ open, onOpenChange, selectedList = [], onSuccess, 
               <span className="text-[10px] text-indigo-500">how the selector row is titled on Collection &amp; Product pages — Auto detects colour vs design names. Saves instantly.</span>
             </div>
             <div className="flex flex-wrap gap-x-4 gap-y-1.5">
+              {seriesList.length > 1 && (
+                <label className="flex items-center gap-1.5 text-xs text-indigo-800 font-semibold border-r border-indigo-200 pr-4">
+                  Set all {seriesList.length} series to
+                  <select
+                    value=""
+                    onChange={(e) => { const v = e.target.value; if (v !== '__none') seriesList.forEach(sn => setVariantLabel(sn, v)); }}
+                    className="h-6 text-[11px] border border-indigo-300 rounded px-1 bg-white text-gray-700 font-normal"
+                    data-testid="variant-label-all"
+                  >
+                    <option value="__none">choose…</option>
+                    <option value="">Auto</option>
+                    {['Colour', 'Design', 'Pattern', 'Style', 'Range'].map(o => (
+                      <option key={o} value={o}>{o}</option>
+                    ))}
+                  </select>
+                </label>
+              )}
               {seriesList.map(sn => (
                 <label key={sn} className="flex items-center gap-1.5 text-xs text-gray-700">
                   <span className="font-medium truncate max-w-[180px]" title={sn}>{sn}</span>
