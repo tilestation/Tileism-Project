@@ -41,7 +41,7 @@ const extractAxiosErrorDetail = (err, fallback = 'Request failed') => {
 };
 
 const DEFAULT_SETTINGS = {
-  delivery: { enabled: true, free_threshold: 499, default_fee: 49.99, label: 'Home Delivery', description: 'Delivered within 3-5 working days', zones: [], congestion_charge: { enabled: true, amount: 15.00, label: 'Congestion Charge (Central London)' }, express: { enabled: true, extra_fee: 25.00, label: 'Express Delivery', description: '2-3 working days', standard_label: 'Standard Delivery', standard_description: '5-7 working days' } },
+  delivery: { enabled: true, free_threshold: 499, default_fee: 49.99, label: 'Home Delivery', description: 'Delivered within 3-5 working days', zones: [], congestion_charge: { enabled: true, amount: 18.00, label: 'Congestion Charge (Central London)' }, express: { enabled: true, extra_fee: 25.00, label: 'Express Delivery', description: '2-3 working days', standard_label: 'Standard Delivery', standard_description: '5-7 working days' } },
   collection: { enabled: true, label: 'Click & Collect', description: 'FREE - Collect from our store', ready_time: 'Ready within 24 hours', stores: [{ id: '1', name: 'Tile Station - Tonbridge', address: 'Unit 5, Cannon Lane, Tonbridge TN9 1PP', active: true }] },
   time_slots: [],
   text: { step1_title: 'Your Details', step2_title: 'Delivery Method', step3_title: 'Payment', secure_message: 'Your payment information is encrypted and secure.', order_notes_placeholder: 'Special instructions for delivery...', success_message: 'Thank you! Your order has been placed.' },
@@ -254,9 +254,10 @@ const TileCheckoutPage = () => {
     // Free delivery for orders over threshold
     if (subtotal >= settings.delivery.free_threshold) fee = 0;
 
-    // Congestion charge applies even on free delivery
+    // Congestion charge applies even on free delivery — but only to palletised
+    // deliveries; parcel-only orders go by courier and are exempt
     const cc = settings.delivery.congestion_charge || {};
-    const ccAmount = (zone?.is_congestion_zone && cc.enabled) ? (cc.amount || 0) : 0;
+    const ccAmount = (zone?.is_congestion_zone && cc.enabled && !parcelOnly) ? (cc.amount || 0) : 0;
 
     return { deliveryFee: fee, congestionCharge: ccAmount, matchedZone: zone };
   }, [delivery.method, delivery.postcode, step, subtotal, settings.delivery, parcelOnly, parcelFee]);

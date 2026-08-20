@@ -2694,7 +2694,7 @@ async def create_guest_checkout_order(order_input: GuestCheckoutOrder):
 
         # Congestion charge always applies for congestion zones (even on free delivery)
         if is_congestion_zone and cc_settings.get("enabled", False):
-            congestion_charge = cc_settings.get("amount", 15.0)
+            congestion_charge = cc_settings.get("amount", 18.0)
 
         # ---- Item-level delivery rules (mandatory charges + parcel items) ----
         flags_map = await _get_delivery_flags(db, [it.product_id or "" for it in order_input.items])
@@ -2718,11 +2718,14 @@ async def create_guest_checkout_order(order_input: GuestCheckoutOrder):
         # non-marked items alone cross the free-delivery threshold.
         if marked_charges and eligible_subtotal < free_threshold:
             item_delivery_charge = max(marked_charges)
-        # Parcel-only order: courier parcel rate replaces the pallet delivery fee
+        # Parcel-only order: courier parcel rate replaces the pallet delivery fee.
+        # Couriers don't pay the congestion charge — pallet deliveries only.
         if parcel_all:
             is_parcel_order = True
-            if parcel_fees and subtotal < free_threshold and not marked_charges:
-                delivery_fee = max(parcel_fees)
+            if not marked_charges:
+                congestion_charge = 0.0
+                if parcel_fees and subtotal < free_threshold:
+                    delivery_fee = max(parcel_fees)
 
     # Express delivery surcharge
     express_fee = 0.0

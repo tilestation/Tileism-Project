@@ -9124,3 +9124,9 @@ See `/app/memory/test_credentials.md`
 3. Tier Pricing modal save button: was "Disable for N Products" when disable ticked (user thought row edits wouldn't save) → now always "Save for N Products" (+" — tiers off" suffix, still red when disabling). Row edits always saved by the same button (backend applied them all along).
 4. Credit Back % input was un-editable (onChange `parseFloat||2` snapped every clear back to 2) → now clearable with placeholder 2, "Leave blank for the default 2%"; save coerces ''→2 (explicit 0 allowed). Coercion guards added in ManagerPageShell payload, PerProductOverridesPanel cbRate, computeMarginGuard defaults.
 - Verified via screenshots: chips filter (1 visible / 2 visible), dashboard card 28 flagged £38.44, deep link → 28 visible, credit-back cleared+retyped 3.5, button "Save for 1 Product — tiers off". Test delivery flags cleared after.
+
+## Aug 20, 2026 Session — Congestion charge £18 + parcel exemption
+- Central London congestion zone: charge raised £15→£18 (preview DB checkout_settings updated; code fallbacks in shop.py + TileCheckoutPage default updated to 18). Applies to ALL palletised deliveries into the zone, including free-delivery orders (existing behaviour kept).
+- NEW: parcel-only orders (courier) are EXEMPT from the congestion charge — backend guest-checkout zeroes congestion when parcel_all and no marked pallet-charge items; frontend ccAmount gated on !parcelOnly.
+- Tested: 11/11 backend scenarios PASS (zone fee+£18 under threshold, £18 on free delivery, parcel-only → parcel fee + £0 congestion, mixed basket → pallet fee + £18, non-zone postcode £0). Test orders deleted, flags restored.
+- PRODUCTION NOTE: live DB carries its own checkout_settings — set Congestion Charge amount to £18 in admin Checkout Settings after deploy (code fallback is 18 if unset).
