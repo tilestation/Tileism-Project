@@ -1236,6 +1236,10 @@ const ManagerPageShell = ({
                 ...(o.trade_discount !== undefined ? { trade_discount: o.trade_discount } : {}),
                 ...(o.credit_back_rate !== undefined ? { credit_back_rate: o.credit_back_rate } : {}),
                 ...(o.disabled !== undefined ? { disabled: o.disabled } : {}),
+                ...(o.cost_price !== undefined && o.cost_price !== '' ? { cost_price: o.cost_price } : {}),
+                ...(o.list_price !== undefined && o.list_price !== '' ? { list_price: o.list_price } : {}),
+                ...(o.pallet_price !== undefined && o.pallet_price !== '' ? { pallet_price: o.pallet_price, pallet_enabled: true } : {}),
+                ...(o.half_pallet_price !== undefined && o.half_pallet_price !== '' ? { half_pallet_price: o.half_pallet_price, pallet_enabled: true } : {}),
               };
             });
             const overrideCount = Object.keys(tierProductOverrides).length;

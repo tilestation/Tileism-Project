@@ -9084,3 +9084,10 @@ See `/app/memory/test_credentials.md`
 - Fix (tiles.py _get_collection_products_impl): if primary variant_label lookup finds nothing, retry with the collection's products' own range_name/series/series_name values (first 50 products, $in query on collection_settings with non-empty variant_label).
 - Bulk change: "Set all N series to [dropdown]" control added to the variant-label panel in AssignColoursModal (shows when >1 series selected) — applies the chosen label to every series in one go via existing setVariantLabel.
 - Verified: seeded exact mismatch in preview → API + PDP now return/show "Range:"; Studio with 20 series shows the bulk control. Test data cleaned.
+
+## Aug 20, 2026 Session — Tier Pricing Per-Product Overrides VERIFIED + tiles-parity bug FIXED
+- Feature (from prev session): Per-Product Overrides panel inside Manager Tier Pricing modal — inline Cost £, List £, Trade Disc, live Discounted+Margin preview, Pallet £, ½ Pallet £, Credit %, Disable Tier, Reset per row. Overrides win over global settings row-by-row on save (merged in ManagerPageShell onSave → PUT /api/supplier-sync/products/bulk-tier-update).
+- Bug found & fixed: bulk-tier-update updated supplier_products but NOT tiles — build_product_query(supplier, sku) required supplier match, yet ALL 726 tiles docs have supplier=None. Tile update now matches sku/supplier_code only (same as bulk-quote-settings). Data parity restored.
+- Layout fix: overrides table overflowed dialog (Credit %/Disable/Reset columns cut off) → DialogContent max-w-2xl→max-w-4xl, panel container overflow-auto + table min-w-[860px].
+- Tested: backend round-trip (13 assertions PASS — cost/list/price/room_lot_price/pallet/half-pallet/trade override propagation to BOTH collections, per-row override wins over global; fixture Canopy/HE6000, originals restored). UI verified via screenshot: margin math correct (list 40, trade 5% → £38.00, 74% margin), all 10 columns visible.
+- Note: panel only mounts in Manager pages (ManagerPageShell); legacy /admin/supplier-products TierPricingModal doesn't pass productOverrides (unchanged scope).

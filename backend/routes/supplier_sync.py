@@ -6516,6 +6516,18 @@ def bulk_update_product_tier_pricing(data: BulkTierUpdateRequest):
             if row_credit_back is not None:
                 update_data["credit_back_rate"] = row_credit_back
 
+            # Per-product Cost £ / List £ edits (from the overrides table).
+            # An explicit List £ edit is a selling-price change — keep
+            # list_price / price / room_lot_price in sync (the PDP prefers
+            # room_lot_price, tier tables use price/list_price).
+            if product.get('cost_price') is not None:
+                update_data["cost_price"] = float(product['cost_price'])
+            if product.get('list_price') is not None:
+                _lp = float(product['list_price'])
+                update_data["list_price"] = _lp
+                update_data["price"] = _lp
+                update_data["room_lot_price"] = _lp
+
             # Half + Full pallet pricing (independent of tier_pricing_disabled)
             if row_pallet_enabled is not None:
                 update_data["pallet_enabled"] = bool(row_pallet_enabled)
@@ -6544,11 +6556,13 @@ def bulk_update_product_tier_pricing(data: BulkTierUpdateRequest):
             if result.modified_count > 0:
                 updated_count += 1
             
-            # Also update tiles collection if product is published
-            # Try both sku and supplier_code since the identifier could be either
-            tile_query = build_product_query(supplier, sku)
-            if tile_query:
-                db.tiles.update_one(tile_query, {"$set": update_data})
+            # Also update tiles collection if product is published.
+            # Tiles docs carry a null supplier, so match on sku/supplier_code only.
+            if sku:
+                db.tiles.update_one(
+                    {"$or": [{"sku": sku}, {"supplier_code": sku}]},
+                    {"$set": update_data}
+                )
         
         action = "disabled" if data.disabled else "updated"
         logger.info(f"Bulk tier update: {updated_count} products {action}")
