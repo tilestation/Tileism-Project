@@ -106,7 +106,7 @@ const PerProductOverridesPanel = ({ products, overrides, setOverrides, globalCre
                   <th className="px-2 py-2 font-medium text-right w-28">Cost £</th>
                   <th className="px-2 py-2 font-medium text-right w-28">List £</th>
                   <th className="px-2 py-2 font-medium text-right w-32" title="The FINAL price a trade customer pays per unit/m² — the £ discount off list is computed automatically">Trade £ (final)</th>
-                  <th className="px-2 py-2 font-medium text-right w-28" title="Margin = (trade price − cost − credit back) ÷ trade price">Margin</th>
+                  <th className="px-2 py-2 font-medium text-right w-32" title="Profit = ex-VAT trade price (÷1.2) − cost (ex-VAT) − credit back (% of ex-VAT). Margin % = profit ÷ ex-VAT price">Profit / Margin</th>
                   <th className="px-2 py-2 font-medium text-right w-28" title="Full pallet £ per unit for this product (blank = global setting)">Pallet £</th>
                   <th className="px-2 py-2 font-medium text-right w-28" title="Half pallet £ per unit for this product (blank = global setting)">½ Pallet £</th>
                   <th className="px-2 py-2 font-medium text-right w-24">Credit %</th>
@@ -128,12 +128,14 @@ const PerProductOverridesPanel = ({ products, overrides, setOverrides, globalCre
                   const cbRate = o.credit_back_rate !== undefined && o.credit_back_rate !== ''
                     ? Number(o.credit_back_rate)
                     : Number(globalCreditBack ?? 2);
-                  // Margin per the shop's formula: (trade price − cost − credit back) ÷ trade price
+                  // Shop margin formula: trade price is inc-VAT → ÷1.2 for ex-VAT,
+                  // minus cost (ex-VAT), minus credit back (% of the ex-VAT price).
                   const hasPreview = tradePrice !== null && !Number.isNaN(tradePrice) && tradePrice > 0 && !o.disabled;
-                  const cbAmt = hasPreview ? tradePrice * (cbRate / 100) : 0;
-                  const profit = hasPreview && effCost > 0 ? tradePrice - effCost - cbAmt : null;
-                  const margin = profit !== null ? (profit / tradePrice) * 100 : null;
-                  const belowCost = hasPreview && effCost > 0 && tradePrice < effCost;
+                  const exVat = hasPreview ? tradePrice / 1.2 : 0;
+                  const cbAmt = hasPreview ? exVat * (cbRate / 100) : 0;
+                  const profit = hasPreview && effCost > 0 ? exVat - effCost - cbAmt : null;
+                  const margin = profit !== null && exVat > 0 ? (profit / exVat) * 100 : null;
+                  const belowCost = hasPreview && effCost > 0 && exVat < effCost;
                   const offList = hasPreview && effList > 0 ? Math.max(0, effList - tradePrice) : null;
                   return (
                     <tr key={key} className={`border-b ${hasAny ? 'bg-amber-50/60' : ''}`} data-testid={`override-row-${p.sku || p.supplier_code}`}>
@@ -184,23 +186,17 @@ const PerProductOverridesPanel = ({ products, overrides, setOverrides, globalCre
                       <td className="px-2 py-2 text-right font-mono" data-testid={`override-discounted-${p.sku || p.supplier_code}`}>
                         {profit !== null ? (
                           <div>
-                            {belowCost ? (
-                              <>
-                                <div className="font-semibold text-red-600">£{tradePrice.toFixed(2)}</div>
-                                <div className="text-[10px] text-red-600 font-semibold" title={`Selling £${tradePrice.toFixed(2)} against cost £${effCost.toFixed(2)} loses £${(effCost - tradePrice).toFixed(2)}/unit before credit back`}>
-                                  ⚠ £{(effCost - tradePrice).toFixed(2)} below cost
-                                </div>
-                              </>
-                            ) : (
-                              <>
-                                <div className={`font-semibold ${profit >= 0 ? 'text-emerald-700' : 'text-red-600'}`}>
-                                  {margin.toFixed(0)}%
-                                </div>
-                                <div className={`text-[10px] ${profit >= 0 ? 'text-gray-500' : 'text-red-500'}`} title={`£${tradePrice.toFixed(2)} − £${effCost.toFixed(2)} cost − £${cbAmt.toFixed(2)} credit back (${cbRate}%)`}>
-                                  {profit >= 0 ? `£${profit.toFixed(2)} profit` : `£${(-profit).toFixed(2)} loss after credit back`}
-                                </div>
-                              </>
-                            )}
+                            <div className={`font-semibold ${profit >= 0 ? 'text-emerald-700' : 'text-red-600'}`}>
+                              £{profit.toFixed(2)} · {margin.toFixed(0)}%
+                            </div>
+                            <div
+                              className={`text-[10px] ${belowCost ? 'text-red-600 font-semibold' : 'text-gray-500'}`}
+                              title={`Ex-VAT £${exVat.toFixed(2)} − cost £${effCost.toFixed(2)} − credit back £${cbAmt.toFixed(2)} (${cbRate}% of ex-VAT)`}
+                            >
+                              {belowCost
+                                ? `⚠ ex-VAT £${exVat.toFixed(2)} below cost`
+                                : `ex-VAT £${exVat.toFixed(2)} − CB £${cbAmt.toFixed(2)}`}
+                            </div>
                           </div>
                         ) : (
                           <span className="text-gray-300">—</span>

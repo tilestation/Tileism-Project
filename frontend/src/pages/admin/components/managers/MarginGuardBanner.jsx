@@ -3,7 +3,8 @@
  * listing products whose CURRENT trade price sells at a loss.
  *
  * Formula (per the shop's rule): trade price = list price after the stored
- * trade discount; profit = trade price − cost − credit back (% of trade price).
+ * trade discount (inc VAT) → ÷1.2 = ex-VAT sold price;
+ * profit = ex-VAT price − cost (ex-VAT) − credit back (% of ex-VAT price).
  * A product is flagged when profit < 0.
  */
 import React, { useState } from 'react';
@@ -22,9 +23,10 @@ export const computeMarginGuard = (products, defaults = {}) => {
     const td = p.trade_discount !== undefined && p.trade_discount !== null ? Number(p.trade_discount) : dTd;
     const type = p.trade_discount_type ? (String(p.trade_discount_type).toLowerCase() === 'fixed' ? 'fixed' : 'percent') : dType;
     const tradePrice = type === 'fixed' ? Math.max(0, list - td) : list * (1 - td / 100);
+    const exVat = tradePrice / 1.2;
     const cbRate = p.credit_back_rate !== undefined && p.credit_back_rate !== null ? Number(p.credit_back_rate) : dCb;
-    const cbAmt = tradePrice * (cbRate / 100);
-    const profit = tradePrice - cost - cbAmt;
+    const cbAmt = exVat * (cbRate / 100);
+    const profit = exVat - cost - cbAmt;
     if (profit >= 0) return;
     flagged.push({
       key: getProductKey(p),
@@ -35,11 +37,13 @@ export const computeMarginGuard = (products, defaults = {}) => {
       list,
       cost,
       tradePrice,
+      exVat,
       tradeLabel: type === 'fixed' ? `£${td.toFixed(2)} off` : `${td}% off`,
       cbAmt,
       cbRate,
       loss: -profit,
-      belowCost: tradePrice < cost,
+      margin: exVat > 0 ? (profit / exVat) * 100 : null,
+      belowCost: exVat < cost,
     });
   });
   flagged.sort((a, b) => b.loss - a.loss);
@@ -59,7 +63,7 @@ const MarginGuardBanner = ({ flagged, active, onToggleShowOnly, onFixSelected })
             Margin Guard: {flagged.length} product{flagged.length !== 1 ? 's' : ''} sell{flagged.length === 1 ? 's' : ''} at a loss at the current trade price
           </p>
           <p className="text-xs text-red-600">
-            Trade price − cost − credit back is negative. Combined loss £{totalLoss.toFixed(2)}/unit across the list.
+            Ex-VAT trade price (÷1.2) − cost − credit back is negative. Combined loss £{totalLoss.toFixed(2)}/unit across the list.
           </p>
         </div>
         <button
@@ -101,6 +105,7 @@ const MarginGuardBanner = ({ flagged, active, onToggleShowOnly, onFixSelected })
                 <th className="px-2 py-1.5 font-medium text-right">List £</th>
                 <th className="px-2 py-1.5 font-medium text-right">Trade</th>
                 <th className="px-2 py-1.5 font-medium text-right">Trade £</th>
+                <th className="px-2 py-1.5 font-medium text-right" title="Trade price ÷ 1.2">Ex-VAT £</th>
                 <th className="px-2 py-1.5 font-medium text-right">Cost £</th>
                 <th className="px-2 py-1.5 font-medium text-right">Credit Back</th>
                 <th className="px-2 py-1.5 font-medium text-right">Loss / unit</th>
@@ -116,10 +121,11 @@ const MarginGuardBanner = ({ flagged, active, onToggleShowOnly, onFixSelected })
                   <td className="px-2 py-1.5 text-right font-mono">£{f.list.toFixed(2)}</td>
                   <td className="px-2 py-1.5 text-right text-gray-500">{f.tradeLabel}</td>
                   <td className="px-2 py-1.5 text-right font-mono font-semibold text-red-700">£{f.tradePrice.toFixed(2)}</td>
+                  <td className="px-2 py-1.5 text-right font-mono">£{f.exVat.toFixed(2)}</td>
                   <td className="px-2 py-1.5 text-right font-mono">£{f.cost.toFixed(2)}</td>
                   <td className="px-2 py-1.5 text-right font-mono text-orange-600">−£{f.cbAmt.toFixed(2)} ({f.cbRate}%)</td>
                   <td className="px-2 py-1.5 text-right font-mono font-bold text-red-600">
-                    −£{f.loss.toFixed(2)}{f.belowCost && <span className="ml-1 text-[9px] font-semibold align-middle" title="Trade price is below cost even before credit back">⚠ below cost</span>}
+                    −£{f.loss.toFixed(2)}{f.margin !== null && <span className="ml-1 font-semibold">({f.margin.toFixed(0)}%)</span>}{f.belowCost && <span className="ml-1 text-[9px] font-semibold align-middle" title="Ex-VAT trade price is below cost even before credit back">⚠ below cost</span>}
                   </td>
                 </tr>
               ))}

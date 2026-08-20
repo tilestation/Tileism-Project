@@ -602,6 +602,11 @@ const TierPricingModal = ({
                                   <td className="text-right text-orange-500">-£{tierCreditBack.toFixed(2)}</td>
                                   <td className={`text-right font-bold ${tierNetProfit > 0 ? 'text-green-600' : 'text-red-600'}`}>
                                     £{tierNetProfit.toFixed(2)}
+                                    {tierExVat > 0 && (
+                                      <span className="block text-[10px] font-medium opacity-70">
+                                        {((tierNetProfit / tierExVat) * 100).toFixed(0)}%
+                                      </span>
+                                    )}
                                   </td>
                                 </tr>
                               );
