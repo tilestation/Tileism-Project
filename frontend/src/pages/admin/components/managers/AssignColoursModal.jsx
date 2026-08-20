@@ -706,8 +706,8 @@ const AssignColoursModal = ({ open, onOpenChange, selectedList = [], onSuccess, 
                     >
                       <GripVertical className="w-3 h-3 text-gray-400 flex-shrink-0" />
                       <div className="min-w-0 flex-1">
-                        <div className="font-medium text-gray-800 truncate" title={productName(p)}>{productName(p)}</div>
-                        <div className="text-[10px] text-gray-500 truncate">
+                        <div className="font-medium text-gray-800 break-words leading-snug" title={productName(p)}>{productName(p)}</div>
+                        <div className="text-[10px] text-gray-500 break-words">
                           {p.supplier} · {sku}
                           {cur && <span className="ml-1 text-orange-600">(current: {cur})</span>}
                           {memberships.length > 0 && (
@@ -719,14 +719,14 @@ const AssignColoursModal = ({ open, onOpenChange, selectedList = [], onSuccess, 
                       </div>
                       {buckets.length > 0 && (
                         <select
-                          className="text-[10px] border border-gray-300 rounded px-1 py-0.5"
+                          className="text-[10px] border border-gray-300 rounded px-1 py-0.5 max-w-[95px] flex-shrink-0"
                           value=""
                           onChange={(e) => { if (e.target.value !== '') moveSkuToBucket(sku, Number(e.target.value)); }}
                           data-testid={`move-to-bucket-${sku}`}
                         >
                           <option value="">{isMulti ? (saveMode === 'remove' ? 'Strip via…' : 'Add to…') : 'Move to…'}</option>
                           {buckets.map((b, i) => (
-                            <option key={i} value={i} disabled={isMulti && b.skus.has(sku)}>{b.name}</option>
+                            <option key={i} value={i} disabled={isMulti && b.skus.has(sku)}>{b.name.length > 40 ? `${b.name.slice(0, 40)}…` : b.name}</option>
                           ))}
                         </select>
                       )}
@@ -792,7 +792,7 @@ const AssignColoursModal = ({ open, onOpenChange, selectedList = [], onSuccess, 
                             className="text-xs bg-white rounded px-2 py-1 flex items-center gap-2 border border-orange-100 cursor-grab active:cursor-grabbing active:opacity-50"
                           >
                             <GripVertical className="w-3 h-3 text-gray-300 flex-shrink-0" />
-                            <span className="truncate text-gray-800 flex-1" title={productName(p)}>{productName(p)}</span>
+                            <span className="break-words leading-snug text-gray-800 flex-1 min-w-0" title={productName(p)}>{productName(p)}</span>
                             <button
                               onClick={() => removeSkuFromBucket(sku, bi)}
                               className="text-gray-400 hover:text-red-500 flex-shrink-0"

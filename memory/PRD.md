@@ -9062,3 +9062,8 @@ See `/app/memory/test_credentials.md`
 ## Aug 20, 2026 Session — Per-product samples toggles
 - SamplesTab.jsx rewritten: bulk "Disable all / Re-enable all" buttons PLUS a per-product list — each selected product shows name/sku/size, a Samples ON/OFF badge, and an individual toggle (optimistic update, single-sku bulk-update-unified save, auto-revert on error).
 - Verified E2E via screenshot automation: toggled LP-6611 individually (1/2 → 2/2 disabled), toast confirmed, restored after.
+
+## Aug 20, 2026 Session — Attribute Studio pool names unreadable (fixed)
+- Cause: the per-row "Move to…" select auto-sized to the LONGEST bucket name (special-order notes are long sentences), squeezing product names to "L…".
+- Fix (AssignColoursModal.jsx): select capped max-w-[95px] + options truncated at 40 chars; pool names now break-words (wrap, no truncate) with title tooltip; bucket member names also wrap; secondary line (supplier · sku · current) wraps too.
+- Verified via screenshot with a long bucket name — names fully readable.
