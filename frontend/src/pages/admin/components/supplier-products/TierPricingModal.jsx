@@ -144,7 +144,7 @@ const TierPricingModal = ({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Percent className="w-5 h-5 text-amber-600" />
@@ -636,8 +636,7 @@ const TierPricingModal = ({
               products={selectedProductsList}
               overrides={productOverrides}
               setOverrides={setProductOverrides}
-              tradeFixedSuffix={tradeFixedSuffix}
-              isTradeFixed={isTradeFixed}
+              globalCreditBack={tierPricingConfig.credit_back_default ?? 2}
             />
           )}
         </div>

@@ -1,9 +1,13 @@
 /**
  * PerProductOverridesPanel — expandable table shown inside the TierPricingModal.
- * Lets admins override the global Trade Discount / Credit Back / Disable-Tier for
- * INDIVIDUAL products in the selection while keeping the rest on the global setting.
+ * Lets admins override pricing for INDIVIDUAL products in the selection while
+ * keeping the rest on the global setting.
  *
- * Storage shape: overrides = { 'supplier|||sku': { trade_discount, credit_back_rate, disabled } }
+ * Trade £ column = the FINAL price a trade customer pays (NOT a discount amount).
+ * The equivalent £-off discount is computed automatically on save.
+ * Margin = (trade price − cost − credit back) ÷ trade price.
+ *
+ * Storage shape: overrides = { 'supplier|||sku': { trade_price, credit_back_rate, disabled, cost_price, list_price, pallet_price, half_pallet_price } }
  * A missing key = "use global setting from the modal above".
  */
 import React, { useState } from 'react';
@@ -14,12 +18,14 @@ import { Layers, ChevronDown, ChevronUp, RotateCcw } from 'lucide-react';
 
 const productKey = (p) => `${p.supplier || ''}|||${p.sku || p.supplier_code || ''}`;
 
-const PerProductOverridesPanel = ({ products, overrides, setOverrides, tradeFixedSuffix, isTradeFixed }) => {
+const OVERRIDE_FIELDS = ['trade_price', 'credit_back_rate', 'disabled', 'cost_price', 'list_price', 'pallet_price', 'half_pallet_price'];
+
+const PerProductOverridesPanel = ({ products, overrides, setOverrides, globalCreditBack = 2 }) => {
   const [open, setOpen] = useState(false);
 
   const overrideCount = Object.keys(overrides || {}).filter(k => {
     const o = overrides[k];
-    return o && (o.trade_discount !== undefined || o.credit_back_rate !== undefined || o.disabled !== undefined);
+    return o && OVERRIDE_FIELDS.some(f => o[f] !== undefined);
   }).length;
 
   const setField = (key, field, value) => {
@@ -84,7 +90,7 @@ const PerProductOverridesPanel = ({ products, overrides, setOverrides, tradeFixe
         <div className="bg-white">
           <div className="flex items-center justify-between px-3 py-2 bg-amber-50 border-b border-amber-200 text-xs text-amber-900">
             <span>
-              Leave a field blank to <b>inherit the global setting above</b>. Overrides win on Save.
+              Leave a field blank to <b>inherit the global setting above</b>. <b>Trade £</b> is the final price a trade customer pays — the discount is worked out for you.
             </span>
             {overrideCount > 0 && (
               <Button size="xs" variant="ghost" className="h-6 text-[11px] text-red-600 hover:text-red-700 hover:bg-red-50" onClick={clearAll} data-testid="per-product-clear-all">
@@ -92,134 +98,138 @@ const PerProductOverridesPanel = ({ products, overrides, setOverrides, tradeFixe
               </Button>
             )}
           </div>
-          <div className="max-h-64 overflow-auto">
-            <table className="w-full min-w-[860px] text-xs">
+          <div className="max-h-72 overflow-auto">
+            <table className="w-full min-w-[980px] text-sm">
               <thead className="bg-gray-50 sticky top-0 z-10">
-                <tr className="text-left text-gray-500">
-                  <th className="px-2 py-1.5 font-medium">Product</th>
-                  <th className="px-2 py-1.5 font-medium text-right w-20">Cost £</th>
-                  <th className="px-2 py-1.5 font-medium text-right w-20">List £</th>
-                  <th className="px-2 py-1.5 font-medium text-right w-24" title="Amount taken OFF the list price for trade customers — NOT the trade price itself">Trade Disc</th>
-                  <th className="px-2 py-1.5 font-medium text-right w-20">Discounted</th>
-                  <th className="px-2 py-1.5 font-medium text-right w-20" title="Full pallet £ per unit for this product (blank = global setting)">Pallet £</th>
-                  <th className="px-2 py-1.5 font-medium text-right w-20" title="Half pallet £ per unit for this product (blank = global setting)">½ Pallet £</th>
-                  <th className="px-2 py-1.5 font-medium text-right w-16">Credit %</th>
-                  <th className="px-2 py-1.5 font-medium text-center w-14">Disable Tier</th>
-                  <th className="px-2 py-1.5 font-medium text-center w-12">Reset</th>
+                <tr className="text-left text-gray-500 text-xs">
+                  <th className="px-2 py-2 font-medium">Product</th>
+                  <th className="px-2 py-2 font-medium text-right w-28">Cost £</th>
+                  <th className="px-2 py-2 font-medium text-right w-28">List £</th>
+                  <th className="px-2 py-2 font-medium text-right w-32" title="The FINAL price a trade customer pays per unit/m² — the £ discount off list is computed automatically">Trade £ (final)</th>
+                  <th className="px-2 py-2 font-medium text-right w-28" title="Margin = (trade price − cost − credit back) ÷ trade price">Margin</th>
+                  <th className="px-2 py-2 font-medium text-right w-28" title="Full pallet £ per unit for this product (blank = global setting)">Pallet £</th>
+                  <th className="px-2 py-2 font-medium text-right w-28" title="Half pallet £ per unit for this product (blank = global setting)">½ Pallet £</th>
+                  <th className="px-2 py-2 font-medium text-right w-24">Credit %</th>
+                  <th className="px-2 py-2 font-medium text-center w-16">Disable Tier</th>
+                  <th className="px-2 py-2 font-medium text-center w-12">Reset</th>
                 </tr>
               </thead>
               <tbody>
                 {products.map((p) => {
                   const key = productKey(p);
                   const o = overrides?.[key] || {};
-                  const hasAny = ['trade_discount', 'credit_back_rate', 'disabled', 'cost_price', 'list_price', 'pallet_price', 'half_pallet_price'].some(f => o[f] !== undefined);
+                  const hasAny = OVERRIDE_FIELDS.some(f => o[f] !== undefined);
                   const listPrice = Number(p.list_price ?? p.price ?? p.room_lot_price ?? p.retail_price ?? 0);
                   const costPrice = Number(p.cost_price ?? p.wholesale_price ?? 0);
                   // Edited values win over the stored ones for the live preview maths
                   const effList = o.list_price !== undefined && o.list_price !== '' ? Number(o.list_price) : listPrice;
                   const effCost = o.cost_price !== undefined && o.cost_price !== '' ? Number(o.cost_price) : costPrice;
-                  const effectiveTrade = o.trade_discount !== undefined ? Number(o.trade_discount) : null;
-                  // Live-compute the discounted price so the admin can see what N% off actually costs.
-                  const discountedPrice = (() => {
-                    if (o.disabled) return null;    // No tier discount = no preview
-                    if (effList <= 0) return null;  // No base price = no meaningful preview
-                    if (effectiveTrade === null || Number.isNaN(effectiveTrade)) return null;
-                    if (isTradeFixed) return Math.max(0, effList - effectiveTrade);
-                    return Math.max(0, effList * (1 - effectiveTrade / 100));
-                  })();
-                  const belowCost = discountedPrice !== null && effCost > 0 && discountedPrice < effCost;
-                  const margin = discountedPrice !== null && effCost > 0 && discountedPrice > 0
-                    ? ((discountedPrice - effCost) / discountedPrice) * 100
-                    : null;
+                  const tradePrice = o.trade_price !== undefined && o.trade_price !== '' ? Number(o.trade_price) : null;
+                  const cbRate = o.credit_back_rate !== undefined && o.credit_back_rate !== ''
+                    ? Number(o.credit_back_rate)
+                    : Number(globalCreditBack ?? 2);
+                  // Margin per the shop's formula: (trade price − cost − credit back) ÷ trade price
+                  const hasPreview = tradePrice !== null && !Number.isNaN(tradePrice) && tradePrice > 0 && !o.disabled;
+                  const cbAmt = hasPreview ? tradePrice * (cbRate / 100) : 0;
+                  const profit = hasPreview && effCost > 0 ? tradePrice - effCost - cbAmt : null;
+                  const margin = profit !== null ? (profit / tradePrice) * 100 : null;
+                  const belowCost = hasPreview && effCost > 0 && tradePrice < effCost;
+                  const offList = hasPreview && effList > 0 ? Math.max(0, effList - tradePrice) : null;
                   return (
                     <tr key={key} className={`border-b ${hasAny ? 'bg-amber-50/60' : ''}`} data-testid={`override-row-${p.sku || p.supplier_code}`}>
-                      <td className="px-2 py-1.5 max-w-[220px]">
+                      <td className="px-2 py-2 max-w-[240px]">
                         <div className="truncate font-medium text-gray-800" title={p.product_name || p.display_name || p.our_product_name || p.name}>
                           {p.product_name || p.display_name || p.our_product_name || p.name || '—'}
                         </div>
-                        <div className="text-[10px] text-gray-400 truncate">{p.supplier} · {p.sku || p.supplier_code}</div>
+                        <div className="text-[11px] text-gray-400 truncate">{p.supplier} · {p.sku || p.supplier_code}</div>
                       </td>
-                      <td className="px-2 py-1.5 text-right">
+                      <td className="px-2 py-2 text-right">
                         <Input
                           type="number"
                           step="0.01"
                           value={o.cost_price ?? ''}
                           onChange={(e) => { const v = e.target.value; setField(key, 'cost_price', v === '' ? '' : Number(v)); }}
                           placeholder={costPrice > 0 ? costPrice.toFixed(2) : '—'}
-                          className="h-7 text-[11px] w-16 text-right font-mono"
+                          className="h-9 text-sm w-24 text-right font-mono"
                           data-testid={`override-cost-${p.sku || p.supplier_code}`}
                         />
                       </td>
-                      <td className="px-2 py-1.5 text-right">
+                      <td className="px-2 py-2 text-right">
                         <Input
                           type="number"
                           step="0.01"
                           value={o.list_price ?? ''}
                           onChange={(e) => { const v = e.target.value; setField(key, 'list_price', v === '' ? '' : Number(v)); }}
                           placeholder={listPrice > 0 ? listPrice.toFixed(2) : '—'}
-                          className="h-7 text-[11px] w-16 text-right font-mono"
+                          className="h-9 text-sm w-24 text-right font-mono"
                           data-testid={`override-list-${p.sku || p.supplier_code}`}
                         />
                       </td>
-                      <td className="px-2 py-1.5 text-right">
-                        <div className="flex items-center justify-end gap-0.5">
-                          <Input
-                            type="number"
-                            step="0.01"
-                            value={o.trade_discount ?? ''}
-                            onChange={(e) => {
-                              const v = e.target.value;
-                              setField(key, 'trade_discount', v === '' ? '' : Number(v));
-                            }}
-                            placeholder="—"
-                            className="h-7 text-xs w-16 text-right"
-                            data-testid={`override-trade-${p.sku || p.supplier_code}`}
-                          />
-                          <span className="text-[10px] text-gray-500 w-8">{isTradeFixed ? tradeFixedSuffix.replace('£/', '£/') : '%'}</span>
-                        </div>
+                      <td className="px-2 py-2 text-right">
+                        <Input
+                          type="number"
+                          step="0.01"
+                          value={o.trade_price ?? ''}
+                          onChange={(e) => { const v = e.target.value; setField(key, 'trade_price', v === '' ? '' : Number(v)); }}
+                          placeholder="final £"
+                          className="h-9 text-sm w-28 text-right font-mono"
+                          data-testid={`override-trade-${p.sku || p.supplier_code}`}
+                        />
+                        {offList !== null && offList > 0 && (
+                          <div className="text-[10px] text-gray-400 mt-0.5" data-testid={`override-offlist-${p.sku || p.supplier_code}`}>
+                            = £{offList.toFixed(2)} off list
+                          </div>
+                        )}
                       </td>
-                      <td className="px-2 py-1.5 text-right text-[11px] font-mono" data-testid={`override-discounted-${p.sku || p.supplier_code}`}>
-                        {discountedPrice !== null ? (
+                      <td className="px-2 py-2 text-right font-mono" data-testid={`override-discounted-${p.sku || p.supplier_code}`}>
+                        {profit !== null ? (
                           <div>
-                            <div className={`font-semibold ${belowCost ? 'text-red-600' : 'text-emerald-700'}`}>£{discountedPrice.toFixed(2)}</div>
                             {belowCost ? (
-                              <div className="text-[9px] text-red-600 font-semibold" title={`Selling £${discountedPrice.toFixed(2)} against cost £${effCost.toFixed(2)} loses £${(effCost - discountedPrice).toFixed(2)}/unit`}>
-                                ⚠ £{(effCost - discountedPrice).toFixed(2)} below cost
-                              </div>
-                            ) : margin !== null && (
-                              <div className={`text-[9px] ${margin >= 20 ? 'text-emerald-600' : margin >= 5 ? 'text-amber-600' : 'text-red-600'}`} title="Margin = (price − cost) ÷ price">
-                                {margin.toFixed(0)}% margin
-                              </div>
+                              <>
+                                <div className="font-semibold text-red-600">£{tradePrice.toFixed(2)}</div>
+                                <div className="text-[10px] text-red-600 font-semibold" title={`Selling £${tradePrice.toFixed(2)} against cost £${effCost.toFixed(2)} loses £${(effCost - tradePrice).toFixed(2)}/unit before credit back`}>
+                                  ⚠ £{(effCost - tradePrice).toFixed(2)} below cost
+                                </div>
+                              </>
+                            ) : (
+                              <>
+                                <div className={`font-semibold ${profit >= 0 ? 'text-emerald-700' : 'text-red-600'}`}>
+                                  {margin.toFixed(0)}%
+                                </div>
+                                <div className={`text-[10px] ${profit >= 0 ? 'text-gray-500' : 'text-red-500'}`} title={`£${tradePrice.toFixed(2)} − £${effCost.toFixed(2)} cost − £${cbAmt.toFixed(2)} credit back (${cbRate}%)`}>
+                                  {profit >= 0 ? `£${profit.toFixed(2)} profit` : `£${(-profit).toFixed(2)} loss after credit back`}
+                                </div>
+                              </>
                             )}
                           </div>
                         ) : (
                           <span className="text-gray-300">—</span>
                         )}
                       </td>
-                      <td className="px-2 py-1.5 text-right">
+                      <td className="px-2 py-2 text-right">
                         <Input
                           type="number"
                           step="0.01"
                           value={o.pallet_price ?? ''}
                           onChange={(e) => { const v = e.target.value; setField(key, 'pallet_price', v === '' ? '' : Number(v)); }}
                           placeholder={Number(p.pallet_price) > 0 ? Number(p.pallet_price).toFixed(2) : '—'}
-                          className="h-7 text-[11px] w-16 text-right font-mono"
+                          className="h-9 text-sm w-24 text-right font-mono"
                           data-testid={`override-pallet-${p.sku || p.supplier_code}`}
                         />
                       </td>
-                      <td className="px-2 py-1.5 text-right">
+                      <td className="px-2 py-2 text-right">
                         <Input
                           type="number"
                           step="0.01"
                           value={o.half_pallet_price ?? ''}
                           onChange={(e) => { const v = e.target.value; setField(key, 'half_pallet_price', v === '' ? '' : Number(v)); }}
                           placeholder={Number(p.half_pallet_price) > 0 ? Number(p.half_pallet_price).toFixed(2) : '—'}
-                          className="h-7 text-[11px] w-16 text-right font-mono"
+                          className="h-9 text-sm w-24 text-right font-mono"
                           data-testid={`override-halfpallet-${p.sku || p.supplier_code}`}
                         />
                       </td>
-                      <td className="px-2 py-1.5 text-right">
-                        <div className="flex items-center justify-end gap-0.5">
+                      <td className="px-2 py-2 text-right">
+                        <div className="flex items-center justify-end gap-1">
                           <Input
                             type="number"
                             step="0.1"
@@ -228,14 +238,14 @@ const PerProductOverridesPanel = ({ products, overrides, setOverrides, tradeFixe
                               const v = e.target.value;
                               setField(key, 'credit_back_rate', v === '' ? '' : Number(v));
                             }}
-                            placeholder="—"
-                            className="h-7 text-xs w-14 text-right"
+                            placeholder={String(globalCreditBack ?? 2)}
+                            className="h-9 text-sm w-16 text-right"
                             data-testid={`override-credit-${p.sku || p.supplier_code}`}
                           />
-                          <span className="text-[10px] text-gray-500">%</span>
+                          <span className="text-xs text-gray-500">%</span>
                         </div>
                       </td>
-                      <td className="px-2 py-1.5 text-center">
+                      <td className="px-2 py-2 text-center">
                         <input
                           type="checkbox"
                           checked={!!o.disabled}
@@ -244,17 +254,17 @@ const PerProductOverridesPanel = ({ products, overrides, setOverrides, tradeFixe
                           data-testid={`override-disable-${p.sku || p.supplier_code}`}
                         />
                       </td>
-                      <td className="px-2 py-1.5 text-center">
+                      <td className="px-2 py-2 text-center">
                         {hasAny && (
                           <Button
                             size="xs"
                             variant="ghost"
-                            className="h-6 w-6 p-0 text-gray-400 hover:text-red-600 hover:bg-red-50"
+                            className="h-7 w-7 p-0 text-gray-400 hover:text-red-600 hover:bg-red-50"
                             onClick={() => clearRow(key)}
                             title="Clear this row's overrides"
                             data-testid={`override-reset-${p.sku || p.supplier_code}`}
                           >
-                            <RotateCcw className="w-3 h-3" />
+                            <RotateCcw className="w-3.5 h-3.5" />
                           </Button>
                         )}
                       </td>

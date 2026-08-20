@@ -56,6 +56,7 @@ import BulkPreviewModal from './managers/BulkPreviewModal';
 import { fetchShopTabDestinations, buildDestinationMap } from '../lib/shopTabDestinations';
 import AssignColoursModal, { computeCompleteness } from './managers/AssignColoursModal';
 import TierPricingModal from './supplier-products/TierPricingModal';
+import MarginGuardBanner, { computeMarginGuard } from './managers/MarginGuardBanner';
 import BulkSaleModal from './supplier-products/BulkSaleModal';
 import { useManagerBulk, getProductKey, productDisplayName } from './managers/useManagerBulk';
 import FeaturedOrderModal from './managers/FeaturedOrderModal';
@@ -179,6 +180,8 @@ const ManagerPageShell = ({
   const [bulkSaleSaving, setBulkSaleSaving] = useState(false);
   const [showStaleSweep, setShowStaleSweep] = useState(false);
   const [showLfSweep, setShowLfSweep] = useState(false);
+  // Margin Guard — show only loss-making products
+  const [marginGuardOnly, setMarginGuardOnly] = useState(false);
 
   // ---- Per-Manager config (facets, sub-tabs, spec fields) from the DB ----
   const { config, save: saveConfig, refresh: refreshConfig } = useManagerConfig(categoryKey);
@@ -304,6 +307,19 @@ const ManagerPageShell = ({
   useEffect(() => { fetchProducts(); }, [fetchProducts]);
   const bulk = useManagerBulk({ products, onRefresh: fetchProducts, storageKey: categoryKey });
 
+  // Margin Guard — products whose current trade price sells at a loss
+  // (trade price − cost − credit back < 0), using stored per-product values
+  // with the Manager's defaults as fallback.
+  const marginFlagged = useMemo(() => computeMarginGuard(products, {
+    tradeDiscount: tierPricingConfig.trade_discount_default,
+    tradeType: tierPricingConfig.trade_discount_type,
+    creditBack: tierPricingConfig.credit_back_default,
+  }), [products, tierPricingConfig.trade_discount_default, tierPricingConfig.trade_discount_type, tierPricingConfig.credit_back_default]);
+  const marginFlaggedKeys = useMemo(() => new Set(marginFlagged.map(f => f.key)), [marginFlagged]);
+  useEffect(() => {
+    if (marginFlagged.length === 0 && marginGuardOnly) setMarginGuardOnly(false);
+  }, [marginFlagged.length, marginGuardOnly]);
+
   // Show-selected-only — filter the table down to just the ticked rows
   const [showSelectedOnly, setShowSelectedOnly] = useState(false);
   useEffect(() => {
@@ -400,12 +416,16 @@ const ManagerPageShell = ({
     if (noImagesOnly) {
       list = list.filter(p => !((Array.isArray(p.images) ? p.images : []).filter(Boolean).length > 0 || p.image));
     }
+    // Margin Guard filter — only loss-making products
+    if (marginGuardOnly) {
+      list = list.filter(p => marginFlaggedKeys.has(getProductKey(p)));
+    }
     // Show selected only — just the ticked rows
     if (showSelectedOnly) {
       list = list.filter(p => bulk.isSelected(p));
     }
     return list;
-  }, [products, subTab, filters, search, effectiveSubTabs, effectiveFilterFacets, facetCategory, gapOnly, destMap, hasShopTab, noImagesOnly, showSelectedOnly, bulk]);
+  }, [products, subTab, filters, search, effectiveSubTabs, effectiveFilterFacets, facetCategory, gapOnly, destMap, hasShopTab, noImagesOnly, showSelectedOnly, bulk, marginGuardOnly, marginFlaggedKeys]);
 
   const noImagesCount = useMemo(
     () => products.filter(p => !((Array.isArray(p.images) ? p.images : []).filter(Boolean).length > 0 || p.image)).length,
@@ -677,6 +697,18 @@ const ManagerPageShell = ({
       {/* Body */}
       <div className="max-w-7xl mx-auto px-4 py-6 space-y-4">
         {topBanner}
+        {marginFlagged.length > 0 && (
+          <MarginGuardBanner
+            flagged={marginFlagged}
+            active={marginGuardOnly}
+            onToggleShowOnly={() => setMarginGuardOnly(v => !v)}
+            onFixSelected={() => {
+              bulk.setSelectedProducts(new Set(marginFlagged.map(f => f.key)));
+              setShowTierPricing(true);
+              toast.info(`${marginFlagged.length} loss-making product${marginFlagged.length !== 1 ? 's' : ''} selected — adjust pricing below`);
+            }}
+          />
+        )}
         <div className="bg-white rounded-lg border border-gray-200 p-3 flex items-center gap-3">
           <Search className="w-4 h-4 text-gray-400 flex-shrink-0" />
           <Input
@@ -1230,10 +1262,18 @@ const ManagerPageShell = ({
             const payload = selectedList.map(p => {
               const key = `${p.supplier || ''}|||${p.sku || p.supplier_code || ''}`;
               const o = tierProductOverrides[key] || {};
+              // Trade £ override is the FINAL trade price — convert to a fixed £-off discount
+              const effList = (o.list_price !== undefined && o.list_price !== '')
+                ? Number(o.list_price)
+                : Number(p.list_price ?? p.price ?? p.room_lot_price ?? p.retail_price ?? 0);
+              const hasTradePrice = o.trade_price !== undefined && o.trade_price !== '' && effList > 0;
               return {
                 supplier: p.supplier,
                 sku: p.sku || p.supplier_code,
-                ...(o.trade_discount !== undefined ? { trade_discount: o.trade_discount } : {}),
+                ...(hasTradePrice ? {
+                  trade_discount: Math.max(0, +(effList - Number(o.trade_price)).toFixed(2)),
+                  trade_discount_type: 'fixed',
+                } : {}),
                 ...(o.credit_back_rate !== undefined ? { credit_back_rate: o.credit_back_rate } : {}),
                 ...(o.disabled !== undefined ? { disabled: o.disabled } : {}),
                 ...(o.cost_price !== undefined && o.cost_price !== '' ? { cost_price: o.cost_price } : {}),
