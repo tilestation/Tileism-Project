@@ -9137,3 +9137,9 @@ See `/app/memory/test_credentials.md`
 - Backend: bulk-tier-update model + row handling extended with pallet_qty_unit (normalised to 'm2'/'unit'); qty fields were already supported per-row. ManagerPageShell payload now sends m2_per_pallet, m2_per_half_pallet, pallet_qty_unit (+pallet_enabled:true when any pallet field set on a row).
 - Tested e2e: UI maths verified (100 × £12.99, cost 8.50, CB2% → £210.85 · 19%; 50 × £13.49 → £125.84 · 22%), save persisted ALL fields incl. qty unit to BOTH supplier_products and tiles. Test product restored to clean state.
 - New testids: override-pallet-toggle-{sku}, override-pallet-row-{sku}, override-pallet-unit-{sku}, override-pallet-qty-{sku}, override-halfpallet-qty-{sku}, override-pallet-profit-{sku}, override-halfpallet-profit-{sku}.
+
+## Aug 20, 2026 Session — Storefront pallet fix for unit products + View in Room hidden
+1. BUG: pallet selector on PDP (CollectionDetailPage) was gated on `isSurfaceProduct` (dimensional size), so pallet data saved on unit products (adhesives/tools) never showed. FIX: gate removed; selector shows whenever rates+qty exist. Unit-aware labels via palletInfo.isUnit (pallet_qty_unit==='unit' OR !isSurfaceProduct): "Per unit £X each", "£X/unit · min N units", min-order notice in units; qty snap no longer forces 'sqm' unit for unit products. serialize_tile_for_shop now outputs pallet_qty_unit.
+2. "View in Room" button removed from PDP image toolbar per user request (modal code left dormant; lifestyle images unaffected).
+- Verified: unit product (ULT-EC) shows "Per unit £13.10 each / Half £12.25/unit · min 30 units / Full £11.50/unit · min 60 units", qty snaps to 60, total £690; surface tile (HE6000/Sherwood Oak) still shows m² labels; View in Room absent on both. Test pallet data cleaned.
+- NOTE for user: fix reaches production on next deploy — the saved pallet data on their product will appear then.

@@ -1406,6 +1406,9 @@ const CollectionDetailPage = () => {
     const fullSavings = fullRate > 0 && fullM2 > 0 && m2Rate > fullRate
       ? Math.round((m2Rate - fullRate) * fullM2 * 100) / 100
       : 0;
+    // Unit-priced products (adhesives, tools sold per bag/each) count pallet
+    // quantities in units rather than m² — labels follow suit.
+    const isUnit = sp.pallet_qty_unit === 'unit' || !isSurfaceProduct;
     return {
       fullPalletAvailable: fullRate > 0 && fullM2 > 0,
       halfPalletAvailable: halfRate > 0 && halfM2 > 0,
@@ -1416,6 +1419,9 @@ const CollectionDetailPage = () => {
       m2Rate,
       halfSavings,
       fullSavings,
+      isUnit,
+      rateSuffix: isUnit ? '/unit' : 'm²',
+      qtyWord: isUnit ? 'units' : 'm²',
     };
   })();
 
@@ -1428,10 +1434,10 @@ const CollectionDetailPage = () => {
   // their typed qty if they were exploring per-m² mode mid-flow.
   useEffect(() => {
     if (pricingTier === 'full_pallet' && palletInfo.fullM2 > 0) {
-      setQuantityUnit('sqm');
+      if (isSurfaceProduct) setQuantityUnit('sqm');
       setQuantity(palletInfo.fullM2);
     } else if (pricingTier === 'half_pallet' && palletInfo.halfM2 > 0) {
-      setQuantityUnit('sqm');
+      if (isSurfaceProduct) setQuantityUnit('sqm');
       setQuantity(palletInfo.halfM2);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -2084,16 +2090,7 @@ const CollectionDetailPage = () => {
                           <span className="hidden sm:inline">Fullscreen</span>
                         </button>
                         
-                        {/* View in Room Button */}
-                        {lifestyleImages.length > 0 && (
-                          <button
-                            onClick={() => setShowRoomView(true)}
-                            className="bg-white/90 hover:bg-white text-gray-800 px-3 py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition-all hover:scale-105"
-                          >
-                            <Home className="w-4 h-4" />
-                            <span className="hidden sm:inline">View in Room</span>
-                          </button>
-                        )}
+                        {/* View in Room — hidden per admin request (Aug 2026) */}
                       </div>
                       
                       {/* Zoom hint */}
@@ -3091,7 +3088,7 @@ const CollectionDetailPage = () => {
                   appear only when the tile has pallet rates set. Selecting
                   a tier auto-snaps qty to the matching minimum m² and
                   switches the £/m² rate. */}
-              {(palletInfo.halfPalletAvailable || palletInfo.fullPalletAvailable) && isSurfaceProduct && !selectedProduct?._isPreview && (
+              {(palletInfo.halfPalletAvailable || palletInfo.fullPalletAvailable) && !selectedProduct?._isPreview && (
                 <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3 pt-4" data-testid="pallet-tier-selector">
                   <div className="flex items-center gap-2 mb-2">
                     <Truck className="w-4 h-4 text-emerald-700" />
@@ -3108,9 +3105,9 @@ const CollectionDetailPage = () => {
                           : 'bg-white text-emerald-800 border-emerald-300 hover:bg-emerald-100'
                       }`}
                     >
-                      Per m²
+                      {palletInfo.isUnit ? 'Per unit' : 'Per m²'}
                       <span className="block text-[10px] font-normal opacity-90">
-                        £{(Number(selectedProduct?.room_lot_price) || Number(selectedProduct?.price) || 0).toFixed(2)}m²
+                        £{(Number(selectedProduct?.room_lot_price) || Number(selectedProduct?.price) || 0).toFixed(2)}{palletInfo.isUnit ? ' each' : 'm²'}
                       </span>
                     </button>
                     {palletInfo.halfPalletAvailable && (
@@ -3134,7 +3131,7 @@ const CollectionDetailPage = () => {
                         )}
                         Half Pallet
                         <span className="block text-[10px] font-normal opacity-90">
-                          £{palletInfo.halfRate.toFixed(2)}m² · min {palletInfo.halfM2} m²
+                          £{palletInfo.halfRate.toFixed(2)}{palletInfo.rateSuffix} · min {palletInfo.halfM2} {palletInfo.qtyWord}
                         </span>
                       </button>
                     )}
@@ -3159,7 +3156,7 @@ const CollectionDetailPage = () => {
                         )}
                         Full Pallet
                         <span className="block text-[10px] font-normal opacity-90">
-                          £{palletInfo.fullRate.toFixed(2)}m² · min {palletInfo.fullM2} m²
+                          £{palletInfo.fullRate.toFixed(2)}{palletInfo.rateSuffix} · min {palletInfo.fullM2} {palletInfo.qtyWord}
                         </span>
                       </button>
                     )}
@@ -3168,7 +3165,7 @@ const CollectionDetailPage = () => {
                     <p className="text-[11px] text-emerald-700 mt-2" data-testid="pallet-tier-min-notice">
                       Minimum order:{' '}
                       <strong>
-                        {pricingTier === 'full_pallet' ? palletInfo.fullM2 : palletInfo.halfM2} m²
+                        {pricingTier === 'full_pallet' ? palletInfo.fullM2 : palletInfo.halfM2} {palletInfo.qtyWord}
                       </strong>
                       . You can add more, but not less.
                     </p>
