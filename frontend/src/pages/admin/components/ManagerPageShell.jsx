@@ -1328,6 +1328,9 @@ const ManagerPageShell = ({
                 ...(o.list_price !== undefined && o.list_price !== '' ? { list_price: o.list_price } : {}),
                 ...(o.pallet_price !== undefined && o.pallet_price !== '' ? { pallet_price: o.pallet_price, pallet_enabled: true } : {}),
                 ...(o.half_pallet_price !== undefined && o.half_pallet_price !== '' ? { half_pallet_price: o.half_pallet_price, pallet_enabled: true } : {}),
+                ...(o.m2_per_pallet !== undefined && o.m2_per_pallet !== '' ? { m2_per_pallet: o.m2_per_pallet, pallet_enabled: true } : {}),
+                ...(o.m2_per_half_pallet !== undefined && o.m2_per_half_pallet !== '' ? { m2_per_half_pallet: o.m2_per_half_pallet, pallet_enabled: true } : {}),
+                ...(o.pallet_qty_unit !== undefined ? { pallet_qty_unit: o.pallet_qty_unit } : {}),
               };
             });
             const overrideCount = Object.keys(tierProductOverrides).length;

@@ -644,6 +644,7 @@ const TierPricingModal = ({
               overrides={productOverrides}
               setOverrides={setProductOverrides}
               globalCreditBack={tierPricingConfig.credit_back_default ?? 2}
+              pricingUnit={selectedPricingUnit}
             />
           )}
         </div>

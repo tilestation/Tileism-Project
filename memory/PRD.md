@@ -9130,3 +9130,10 @@ See `/app/memory/test_credentials.md`
 - NEW: parcel-only orders (courier) are EXEMPT from the congestion charge — backend guest-checkout zeroes congestion when parcel_all and no marked pallet-charge items; frontend ccAmount gated on !parcelOnly.
 - Tested: 11/11 backend scenarios PASS (zone fee+£18 under threshold, £18 on free delivery, parcel-only → parcel fee + £0 congestion, mixed basket → pallet fee + £18, non-zone postcode £0). Test orders deleted, flags restored.
 - PRODUCTION NOTE: live DB carries its own checkout_settings — set Congestion Charge amount to £18 in admin Checkout Settings after deploy (code fallback is 18 if unset).
+
+## Aug 20, 2026 Session — Per-product pallet quantities + profit (tidy expander)
+- PerProductOverridesPanel redesigned for tidiness: Pallet £ / ½ Pallet £ columns REMOVED from the main table (now 9 columns, no horizontal scroll). Pallet editing moved to a per-row green expander (Truck chip in new "Pallet" column shows £rate when set).
+- Expander contents: "Qty in" dropdown (m² / units-bags → stored as pallet_qty_unit 'm2'|'unit'), Full pallet qty (m2_per_pallet) × rate (pallet_price), ½ pallet qty (m2_per_half_pallet) × rate (half_pallet_price), each with LIVE profit: qty × (rate÷1.2 − cost − CB% of ex-VAT) shown as "£X profit · Y%".
+- Backend: bulk-tier-update model + row handling extended with pallet_qty_unit (normalised to 'm2'/'unit'); qty fields were already supported per-row. ManagerPageShell payload now sends m2_per_pallet, m2_per_half_pallet, pallet_qty_unit (+pallet_enabled:true when any pallet field set on a row).
+- Tested e2e: UI maths verified (100 × £12.99, cost 8.50, CB2% → £210.85 · 19%; 50 × £13.49 → £125.84 · 22%), save persisted ALL fields incl. qty unit to BOTH supplier_products and tiles. Test product restored to clean state.
+- New testids: override-pallet-toggle-{sku}, override-pallet-row-{sku}, override-pallet-unit-{sku}, override-pallet-qty-{sku}, override-halfpallet-qty-{sku}, override-pallet-profit-{sku}, override-halfpallet-profit-{sku}.
