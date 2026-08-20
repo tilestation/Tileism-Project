@@ -126,7 +126,9 @@ const TierPricingModal = ({
   // Half + Full pallet helpers
   const palletEnabled = !!tierPricingConfig.pallet_enabled;
   const setPalletField = (field, value) => {
-    setTierPricingConfig(prev => ({ ...prev, [field]: value }));
+    // pallet_touched lets the save handler know the admin actually edited the
+    // pallet block — untouched saves must NOT wipe existing per-product pallet config
+    setTierPricingConfig(prev => ({ ...prev, [field]: value, pallet_touched: true }));
   };
   // Unit-aware labels for the pallet block. Materials sold per bag → "bags per pallet";
   // tiles / flooring → "m² per pallet". Mixed selections default to m² with a warning.

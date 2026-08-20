@@ -1292,7 +1292,10 @@ const ManagerPageShell = ({
         open={showTierPricing}
         onOpenChange={(next) => {
           setShowTierPricing(next);
-          if (!next) setTierProductOverrides({});  // reset overrides when the modal closes
+          if (!next) {
+            setTierProductOverrides({});  // reset overrides when the modal closes
+            setTierPricingConfig(prev => ({ ...prev, pallet_touched: false }));
+          }
         }}
         selectedProducts={new Set([...bulk.selectedProducts])}
         selectedProductsList={bulk.getSelectedList()}
@@ -1345,11 +1348,17 @@ const ManagerPageShell = ({
                 trade_discount_type: tierPricingConfig.trade_discount_type || 'percent',
                 credit_back_rate: (tierPricingConfig.credit_back_default === '' || tierPricingConfig.credit_back_default == null) ? 2 : Number(tierPricingConfig.credit_back_default),
                 disabled: tierPricingConfig.disabled || false,
-                pallet_enabled: !!tierPricingConfig.pallet_enabled,
-                pallet_price: tierPricingConfig.pallet_price,
-                half_pallet_price: tierPricingConfig.half_pallet_price,
-                m2_per_pallet: tierPricingConfig.m2_per_pallet,
-                m2_per_half_pallet: tierPricingConfig.m2_per_half_pallet,
+                // Only send pallet config when the admin actually touched the pallet
+                // block this session — otherwise an untouched save would wipe the
+                // per-product pallet data previously saved (backend treats an
+                // explicit pallet_enabled:false as "disable + clear rates").
+                ...(tierPricingConfig.pallet_touched ? {
+                  pallet_enabled: !!tierPricingConfig.pallet_enabled,
+                  pallet_price: tierPricingConfig.pallet_price,
+                  half_pallet_price: tierPricingConfig.half_pallet_price,
+                  m2_per_pallet: tierPricingConfig.m2_per_pallet,
+                  m2_per_half_pallet: tierPricingConfig.m2_per_half_pallet,
+                } : {}),
               }),
             });
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -1358,6 +1367,7 @@ const ManagerPageShell = ({
             toast.success(`Tier pricing saved: ${data.updated_count || selectedList.length}${overrideNote}`);
             setShowTierPricing(false);
             setTierProductOverrides({});
+            setTierPricingConfig(prev => ({ ...prev, pallet_touched: false }));
             fetchProducts();
           } catch (err) { toast.error(`Save failed: ${err.message}`); }
         }}

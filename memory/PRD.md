@@ -9143,3 +9143,10 @@ See `/app/memory/test_credentials.md`
 2. "View in Room" button removed from PDP image toolbar per user request (modal code left dormant; lifestyle images unaffected).
 - Verified: unit product (ULT-EC) shows "Per unit £13.10 each / Half £12.25/unit · min 30 units / Full £11.50/unit · min 60 units", qty snaps to 60, total £690; surface tile (HE6000/Sherwood Oak) still shows m² labels; View in Room absent on both. Test pallet data cleaned.
 - NOTE for user: fix reaches production on next deploy — the saved pallet data on their product will appear then.
+
+## Aug 20, 2026 Session — Pallet save-wipe bug fixed (root cause of "not showing")
+- ROOT CAUSE (2nd bug, compounding the isSurfaceProduct gate): ManagerPageShell always sent global pallet_enabled:false (untouched default) on EVERY tier-pricing save → backend treats explicit false as "disable + clear rates" → any subsequent save silently WIPED previously saved pallet data on all selected products.
+- FIX: TierPricingModal setPalletField now marks pallet_touched:true; ManagerPageShell only includes global pallet fields in the payload when pallet_touched (reset on modal close + after save). Per-row expander overrides unaffected (they carry pallet_enabled:true per row).
+- Verified through the REAL UI flow: Materials Manager → ULT-EC → expander (units, 60×£11.50, 30×£12.25) → Save → DB correct in both collections → RE-OPEN + untouched Save → data INTACT → storefront PDP shows "Per unit £13.10 each / Half £12.25/unit·min 30 units / Full £11.50/unit·min 60 units" with SAVE badges.
+- ULT-EC left configured in preview as a working demo for the user.
+- Production: needs deploy; user must RE-SAVE the pallet data that was wiped on their product.
