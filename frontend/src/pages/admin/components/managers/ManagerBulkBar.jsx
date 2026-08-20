@@ -9,7 +9,7 @@
 import React, { useState } from 'react';
 import { Button } from '../../../../components/ui/button';
 import {
-  X, CheckSquare, Trash2, Archive, Globe, Eye, EyeOff, Percent, Palette, Layers, Grid3X3, Package, PoundSterling, Sparkles, Image as ImageIcon, Tag, Sliders, LayoutGrid, Star, ChevronUp, ListFilter, GripVertical, ExternalLink,
+  X, CheckSquare, Trash2, Archive, Globe, Eye, EyeOff, Percent, Palette, Layers, Grid3X3, Package, PoundSterling, Sparkles, Image as ImageIcon, Tag, Sliders, LayoutGrid, Star, ChevronUp, ListFilter, GripVertical, ExternalLink, Truck,
 } from 'lucide-react';
 import { productDisplayName } from './useManagerBulk';
 
@@ -32,6 +32,7 @@ const ManagerBulkBar = ({
   onOpenFeaturedOrder,
   onJumpToProduct,
   onOpenTierPricing,
+  onOpenDelivery,
   onOpenAssignColours,
   onOpenBulkCategory,
   onOpenBulkFields,
@@ -247,6 +248,19 @@ const ManagerBulkBar = ({
         >
           <Percent className="w-3.5 h-3.5" />
           Tier Pricing
+        </button>
+      )}
+      {!hidden.has('delivery') && onOpenDelivery && (
+        <button
+          type="button"
+          onClick={onOpenDelivery}
+          disabled={saving}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/15 hover:bg-white/25 transition text-[13px] font-medium"
+          data-testid="bar-delivery-charge"
+          title="Mandatory delivery charges + parcel (non-palletised) shipping"
+        >
+          <Truck className="w-3.5 h-3.5" />
+          Delivery
         </button>
       )}
       {!hidden.has('bulkFields') && onOpenBulkFields && (

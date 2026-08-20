@@ -45,7 +45,7 @@ import BulkImageUploadModal from './managers/BulkImageUploadModal';
 import CsvImportModal from './managers/CsvImportModal';
 import ProductImagesGridPanel from './managers/ProductImagesGridPanel';
 import { groupBySeries } from '../lib/series';
-import { Layers, LayoutGrid, List, ImageOff, Wrench, Maximize2 } from 'lucide-react';
+import { Layers, LayoutGrid, List, ImageOff, Wrench, Maximize2, Truck, Package } from 'lucide-react';
 import StaleValueSweepModal from './managers/StaleValueSweepModal';
 import LargeFormatSweepModal from './managers/LargeFormatSweepModal';
 import { isLargeFormat } from './managers/ShopTabsAssignModal';
@@ -57,6 +57,7 @@ import { fetchShopTabDestinations, buildDestinationMap } from '../lib/shopTabDes
 import AssignColoursModal, { computeCompleteness } from './managers/AssignColoursModal';
 import TierPricingModal from './supplier-products/TierPricingModal';
 import MarginGuardBanner, { computeMarginGuard } from './managers/MarginGuardBanner';
+import DeliveryChargeModal from './managers/DeliveryChargeModal';
 import BulkSaleModal from './supplier-products/BulkSaleModal';
 import { useManagerBulk, getProductKey, productDisplayName } from './managers/useManagerBulk';
 import FeaturedOrderModal from './managers/FeaturedOrderModal';
@@ -182,6 +183,8 @@ const ManagerPageShell = ({
   const [showLfSweep, setShowLfSweep] = useState(false);
   // Margin Guard — show only loss-making products
   const [marginGuardOnly, setMarginGuardOnly] = useState(false);
+  // Delivery rules modal (mandatory charge + parcel shipping)
+  const [showDeliveryCharge, setShowDeliveryCharge] = useState(false);
 
   // ---- Per-Manager config (facets, sub-tabs, spec fields) from the DB ----
   const { config, save: saveConfig, refresh: refreshConfig } = useManagerConfig(categoryKey);
@@ -989,6 +992,8 @@ const ManagerPageShell = ({
                             <div className="font-medium text-gray-900 line-clamp-1 flex items-center gap-1">
                               {p.is_featured && <Star className="w-3.5 h-3.5 text-amber-500 fill-amber-400 flex-shrink-0" title="Featured on the website front page" />}
                               {p.samples_hidden && <FlaskConical className="w-3.5 h-3.5 text-rose-400 flex-shrink-0" title="Sample requests disabled for this product" data-testid={`no-samples-icon-${p.sku || p.supplier_code}`} />}
+                              {p.delivery_charge_required && <Truck className="w-3.5 h-3.5 text-amber-500 flex-shrink-0" title={`Mandatory delivery charge £${Number(p.delivery_charge || 0).toFixed(2)} — applies even over the free-delivery threshold`} data-testid={`delivery-charge-icon-${p.sku || p.supplier_code}`} />}
+                              {p.parcel_delivery && <Package className="w-3.5 h-3.5 text-sky-500 flex-shrink-0" title={`Ships as parcel (non-palletised)${Number(p.parcel_fee || 0) > 0 ? ` — £${Number(p.parcel_fee).toFixed(2)} parcel rate` : ''}`} data-testid={`parcel-icon-${p.sku || p.supplier_code}`} />}
                               {name}
                             </div>
                             <div className="text-xs text-gray-500">
@@ -1090,6 +1095,7 @@ const ManagerPageShell = ({
         onOpenFeaturedOrder={() => setShowFeaturedOrder(true)}
         onOpenAssignColours={() => setShowAssignColours(true)}
         onOpenTierPricing={() => setShowTierPricing(true)}
+        onOpenDelivery={() => setShowDeliveryCharge(true)}
         onOpenBulkFields={() => setShowBulkFields(true)}
         onOpenAIDescriptions={() => setShowAIDescriptions(true)}
         onOpenBulkImages={() => setShowBulkImages(true)}
@@ -1236,6 +1242,13 @@ const ManagerPageShell = ({
           // Re-read tab definitions on close — picks up tabs created via "+ New tab"
           if (!o) fetchShopTabDestinations().then(pages => setDestMap(buildDestinationMap(pages)));
         }}
+        selectedProducts={bulk.getSelectedList()}
+        onSaved={fetchProducts}
+      />
+
+      <DeliveryChargeModal
+        open={showDeliveryCharge}
+        onOpenChange={setShowDeliveryCharge}
         selectedProducts={bulk.getSelectedList()}
         onSaved={fetchProducts}
       />

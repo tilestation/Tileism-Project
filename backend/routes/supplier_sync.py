@@ -6650,6 +6650,87 @@ def bulk_update_product_quote_settings(data: BulkQuoteSettingsRequest):
 
 
 # ============================================================
+# DELIVERY SETTINGS UPDATE ENDPOINT (mandatory charge + parcel)
+# ============================================================
+
+class BulkDeliverySettingsRequest(BaseModel):
+    products: List[dict]  # List of {supplier, sku}
+    delivery_charge_required: Optional[bool] = None  # Always charge delivery for this product
+    delivery_charge: Optional[float] = None          # £ charged once per order (highest single charge wins)
+    parcel_delivery: Optional[bool] = None           # Ships as a parcel (non-palletised)
+    parcel_fee: Optional[float] = None               # £ parcel rate when the whole order is parcel-only
+    clear: Optional[bool] = False                    # Remove all delivery settings from these products
+
+
+@router.put("/products/bulk-delivery-settings")
+def bulk_update_product_delivery_settings(data: BulkDeliverySettingsRequest):
+    """
+    Set item-level delivery rules on multiple products at once.
+    - delivery_charge_required + delivery_charge: mandatory delivery charge that
+      applies even over the free-delivery threshold (waived only when the
+      NON-marked items in the order alone cross the threshold).
+    - parcel_delivery + parcel_fee: small non-palletised items; when an order
+      contains ONLY parcel items the parcel rate replaces the pallet delivery fee.
+    Updates supplier_products and mirrors to tiles (matched by sku).
+    """
+    try:
+        db = get_db()
+        updated_count = 0
+
+        update_data = {"updated_at": datetime.now(timezone.utc)}
+        if data.clear:
+            update_data.update({
+                "delivery_charge_required": False,
+                "delivery_charge": None,
+                "parcel_delivery": False,
+                "parcel_fee": None,
+            })
+        else:
+            if data.delivery_charge_required is not None:
+                update_data["delivery_charge_required"] = bool(data.delivery_charge_required)
+                if not data.delivery_charge_required:
+                    update_data["delivery_charge"] = None
+            if data.delivery_charge is not None:
+                update_data["delivery_charge"] = float(data.delivery_charge)
+            if data.parcel_delivery is not None:
+                update_data["parcel_delivery"] = bool(data.parcel_delivery)
+                if not data.parcel_delivery:
+                    update_data["parcel_fee"] = None
+            if data.parcel_fee is not None:
+                update_data["parcel_fee"] = float(data.parcel_fee)
+
+        for product in data.products:
+            supplier = product.get('supplier')
+            sku = product.get('sku')
+
+            query = build_product_query(supplier, sku)
+            if not query:
+                continue
+
+            result = db.supplier_products.update_one(query, {"$set": update_data})
+            if result.modified_count > 0:
+                updated_count += 1
+
+            # Tiles docs carry a null supplier — match on sku/supplier_code only
+            if sku:
+                db.tiles.update_one(
+                    {"$or": [{"sku": sku}, {"supplier_code": sku}]},
+                    {"$set": update_data}
+                )
+
+        logger.info(f"Bulk delivery settings: {updated_count} products updated")
+        return {
+            "success": True,
+            "message": f"Delivery settings updated for {updated_count} products",
+            "updated_count": updated_count,
+        }
+
+    except Exception as e:
+        logger.error(f"Error in bulk delivery settings update: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================
 # PRICING UNIT SETTINGS UPDATE ENDPOINT
 # ============================================================
 

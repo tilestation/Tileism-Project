@@ -2599,6 +2599,52 @@ async def referral_stats(current_user: dict = Depends(get_current_user)):
     }
 
 
+async def _get_delivery_flags(db, ids: list) -> dict:
+    """Resolve cart product ids (tile id / sku / supplier_code / slug) to their
+    item-level delivery rules. Returns {identifier: flags} keyed by EVERY
+    identifier of each matched tile so any id the cart holds resolves."""
+    clean = [str(i) for i in ids if i]
+    if not clean:
+        return {}
+    cursor = db.tiles.find(
+        {"$or": [
+            {"id": {"$in": clean}},
+            {"sku": {"$in": clean}},
+            {"supplier_code": {"$in": clean}},
+            {"slug": {"$in": clean}},
+        ]},
+        {"_id": 0, "id": 1, "sku": 1, "supplier_code": 1, "slug": 1,
+         "delivery_charge_required": 1, "delivery_charge": 1,
+         "parcel_delivery": 1, "parcel_fee": 1},
+    )
+    flags = {}
+    async for doc in cursor:
+        f = {
+            "delivery_charge_required": bool(doc.get("delivery_charge_required")),
+            "delivery_charge": float(doc.get("delivery_charge") or 0),
+            "parcel_delivery": bool(doc.get("parcel_delivery")),
+            "parcel_fee": float(doc.get("parcel_fee") or 0),
+        }
+        for key_field in ("id", "sku", "supplier_code", "slug"):
+            v = doc.get(key_field)
+            if v:
+                flags[str(v)] = f
+    return flags
+
+
+class DeliveryFlagsRequest(BaseModel):
+    ids: List[str]
+
+
+@router.post("/delivery-flags")
+async def get_delivery_flags(data: DeliveryFlagsRequest):
+    """Public — item-level delivery rules for cart items (mandatory delivery
+    charges + parcel shipping flags). Used by the cart and checkout pages."""
+    db = get_db()
+    flags = await _get_delivery_flags(db, data.ids[:200])
+    return {"flags": flags}
+
+
 @router.post("/guest-checkout")
 async def create_guest_checkout_order(order_input: GuestCheckoutOrder):
     """Create order from the new checkout page (no auth required)"""
@@ -2620,6 +2666,8 @@ async def create_guest_checkout_order(order_input: GuestCheckoutOrder):
     delivery_fee = 0.0
     congestion_charge = 0.0
     is_congestion_zone = False
+    item_delivery_charge = 0.0
+    is_parcel_order = False
     if delivery_method == "delivery":
         settings_doc = await db.website_settings.find_one({"key": "checkout_settings"}, {"_id": 0})
         cs = settings_doc.get("value", {}) if settings_doc else {}
@@ -2648,6 +2696,34 @@ async def create_guest_checkout_order(order_input: GuestCheckoutOrder):
         if is_congestion_zone and cc_settings.get("enabled", False):
             congestion_charge = cc_settings.get("amount", 15.0)
 
+        # ---- Item-level delivery rules (mandatory charges + parcel items) ----
+        flags_map = await _get_delivery_flags(db, [it.product_id or "" for it in order_input.items])
+        marked_charges = []
+        eligible_subtotal = 0.0
+        parcel_all = len(order_input.items) > 0
+        parcel_fees = []
+        for it in order_input.items:
+            f = flags_map.get(str(it.product_id or ""), {})
+            line_total = float(it.price or 0) * float(it.quantity or 0)
+            if f.get("delivery_charge_required") and float(f.get("delivery_charge") or 0) > 0:
+                marked_charges.append(float(f["delivery_charge"]))
+            else:
+                eligible_subtotal += line_total
+            if f.get("parcel_delivery"):
+                if float(f.get("parcel_fee") or 0) > 0:
+                    parcel_fees.append(float(f["parcel_fee"]))
+            else:
+                parcel_all = False
+        # Mandatory item charge: highest single charge; waived ONLY when the
+        # non-marked items alone cross the free-delivery threshold.
+        if marked_charges and eligible_subtotal < free_threshold:
+            item_delivery_charge = max(marked_charges)
+        # Parcel-only order: courier parcel rate replaces the pallet delivery fee
+        if parcel_all:
+            is_parcel_order = True
+            if parcel_fees and subtotal < free_threshold and not marked_charges:
+                delivery_fee = max(parcel_fees)
+
     # Express delivery surcharge
     express_fee = 0.0
     delivery_speed = delivery_info.get("speed", "standard")
@@ -2658,7 +2734,7 @@ async def create_guest_checkout_order(order_input: GuestCheckoutOrder):
         if express_settings.get("enabled", False):
             express_fee = express_settings.get("extra_fee", 25.0)
 
-    total = round(subtotal + delivery_fee + congestion_charge + express_fee, 2)
+    total = round(subtotal + delivery_fee + congestion_charge + express_fee + item_delivery_charge, 2)
 
     # ---- Promo code (e.g. abandoned-cart day-1 BACK10-XXXX). Server-validated. ----
     promo_discount = 0.0
@@ -2723,6 +2799,8 @@ async def create_guest_checkout_order(order_input: GuestCheckoutOrder):
         "delivery_fee": round(delivery_fee, 2),
         "congestion_charge": round(congestion_charge, 2),
         "express_fee": round(express_fee, 2),
+        "item_delivery_charge": round(item_delivery_charge, 2),
+        "is_parcel_order": is_parcel_order,
         "promo_code": (promo_applied or {}).get("code"),
         "promo_discount": round(promo_discount, 2),
         "promo_percent_off": (promo_applied or {}).get("percent_off"),

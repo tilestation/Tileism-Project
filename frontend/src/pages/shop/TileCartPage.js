@@ -42,6 +42,8 @@ const TileCartPage = () => {
   // Admin-configured free delivery threshold + default fee (falls back to sensible defaults)
   const [deliveryThreshold, setDeliveryThreshold] = useState(499);
   const [defaultDeliveryFee, setDefaultDeliveryFee] = useState(49.99);
+  // Item-level delivery rules — mandatory charges + parcel flags per cart item
+  const [deliveryFlags, setDeliveryFlags] = useState({});
   // Free sample upsell config (admin-driven) — shows a nudge on carts under threshold
   const [freeSample, setFreeSample] = useState({
     enabled: false,
@@ -64,6 +66,26 @@ const TileCartPage = () => {
       })
       .catch(() => {});
   }, []);
+
+  // Fetch item-level delivery rules for the basket (mandatory charges + parcel)
+  useEffect(() => {
+    const ids = [...new Set((cart || []).map(i => String(i.id || i.product_id || '')).filter(Boolean))];
+    if (ids.length === 0) { setDeliveryFlags({}); return; }
+    fetch(`${API_URL}/api/shop/delivery-flags`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids }),
+    })
+      .then(res => res.ok ? res.json() : { flags: {} })
+      .then(d => setDeliveryFlags(d.flags || {}))
+      .catch(() => {});
+  }, [cart]);
+
+  const itemFlags = (item) => deliveryFlags[String(item.id || item.product_id || '')] || {};
+  const hasMarkedItems = (cart || []).some(i => {
+    const f = itemFlags(i);
+    return f.delivery_charge_required && Number(f.delivery_charge) > 0;
+  });
 
   // Check if admin has enabled Klarna / PayPal / Wallet at checkout (shows Express buttons)
   // Also pulls the admin-configured free-delivery threshold + default fee so the
@@ -422,6 +444,20 @@ const TileCartPage = () => {
                         {item.size && item.finish && <span className="w-1 h-1 rounded-full bg-[#D6D3D1]" />}
                         {item.finish && <span>{item.finish}</span>}
                       </div>
+
+                      {/* Mandatory delivery charge note */}
+                      {itemFlags(item).delivery_charge_required && Number(itemFlags(item).delivery_charge) > 0 && (
+                        <p className="text-[11px] text-amber-700 font-medium mt-1 flex items-center gap-1" data-testid={`cart-delivery-note-${item.slug || item.id}`}>
+                          <Truck className="w-3 h-3" />
+                          £{Number(itemFlags(item).delivery_charge).toFixed(2)} delivery charge applies to this item
+                        </p>
+                      )}
+                      {itemFlags(item).parcel_delivery && (
+                        <p className="text-[11px] text-sky-700 mt-0.5 flex items-center gap-1" data-testid={`cart-parcel-note-${item.slug || item.id}`}>
+                          <Package className="w-3 h-3" />
+                          Ships as a parcel
+                        </p>
+                      )}
                       
                       {/* Pallet tier badge — only when this line was added at a half/full pallet rate */}
                       {(item.pallet_tier === 'half_pallet' || item.pallet_tier === 'full_pallet') && (
@@ -712,6 +748,11 @@ const TileCartPage = () => {
                       <p className="text-[11px] text-emerald-700/80">Saved £{safeToFixed(defaultDeliveryFee, 2)} on shipping</p>
                     </div>
                   </motion.div>
+                )}
+                {!isCollection && hasMarkedItems && (
+                  <p className="text-[10px] text-[#A8A29E] leading-snug px-1" data-testid="delivery-exclusion-smallprint">
+                    * Some items in your basket are excluded from free delivery — a mandatory delivery charge applies at checkout unless your other items exceed £{deliveryThreshold.toFixed(0)}.
+                  </p>
                 )}
 
                 <div className="flex justify-between items-baseline pt-1" data-testid="cart-subtotal">

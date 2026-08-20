@@ -9105,3 +9105,15 @@ See `/app/memory/test_credentials.md`
 - Confirmed rule: cost is ex-VAT, sold/list prices inc-VAT. Profit = (sold ÷ 1.2) − cost − credit back, where credit back = cb% × ex-VAT price. Example: cost £10, sold £18 → £15 ex-VAT − £10 − £0.30 = £4.70 profit (31%).
 - Applied in: PerProductOverridesPanel (column renamed "Profit / Margin", shows "£X.XX · Y%" + "ex-VAT £A − CB £B" sub-line, below-cost warning when ex-VAT < cost), MarginGuardBanner/computeMarginGuard (new Ex-VAT £ column; loss shows £ and %), TierPricingModal tier table (margin % now shown under each Profit £).
 - Verified via screenshot: user's exact example reproduces £4.70 · 31%; banner row maths checked (£6.17 trade → £5.15 ex-VAT → −£1.46 (−28%)).
+
+## Aug 20, 2026 Session — Item-level Delivery Rules (mandatory charge + parcel shipping)
+- User need: some products always require a delivery charge regardless of spend; some small items (tools/drill bits) ship as parcels not pallets. Manage in Managers.
+- Backend (supplier_sync.py): PUT /api/supplier-sync/products/bulk-delivery-settings — sets delivery_charge_required + delivery_charge, parcel_delivery + parcel_fee, or clear=true; mirrors supplier_products→tiles by sku.
+- Backend (shop.py): POST /api/shop/delivery-flags (public, resolves cart ids→flags by id/sku/supplier_code/slug). guest-checkout now computes item_delivery_charge + is_parcel_order:
+  * Mandatory charge = HIGHEST single marked charge, applied even over free-delivery threshold, WAIVED only when NON-marked items' subtotal alone >= free_threshold.
+  * Charge once per order (not × qty).
+  * Parcel-only order under threshold → parcel rate replaces standard pallet delivery fee; mixed parcel+regular → normal fee.
+- Frontend admin: DeliveryChargeModal.jsx + "Delivery" button in ManagerBulkBar; truck (amber) + parcel (sky) row badges in ManagerPageShell; modal prefills from first selected product, Save/Remove.
+- Frontend storefront: TileCartPage + TileCheckoutPage fetch delivery-flags; per-item "£X delivery charge applies" note, checkout "Item delivery charge +£X" summary row with waiver explanation, small-print under Free-delivery ("some items excluded") on cart + checkout delivery option.
+- Tested: backend 7-scenario script ALL PASS (endpoint round-trip, charge applies/waived, marked-only not waived, parcel-only replaces fee, mixed=normal, clear). UI verified: parcel badge, modal prefill (parcel 4.99), cart note £15 + smallprint, checkout charge row + waiver text. Test products cleared, 5 test orders deleted.
+- data-testids: bar-delivery-charge, delivery-charge-enabled-checkbox, delivery-charge-amount-input, parcel-delivery-enabled-checkbox, parcel-fee-input, delivery-settings-save-btn, delivery-settings-clear-btn, delivery-charge-icon-{sku}, parcel-icon-{sku}, cart-delivery-note-{slug}, cart-parcel-note-{slug}, item-delivery-charge-row, item-delivery-note-{slug}, delivery-exclusion-smallprint.

@@ -179,6 +179,54 @@ const TileCheckoutPage = () => {
     0
   ), [cartItems, isTrade, tradeDiscount]);
 
+  // Item-level delivery rules — mandatory charges + parcel flags per cart item
+  const [deliveryFlags, setDeliveryFlags] = useState({});
+  useEffect(() => {
+    const ids = [...new Set(cartItems.map(i => String(i.id || i.product_id || '')).filter(Boolean))];
+    if (ids.length === 0) { setDeliveryFlags({}); return; }
+    axios.post(`${API_URL}/api/shop/delivery-flags`, { ids })
+      .then(res => setDeliveryFlags(res.data?.flags || {}))
+      .catch(() => {});
+  }, [cartItems]);
+
+  // Mandatory item delivery charge: highest single charge among marked items,
+  // waived ONLY when the non-marked items alone cross the free-delivery threshold.
+  // Parcel-only orders: the parcel rate replaces the pallet delivery fee.
+  const { itemDeliveryCharge, parcelOnly, parcelFee, markedItemIds } = useMemo(() => {
+    const items = cartItems || [];
+    const marked = [];
+    const fees = [];
+    const ids = new Set();
+    let eligible = 0;
+    let parcelAll = items.length > 0;
+    items.forEach(item => {
+      const key = String(item.id || item.product_id || '');
+      const f = deliveryFlags[key] || {};
+      const line = getEffectivePrice(item, isTrade, tradeDiscount) * (item.quantity || 0);
+      if (f.delivery_charge_required && Number(f.delivery_charge) > 0) {
+        marked.push(Number(f.delivery_charge));
+        ids.add(key);
+      } else {
+        eligible += line;
+      }
+      if (f.parcel_delivery) {
+        if (Number(f.parcel_fee) > 0) fees.push(Number(f.parcel_fee));
+      } else {
+        parcelAll = false;
+      }
+    });
+    const threshold = settings.delivery.free_threshold || 499;
+    const charge = (delivery.method === 'delivery' && marked.length > 0 && eligible < threshold)
+      ? Math.max(...marked)
+      : 0;
+    return {
+      itemDeliveryCharge: charge,
+      parcelOnly: parcelAll && marked.length === 0,
+      parcelFee: fees.length ? Math.max(...fees) : null,
+      markedItemIds: ids,
+    };
+  }, [cartItems, deliveryFlags, isTrade, tradeDiscount, settings.delivery, delivery.method]);
+
   // Calculate delivery fee and congestion charge based on postcode zone
   const { deliveryFee, congestionCharge, matchedZone } = useMemo(() => {
     if (delivery.method === 'collect') return { deliveryFee: 0, congestionCharge: 0, matchedZone: null };
@@ -198,6 +246,11 @@ const TileCheckoutPage = () => {
       }
     }
 
+    // Parcel-only order — the courier parcel rate replaces the pallet delivery fee
+    if (parcelOnly && parcelFee !== null && subtotal < settings.delivery.free_threshold) {
+      fee = parcelFee;
+    }
+
     // Free delivery for orders over threshold
     if (subtotal >= settings.delivery.free_threshold) fee = 0;
 
@@ -206,7 +259,7 @@ const TileCheckoutPage = () => {
     const ccAmount = (zone?.is_congestion_zone && cc.enabled) ? (cc.amount || 0) : 0;
 
     return { deliveryFee: fee, congestionCharge: ccAmount, matchedZone: zone };
-  }, [delivery.method, delivery.postcode, step, subtotal, settings.delivery]);
+  }, [delivery.method, delivery.postcode, step, subtotal, settings.delivery, parcelOnly, parcelFee]);
 
   // Express delivery surcharge
   const expressSettings = settings.delivery.express || {};
@@ -215,7 +268,7 @@ const TileCheckoutPage = () => {
   const promoDiscount = promoApplied ? Number(promoApplied.discount_amount || 0) : 0;
   // Pre-credit total is what the order will be saved at; trade credit then
   // deducts atomically from balance via /trade/credits/redeem before /pay.
-  const totalBeforeCredit = Math.max(0, subtotal + (deliveryFee || 0) + congestionCharge + expressFee - promoDiscount);
+  const totalBeforeCredit = Math.max(0, subtotal + (deliveryFee || 0) + congestionCharge + expressFee + itemDeliveryCharge - promoDiscount);
   const tradeCreditApplied = tradeCreditEnabled
     ? Math.round(Math.min(tradeCreditBalance, totalBeforeCredit) * 100) / 100
     : 0;
@@ -693,6 +746,7 @@ const TileCheckoutPage = () => {
                         <div className="flex-1">
                           <span className="font-semibold text-gray-900">{settings.delivery.label}</span>
                           <p className="text-sm text-gray-500">{settings.delivery.description}</p>
+                          <p className="text-[10px] text-gray-400 mt-0.5">* Some items are excluded from free delivery — a mandatory delivery charge may apply.</p>
                           {subtotal >= settings.delivery.free_threshold && (
                             <span className="inline-block mt-1 text-xs font-medium text-green-600 bg-green-50 px-2 py-0.5 rounded">FREE on this order</span>
                           )}
@@ -1095,6 +1149,12 @@ const TileCheckoutPage = () => {
                         <div className="flex-1 min-w-0">
                           <p className="font-semibold text-[13px] text-[#1C1917] leading-tight line-clamp-2 pr-6">{item.name}</p>
                           {item.variant && <p className="text-[11px] text-[#78716C] mt-0.5">{item.variant}</p>}
+                          {markedItemIds.has(String(item.id || item.product_id || '')) && (
+                            <p className="text-[10px] text-amber-700 font-medium mt-0.5 flex items-center gap-1" data-testid={`item-delivery-note-${item.slug || item.id}`}>
+                              <Truck className="w-3 h-3" />
+                              £{Number((deliveryFlags[String(item.id || item.product_id || '')] || {}).delivery_charge || 0).toFixed(2)} delivery charge applies
+                            </p>
+                          )}
                           <div className="mt-1.5 inline-flex items-center px-2 py-0.5 bg-[#F3F0EB] rounded-md">
                             <span className="font-mono text-[10px] tracking-tight text-[#44403C]" data-testid={`cart-qty-context-${item.slug}`}>
                               {formatCartQuantity(item)}
@@ -1130,7 +1190,7 @@ const TileCheckoutPage = () => {
                     <span className="font-semibold text-[#1C1917] tabular-nums">£{subtotal.toFixed(2)}</span>
                   </div>
                   <div className="flex justify-between text-sm">
-                    <span className="text-[#78716C]">Delivery</span>
+                    <span className="text-[#78716C]">{parcelOnly && (deliveryFee || 0) > 0 ? 'Delivery (parcel)' : 'Delivery'}</span>
                     {deliveryFee === null ? (
                       <span className="text-[#A8A29E] italic text-xs">Calculated next step</span>
                     ) : deliveryFee === 0 ? (
@@ -1139,6 +1199,17 @@ const TileCheckoutPage = () => {
                       <span className="font-semibold text-[#1C1917] tabular-nums">£{safeToFixed(deliveryFee, 2)}</span>
                     )}
                   </div>
+                  {itemDeliveryCharge > 0 && (
+                    <div data-testid="item-delivery-charge-row">
+                      <div className="flex justify-between text-sm">
+                        <span className="text-amber-700 flex items-center gap-1"><Truck className="w-3 h-3" />Item delivery charge</span>
+                        <span className="font-semibold text-amber-700 tabular-nums">+ £{itemDeliveryCharge.toFixed(2)}</span>
+                      </div>
+                      <p className="text-[10px] text-[#A8A29E] leading-snug mt-0.5">
+                        Some items are excluded from free delivery — this charge is waived when your other items exceed £{(settings.delivery.free_threshold || 499).toFixed(0)}.
+                      </p>
+                    </div>
+                  )}
                   {congestionCharge > 0 && (
                     <div className="flex justify-between text-sm">
                       <span className="text-red-700">{settings.delivery.congestion_charge?.label || 'Congestion Charge'}</span>
