@@ -25,9 +25,9 @@ export function parseSizeToMm(s) {
 }
 
 export function computePillDims(sizes, opts = {}) {
-  const BASE = opts.base ?? 3200;        // px² floor for smallest pill
-  const MAX_LONG = opts.maxLong ?? 130;  // px cap on long side
-  const MIN_SHORT = opts.minShort ?? 42; // px floor on short side
+  const BASE = opts.base ?? 6400;        // px² floor for smallest pill (Aug 20: doubled — user wanted bigger size pills)
+  const MAX_LONG = opts.maxLong ?? 175;  // px cap on long side
+  const MIN_SHORT = opts.minShort ?? 58; // px floor on short side
 
   const parsed = sizes.map((s) => ({ raw: s, dims: parseSizeToMm(s) }));
   const validAreas = parsed

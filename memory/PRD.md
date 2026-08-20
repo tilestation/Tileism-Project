@@ -9052,3 +9052,9 @@ See `/app/memory/test_credentials.md`
 - **Fix**: shared helper `productDisplayName(p) = product_name || display_name || our_product_name || name` in useManagerBulk.js. Applied to: ManagerPageShell rows/toast/allIndex, ManagerBulkBar selected panel, AssignColoursModal, LargeFormatSweepModal, PerBoxAutoFill, BulkFieldsModal, BulkAIDescriptionsModal, BulkImageUploadModal, BulkPreviewModal. Manager search haystack now matches ALL name fields.
 - **Pollution path closed**: QuickEditProductDrawer prefilled display_name/product_name from `display_name || our_product_name` — a no-change save could overwrite the good product_name with the supplier name. Prefill now starts with product_name.
 - Verified: screenshot — Tiles Manager shows "Burlington White 60x60cm Matt" (product_name) instead of "Mediterranean White" (polluted our_product_name).
+
+## Aug 20, 2026 Session — Bigger PDP variant selectors
+- User asked for bigger Colour/Finish/Size selectors on the PDP, especially sizes.
+- sizePill.js defaults: BASE 3200→6400 px², MAX_LONG 130→175, MIN_SHORT 42→58 (pills now ~116x58 / 95x95 vs ~82x41 / 67x67).
+- CollectionDetailPage.js: swatches w-20→w-24 (sm:w-28), swatch labels text-xs→text-sm, check overlay now aspect-square (no hardcoded 80px), Finish/Style buttons px-5 py-2.5 text-base, section labels text-base font-semibold, size pill text tight/proportional bumped (text-xs/text-sm, price 10/11px), non-proportional pill min-w-110px text-base.
+- Verified via screenshots + bounding boxes on TestSeries PDP.

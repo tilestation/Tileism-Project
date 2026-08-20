@@ -2664,7 +2664,7 @@ const CollectionDetailPage = () => {
             {/* Color Selector — hidden for material collections */}
             {!isMaterialCollection && colorOptions.length > 0 && (
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2" data-testid="variant-row-label">
+                <label className="block text-base font-semibold text-gray-800 mb-2" data-testid="variant-row-label">
                   {variantRowLabel}: <span className={`font-normal ${selectedColor ? 'text-gray-500' : 'text-amber-600'}`}>
                     {selectedColor ? formatColorName(selectedColor) : 'Please select'}
                   </span>
@@ -2690,7 +2690,7 @@ const CollectionDetailPage = () => {
                       title={formatColorName(color.name)}
                     >
                       {color.image ? (
-                        <div className="w-20 h-20 rounded-lg overflow-hidden">
+                        <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-lg overflow-hidden">
                           <img
                             src={color.image}
                             alt={formatColorName(color.name)}
@@ -2730,20 +2730,20 @@ const CollectionDetailPage = () => {
                         </div>
                       ) : (
                         <div 
-                          className="w-20 h-20 rounded-lg border border-gray-200 flex items-center justify-center px-1"
+                          className="w-24 h-24 sm:w-28 sm:h-28 rounded-lg border border-gray-200 flex items-center justify-center px-1"
                           style={{ backgroundColor: color.hex }}
                         >
-                          <span className={`text-[10px] font-semibold text-center leading-tight break-words ${hexIsDark(color.hex) ? 'text-white' : 'text-gray-600'}`}>
+                          <span className={`text-xs font-semibold text-center leading-tight break-words ${hexIsDark(color.hex) ? 'text-white' : 'text-gray-600'}`}>
                             {formatColorName(color.name)}
                           </span>
                         </div>
                       )}
                       {selectedColor === color.name && (
-                        <div className="absolute inset-0 flex items-center justify-center bg-black/20 rounded-lg" style={{width: '80px', height: '80px'}}>
-                          <Check className="w-6 h-6 text-white" />
+                        <div className="absolute top-0 left-0 right-0 flex items-center justify-center bg-black/20 rounded-lg aspect-square">
+                          <Check className="w-7 h-7 text-white" />
                         </div>
                       )}
-                      <span className={`text-xs mt-1 ${selectedColor === color.name ? 'text-amber-600 font-medium' : 'text-gray-500'}`}>
+                      <span className={`text-sm mt-1 ${selectedColor === color.name ? 'text-amber-600 font-medium' : 'text-gray-500'}`}>
                         {formatColorName(color.name)}
                       </span>
                     </button>
@@ -2756,7 +2756,7 @@ const CollectionDetailPage = () => {
             {/* Finish Selector — hidden for material collections */}
             {!isMaterialCollection && hasFinishes && finishOptions.length > 0 && (
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-base font-semibold text-gray-800 mb-2">
                   Finish: <span className={`font-normal ${selectedFinish ? 'text-gray-500' : 'text-amber-600'}`}>
                     {selectedFinish ? selectedFinish.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase()).replace(/\bR(\d+)\b/gi, (_, n) => `R${n}`) : 'Please select'}
                   </span>
@@ -2774,7 +2774,7 @@ const CollectionDetailPage = () => {
                         setSelectedFinish(finish);
                         setSelectedStyle(null); // Reset pattern when finish changes
                       }}
-                      className={`px-4 py-2 rounded-lg border text-sm font-medium transition ${
+                      className={`px-5 py-2.5 rounded-lg border text-base font-medium transition ${
                         selectedFinish === finish
                           ? 'border-amber-500 bg-amber-50 text-amber-700'
                           : 'border-gray-300 hover:border-gray-400 text-gray-700'
@@ -2804,7 +2804,7 @@ const CollectionDetailPage = () => {
                         userClickedRef.current = 'style';
                         setSelectedStyle(style);
                       }}
-                      className={`px-4 py-2 rounded-lg border text-sm font-medium transition ${
+                      className={`px-5 py-2.5 rounded-lg border text-base font-medium transition ${
                         selectedStyle === style
                           ? 'border-amber-500 bg-amber-50 text-amber-700'
                           : 'border-gray-300 hover:border-gray-400 text-gray-700'
@@ -2855,7 +2855,7 @@ const CollectionDetailPage = () => {
                 : null;
               return (
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-base font-semibold text-gray-800 mb-2">
                   Size: <span className={`font-normal ${selectedSize ? 'text-gray-500' : 'text-amber-600'}`}>
                     {selectedSize || 'Please select'}
                   </span>
@@ -2882,18 +2882,18 @@ const CollectionDetailPage = () => {
                       style={style}
                       title={`${size}${price !== null ? ` — \u00A3${price.toFixed(2)}/${isSurfaceProduct ? 'm\u00B2' : 'each'}` : ''}`}
                       className={`flex flex-col items-center justify-center rounded-lg border font-medium transition flex-shrink-0 ${
-                        proportional ? 'px-1 py-1' : 'px-4 py-2 min-w-[90px]'
+                        proportional ? 'px-1 py-1' : 'px-5 py-3 min-w-[110px]'
                       } ${
                         isSelected
                           ? 'border-amber-500 border-2 bg-amber-50 text-amber-700 shadow-sm'
                           : 'border-gray-300 hover:border-amber-400 hover:shadow-sm text-gray-700'
                       }`}
                     >
-                      <span className={tight ? 'text-[10px] leading-tight font-semibold' : proportional ? 'text-[11px] leading-tight font-semibold' : 'text-sm'}>
+                      <span className={tight ? 'text-xs leading-tight font-semibold' : proportional ? 'text-sm leading-tight font-semibold' : 'text-base'}>
                         {size}
                       </span>
                       {price !== null && (
-                        <span className={`${tight ? 'text-[8.5px] mt-0.5' : proportional ? 'text-[9px] mt-0.5' : 'text-xs mt-0.5'} ${isSelected ? 'text-amber-600' : 'text-gray-400'}`}>
+                        <span className={`${tight ? 'text-[10px] mt-0.5' : proportional ? 'text-[11px] mt-0.5' : 'text-sm mt-0.5'} ${isSelected ? 'text-amber-600' : 'text-gray-400'}`}>
                           {'\u00A3'}{price.toFixed(2)}/{isSurfaceProduct ? 'm\u00B2' : 'each'}
                         </span>
                       )}
