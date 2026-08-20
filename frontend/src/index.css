@@ -130,3 +130,11 @@ code {
         touch-action: pan-x pan-y;
     }
 }
+/* PDP variant switch — soft crossfade so image swaps don't flash like a reload */
+@keyframes pdpImgFade {
+  from { opacity: 0.3; }
+  to { opacity: 1; }
+}
+.pdp-img-fade {
+  animation: pdpImgFade 0.28s ease;
+}

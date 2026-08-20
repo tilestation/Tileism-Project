@@ -358,6 +358,19 @@ const CollectionDetailPage = () => {
   }, []);
 
 
+  // Preload every variant's lead images once the collection loads, so
+  // switching colour/size swaps instantly instead of flashing like a reload.
+  useEffect(() => {
+    products.slice(0, 40).forEach(p => {
+      normaliseImageList(p?.images).slice(0, 2).forEach(src => {
+        if (src && !/\.(mp4|webm|mov)(\?|$)/i.test(src)) {
+          const im = new Image();
+          im.src = src;
+        }
+      });
+    });
+  }, [products]);
+
   // Fetch products
   useEffect(() => {
     const fetchProducts = async () => {
@@ -1126,13 +1139,29 @@ const CollectionDetailPage = () => {
       });
     }
     
-    const product = filtered[0] || null;
+    let product = filtered[0] || null;
+    // Stale size carried over from the previous colour? Retry without the
+    // size filter and adopt the new product's size so the selection
+    // converges instead of dead-ending on an empty match.
+    if (!product && selectedSize) {
+      let relaxed = [...products];
+      if (selectedColor) relaxed = relaxed.filter(p => matchesSelectedVariant(p, selectedColor));
+      if (hasMultipleFinishes && selectedFinish) relaxed = relaxed.filter(p => productHasFinish(p, selectedFinish));
+      if (selectedStyle && styleOptions.length > 0) relaxed = relaxed.filter(p => matchesStyle(p, selectedStyle));
+      product = relaxed[0] || null;
+      if (product) {
+        const newSize = product.size || (product.attributes && product.attributes.size) || null;
+        setSelectedSize(newSize || null);
+      }
+    }
     if (product) {
       setSelectedProduct({ ...product, _isPreview: false });
-    } else {
-      setSelectedProduct(null);
+      setMainImageIndex(0);
     }
-    setMainImageIndex(0);
+    // No match at all (transient state while colour/finish auto-switch
+    // effects settle): KEEP the previous product on screen. Clearing it
+    // collapsed the whole page for a frame, which clamped the scroll
+    // position and made variant switches feel like a full page reload.
   }, [selectedColor, selectedFinish, selectedStyle, selectedSize, products, hasColors, hasMultipleFinishes, styleOptions, matchesStyle]);
 
   // Helper functions
@@ -2010,9 +2039,10 @@ const CollectionDetailPage = () => {
                     </div>
                   ) : (
                     <img
+                      key={productImages[previewThumbIdx ?? mainImageIndex]}
                       src={productImages[previewThumbIdx ?? mainImageIndex]}
                       alt={selectedProduct?.display_name || decodedSeriesName}
-                      className="w-full h-full object-cover transition-all duration-200 cursor-zoom-in"
+                      className="w-full h-full object-cover transition-all duration-200 cursor-zoom-in pdp-img-fade"
                       style={isZooming && previewThumbIdx === null ? { transform: 'scale(2)', transformOrigin: `${zoomPosition.x}% ${zoomPosition.y}%` } : {}}
                       onClick={() => openLightbox(previewThumbIdx ?? mainImageIndex)}
                     />

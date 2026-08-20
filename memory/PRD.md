@@ -9067,3 +9067,8 @@ See `/app/memory/test_credentials.md`
 - Cause: the per-row "Move to…" select auto-sized to the LONGEST bucket name (special-order notes are long sentences), squeezing product names to "L…".
 - Fix (AssignColoursModal.jsx): select capped max-w-[95px] + options truncated at 40 chars; pool names now break-words (wrap, no truncate) with title tooltip; bucket member names also wrap; secondary line (supplier · sku · current) wraps too.
 - Verified via screenshot with a long bucket name — names fully readable.
+
+## Aug 20, 2026 Session — PDP variant switching felt like a page reload (FIXED)
+- Root cause: the variant-matching effect (CollectionDetailPage ~1142) set selectedProduct=NULL when the transient filter (stale size/finish from previous colour) matched nothing → entire right column + gallery collapsed for a frame → document shrank → browser clamped scrollY (measured -454px jump) → felt like refresh.
+- Fixes: (1) never null selectedProduct — keep previous product while effects settle; (2) stale-size convergence: retry match without size filter and adopt the found product's size; (3) mainImageIndex reset only when a product is actually found; (4) preload each variant's first 2 images on collection load (new Image()) so swaps are instant; (5) .pdp-img-fade crossfade (index.css keyframes) + key on main img.
+- Verified: swatch-switch scroll delta 0 (was -454) both directions; selection resolves correctly with per-variant finish/size updates.
