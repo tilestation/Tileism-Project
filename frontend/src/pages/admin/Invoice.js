@@ -1731,10 +1731,17 @@ export const Invoice = () => {
       }
     }
     
+    // Trade credit can fully cover the invoice — no cash/card payment needed then
+    const vTotals = calculateTotals();
+    const creditCoversInvoice =
+      vTotals.creditRedeemed > 0 &&
+      !!invoiceData.creditRedeemedAccount &&
+      vTotals.grossTotal - vTotals.creditRedeemed <= 0.005;
+
     // Validate at least one payment with AMOUNT is required - BEFORE PIN dialog
     const hasValidPayment = invoiceData.deposits.some(d => d.amount && parseFloat(d.amount) > 0);
     
-    if (!hasValidPayment) {
+    if (!hasValidPayment && !creditCoversInvoice) {
       toast.error('At least one payment with amount is required. Please enter the payment amount in "Payments Received" section.');
       return;
     }
@@ -1774,7 +1781,7 @@ export const Invoice = () => {
       d.amount && parseFloat(d.amount) > 0 && d.method && d.method.trim() !== ''
     );
     
-    if (!completePayments || completePayments.length === 0) {
+    if ((!completePayments || completePayments.length === 0) && !creditCoversInvoice) {
       toast.error('Please select a Payment Method for each payment in the "Payments Received" section.');
       return;
     }

@@ -1025,10 +1025,17 @@ async def save_invoice(input: InvoiceCreate, current_user: dict = Depends(get_cu
     if not input.line_items or len(input.line_items) == 0:
         raise HTTPException(status_code=400, detail="Invoice must have at least one line item")
     
+    # Trade credit can fully cover the invoice — then no cash/card payment is needed
+    _credit_covers = (
+        float(input.credit_redeemed_amount or 0) > 0
+        and (input.credit_redeemed_account or "").strip()
+        and float(input.credit_redeemed_amount or 0) >= float(input.gross_total or 0) - 0.005
+    )
+
     # Validate deposits - at least one payment with amount and method required
     if input.deposits:
         valid_payments = [d for d in input.deposits if d.amount and d.amount > 0]
-        if not valid_payments:
+        if not valid_payments and not _credit_covers:
             raise HTTPException(status_code=400, detail="At least one payment with amount is required")
         
         # Check that all payments with amount have a valid method (not a number)
@@ -1049,7 +1056,7 @@ async def save_invoice(input: InvoiceCreate, current_user: dict = Depends(get_cu
                     )
                 except ValueError:
                     pass  # Not a number, that's good
-    else:
+    elif not _credit_covers:
         raise HTTPException(status_code=400, detail="At least one payment is required")
     
     db = get_db()
@@ -2074,9 +2081,13 @@ async def update_invoice(invoice_id: str, input: InvoiceUpdate, current_user: di
         raise HTTPException(status_code=404, detail="Invoice not found")
     
     # Validate deposits if being updated - payment method is mandatory
+    # (unless the invoice was fully paid with trade credit at creation)
     if input.deposits is not None:
+        _existing_credit = float(existing.get("credit_redeemed") or 0)
+        _gross = float(input.gross_total if input.gross_total is not None else existing.get("gross_total") or 0)
+        _credit_covers = _existing_credit > 0 and _existing_credit >= _gross - 0.005
         valid_payments = [d for d in input.deposits if d.amount and d.amount > 0]
-        if not valid_payments:
+        if not valid_payments and not _credit_covers:
             raise HTTPException(status_code=400, detail="At least one payment with amount is required")
         
         # Check that all payments with amount have a valid method (not a number)

@@ -9205,3 +9205,8 @@ See `/app/memory/test_credentials.md`
 - FIX: _get_delivery_flags (routes/shop.py) now backfills flags from supplier_products (keyed by sku/supplier_code) when tiles docs lack them — covers delivery_charge_required/charge, parcel flags AND pallet_qty_unit/pricing_unit. Also fixes server-side order charge math (same helper used at guest-checkout line 2764).
 - Verified: replicated production state in preview (flags on supplier_products only, tiles clean) → endpoint returns charge 54.99, basket shows amber strip + per-line chip + Item delivery charge +£54.99 row, no green banner. Test flags cleaned after.
 - User can ALSO get instant relief on current prod build by re-saving Delivery Rules in admin (new backend mirrors to tiles at save time) — but the code fix makes old saves work without re-saving.
+
+## Aug 21, 2026 — EPOS: credit-only invoices (no cash/card payment needed)
+- Problem: trade credit fully covered invoice (£42.84 of £51.98 balance, cash/card due £0.00) but EPOS demanded a Payments Received entry with method — impossible to save cleanly.
+- Fix: frontend (Invoice.js handleSaveInvoice) + backend (invoices.py POST + PUT validation) now skip the "at least one payment" requirement when credit_redeemed_amount (+account) covers gross_total (0.5p tolerance). Partial credit still requires a payment for the remainder. PUT derives coverage from existing.credit_redeemed (credit redeems at create only).
+- Verified via API: credit-only invoice saved, balance 25.50→13.50 atomic, redeemed_in_store ledger tx logged, no discrepancy. Test data cleaned + balance restored.
