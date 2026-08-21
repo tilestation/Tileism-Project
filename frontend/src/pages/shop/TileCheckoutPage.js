@@ -11,6 +11,7 @@ import { Label } from '../../components/ui/label';
 import { ShopHeader, ShopFooter } from './TileStationHome';
 import { toast } from 'sonner';
 import { formatCartQuantity, snapCartQuantity, getCartStepSize } from '../../utils/cartDisplay';
+import { fetchDeliveryTerms } from '../../lib/deliveryTerms';
 import { getEffectivePrice, getRetailIncVat, getActiveTierDiscount } from '../../utils/cartPricing';
 import { useTradeUser } from '../../hooks/useTradeUser';
 import PaymentMethodCards from '../../components/shop/PaymentMethodCards';
@@ -181,6 +182,9 @@ const TileCheckoutPage = () => {
 
   // Item-level delivery rules — mandatory charges + parcel flags per cart item
   const [deliveryFlags, setDeliveryFlags] = useState({});
+  // Editable free-delivery exclusion small-print
+  const [deliveryTerms, setDeliveryTerms] = useState('');
+  useEffect(() => { fetchDeliveryTerms().then(setDeliveryTerms); }, []);
   useEffect(() => {
     const ids = [...new Set(cartItems.map(i => String(i.id || i.product_id || '')).filter(Boolean))];
     if (ids.length === 0) { setDeliveryFlags({}); return; }
@@ -747,7 +751,7 @@ const TileCheckoutPage = () => {
                         <div className="flex-1">
                           <span className="font-semibold text-gray-900">{settings.delivery.label}</span>
                           <p className="text-sm text-gray-500">{settings.delivery.description}</p>
-                          <p className="text-[10px] text-gray-400 mt-0.5">* Some items are excluded from free delivery — a mandatory delivery charge may apply.</p>
+                          {deliveryTerms && <p className="text-[10px] text-gray-400 mt-0.5">{deliveryTerms}</p>}
                           {subtotal >= settings.delivery.free_threshold && (
                             <span className="inline-block mt-1 text-xs font-medium text-green-600 bg-green-50 px-2 py-0.5 rounded">FREE on this order</span>
                           )}

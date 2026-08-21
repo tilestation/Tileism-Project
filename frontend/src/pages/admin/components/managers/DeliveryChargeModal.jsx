@@ -17,7 +17,8 @@ import {
 } from '../../../../components/ui/dialog';
 import { Button } from '../../../../components/ui/button';
 import { Input } from '../../../../components/ui/input';
-import { Truck, Package, RefreshCw, Save, Trash2 } from 'lucide-react';
+import { Truck, Package, RefreshCw, Save, Trash2, FileText } from 'lucide-react';
+import { clearDeliveryTermsCache } from '../../../../lib/deliveryTerms';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
 
@@ -27,6 +28,35 @@ const DeliveryChargeModal = ({ open, onOpenChange, selectedProducts = [], onSave
   const [parcelEnabled, setParcelEnabled] = useState(false);
   const [parcelFee, setParcelFee] = useState('');
   const [saving, setSaving] = useState(false);
+  const [termsText, setTermsText] = useState('');
+  const [termsSaving, setTermsSaving] = useState(false);
+
+  // Load the storefront free-delivery small-print when the modal opens
+  useEffect(() => {
+    if (!open) return;
+    fetch(`${API_URL}/api/shop/delivery-terms`)
+      .then(res => res.json())
+      .then(d => setTermsText(d.text || ''))
+      .catch(() => {});
+  }, [open]);
+
+  const saveTerms = async () => {
+    setTermsSaving(true);
+    try {
+      const res = await fetch(`${API_URL}/api/shop/delivery-terms`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: termsText }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      clearDeliveryTermsCache();
+      toast.success('Delivery terms note updated across the storefront');
+    } catch (err) {
+      toast.error(`Save failed: ${err.message}`);
+    } finally {
+      setTermsSaving(false);
+    }
+  };
 
   // Prefill from the first selected product each time the modal opens
   useEffect(() => {
@@ -91,7 +121,7 @@ const DeliveryChargeModal = ({ open, onOpenChange, selectedProducts = [], onSave
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg">
+      <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Truck className="w-5 h-5 text-amber-600" />
@@ -173,6 +203,37 @@ const DeliveryChargeModal = ({ open, onOpenChange, selectedProducts = [], onSave
                 <p className="text-[10px] text-gray-400 mt-1">Blank = standard delivery fee still applies to parcel-only orders.</p>
               </div>
             )}
+          </div>
+
+          {/* Storefront free-delivery small-print (global, editable) */}
+          <div className="border border-gray-200 rounded-lg p-4">
+            <div className="flex items-center gap-2 mb-1">
+              <FileText className="w-4 h-4 text-gray-500" />
+              <span className="font-semibold text-gray-800">Free delivery terms note</span>
+            </div>
+            <p className="text-xs text-gray-500 mb-2">
+              Shown in small print wherever the storefront mentions free delivery (product pages, basket, checkout).
+            </p>
+            <textarea
+              value={termsText}
+              onChange={(e) => setTermsText(e.target.value)}
+              rows={3}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm resize-y"
+              placeholder="* Some items are excluded from free delivery…"
+              data-testid="delivery-terms-textarea"
+            />
+            <div className="flex justify-end mt-2">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={saveTerms}
+                disabled={termsSaving}
+                data-testid="delivery-terms-save-btn"
+              >
+                {termsSaving ? <RefreshCw className="w-3.5 h-3.5 mr-1.5 animate-spin" /> : <Save className="w-3.5 h-3.5 mr-1.5" />}
+                Save note
+              </Button>
+            </div>
           </div>
         </div>
 

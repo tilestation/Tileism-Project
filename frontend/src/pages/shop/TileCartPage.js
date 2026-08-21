@@ -6,6 +6,7 @@ import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../../components/ui/tooltip';
 import { useCart } from '../../contexts/TileCartContext';
+import { fetchDeliveryTerms } from '../../lib/deliveryTerms';
 import { ShopHeader, ShopFooter } from './TileStationHome';
 import { useTradeUser } from '../../hooks/useTradeUser';
 import { formatCartQuantity, snapCartQuantity, getCartStepSize, getTierUpsell } from '../../utils/cartDisplay';
@@ -44,6 +45,9 @@ const TileCartPage = () => {
   const [defaultDeliveryFee, setDefaultDeliveryFee] = useState(49.99);
   // Item-level delivery rules — mandatory charges + parcel flags per cart item
   const [deliveryFlags, setDeliveryFlags] = useState({});
+  // Editable free-delivery exclusion small-print
+  const [deliveryTerms, setDeliveryTerms] = useState('');
+  useEffect(() => { fetchDeliveryTerms().then(setDeliveryTerms); }, []);
   // Free sample upsell config (admin-driven) — shows a nudge on carts under threshold
   const [freeSample, setFreeSample] = useState({
     enabled: false,
@@ -82,10 +86,6 @@ const TileCartPage = () => {
   }, [cart]);
 
   const itemFlags = (item) => deliveryFlags[String(item.id || item.product_id || '')] || {};
-  const hasMarkedItems = (cart || []).some(i => {
-    const f = itemFlags(i);
-    return f.delivery_charge_required && Number(f.delivery_charge) > 0;
-  });
 
   // Check if admin has enabled Klarna / PayPal / Wallet at checkout (shows Express buttons)
   // Also pulls the admin-configured free-delivery threshold + default fee so the
@@ -749,9 +749,9 @@ const TileCartPage = () => {
                     </div>
                   </motion.div>
                 )}
-                {!isCollection && hasMarkedItems && (
+                {!isCollection && deliveryTerms && (
                   <p className="text-[10px] text-[#A8A29E] leading-snug px-1" data-testid="delivery-exclusion-smallprint">
-                    * Some items in your basket are excluded from free delivery — a mandatory delivery charge applies at checkout unless your other items exceed £{deliveryThreshold.toFixed(0)}.
+                    {deliveryTerms}
                   </p>
                 )}
 

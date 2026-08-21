@@ -9163,3 +9163,9 @@ See `/app/memory/test_credentials.md`
 - User deployed (production now shows Bulk pricing options working on PRO SS Flex). Request: bigger pallet/half-pallet chips.
 - PDP selector enlarged: chips px-3 py-2 text-xs → px-5 py-3 text-base font-bold border-2 rounded-xl; sub-line text-[10px] → text-sm; SAVE badges text-[9px] → text-[11px]; header "Bulk pricing options" text-sm→text-base with w-5 Truck; min-order notice text-[11px]→text-sm; container p-4.
 - Verified desktop + mobile (390px: chips stack vertically, fully readable).
+
+## Aug 21, 2026 Session — One-line pallet chips, PDP delivery card hidden for marked items, editable free-delivery terms
+1. PDP pallet chips redesigned: grid (grid-cols-3 / grid-cols-2) equal-width one-line layout, w-full chips, text-sm sm:text-base, tighter SAVE badges inside chip corners.
+2. Delivery Information card on PDP hidden when selectedProduct.delivery_charge_required (misleading for mandatory-charge items). serialize_tile_for_shop now outputs delivery_charge_required/delivery_charge/parcel_delivery.
+3. Editable free-delivery small-print: GET/PUT /api/shop/delivery-terms (website_settings key 'delivery_terms', default text baked in). Shown via cached helper /app/frontend/src/lib/deliveryTerms.js at: PDP Delivery Information card (data-testid pdp-delivery-terms), TileCartPage smallprint (now always shown when text set, replaces hasMarkedItems-gated static text), TileCheckoutPage delivery option. Editor: "Free delivery terms note" textarea + Save note button in DeliveryChargeModal (bulk bar Delivery), testids delivery-terms-textarea / delivery-terms-save-btn. Modal now scrollable (max-h-90vh).
+- Verified: chips one line desktop; terms visible in PDP card; PUT round-trip persists; marked product hides Delivery Info card entirely; modal prefills charge £15 + terms text loads. ULT-EC charge flag removed after test (pallet demo kept).

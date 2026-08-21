@@ -170,6 +170,9 @@ def serialize_tile_for_shop(tile: dict) -> dict:
         "m2_per_pallet": m2_per_pallet,
         "m2_per_half_pallet": m2_per_half_pallet,
         "pallet_qty_unit": tile.get("pallet_qty_unit"),
+        "delivery_charge_required": bool(tile.get("delivery_charge_required")),
+        "delivery_charge": tile.get("delivery_charge"),
+        "parcel_delivery": bool(tile.get("parcel_delivery")),
         "price": price_per_sqm,  # Default to room lot
         "price_per_tile": price_per_tile,
         "pallet_price_per_tile": pallet_price_per_tile,

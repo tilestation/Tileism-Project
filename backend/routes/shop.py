@@ -2645,6 +2645,35 @@ async def get_delivery_flags(data: DeliveryFlagsRequest):
     return {"flags": flags}
 
 
+DEFAULT_DELIVERY_TERMS = ("* Some items are excluded from free delivery — a mandatory delivery "
+                          "charge applies unless the other items in your order exceed the free-delivery threshold.")
+
+
+@router.get("/delivery-terms")
+async def get_delivery_terms():
+    """Public — the small-print shown next to 'Free delivery over £X' across the storefront."""
+    db = get_db()
+    doc = await db.website_settings.find_one({"key": "delivery_terms"})
+    text = ((doc or {}).get("value") or {}).get("text")
+    return {"text": text if text is not None else DEFAULT_DELIVERY_TERMS}
+
+
+class DeliveryTermsUpdate(BaseModel):
+    text: str
+
+
+@router.put("/delivery-terms")
+async def update_delivery_terms(data: DeliveryTermsUpdate):
+    """Admin — edit the free-delivery exclusion small-print (via the Delivery bulk modal)."""
+    db = get_db()
+    await db.website_settings.update_one(
+        {"key": "delivery_terms"},
+        {"$set": {"value": {"text": data.text}}},
+        upsert=True,
+    )
+    return {"success": True}
+
+
 @router.post("/guest-checkout")
 async def create_guest_checkout_order(order_input: GuestCheckoutOrder):
     """Create order from the new checkout page (no auth required)"""
