@@ -9158,3 +9158,8 @@ See `/app/memory/test_credentials.md`
 - Verified: saved trade £5.49 on TSAB612P → reopened → placeholder 5.49 + "saved: £5.49" + margin −33% (below cost, accurate). Pallet expander reopen already prefilled (ULT-EC: 60/£11.50, 30/£12.25, units dropdown remembered, £690 total → £170.50 profit).
 - Preview data note: ULT-PSSF20G + ULT-EC have no list_price in supplier_products (prod differs) — storedTrade requires a list price to derive.
 - Test data cleaned (TSAB612P trade unset). ULT-EC pallet demo kept.
+
+## Aug 21, 2026 Session — Storefront pallet chips enlarged
+- User deployed (production now shows Bulk pricing options working on PRO SS Flex). Request: bigger pallet/half-pallet chips.
+- PDP selector enlarged: chips px-3 py-2 text-xs → px-5 py-3 text-base font-bold border-2 rounded-xl; sub-line text-[10px] → text-sm; SAVE badges text-[9px] → text-[11px]; header "Bulk pricing options" text-sm→text-base with w-5 Truck; min-order notice text-[11px]→text-sm; container p-4.
+- Verified desktop + mobile (390px: chips stack vertically, fully readable).

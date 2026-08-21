@@ -3089,24 +3089,24 @@ const CollectionDetailPage = () => {
                   a tier auto-snaps qty to the matching minimum m² and
                   switches the £/m² rate. */}
               {(palletInfo.halfPalletAvailable || palletInfo.fullPalletAvailable) && !selectedProduct?._isPreview && (
-                <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3 pt-4" data-testid="pallet-tier-selector">
-                  <div className="flex items-center gap-2 mb-2">
-                    <Truck className="w-4 h-4 text-emerald-700" />
-                    <span className="text-sm font-semibold text-emerald-900">Bulk pricing options</span>
+                <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 pt-5" data-testid="pallet-tier-selector">
+                  <div className="flex items-center gap-2 mb-3">
+                    <Truck className="w-5 h-5 text-emerald-700" />
+                    <span className="text-base font-semibold text-emerald-900">Bulk pricing options</span>
                   </div>
                   <div className="flex flex-wrap gap-x-3 gap-y-3 pt-1">
                     <button
                       type="button"
                       data-testid="pallet-tier-m2"
                       onClick={() => setPricingTier('m2')}
-                      className={`px-3 py-2 rounded-lg text-xs font-semibold border transition-colors ${
+                      className={`px-5 py-3 rounded-xl text-base font-bold border-2 transition-colors ${
                         pricingTier === 'm2'
                           ? 'bg-emerald-600 text-white border-emerald-600'
                           : 'bg-white text-emerald-800 border-emerald-300 hover:bg-emerald-100'
                       }`}
                     >
                       {palletInfo.isUnit ? 'Per unit' : 'Per m²'}
-                      <span className="block text-[10px] font-normal opacity-90">
+                      <span className="block text-sm font-medium opacity-90 mt-0.5">
                         £{(Number(selectedProduct?.room_lot_price) || Number(selectedProduct?.price) || 0).toFixed(2)}{palletInfo.isUnit ? ' each' : 'm²'}
                       </span>
                     </button>
@@ -3115,7 +3115,7 @@ const CollectionDetailPage = () => {
                         type="button"
                         data-testid="pallet-tier-half"
                         onClick={() => setPricingTier('half_pallet')}
-                        className={`relative px-3 py-2 rounded-lg text-xs font-semibold border transition-colors ${
+                        className={`relative px-5 py-3 rounded-xl text-base font-bold border-2 transition-colors ${
                           pricingTier === 'half_pallet'
                             ? 'bg-emerald-600 text-white border-emerald-600'
                             : 'bg-white text-emerald-800 border-emerald-300 hover:bg-emerald-100'
@@ -3123,14 +3123,14 @@ const CollectionDetailPage = () => {
                       >
                         {palletInfo.halfSavings > 0 && (
                           <span
-                            className="absolute -top-2 -right-2 bg-amber-500 text-white text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full shadow-sm pointer-events-none whitespace-nowrap"
+                            className="absolute -top-2.5 -right-2.5 bg-amber-500 text-white text-[11px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full shadow-sm pointer-events-none whitespace-nowrap"
                             data-testid="pallet-half-savings-badge"
                           >
                             Save £{palletInfo.halfSavings.toFixed(palletInfo.halfSavings < 10 ? 2 : 0)}
                           </span>
                         )}
                         Half Pallet
-                        <span className="block text-[10px] font-normal opacity-90">
+                        <span className="block text-sm font-medium opacity-90 mt-0.5">
                           £{palletInfo.halfRate.toFixed(2)}{palletInfo.rateSuffix} · min {palletInfo.halfM2} {palletInfo.qtyWord}
                         </span>
                       </button>
@@ -3140,7 +3140,7 @@ const CollectionDetailPage = () => {
                         type="button"
                         data-testid="pallet-tier-full"
                         onClick={() => setPricingTier('full_pallet')}
-                        className={`relative px-3 py-2 rounded-lg text-xs font-semibold border transition-colors ${
+                        className={`relative px-5 py-3 rounded-xl text-base font-bold border-2 transition-colors ${
                           pricingTier === 'full_pallet'
                             ? 'bg-emerald-600 text-white border-emerald-600'
                             : 'bg-white text-emerald-800 border-emerald-300 hover:bg-emerald-100'
@@ -3148,21 +3148,21 @@ const CollectionDetailPage = () => {
                       >
                         {palletInfo.fullSavings > 0 && (
                           <span
-                            className="absolute -top-2 -right-2 bg-amber-500 text-white text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full shadow-sm pointer-events-none whitespace-nowrap"
+                            className="absolute -top-2.5 -right-2.5 bg-amber-500 text-white text-[11px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full shadow-sm pointer-events-none whitespace-nowrap"
                             data-testid="pallet-full-savings-badge"
                           >
                             Save £{palletInfo.fullSavings.toFixed(palletInfo.fullSavings < 10 ? 2 : 0)}
                           </span>
                         )}
                         Full Pallet
-                        <span className="block text-[10px] font-normal opacity-90">
+                        <span className="block text-sm font-medium opacity-90 mt-0.5">
                           £{palletInfo.fullRate.toFixed(2)}{palletInfo.rateSuffix} · min {palletInfo.fullM2} {palletInfo.qtyWord}
                         </span>
                       </button>
                     )}
                   </div>
                   {pricingTier !== 'm2' && (
-                    <p className="text-[11px] text-emerald-700 mt-2" data-testid="pallet-tier-min-notice">
+                    <p className="text-sm text-emerald-700 mt-2.5" data-testid="pallet-tier-min-notice">
                       Minimum order:{' '}
                       <strong>
                         {pricingTier === 'full_pallet' ? palletInfo.fullM2 : palletInfo.halfM2} {palletInfo.qtyWord}
