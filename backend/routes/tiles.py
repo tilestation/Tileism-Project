@@ -1203,7 +1203,30 @@ async def _get_tile_collections_impl(
     if len(non_surface_keys) > 1:
         sorted_keys = sorted(non_surface_keys)
         merge_map = {}  # old_name -> canonical_prefix
-        
+
+        # Brand/supplier names must never act as the merge prefix on their own —
+        # "Ultra Tile ProClean" + "Ultra Tile ProGrip" share the BRAND, not a range,
+        # and merging them puts cleaning products inside an adhesives card.
+        _brand_norms = set()
+        for _g in series_groups.values():
+            for _p in _g["products"]:
+                for _s in (_p.get("supplier_name"), _p.get("brand")):
+                    if _s:
+                        _brand_norms.add(re.sub(r'[^a-z0-9]', '', str(_s).lower()))
+
+        def _brand_prefix_len(words):
+            """How many leading words are just the brand/supplier name."""
+            best = 0
+            for n in range(1, min(4, len(words)) + 1):
+                cand = re.sub(r'[^a-z0-9]', '', ''.join(words[:n]).lower())
+                if not cand:
+                    continue
+                for b in _brand_norms:
+                    if b and (cand == b or b.startswith(cand)):
+                        best = n
+                        break
+            return best
+
         for i, key_a in enumerate(sorted_keys):
             if key_a in merge_map:
                 continue
@@ -1225,7 +1248,12 @@ async def _get_tile_collections_impl(
                         break
                 
                 if common_len >= 2:
-                    prefix = ' '.join(words_a[:common_len])
+                    prefix_words = words_a[:common_len]
+                    # The shared prefix must contain at least one word beyond the
+                    # brand name — otherwise it's a brand match, not a range match.
+                    if common_len - _brand_prefix_len(prefix_words) < 1:
+                        continue
+                    prefix = ' '.join(prefix_words)
                     # Map both to the common prefix
                     if key_a not in merge_map:
                         merge_map[key_a] = prefix
