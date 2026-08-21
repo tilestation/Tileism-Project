@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 
-const DEFAULT_TRADE_DISCOUNT = 5; // % - matches backend TRADE_DISCOUNT_DEFAULT
+const DEFAULT_TRADE_DISCOUNT = 0; // % — no blanket trade discount; admin sets per product
 
 export function useTradeUser() {
   const [isTrade, setIsTrade] = useState(false);

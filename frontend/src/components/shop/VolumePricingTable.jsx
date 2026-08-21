@@ -77,15 +77,23 @@ const VolumePricingTable = ({
 
             // Calculate total savings % for trade users (volume + trade combined)
             const volumeDiscount = tier.discount_percent || 0;
-            // Always calculate from rates — don't trust tier.total_discount_percent as it may be stale
+            // Trade savings label: derive from the ACTUAL displayed price vs retail base
+            // when backend tiers are used verbatim (keeps price + label consistent for
+            // fixed-£ discounts); otherwise compound the rates.
             const totalDiscount = (isTrade && tradeDiscount > 0)
-              ? Math.round((1 - (1 - volumeDiscount / 100) * (1 - tradeDiscount / 100)) * 100)
+              ? (tiersMatchProduct && selectedBasePrice > 0
+                  ? Math.round((1 - tierDisplayPrice / selectedBasePrice) * 100)
+                  : Math.round((1 - (1 - volumeDiscount / 100) * (1 - tradeDiscount / 100)) * 100))
               : volumeDiscount;
 
             return (
               <tr key={idx} className={isCurrentTier ? 'bg-amber-50' : ''}>
                 <td className="px-4 py-2 border-t">
-                  {tier.label || `${tier.min_qty}+ ${isSurfaceProduct ? 'm²' : 'units'}`}
+                  {(() => {
+                    const raw = tier.label || `${tier.min_qty}+ ${isSurfaceProduct ? 'm²' : 'units'}`;
+                    // Unit products: backend tier labels are m²-based — relabel as units.
+                    return isSurfaceProduct ? raw : raw.replace(/\s*m²/g, ' units');
+                  })()}
                   {isCurrentTier && (
                     <span className="ml-2 bg-amber-500 text-white text-xs px-2 py-0.5 rounded">Your Price</span>
                   )}

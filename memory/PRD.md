@@ -9169,3 +9169,15 @@ See `/app/memory/test_credentials.md`
 2. Delivery Information card on PDP hidden when selectedProduct.delivery_charge_required (misleading for mandatory-charge items). serialize_tile_for_shop now outputs delivery_charge_required/delivery_charge/parcel_delivery.
 3. Editable free-delivery small-print: GET/PUT /api/shop/delivery-terms (website_settings key 'delivery_terms', default text baked in). Shown via cached helper /app/frontend/src/lib/deliveryTerms.js at: PDP Delivery Information card (data-testid pdp-delivery-terms), TileCartPage smallprint (now always shown when text set, replaces hasMarkedItems-gated static text), TileCheckoutPage delivery option. Editor: "Free delivery terms note" textarea + Save note button in DeliveryChargeModal (bulk bar Delivery), testids delivery-terms-textarea / delivery-terms-save-btn. Modal now scrollable (max-h-90vh).
 - Verified: chips one line desktop; terms visible in PDP card; PUT round-trip persists; marked product hides Delivery Info card entirely; modal prefills charge £15 + terms text loads. ULT-EC charge flag removed after test (pallet demo kept).
+
+## Aug 21, 2026 Session — Trade pricing regressions fixed (iteration_235 → 236, all PASS)
+- Fixed all 6 issues from /app/test_reports/iteration_235.json after removing the blanket 5% trade discount:
+  1. VolumePricingTable now receives getEffTradePct() (effective %) instead of raw fixed £ → trade table first tier £9.99 ex VAT (was £10.79).
+  2. TileCartContext.addToCart persists trade_discount_type + isTrade; CollectionDetailPage stores TRUE retail_price_inc_vat (reverses trade discount out of tier-net currentPrice: fixed → +£td, percent → /(1−td/100)) → trade per-unit cart line £9.99 (was £9.88), logout re-prices to retail £13.10.
+  3. Per-line savings chip reads "Trade −£1.11/unit" (type-aware).
+  4. cart-savings-summary excludes pallet_tier lines + handles fixed £ (no false banner on pallet-only trade baskets).
+  5. Volume table tier labels unit-aware ("0 - 10 units") for non-surface products.
+  6. Duplicate add-to-cart toast removed (PDP passes silent:true; context toast suppressed; merge toast now unit-aware too).
+- Extra polish: trade savings labels in VolumePricingTable now derived from actual displayed prices when backend tiers used verbatim (price + label always agree: £9.44→14%, £8.90→18%, £8.35→24%).
+- Verified: testing_agent iteration_236 — backend 9/9 pytest pass, frontend 100% (all 6 fixes + guest/trade/logout regressions). Label fix self-tested via trade-login screenshot.
+- Known pre-existing LOW item (backlog): legacy /shop/cart (ShopCart) page still reachable and always renders empty for localStorage carts; real basket is /shop/tile-cart.

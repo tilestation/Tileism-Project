@@ -1493,7 +1493,7 @@ async def _get_tile_collections_impl(
         logger.warning(f"Error looking up supplier_products trade data: {e}")
     
     # Apply global defaults for any still-missing values
-    default_td = getattr(br, 'TRADE_DISCOUNT_DEFAULT', 5) if br else 5
+    default_td = getattr(br, 'TRADE_DISCOUNT_DEFAULT', 0) if br else 0
     default_cb = getattr(br, 'TRADE_CREDIT_BACK_DEFAULT', 2) if br else 2
     for col_data in collections_list:
         if col_data["trade_discount"] is None:
@@ -2652,15 +2652,16 @@ async def calculate_tier_price(
         custom_thresholds = None
         custom_discounts = None
         tier_disabled = False
-        # Trade discount type resolution: query param > product field > default 'percent'
+        # Trade discount resolution: query param > product field > default
         effective_td_type = trade_discount_type
+        effective_td = trade_discount
         
         if product_sku:
             try:
                 db = get_tile_db()
                 sp = db.supplier_products.find_one(
                     {"sku": product_sku},
-                    {"_id": 0, "tier_thresholds": 1, "tier_discounts": 1, "tier_pricing_disabled": 1, "trade_discount_type": 1}
+                    {"_id": 0, "tier_thresholds": 1, "tier_discounts": 1, "tier_pricing_disabled": 1, "trade_discount": 1, "trade_discount_type": 1}
                 )
                 
                 if sp:
@@ -2669,11 +2670,13 @@ async def calculate_tier_price(
                     custom_discounts = sp.get("tier_discounts")
                     if effective_td_type is None and sp.get("trade_discount_type"):
                         effective_td_type = sp.get("trade_discount_type")
+                    if effective_td is None and sp.get("trade_discount") is not None:
+                        effective_td = sp.get("trade_discount")
                 
-                if custom_thresholds is None or custom_discounts is None or effective_td_type is None:
+                if custom_thresholds is None or custom_discounts is None or effective_td_type is None or effective_td is None:
                     product = db.tiles.find_one(
                         {"sku": product_sku},
-                        {"_id": 0, "tier_thresholds": 1, "tier_discounts": 1, "tier_pricing_disabled": 1, "trade_discount_type": 1}
+                        {"_id": 0, "tier_thresholds": 1, "tier_discounts": 1, "tier_pricing_disabled": 1, "trade_discount": 1, "trade_discount_type": 1}
                     )
                     if product:
                         if not tier_disabled:
@@ -2684,6 +2687,8 @@ async def calculate_tier_price(
                             custom_discounts = product.get("tier_discounts")
                         if effective_td_type is None and product.get("trade_discount_type"):
                             effective_td_type = product.get("trade_discount_type")
+                        if effective_td is None and product.get("trade_discount") is not None:
+                            effective_td = product.get("trade_discount")
             except Exception as db_err:
                 logger.warning(f"DB lookup failed for sku={product_sku}: {db_err}")
         
@@ -2705,7 +2710,7 @@ async def calculate_tier_price(
             custom_thresholds=custom_thresholds,
             custom_discounts=custom_discounts,
             is_trade=is_trade,
-            trade_discount=trade_discount,
+            trade_discount=effective_td,
             trade_discount_type=effective_td_type or "percent"
         )
         

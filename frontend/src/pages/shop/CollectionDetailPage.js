@@ -145,6 +145,19 @@ const CollectionDetailPage = () => {
   const [tierPricingSlug, setTierPricingSlug] = useState(null);
   const [creditBackRate, setCreditBackRate] = useState(null);
   const [productTradeDiscount, setProductTradeDiscount] = useState(null);
+  // Effective per-product trade discount as a PERCENT of the selected product's
+  // unit price. Supports fixed-£ trade prices saved from the admin Tier Pricing
+  // modal (converted to an equivalent % so the existing % maths keeps working).
+  const getEffTradePct = () => {
+    if (!isTrade) return 0;
+    const raw = selectedProduct?.trade_discount ?? productTradeDiscount;
+    const val = Number(raw) || 0;
+    if (val <= 0) return 0;
+    const type = String(selectedProduct?.trade_discount_type || 'percent').toLowerCase();
+    if (type !== 'fixed') return val;
+    const base = Number(selectedProduct?.room_lot_price ?? selectedProduct?.price ?? 0);
+    return base > 0 ? Math.min(100, (val / base) * 100) : 0;
+  };
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [collectionDescription, setCollectionDescription] = useState('');
   const [variantLabelOverride, setVariantLabelOverride] = useState('');
@@ -1039,15 +1052,15 @@ const CollectionDetailPage = () => {
       const base = fb.room_lot_price || fb.price || 0;
       const volumeDiscount = volumeDiscountPercent > 0 ? (1 - volumeDiscountPercent / 100) : 1;
       const adjusted = base * volumeDiscount;
-      return isTrade ? Math.round((adjusted * (1 - (productTradeDiscount || 0) / 100) / 1.20) * 100) / 100 : Math.round(adjusted * 100) / 100;
+      return isTrade ? Math.round((adjusted * (1 - getEffTradePct() / 100) / 1.20) * 100) / 100 : Math.round(adjusted * 100) / 100;
     }
     // Stored price IS the selling price — see comment in the fallback above.
     const base = match.room_lot_price || match.price || 0;
     const volumeDiscount = volumeDiscountPercent > 0 ? (1 - volumeDiscountPercent / 100) : 1;
     const adjusted = base * volumeDiscount;
-    const tradeAdj = (isTrade && productTradeDiscount) ? (1 - productTradeDiscount / 100) : 1;
+    const tradeAdj = isTrade ? (1 - getEffTradePct() / 100) : 1;
     return isTrade ? Math.round((adjusted * tradeAdj / 1.20) * 100) / 100 : Math.round(adjusted * 100) / 100;
-  }, [products, selectedColor, selectedFinish, hasColors, hasMultipleFinishes, normalizeSize, isTrade, productTradeDiscount, tierPricing, volumeDiscountPercent]);
+  }, [products, selectedColor, selectedFinish, hasColors, hasMultipleFinishes, normalizeSize, isTrade, productTradeDiscount, selectedProduct, tierPricing, volumeDiscountPercent]);
 
   // Clear size selection if it becomes unavailable (e.g., after changing color/finish)
   // Then re-select the cheapest available size
@@ -1300,8 +1313,8 @@ const CollectionDetailPage = () => {
       // When sizes share a slug, the tier API returns prices for the cheapest size
       // For trade tiers, undo the trade discount before comparing
       const tierBasePrice = tierPricing[0]?.price_per_m2 || tierPricing[0]?.price || 0;
-      const effectiveTierBase = (isTrade && productTradeDiscount > 0) 
-        ? tierBasePrice / (1 - productTradeDiscount / 100)
+      const effectiveTierBase = (isTrade && getEffTradePct() > 0)
+        ? tierBasePrice / (1 - getEffTradePct() / 100)
         : tierBasePrice;
       // Use relative comparison (within 2%) to handle rounding differences
       const tiersMatchProduct = basePrice > 0 && Math.abs(effectiveTierBase - basePrice) / basePrice < 0.02;
@@ -1322,8 +1335,8 @@ const CollectionDetailPage = () => {
               price = basePrice * (1 - volumeDiscount / 100);
             }
             // For trade users, apply trade discount on top of volume discount
-            if (isTrade && productTradeDiscount > 0) {
-              price = price * (1 - productTradeDiscount / 100);
+            if (isTrade && getEffTradePct() > 0) {
+              price = price * (1 - getEffTradePct() / 100);
             }
             return Math.round(price * 100) / 100;
           }
@@ -1448,8 +1461,8 @@ const CollectionDetailPage = () => {
 
   // When tier pricing is active, trade discount is already baked into trade_tiers prices.
   // When tier pricing is disabled/null, we must apply trade discount manually.
-  const tradeDiscountFactor = (isTrade && productTradeDiscount && (!tierPricing || tierPricing.length === 0))
-    ? (1 - productTradeDiscount / 100) : 1;
+  const tradeDiscountFactor = (isTrade && getEffTradePct() > 0 && (!tierPricing || tierPricing.length === 0))
+    ? (1 - getEffTradePct() / 100) : 1;
   // For trade users: apply trade discount (if not in tiers) then remove VAT
   const displayPrice = isTrade
     ? Math.round((currentPrice * tradeDiscountFactor / 1.20) * 100) / 100
@@ -1487,7 +1500,7 @@ const CollectionDetailPage = () => {
       ? Math.round(((selectedProduct.was_price - currentSellingPrice) / selectedProduct.was_price) * 1000) / 10
       : 0;
     const volumeRate = currentTierDiscount || 0;
-    const tradeRate = (isTrade && productTradeDiscount) ? productTradeDiscount : 0;
+    const tradeRate = getEffTradePct();
 
     const empty = {
       saleContrib: 0, volumeContrib: 0, tradeContrib: 0, total: 0,
@@ -1595,9 +1608,18 @@ const CollectionDetailPage = () => {
       image: normaliseImageUrl(firstImageUrl(selectedProduct.images)),
       price: displayPrice,
       // Canonical retail (inc-VAT) for cart re-pricing on trade login/logout.
-      // currentPrice is always the retail inc-VAT figure (trade discount + ex-VAT
-      // are applied AFTER on top of currentPrice to derive displayPrice).
-      retail_price_inc_vat: currentPrice,
+      // When volume tiers are active for a trade user, currentPrice is already
+      // trade-net — reverse the per-product trade discount to recover retail.
+      retail_price_inc_vat: (() => {
+        if (pricingTier !== 'm2' || !isTrade) return currentPrice;
+        if (!tierPricing || tierPricing.length === 0) return currentPrice;
+        const td = Number(selectedProduct.trade_discount ?? productTradeDiscount) || 0;
+        if (td <= 0) return currentPrice;
+        const type = String(selectedProduct.trade_discount_type || 'percent').toLowerCase();
+        const retail = type === 'fixed' ? currentPrice + td : currentPrice / (1 - td / 100);
+        return Math.round(retail * 100) / 100;
+      })(),
+      silent: true,
       priceType: cartPriceType,
       pallet_tier: pricingTier === 'm2' ? null : pricingTier,
       size: selectedProduct.size,
@@ -1607,13 +1629,14 @@ const CollectionDetailPage = () => {
       quantity: sqmQuantity,
       boxes: boxes,
       isTrade: isTrade,
-      trade_discount: productTradeDiscount,
-      credit_back_rate: creditBackRate,
+      trade_discount: selectedProduct.trade_discount ?? productTradeDiscount,
+      trade_discount_type: selectedProduct.trade_discount_type || 'percent',
+      credit_back_rate: selectedProduct.credit_back_rate ?? creditBackRate,
       // Unit metadata — so cart/checkout can show "2.16 m² · 3 boxes" and
       // the +/- stepper can step by a full box.
       sqm_per_box: sqmPerBox || null,
       tiles_per_box: selectedProduct.tiles_per_box || null,
-      pricing_unit: selectedProduct.pricing_unit || 'm2',
+      pricing_unit: selectedProduct.pricing_unit || (palletInfo.isUnit ? 'unit' : 'm2'),
       // Tier config for the "add 1 box to unlock X% off" upsell nudge
       tier_thresholds: selectedProduct.tier_thresholds || null,
       tier_discounts: selectedProduct.tier_discounts || null,
@@ -1625,12 +1648,15 @@ const CollectionDetailPage = () => {
     // Show success state
     setIsAddingToCart(false);
     setCartAdded(true);
+    const unitWord = palletInfo.isUnit ? 'units' : 'm²';
     toast.success(
       pricingTier === 'full_pallet'
-        ? `Added Full Pallet (${sqmQuantity.toFixed(2)} m²) to cart!`
+        ? `Added Full Pallet (${sqmQuantity.toFixed(palletInfo.isUnit ? 0 : 2)} ${unitWord}) to cart!`
         : pricingTier === 'half_pallet'
-          ? `Added Half Pallet (${sqmQuantity.toFixed(2)} m²) to cart!`
-          : `Added ${sqmQuantity.toFixed(2)} m²${boxes ? ` (${boxes} box${boxes > 1 ? 'es' : ''})` : ''} to cart!`
+          ? `Added Half Pallet (${sqmQuantity.toFixed(palletInfo.isUnit ? 0 : 2)} ${unitWord}) to cart!`
+          : palletInfo.isUnit
+            ? `Added ${sqmQuantity.toFixed(0)} unit${sqmQuantity === 1 ? '' : 's'} to cart!`
+            : `Added ${sqmQuantity.toFixed(2)} m²${boxes ? ` (${boxes} box${boxes > 1 ? 'es' : ''})` : ''} to cart!`
     );
     
     // Reset after animation
@@ -2427,8 +2453,8 @@ const CollectionDetailPage = () => {
             {/* SALE PRICE Ribbon */}
             {isOnSale && (() => {
               const tierDiscountPercent = currentTierDiscount || 0;
-              const tradeDiscountPercent = isTrade && productTradeDiscount ? productTradeDiscount : 0;
-              const creditBack = isTrade && creditBackRate ? creditBackRate : 0;
+              const tradeDiscountPercent = getEffTradePct();
+              const creditBack = isTrade ? (Number(selectedProduct?.credit_back_rate ?? creditBackRate) || 0) : 0;
 
               // CASE 1: Explicit sale with was_price — show full WAS/NOW ribbon
               if (hasExplicitSale) {
@@ -3074,7 +3100,7 @@ const CollectionDetailPage = () => {
               tierPricing={tierPricing}
               isSurfaceProduct={isSurfaceProduct}
               isTrade={isTrade}
-              tradeDiscount={productTradeDiscount || 0}
+              tradeDiscount={getEffTradePct()}
               selectedProduct={selectedProduct}
               getEffectiveSqmQuantity={getEffectiveSqmQuantity}
             />
@@ -3096,6 +3122,7 @@ const CollectionDetailPage = () => {
                   <div className="flex items-center gap-2 mb-3">
                     <Truck className="w-5 h-5 text-emerald-700" />
                     <span className="text-base font-semibold text-emerald-900">Bulk pricing options</span>
+                    {isTrade && <span className="text-xs font-semibold text-emerald-700">ex VAT</span>}
                   </div>
                   <div className={`grid gap-2 pt-1 ${palletInfo.halfPalletAvailable && palletInfo.fullPalletAvailable ? 'grid-cols-3' : 'grid-cols-2'}`}>
                     <button
@@ -3110,7 +3137,10 @@ const CollectionDetailPage = () => {
                     >
                       {palletInfo.isUnit ? 'Per unit' : 'Per m²'}
                       <span className="block text-[11px] sm:text-sm font-medium opacity-90 mt-0.5 leading-tight">
-                        £{(Number(selectedProduct?.room_lot_price) || Number(selectedProduct?.price) || 0).toFixed(2)}{palletInfo.isUnit ? ' each' : 'm²'}
+                        £{(() => {
+                          const b = Number(selectedProduct?.room_lot_price) || Number(selectedProduct?.price) || 0;
+                          return (isTrade ? (b * (1 - getEffTradePct() / 100)) / 1.2 : b).toFixed(2);
+                        })()}{palletInfo.isUnit ? ' each' : 'm²'}
                       </span>
                     </button>
                     {palletInfo.halfPalletAvailable && (
@@ -3129,12 +3159,12 @@ const CollectionDetailPage = () => {
                             className="absolute -top-2.5 right-1 bg-amber-500 text-white text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full shadow-sm pointer-events-none whitespace-nowrap"
                             data-testid="pallet-half-savings-badge"
                           >
-                            Save £{palletInfo.halfSavings.toFixed(palletInfo.halfSavings < 10 ? 2 : 0)}
+                            {(() => { const s = isTrade ? palletInfo.halfSavings / 1.2 : palletInfo.halfSavings; return `Save £${s.toFixed(s < 10 ? 2 : 0)}`; })()}
                           </span>
                         )}
                         Half Pallet
                         <span className="block text-[11px] sm:text-sm font-medium opacity-90 mt-0.5 leading-tight">
-                          £{palletInfo.halfRate.toFixed(2)}{palletInfo.rateSuffix} · min {palletInfo.halfM2} {palletInfo.qtyWord}
+                          £{(isTrade ? palletInfo.halfRate / 1.2 : palletInfo.halfRate).toFixed(2)}{palletInfo.rateSuffix} · min {palletInfo.halfM2} {palletInfo.qtyWord}
                         </span>
                       </button>
                     )}
@@ -3154,12 +3184,12 @@ const CollectionDetailPage = () => {
                             className="absolute -top-2.5 right-1 bg-amber-500 text-white text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full shadow-sm pointer-events-none whitespace-nowrap"
                             data-testid="pallet-full-savings-badge"
                           >
-                            Save £{palletInfo.fullSavings.toFixed(palletInfo.fullSavings < 10 ? 2 : 0)}
+                            {(() => { const s = isTrade ? palletInfo.fullSavings / 1.2 : palletInfo.fullSavings; return `Save £${s.toFixed(s < 10 ? 2 : 0)}`; })()}
                           </span>
                         )}
                         Full Pallet
                         <span className="block text-[11px] sm:text-sm font-medium opacity-90 mt-0.5 leading-tight">
-                          £{palletInfo.fullRate.toFixed(2)}{palletInfo.rateSuffix} · min {palletInfo.fullM2} {palletInfo.qtyWord}
+                          £{(isTrade ? palletInfo.fullRate / 1.2 : palletInfo.fullRate).toFixed(2)}{palletInfo.rateSuffix} · min {palletInfo.fullM2} {palletInfo.qtyWord}
                         </span>
                       </button>
                     )}
@@ -3343,6 +3373,12 @@ const CollectionDetailPage = () => {
                     {isOnSale && displayOriginalPrice > displayPrice && (
                       <div className="text-base text-gray-400 line-through mt-1">
                         Was £{safeToFixed(displayOriginalPrice, 2)}{isSurfaceProduct ? 'm²' : ' each'}
+                      </div>
+                    )}
+                    {/* Trade credit-back badge */}
+                    {isTrade && Number(selectedProduct?.credit_back_rate ?? creditBackRate) > 0 && (
+                      <div className="text-xs font-semibold text-emerald-600 mt-1" data-testid="pdp-credit-back-badge">
+                        +{Number(selectedProduct?.credit_back_rate ?? creditBackRate)}% credit back on this item
                       </div>
                     )}
                     {/* Box price - smaller, secondary - only for surface products */}
@@ -3989,6 +4025,7 @@ const CollectionDetailPage = () => {
                           name: rec.display_name || rec.name,
                           price: Number(rec.room_lot_price ?? rec.price ?? 0),
                           quantity: 1,
+                          silent: true,
                           image: normaliseImageUrl(firstImageUrl(rec.images)),
                           slug: rec.slug,
                         });

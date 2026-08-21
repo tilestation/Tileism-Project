@@ -3434,7 +3434,7 @@ QUANTITY_TIER_DISCOUNTS = [0, 5, 10, 15]  # Tier 1: 0%, Tier 2: 5%, Tier 3: 10%,
 CUSTOM_QUOTE_THRESHOLD = 120  # m²
 
 # Trade account default discount (additional % off tier prices)
-TRADE_DISCOUNT_DEFAULT = 5  # %
+TRADE_DISCOUNT_DEFAULT = 0  # % — no blanket trade discount; admin sets per product
 
 # Credit back rate for trade accounts (% of order value)
 TRADE_CREDIT_BACK_DEFAULT = 2  # %

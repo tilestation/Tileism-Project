@@ -1,0 +1,41 @@
+{
+  "summary": "Fix-verification round for iteration_235 (per-product trade discount VALUE+TYPE). Backend regression: /app/backend/tests/test_trade_pricing_unit_regression.py re-run — 9/9 PASS (no backend changes). Frontend (Playwright, real preview URL, trade + guest runs): ALL 6 FIXES VERIFIED PASS. FIX1 trade Volume Pricing table first tier now £9.99 ex VAT with 'Extra 8% Off' (was £10.79/1%). FIX2 trade non-pallet 'Per unit' cart line now £9.99 / each ex VAT and localStorage item persists retail_price_inc_vat:13.1, trade_discount:1.11, trade_discount_type:'fixed', isTrade:true. FIX3 per-line chip reads 'Trade −£1.11/unit · (−£1.11) · You saved £1.11 on this line'. FIX4 Full-Pallet-only trade basket renders NO cart-savings-summary banner (0 nodes) while still showing £9.58/each, subtotal £574.80 and 'Credit back you'll earn £11.50'. FIX5 unit-product tier labels now '0 - 10 units / 10 - 50 units / 50 - 100 units / 100 units+'; m² product (Sherwood Oak) labels unchanged ('0 - 10m²'). FIX6 exactly ONE toast per add ('Added Full Pallet (60 units) to cart!', 'Added 1 unit to cart!', 'Added 1.44 m² (1 box) to cart!'). Regressions re-verified: guest PDP chips £13.10/£12.25/£11.50 (no 'ex VAT'), Full Pallet snaps qty to 60 + Total £690.00, guest cart £11.50/each + 60 pcs + £690.00, no 'Trade −' text for guest; trade PDP main price £9.99 ex VAT + '+2% credit back on this item' badge + chips 9.99/10.21/9.58 with 'ex VAT'; trade logout re-prices the per-unit line to retail £13.10 / each (inc VAT, ex-VAT suffix gone) — the retail_price_inc_vat invariant now holds; Sherwood Oak m² flow clean with zero console/page errors.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "VolumePricingTable (trade, fixed-£ discount product)",
+        "issue": "Tier PRICES for tiers 2-4 are computed with the fixed £1.11 deducted per unit (£9.44 / £8.90 / £8.35 ex VAT) while the 'Savings' column labels are computed from the percent-equivalent (Extra 13% / 18% / 22% Off). The two are internally inconsistent (label implies £9.50/£9.00/£8.50) and differ from the values quoted in the review request (9.49/8.99/8.49). First tier (£9.99 / Extra 8% Off) is correct. Decide whether a fixed £ trade discount is a flat £/unit (current price maths) or a converted % (current label maths) and make price + label agree.",
+        "selector": "[data-testid=\"volume-pricing-table\"]",
+        "priority": "LOW"
+      },
+      {
+        "component": "Legacy /shop/cart route (ShopCart)",
+        "issue": "A second cart page still exists at /shop/cart (renders 'Your cart is empty' / 'Continue Shopping') and is reachable from an in-page a[href=\"/shop/cart\"] link on the storefront. It reads a different (server) cart, so a basket populated in tilestation_cart looks empty there. Real basket is /shop/tile-cart. Pre-existing, out of this round's scope, but a user-visible dead end.",
+        "selector": "a[href=\"/shop/cart\"]",
+        "priority": "LOW"
+      }
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_trade_pricing_unit_regression.py",
+    "/app/test_reports/pytest/trade_unit_regression_236.xml"
+  ],
+  "action_items": [
+    "OPTIONAL (LOW): align VolumePricingTable trade tier prices and the 'Extra X% Off' savings labels for fixed-£ discount products (tiers 2-4 currently price at flat −£1.11 but label the percent-equivalent)."
+  ],
+  "critical_code_review_comments": [
+    "TileCartContext.addToCart whitelist now persists trade_discount_type/isTrade and CollectionDetailPage reverses the trade discount out of retail_price_inc_vat — verified end-to-end via localStorage. Consider extracting the cart-item shape into one shared helper so cartPricing.getEffectivePrice and addToCart can't drift again.",
+    "VolumePricingTable receives an effective percent (getEffTradePct()) but the backend-supplied tier prices are fixed-£ based; the component's percent-derived savings label is therefore approximate. Passing trade_discount + trade_discount_type would let the label be exact."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100% (9/9)", "frontend": "100% of the 6 fixes + all listed regressions pass (1 low-priority cosmetic inconsistency)"},
+  "seed_data_creation": "None. No orders created (no checkout executed). ULT-EC / Sherwood Oak fixtures untouched.",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "test_credentials": "Trade: trade.test@tilestation.co.uk / TradeTest123! (login /shop/trade/login → /shop/trade/account).",
+  "context_for_next_testing_agent": "IMPORTANT: the real basket page is /shop/tile-cart (TileCartPage) — /shop/cart is a legacy ShopCart that always renders empty for localStorage carts. PDP URL for ULT-EC: /shop/collection/Ultra%20Tile%20Cleaning%20%26%20Maintenance (m² fixture: /shop/collection/Sherwood%20Oak). Verified passing this round: all 6 iteration_235 fixes + guest/trade pallet & per-unit pricing + trade logout re-pricing + single-toast behaviour. Remaining open item is cosmetic only (trade tier 2-4 price vs savings-label mismatch on fixed-£ discounts).",
+  "rca_of_the_issue": "Both iteration_235 defects were fixed at the source: CollectionDetailPage now passes getEffTradePct() into VolumePricingTable (so tiersMatchProduct holds and the backend trade tiers are used verbatim), and addToCart persists trade_discount_type + a true retail_price_inc_vat (13.10) so cartPricing.getEffectivePrice takes the 'fixed' branch (13.10−1.11=11.99 inc → £9.99 ex VAT) and the guest/logout view falls back to genuine retail."
+}

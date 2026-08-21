@@ -1,0 +1,74 @@
+{
+  "summary": "Regression tested the TRADE PRICING (per-product fixed £/percent discount, no blanket 5%) and UNIT-PRODUCT display changes end-to-end. Backend: new pytest suite (9 tests, 100% pass) covering serialize_tile_for_shop unit fields, /api/tiles/pricing/calculate fixed-£ trade resolution (11.99 inc-VAT → 9.99 ex-VAT), no blanket default trade discount, percent path, query-param override, guest path, and guest-checkout TN-zone delivery maths (100 + 29.99 = 129.99, congestion 0; test order deleted). Frontend (Playwright, real preview URL): GUEST PDP + cart flows all PASS. TRADE PDP main price (£9.99 ex VAT), credit-back badge (+2%), pallet chips (£9.99 / £10.21 / £9.58 with 'ex VAT' header) and TRADE pallet cart (£9.58/each, subtotal £574.80, 'Credit back you'll earn £11.50', no blanket Trade −5% line) all PASS. TWO REAL BUGS FOUND: (1) Trade Volume Pricing table first tier shows £10.79 ex VAT instead of ≈£9.99 — fixed £ discount passed to VolumePricingTable as a raw percent; (2) Trade NON-pallet 'Per unit' cart line shows £9.88 instead of £9.99 and a 'Trade −1.11%' savings chip — TileCartContext.addToCart drops trade_discount_type when persisting the line, AND retail_price_inc_vat is stored as the already-trade-discounted 11.99 instead of retail 13.10 (double-discount risk).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "VolumePricingTable (Trade Volume Pricing table on PDP)",
+        "issue": "For ULT-EC (fixed £1.11 trade discount) the trade table shows first tier 'Your Price' £10.79 ex VAT and 'Extra 1% Off', while the main price block correctly shows £9.99 ex VAT / 'Trade: 8% off'. CollectionDetailPage passes tradeDiscount={productTradeDiscount || 0} (raw 1.11) and the component treats it as a PERCENT; it must receive getEffTradePct() (8.47%) or also receive trade_discount_type. Also makes tiersMatchProduct false so the whole trade table is recalculated wrongly (all tiers off: 10.79/10.26/9.72/9.18 instead of 9.99/9.49/8.99/8.49).",
+        "selector": "[data-testid=\"volume-pricing-table\"]",
+        "priority": "HIGH"
+      },
+      {
+        "component": "VolumePricingTable row labels (unit products)",
+        "issue": "Unit product ULT-EC still shows m² quantity labels in the volume table rows ('0 - 10m²', '10 - 50m²' ...) even though the column header correctly reads 'Price/each'. Labels come from the backend tier.label; should read units/each for pallet_qty_unit='unit' / non-surface products.",
+        "selector": "[data-testid=\"volume-pricing-table\"]",
+        "priority": "MEDIUM"
+      },
+      {
+        "component": "Add-to-cart toasts (CollectionDetailPage + TileCartContext)",
+        "issue": "TWO toasts fire for a single add — TileCartContext.addToCart shows 'Added 60 units (Full Pallet) to cart' and CollectionDetailPage then shows 'Added Full Pallet (60 units) to cart!'. Both are unit-correct, but duplicated. Same on m² products ('Added 2.88m² to cart' + 'Added 2.88 m² (2 boxes) to cart!').",
+        "selector": "[data-sonner-toast]",
+        "priority": "LOW"
+      },
+      {
+        "component": "TileCartPage per-line savings strip",
+        "issue": "Trade line savings chip renders 'Trade −1.11%' for a fixed £1.11/unit discount (raw value rendered as a percent). Should read 'Trade −£1.11' (or the effective 8%).",
+        "selector": "[data-testid^=\"tier-savings-strip-\"]",
+        "priority": "MEDIUM"
+      },
+      {
+        "component": "TileCartPage TOTAL SAVINGS strip (pallet line)",
+        "issue": "For a Full-Pallet trade line (which gets NO trade discount by design) the summary still says 'Volume + Trade discounts saved you £7.66 across 1 line · 1% off retail' — derived from the same raw 1.11-as-percent value. Should be trade-discount-free for pallet_tier lines.",
+        "selector": "[data-testid=\"cart-savings-summary\"]",
+        "priority": "MEDIUM"
+      }
+    ],
+    "integration_issues": [
+      {
+        "flow": "TRADE user adds non-pallet 'Per unit' qty 1 of ULT-EC → cart",
+        "issue": "Cart line shows £9.88 / each ex VAT, expected £9.99. RCA: (a) TileCartContext.addToCart does NOT persist trade_discount_type (nor isTrade) — localStorage item is {price:9.99, retail_price_inc_vat:11.99, trade_discount:1.11, credit_back_rate:2} with no type — so cartPricing.getEffectivePrice defaults to 'percent' and computes 11.99*(1-1.11%)/1.2 = 9.88. (b) CollectionDetailPage passes retail_price_inc_vat = currentPrice = 11.99 (already trade-net inc-VAT) instead of the £13.10 retail; if only (a) is fixed the cart would compute 11.99−1.11 = 10.88/1.2 = £9.07 (double discount) and a trade→guest logout would show £11.99 as 'retail'. BOTH must be fixed together.",
+        "affected_selectors": ["[data-testid=\"cart-item-ut-easy-clean\"]", "utils/cartPricing.js:getEffectivePrice", "contexts/TileCartContext.js:addToCart"]
+      }
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_trade_pricing_unit_regression.py",
+    "/app/test_reports/pytest/trade_unit_regression.xml"
+  ],
+  "action_items": [
+    "CollectionDetailPage.js ~line 3094: pass the % equivalent (getEffTradePct()) — or trade_discount + trade_discount_type — to VolumePricingTable so fixed £ discounts render the correct trade tier table (first tier must be £9.99 ex VAT, not £10.79).",
+    "TileCartContext.addToCart: persist trade_discount_type (and isTrade) on the cart line so fixed £ discounts are not re-applied as percentages by cartPricing.getEffectivePrice.",
+    "CollectionDetailPage addToCart: set retail_price_inc_vat to the true retail inc-VAT (room_lot_price / list price, £13.10) — currently it stores the trade-discounted 11.99, which double-discounts once the type bug is fixed and understates retail after trade logout.",
+    "TileCartPage: render fixed £ trade discounts as '£X' (not 'X%') in the per-line savings strip, and exclude pallet_tier lines from the 'Volume + Trade discounts saved you …' summary.",
+    "Remove the duplicate add-to-cart toast (keep either the context toast or the PDP toast).",
+    "Use unit-aware tier labels ('0 - 10 units') in the volume pricing table for pallet_qty_unit='unit'/non-surface products."
+  ],
+  "critical_code_review_comments": [
+    "cartPricing.getEffectivePrice correctly branches on trade_discount_type, but the value never reaches it because the cart writer drops the field — the contract between TileCartContext.addToCart's whitelist and cartPricing must be documented/asserted (one shared item-shape helper).",
+    "retail_price_inc_vat is documented as 'canonical retail inc-VAT' but CollectionDetailPage assigns currentPrice which for trade users is the trade-net tier price — the invariant is violated at the source.",
+    "VolumePricingTable takes a bare tradeDiscount percent while the rest of the PDP is type-aware (getEffTradePct); the prop should be the effective percent or include the type to avoid this class of bug."
+  ],
+  "updated_files": ["/app/backend/tests/test_trade_pricing_unit_regression.py"],
+  "success_rate": {"backend": "100% (9/9)", "frontend": "~70% (5/7 review scenarios pass; trade volume-pricing table + trade per-unit cart price fail)"},
+  "seed_data_creation": "None persisted. One guest order (TN9 1AA, £129.99) was created via POST /api/shop/guest-checkout and deleted from shop_orders by the test suite. ULT-EC fixtures untouched.",
+  "should_call_test_agent_after_fix": true,
+  "should_main_agent_self_test": false,
+  "test_credentials": "Trade: trade.test@tilestation.co.uk / TradeTest123! (login at /shop/trade/login works, lands on /shop/trade/account, Bronze tier 1%). Admin: admin@test.com / admin123 (not used).",
+  "context_for_next_testing_agent": "Backend suite: /app/backend/tests/test_trade_pricing_unit_regression.py (run with backend/.env exported for MONGO_URL/DB_NAME; it self-cleans the guest order). Verified PASSING and should stay passing: guest PDP pallet chips inc-VAT (£13.10/£12.25/£11.50, no 'ex VAT'), Full Pallet snaps qty to 60 + total £690.00, guest cart '£11.50 / each' + '60 pcs', trade PDP £9.99 ex VAT + pdp-credit-back-badge '+2% credit back on this item' + pallet chips 9.99/10.21/9.58 with 'ex VAT', trade pallet cart £9.58/each, subtotal £574.80, cart-credit-back-row '£11.50', no blanket Trade −5% line, Sherwood Oak m² regression clean (no console/page errors). STILL FAILING after fix must be re-checked: (1) Trade Volume Pricing table first tier should be £9.99 ex VAT (currently £10.79); (2) trade non-pallet Per-unit line must be £9.99 in cart (currently £9.88) with savings chip 'Trade −£1.11'. Remember localStorage.clear() between guest and trade runs; each browser_automation call is a fresh context so log in within the same script.",
+  "rca_of_the_issue": "Both failures share one root cause: the per-product trade discount is stored as a VALUE + TYPE ('fixed' £1.11 / 'percent'), but two consumers use the raw value as if it were a percent. (a) CollectionDetailPage passes productTradeDiscount (1.11) into VolumePricingTable as tradeDiscount%, so the component's tiersMatchProduct guard fails (11.99/(1-0.0111)=12.12 vs 13.10) and it recomputes 13.10*(1-1.11%)/1.2 = £10.79 with 'Extra 1% Off'. (b) TileCartContext.addToCart's item whitelist omits trade_discount_type, so cartPricing.getEffectivePrice falls back to 'percent' and computes 11.99*(1-1.11%)/1.2 = £9.88; compounding this, retail_price_inc_vat is written as the trade-net 11.99 rather than retail 13.10, so even the correct 'fixed' branch would yield £9.07. Pallet-tier lines are unaffected because they skip the trade discount entirely, which is why the £9.58 pallet flow looks correct."
+}

@@ -1030,7 +1030,7 @@ async def trade_customer_register(input: TradeCustomerRegister):
         "is_trade": True,
         "trade_account_number": trade_account_number,
         "trade_tier": "bronze",
-        "trade_discount": 5,
+        "trade_discount": 0,
         "credit_balance": 0.0,
         "credit_rate": 5,  # 5% credit back for bronze
         "total_spent": 0.0,
@@ -1109,7 +1109,7 @@ async def trade_customer_register(input: TradeCustomerRegister):
             "is_trade": True,
             "trade_account_number": trade_account_number,
             "trade_tier": "bronze",
-            "trade_discount": 5,
+            "trade_discount": 0,
             "credit_balance": 0.0,
             "address": customer_doc["address"]
         }

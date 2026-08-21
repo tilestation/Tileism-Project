@@ -83,9 +83,16 @@ export function getEffectivePrice(item, isTrade, accountTradeDiscount = 0) {
   const tierPct = getActiveTierDiscount(item);
   let priced = retail * (1 - tierPct / 100);
   if (!isTrade) return Math.round(priced * 100) / 100;
-  // Stack trade discount on top of the tier-discounted price.
-  const td = Number(item.trade_discount || accountTradeDiscount) || 0;
-  priced = priced * (1 - td / 100);
+  // Per-item trade discount ONLY (admin sets per product; fixed £ or %).
+  // No blanket account default, and pallet-tier lines are already net bulk
+  // rates so they get no extra trade discount.
+  if (!item.pallet_tier) {
+    const td = Number(item.trade_discount) || 0;
+    if (td > 0) {
+      const type = String(item.trade_discount_type || 'percent').toLowerCase();
+      priced = type === 'fixed' ? Math.max(0, priced - td) : priced * (1 - td / 100);
+    }
+  }
   // Strip VAT for ex-VAT display.
   return Math.round((priced / 1.20) * 100) / 100;
 }

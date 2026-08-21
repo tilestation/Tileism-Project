@@ -61,7 +61,12 @@ export const TileCartProvider = ({ children }) => {
         // If quantity is passed in tile object (from CollectionDetailPage), use that
         const addQuantity = tile.quantity || quantity;
         newCart[existingIndex].quantity += addQuantity;
-        toast.success(`Updated quantity to ${newCart[existingIndex].quantity}m²`);
+        if (!tile.silent) {
+          const mergedUnit = (newCart[existingIndex].pricing_unit || tile.pricing_unit || 'm2') === 'unit'
+            ? (Number(newCart[existingIndex].quantity) === 1 ? ' unit' : ' units')
+            : 'm²';
+          toast.success(`Updated quantity to ${newCart[existingIndex].quantity}${mergedUnit}`);
+        }
         return newCart;
       } else {
         // Add new item
@@ -103,7 +108,10 @@ export const TileCartProvider = ({ children }) => {
           : tile.pallet_tier === 'half_pallet'
             ? ` (Half Pallet)`
             : '';
-        toast.success(`Added ${itemQuantity}m²${palletTierMsg} to cart`);
+        const unitLabel = tile.pricing_unit === 'unit'
+          ? (Number(itemQuantity) === 1 ? ' unit' : ' units')
+          : 'm²';
+        if (!tile.silent) toast.success(`Added ${itemQuantity}${unitLabel}${palletTierMsg} to cart`);
         return [...prevCart, {
           id: tile.id,
           slug: tile.slug,
@@ -133,8 +141,12 @@ export const TileCartProvider = ({ children }) => {
           tier_pricing_disabled: !!tile.tier_pricing_disabled,
           was_price: tile.was_price || null,
           list_price: tile.list_price || null,
-          // Trade attribution at the moment of add — used for "Saved vs retail" math
+          // Trade attribution at the moment of add — used for "Saved vs retail" math.
+          // trade_discount_type MUST persist so cartPricing.getEffectivePrice knows
+          // whether trade_discount is a fixed £ amount or a percent.
           trade_discount: tile.trade_discount || null,
+          trade_discount_type: tile.trade_discount_type || null,
+          isTrade: !!tile.isTrade,
           credit_back_rate: tile.credit_back_rate || null,
         }];
       }

@@ -87,6 +87,14 @@ const TileCartPage = () => {
 
   const itemFlags = (item) => deliveryFlags[String(item.id || item.product_id || '')] || {};
 
+  // Trade credit-back earned across the basket (ex-VAT line totals × item cb%)
+  const creditBackEarned = isTrade ? (cart || []).reduce((acc, item) => {
+    const cb = Number(item.credit_back_rate) || 0;
+    if (cb <= 0) return acc;
+    const qty = Number(item.quantity) || 0;
+    return acc + getEffectivePrice(item, true, tradeDiscount) * qty * (cb / 100);
+  }, 0) : 0;
+
   // Check if admin has enabled Klarna / PayPal / Wallet at checkout (shows Express buttons)
   // Also pulls the admin-configured free-delivery threshold + default fee so the
   // progress bar in the summary respects whatever the admin set in Checkout Settings.
@@ -474,7 +482,7 @@ const TileCartPage = () => {
                       
                       <div className="text-[#1C1917] font-bold mt-2 text-base">
                         &pound;{getEffectivePrice(item, isTrade, tradeDiscount).toFixed(2)}
-                        <span className="text-xs text-[#78716C] font-medium ml-1">{item.is_surface_product !== false ? '/ m²' : '/ each'}</span>
+                        <span className="text-xs text-[#78716C] font-medium ml-1">{(item.pricing_unit === 'unit' || item.is_surface_product === false) ? '/ each' : '/ m²'}</span>
                         {isTrade && <span className="text-[10px] text-[#A8A29E] font-normal ml-1">ex. VAT</span>}
                       </div>
                       
@@ -596,13 +604,18 @@ const TileCartPage = () => {
                     if (qty <= 0) return null;
                     const retail = getRetailIncVat(item, tradeDiscount);
                     const tierPct = getActiveTierDiscount(item);
-                    const tradePct = isTrade ? (Number(item.trade_discount || tradeDiscount) || 0) : 0;
-                    if (tierPct === 0 && tradePct === 0) return null;
+                    // Per-item trade discount only (no account default); pallet lines
+                    // are already net bulk rates — no extra trade discount.
+                    const tradeRaw = (isTrade && !item.pallet_tier) ? (Number(item.trade_discount) || 0) : 0;
+                    const tradeType = String(item.trade_discount_type || 'percent').toLowerCase();
+                    if (tierPct === 0 && tradeRaw === 0) return null;
                     // Compound savings — mirrors what getEffectivePrice computes.
                     const retailLine = retail * qty;
                     const afterTierLine = retailLine * (1 - tierPct / 100);
                     const tierSaved = retailLine - afterTierLine;
-                    const afterTradeLine = afterTierLine * (1 - tradePct / 100);
+                    const afterTradeLine = tradeRaw > 0
+                      ? (tradeType === 'fixed' ? Math.max(0, afterTierLine - tradeRaw * qty) : afterTierLine * (1 - tradeRaw / 100))
+                      : afterTierLine;
                     const tradeSaved = afterTierLine - afterTradeLine;
                     const totalSaved = tierSaved + tradeSaved;
                     if (totalSaved < 0.01) return null;
@@ -618,12 +631,12 @@ const TileCartPage = () => {
                               <span className="text-emerald-700 tabular-nums">(−£{tierSaved.toFixed(2)})</span>
                             </span>
                           )}
-                          {tierPct > 0 && tradePct > 0 && (
+                          {tierPct > 0 && tradeSaved > 0 && (
                             <span className="text-emerald-400 font-bold">+</span>
                           )}
-                          {tradePct > 0 && (
+                          {tradeSaved > 0 && (
                             <span className="inline-flex items-center gap-1">
-                              <span className="font-semibold">Trade −{tradePct}%</span>
+                              <span className="font-semibold">Trade {tradeType === 'fixed' ? `−£${tradeRaw.toFixed(2)}/unit` : `−${tradeRaw}%`}</span>
                               <span className="text-emerald-700 tabular-nums">(−£{tradeSaved.toFixed(2)})</span>
                             </span>
                           )}
@@ -760,6 +773,13 @@ const TileCartPage = () => {
                   <span className="font-semibold text-[#1C1917] tabular-nums">&pound;{subtotal.toFixed(2)}</span>
                 </div>
 
+                {isTrade && creditBackEarned > 0.004 && (
+                  <div className="flex justify-between items-baseline" data-testid="cart-credit-back-row">
+                    <span className="text-[13px] text-emerald-700 font-medium">Credit back you&apos;ll earn</span>
+                    <span className="font-semibold text-emerald-700 tabular-nums">&pound;{creditBackEarned.toFixed(2)}</span>
+                  </div>
+                )}
+
                 {/* Delivery Method Selector */}
                 <div className="bg-white border border-[#E7E5E4] rounded-xl overflow-hidden" data-testid="delivery-method-selector">
                   <button
@@ -883,12 +903,17 @@ const TileCartPage = () => {
                     if (qty <= 0) continue;
                     const retail = getRetailIncVat(item, tradeDiscount);
                     const tierPct = getActiveTierDiscount(item);
-                    const tradePct = isTrade ? (Number(item.trade_discount || tradeDiscount) || 0) : 0;
+                    // Per-item trade discount only (fixed £ or %); pallet-tier lines
+                    // are already net bulk rates so they get no trade discount.
+                    const tradeRaw = (isTrade && !item.pallet_tier) ? (Number(item.trade_discount) || 0) : 0;
+                    const tradeType = String(item.trade_discount_type || 'percent').toLowerCase();
                     const retailLine = retail * qty;
                     totalRetail += retailLine;
-                    if (tierPct === 0 && tradePct === 0) continue;
+                    if (tierPct === 0 && tradeRaw === 0) continue;
                     const afterTier = retailLine * (1 - tierPct / 100);
-                    const afterTrade = afterTier * (1 - tradePct / 100);
+                    const afterTrade = tradeRaw > 0
+                      ? (tradeType === 'fixed' ? Math.max(0, afterTier - tradeRaw * qty) : afterTier * (1 - tradeRaw / 100))
+                      : afterTier;
                     totalSaved += retailLine - afterTrade;
                     if (retailLine - afterTrade >= 0.01) linesWithSavings++;
                   }
