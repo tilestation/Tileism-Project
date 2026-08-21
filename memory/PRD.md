@@ -9188,3 +9188,6 @@ See `/app/memory/test_credentials.md`
 3. Collection Store selector: checkout now fetches real showrooms from GET /api/shop/stores (4 stores, warehouses filtered) as selectable radio cards (data-testid collect-store-{id}); falls back to checkout-settings store list. Selected store sent as delivery.collect_store_id/name; guest-checkout persists collect_store_id + collect_store_name on the order (admin views already resolve it). opening_hours only rendered when string (DB stores per-day dict). Verified end-to-end via curl + DB read.
 4. "You qualify for FREE delivery" banner + "FREE on this order" chip now gated on itemDeliveryCharge === 0; amber "£X delivery charge applies" banner/chip shown instead when a mandatory-charge item blocks free delivery. Verified: £1150 basket (> £1000 threshold) with marked item shows amber banner, no green banner.
 - Note: preview free_threshold is £1000 in checkout_settings (header banner says £499 — admin copy, not logic).
+
+## Aug 21, 2026 — Pallet tier switch-back fix
+- PDP: switching from Half/Full Pallet back to Per unit/m² now resets qty to 1 (was keeping the pallet qty, e.g. 27, at unit price). Uses prevPricingTierRef so initial mount is untouched. Self-tested via screenshot flow on ULT-EC (30→1, 60→1).

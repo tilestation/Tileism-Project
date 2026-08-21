@@ -1446,8 +1446,9 @@ const CollectionDetailPage = () => {
   // the customer sees the exact pallet quantity (no "min 16 m² but qty
   // shows 32 m²" confusion). Customer can still bump qty UP via the +/−
   // steppers, but never below the minimum.
-  // Going back to 'm2' is intentionally a no-op so customers don't lose
-  // their typed qty if they were exploring per-m² mode mid-flow.
+  // Switching BACK to per-unit/m² resets qty to 1 so the pallet quantity
+  // (e.g. 27) doesn't linger at the per-unit price.
+  const prevPricingTierRef = useRef('m2');
   useEffect(() => {
     if (pricingTier === 'full_pallet' && palletInfo.fullM2 > 0) {
       if (isSurfaceProduct) setQuantityUnit('sqm');
@@ -1455,7 +1456,10 @@ const CollectionDetailPage = () => {
     } else if (pricingTier === 'half_pallet' && palletInfo.halfM2 > 0) {
       if (isSurfaceProduct) setQuantityUnit('sqm');
       setQuantity(palletInfo.halfM2);
+    } else if (pricingTier === 'm2' && prevPricingTierRef.current !== 'm2') {
+      setQuantity(1);
     }
+    prevPricingTierRef.current = pricingTier;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pricingTier, palletInfo.fullM2, palletInfo.halfM2]);
 
