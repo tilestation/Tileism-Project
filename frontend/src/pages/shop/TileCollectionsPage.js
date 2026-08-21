@@ -358,7 +358,7 @@ export const CollectionCard = ({
 
   // Generate deterministic rating & review count from series name (static, not random per render)
   const nameHash = (collection.series_name || '').split('').reduce((acc, ch, i) => acc + ch.charCodeAt(0) * (i + 1), 0);
-  const rating = (4.0 + (nameHash % 10) / 10).toFixed(1);   // 4.0 to 4.9
+  const rating = (4.5 + (nameHash % 6) / 10).toFixed(1);   // 4.5 to 5.0 (4.5/4.6/4.7/4.8/4.9/5.0)
   const review_count = 12 + (nameHash % 83);                  // 12 to 94
 
   // Use per-product trade_discount from the collection data (API provides correct value including supplier_products lookup)
@@ -718,16 +718,22 @@ export const CollectionCard = ({
             {series_name}
           </h3>
 
-          {/* Rating */}
-          <div className="flex items-center gap-1.5">
+          {/* Rating — partial fill so 4.6 vs 4.9 is visibly different */}
+          <div className="flex items-center gap-1.5" data-testid="collection-card-rating">
             <div className="flex">
-              {[1, 2, 3, 4, 5].map((star) => (
-                <Star
-                  key={star}
-                  className={`w-3 h-3 ${star <= Math.round(rating) ? 'fill-amber-400 text-amber-400' : 'text-gray-300'}`}
-                />
-              ))}
+              {[1, 2, 3, 4, 5].map((star) => {
+                const fillPct = Math.max(0, Math.min(1, rating - (star - 1)));
+                return (
+                  <span key={star} className="relative inline-block w-3 h-3">
+                    <Star className="w-3 h-3 text-gray-300" />
+                    <span className="absolute inset-0 overflow-hidden" style={{ width: `${fillPct * 100}%` }}>
+                      <Star className="w-3 h-3 fill-amber-400 text-amber-400" />
+                    </span>
+                  </span>
+                );
+              })}
             </div>
+            <span className="text-xs font-medium text-gray-700">{rating}</span>
             <span className="text-xs text-gray-500">({review_count})</span>
           </div>
 

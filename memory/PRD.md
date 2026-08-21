@@ -9232,3 +9232,8 @@ See `/app/memory/test_credentials.md`
 - Bug (prod): storefront materials grouping merged 'Ultra Tile ProClean' (cleaning) into a single 'Ultra Tile' card with ProGrip/SPES/ProFlex adhesives — the non-surface merge pass (tiles.py _get_tile_collections_impl) merged any groups sharing a ≥2-word name prefix, and 'Ultra Tile' (the BRAND) qualified.
 - Fix: merge now requires at least one shared word BEYOND the brand/supplier name (brand names collected from products' supplier_name/brand, normalized so 'UltraTile' == 'Ultra Tile'). Reproduced with synthetic docs (3 products merged into 'Ultra Test' card), verified after fix: 'Ultra Test ProGrip' (2) + separate 'Ultra Test ProClean Grout Aid'; all 62 existing preview groups unchanged. Synthetic docs removed.
 - Note: relies on supplier_name being set (portal-synced products have it). Admin can also set an explicit series per product which bypasses extraction entirely.
+
+## Aug 21, 2026 — Storefront card ratings lifted to 4.5–5.0
+- TileCollectionsPage card rating derivation changed: 4.0 + hash%10/10 → 4.5 + hash%6/10 (deterministic per series name → stable, storefront-wide, auto-applies to future products). Values: 4.5/4.6/4.7/4.8/4.9/5.0.
+- Card now shows the numeric rating next to stars, with partial-fill 5th star so 4.6 vs 4.9 is visibly different (previous Math.round would have shown 5 full stars for everything ≥4.5).
+- Verified via screenshot: min 4.5, max 5.0, all six values present across cards. PDP review section unchanged (real customer reviews).
