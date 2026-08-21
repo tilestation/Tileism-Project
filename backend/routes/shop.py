@@ -2619,16 +2619,44 @@ async def _get_delivery_flags(db, ids: list) -> dict:
          "pricing_unit": 1, "pallet_qty_unit": 1},
     )
     flags = {}
-    async for doc in cursor:
+    tile_docs = await cursor.to_list(1000)
+    # Older tiles docs can predate the delivery-rules mirror (rules saved in
+    # admin write to supplier_products and mirror to tiles at SAVE time only).
+    # Backfill from supplier_products keyed by sku/supplier_code so admin
+    # saves always reach the storefront regardless of when they were made.
+    sku_keys = set(clean)
+    for doc in tile_docs:
+        for k in ("sku", "supplier_code"):
+            if doc.get(k):
+                sku_keys.add(str(doc[k]))
+    sp_by_key = {}
+    if sku_keys:
+        sp_cursor = db.supplier_products.find(
+            {"$or": [{"sku": {"$in": list(sku_keys)}}, {"supplier_code": {"$in": list(sku_keys)}}]},
+            {"_id": 0, "sku": 1, "supplier_code": 1,
+             "delivery_charge_required": 1, "delivery_charge": 1,
+             "parcel_delivery": 1, "parcel_fee": 1, "pallet_qty_unit": 1, "pricing_unit": 1},
+        )
+        async for sp in sp_cursor:
+            for k in ("sku", "supplier_code"):
+                if sp.get(k):
+                    sp_by_key.setdefault(str(sp[k]), sp)
+    for doc in tile_docs:
+        sp = sp_by_key.get(str(doc.get("sku") or "")) or sp_by_key.get(str(doc.get("supplier_code") or "")) or {}
+
+        def pick(field):
+            v = doc.get(field)
+            return v if v not in (None, "", 0, False) else sp.get(field)
+
         f = {
-            "delivery_charge_required": bool(doc.get("delivery_charge_required")),
-            "delivery_charge": float(doc.get("delivery_charge") or 0),
-            "parcel_delivery": bool(doc.get("parcel_delivery")),
-            "parcel_fee": float(doc.get("parcel_fee") or 0),
+            "delivery_charge_required": bool(pick("delivery_charge_required")),
+            "delivery_charge": float(pick("delivery_charge") or 0),
+            "parcel_delivery": bool(pick("parcel_delivery")),
+            "parcel_fee": float(pick("parcel_fee") or 0),
             # Authoritative pricing unit — lets the cart heal stale lines that
             # stored 'm2' for unit-priced products (adhesives, trims, bags).
             "pricing_unit": (
-                "unit" if (doc.get("pallet_qty_unit") == "unit" or doc.get("pricing_unit") == "unit")
+                "unit" if (pick("pallet_qty_unit") == "unit" or pick("pricing_unit") == "unit")
                 else (doc.get("pricing_unit") or None)
             ),
         }

@@ -9199,3 +9199,9 @@ See `/app/memory/test_credentials.md`
 - Also: '1 pc' pluralisation in cartDisplay; preview free_threshold aligned 1000→499 to match header ribbon copy.
 - Verified: testing_agent iteration_237 — 7/7 scenarios PASS (heal basket+checkout, mandatory banners, normal free-delivery flows, PDP pallet add, trade regression, pytest 9/9). Tester's 'tier label mismatch' carry-over is NOT a bug (labels derive from actual prices, verified numerically).
 - Tester code-review notes (backlog): extract shared itemDeliveryCharge util; heal-on-addToCart if cart ever hydrates async.
+
+## Aug 21, 2026 — Production "FREE delivery still shows" RCA + fix
+- RCA: user saved Delivery Rules in production BEFORE deploying the tiles-mirror code — flags existed on supplier_products only; storefront delivery-flags endpoint read tiles only, so basket saw no charge. (Unit fix WAS live and working: 54 pcs / each showed.)
+- FIX: _get_delivery_flags (routes/shop.py) now backfills flags from supplier_products (keyed by sku/supplier_code) when tiles docs lack them — covers delivery_charge_required/charge, parcel flags AND pallet_qty_unit/pricing_unit. Also fixes server-side order charge math (same helper used at guest-checkout line 2764).
+- Verified: replicated production state in preview (flags on supplier_products only, tiles clean) → endpoint returns charge 54.99, basket shows amber strip + per-line chip + Item delivery charge +£54.99 row, no green banner. Test flags cleaned after.
+- User can ALSO get instant relief on current prod build by re-saving Delivery Rules in admin (new backend mirrors to tiles at save time) — but the code fix makes old saves work without re-saving.
