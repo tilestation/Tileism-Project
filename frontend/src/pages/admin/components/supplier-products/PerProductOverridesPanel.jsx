@@ -161,10 +161,21 @@ const PerProductOverridesPanel = ({ products, overrides, setOverrides, globalCre
                   const costPrice = Number(p.cost_price ?? p.wholesale_price ?? 0);
                   const effList = o.list_price !== undefined && o.list_price !== '' ? Number(o.list_price) : listPrice;
                   const effCost = o.cost_price !== undefined && o.cost_price !== '' ? Number(o.cost_price) : costPrice;
-                  const tradePrice = o.trade_price !== undefined && o.trade_price !== '' ? Number(o.trade_price) : null;
+                  // Stored trade price — derived from the product's saved trade discount so
+                  // reopening the modal SHOWS what's currently saved (blank input = keep it).
+                  const storedTrade = (() => {
+                    if (p.trade_discount == null || !(effList > 0)) return null;
+                    const type = String(p.trade_discount_type || 'percent').toLowerCase();
+                    const v = type === 'fixed' ? effList - Number(p.trade_discount) : effList * (1 - Number(p.trade_discount) / 100);
+                    return v > 0 ? Math.round(v * 100) / 100 : null;
+                  })();
+                  const typedTrade = o.trade_price !== undefined && o.trade_price !== '' ? Number(o.trade_price) : null;
+                  const tradePrice = typedTrade !== null ? typedTrade : storedTrade;
+                  const globalCb = (globalCreditBack === '' || globalCreditBack == null) ? 2 : Number(globalCreditBack);
+                  const storedCb = p.credit_back_rate != null ? Number(p.credit_back_rate) : null;
                   const cbRate = o.credit_back_rate !== undefined && o.credit_back_rate !== ''
                     ? Number(o.credit_back_rate)
-                    : ((globalCreditBack === '' || globalCreditBack == null) ? 2 : Number(globalCreditBack));
+                    : (storedCb !== null ? storedCb : globalCb);
                   // Shop margin formula: trade price is inc-VAT → ÷1.2 for ex-VAT,
                   // minus cost (ex-VAT), minus credit back (% of the ex-VAT price).
                   const hasPreview = tradePrice !== null && !Number.isNaN(tradePrice) && tradePrice > 0 && !o.disabled;
@@ -203,8 +214,13 @@ const PerProductOverridesPanel = ({ products, overrides, setOverrides, globalCre
                           {numInput(key, 'list_price', o.list_price, listPrice > 0 ? listPrice.toFixed(2) : '—', sku, 'override-list')}
                         </td>
                         <td className="px-2 py-2 text-right">
-                          {numInput(key, 'trade_price', o.trade_price, 'final £', sku, 'override-trade', 'w-28')}
-                          {offList !== null && offList > 0 && (
+                          {numInput(key, 'trade_price', o.trade_price, storedTrade !== null ? storedTrade.toFixed(2) : 'final £', sku, 'override-trade', 'w-28')}
+                          {typedTrade === null && storedTrade !== null && (
+                            <div className="text-[10px] text-gray-400 mt-0.5" data-testid={`override-saved-trade-${sku}`}>
+                              saved: £{storedTrade.toFixed(2)}
+                            </div>
+                          )}
+                          {offList !== null && offList > 0 && typedTrade !== null && (
                             <div className="text-[10px] text-gray-400 mt-0.5" data-testid={`override-offlist-${sku}`}>
                               = £{offList.toFixed(2)} off list
                             </div>
@@ -239,7 +255,7 @@ const PerProductOverridesPanel = ({ products, overrides, setOverrides, globalCre
                                 const v = e.target.value;
                                 setField(key, 'credit_back_rate', v === '' ? '' : Number(v));
                               }}
-                              placeholder={String((globalCreditBack === '' || globalCreditBack == null) ? 2 : globalCreditBack)}
+                              placeholder={String(storedCb !== null ? storedCb : globalCb)}
                               className="h-9 text-sm w-16 text-right"
                               data-testid={`override-credit-${sku}`}
                             />
@@ -307,8 +323,8 @@ const PerProductOverridesPanel = ({ products, overrides, setOverrides, globalCre
                                 <span className="text-gray-500">£/{qtyUnit === 'unit' ? 'unit' : 'm²'}</span>
                                 <span className="font-mono ml-1" data-testid={`override-pallet-profit-${sku}`}>
                                   {fullCalc ? (
-                                    <span className={fullCalc.profit >= 0 ? 'text-emerald-700 font-semibold' : 'text-red-600 font-semibold'} title={`Pallet total £${fullCalc.total.toFixed(2)} inc VAT · profit = qty × (rate÷1.2 − cost − CB)`}>
-                                      = £{fullCalc.profit.toFixed(2)} profit · {fullCalc.margin.toFixed(0)}%
+                                    <span className={fullCalc.profit >= 0 ? 'text-emerald-700 font-semibold' : 'text-red-600 font-semibold'} title={`Profit = qty × (rate÷1.2 − cost − CB)`}>
+                                      = £{fullCalc.total.toFixed(2)} total → £{fullCalc.profit.toFixed(2)} profit · {fullCalc.margin.toFixed(0)}%
                                     </span>
                                   ) : (
                                     <span className="text-gray-400">set qty + rate</span>
@@ -323,8 +339,8 @@ const PerProductOverridesPanel = ({ products, overrides, setOverrides, globalCre
                                 <span className="text-gray-500">£/{qtyUnit === 'unit' ? 'unit' : 'm²'}</span>
                                 <span className="font-mono ml-1" data-testid={`override-halfpallet-profit-${sku}`}>
                                   {halfCalc ? (
-                                    <span className={halfCalc.profit >= 0 ? 'text-emerald-700 font-semibold' : 'text-red-600 font-semibold'} title={`½ pallet total £${halfCalc.total.toFixed(2)} inc VAT · profit = qty × (rate÷1.2 − cost − CB)`}>
-                                      = £{halfCalc.profit.toFixed(2)} profit · {halfCalc.margin.toFixed(0)}%
+                                    <span className={halfCalc.profit >= 0 ? 'text-emerald-700 font-semibold' : 'text-red-600 font-semibold'} title={`Profit = qty × (rate÷1.2 − cost − CB)`}>
+                                      = £{halfCalc.total.toFixed(2)} total → £{halfCalc.profit.toFixed(2)} profit · {halfCalc.margin.toFixed(0)}%
                                     </span>
                                   ) : (
                                     <span className="text-gray-400">set qty + rate</span>

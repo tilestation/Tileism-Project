@@ -9150,3 +9150,11 @@ See `/app/memory/test_credentials.md`
 - Verified through the REAL UI flow: Materials Manager → ULT-EC → expander (units, 60×£11.50, 30×£12.25) → Save → DB correct in both collections → RE-OPEN + untouched Save → data INTACT → storefront PDP shows "Per unit £13.10 each / Half £12.25/unit·min 30 units / Full £11.50/unit·min 60 units" with SAVE badges.
 - ULT-EC left configured in preview as a working demo for the user.
 - Production: needs deploy; user must RE-SAVE the pallet data that was wiped on their product.
+
+## Aug 21, 2026 Session — Modal reopen now shows saved values (user: "doesn't show that again")
+- User confusion root cause: production runs the OLD build (their screenshot shows old pallet columns) — all recent pallet/storefront fixes need a DEPLOY. Additionally, the overrides panel started blank on every reopen (blank = inherit), so saved trade prices seemed lost.
+- FIX in PerProductOverridesPanel: storedTrade derived from the product's saved trade_discount (fixed: list−td; percent: list×(1−td/100)) → shown as input placeholder + "saved: £X.XX" note + live Profit/Margin computed from saved value on reopen. Credit % placeholder now prefers the product's stored credit_back_rate. Pallet profit lines now show "£total → £profit · %".
+- "= £X off list" hint only when a new value is typed.
+- Verified: saved trade £5.49 on TSAB612P → reopened → placeholder 5.49 + "saved: £5.49" + margin −33% (below cost, accurate). Pallet expander reopen already prefilled (ULT-EC: 60/£11.50, 30/£12.25, units dropdown remembered, £690 total → £170.50 profit).
+- Preview data note: ULT-PSSF20G + ULT-EC have no list_price in supplier_products (prod differs) — storedTrade requires a list price to derive.
+- Test data cleaned (TSAB612P trade unset). ULT-EC pallet demo kept.
