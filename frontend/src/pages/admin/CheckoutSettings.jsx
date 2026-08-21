@@ -33,7 +33,7 @@ const DEFAULT_SETTINGS = {
     enabled: true,
     label: 'Click & Collect',
     description: 'FREE - Collect from our store',
-    ready_time: 'Ready within 24 hours',
+    ready_time: 'We will notify you via email or call, once your order is ready from your selected store',
     stores: [
       { id: '1', name: 'Tile Station - Tonbridge', address: 'Unit 5, Cannon Lane, Tonbridge TN9 1PP', active: true },
     ],

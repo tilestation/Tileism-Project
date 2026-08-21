@@ -2826,6 +2826,9 @@ async def create_guest_checkout_order(order_input: GuestCheckoutOrder):
         } if delivery_method == "delivery" else {},
         "billing_address": billing_address,
         "notes": delivery_info.get("notes", ""),
+        # Click & Collect — selected showroom (resolved to name by admin views)
+        "collect_store_id": (delivery_info.get("collect_store_id") or None) if delivery_method == "collect" else None,
+        "collect_store_name": (delivery_info.get("collect_store_name") or None) if delivery_method == "collect" else None,
         "items": [item.model_dump() for item in order_input.items],
         "subtotal": round(subtotal, 2),
         "delivery_fee": round(delivery_fee, 2),

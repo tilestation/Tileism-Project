@@ -1622,6 +1622,12 @@ const CollectionDetailPage = () => {
       silent: true,
       priceType: cartPriceType,
       pallet_tier: pricingTier === 'm2' ? null : pricingTier,
+      // Pallet-rate lines can't drop below the pallet quantity in the basket.
+      pallet_min_qty: pricingTier === 'full_pallet'
+        ? (palletInfo.fullM2 || null)
+        : pricingTier === 'half_pallet'
+          ? (palletInfo.halfM2 || null)
+          : null,
       size: selectedProduct.size,
       finish: selectedProduct.finish,
       color: selectedProduct.color,

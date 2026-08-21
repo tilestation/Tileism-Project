@@ -71,12 +71,29 @@ export function getCartStepSize(item) {
  */
 export function snapCartQuantity(item, newQuantity) {
   const step = getCartStepSize(item);
-  if (step <= 0) return Math.max(1, Math.round(Number(newQuantity) || 0));
-  const q = Number(newQuantity) || 0;
-  if (q <= step) return round2(step);
-  // Round to nearest step multiple
-  const multiples = Math.round(q / step);
-  return round2(multiples * step);
+  const min = getCartMinQuantity(item);
+  let snapped;
+  if (step <= 0) {
+    snapped = Math.max(1, Math.round(Number(newQuantity) || 0));
+  } else {
+    const q = Number(newQuantity) || 0;
+    // Round to nearest step multiple (never below one step)
+    snapped = q <= step ? round2(step) : round2(Math.round(q / step) * step);
+  }
+  return min > 0 ? Math.max(round2(min), snapped) : snapped;
+}
+
+/**
+ * Minimum quantity for a cart line. Pallet-rate lines (half/full pallet)
+ * can never drop below the pallet quantity captured at add time — otherwise
+ * the pallet price would apply to a sub-pallet quantity.
+ */
+export function getCartMinQuantity(item) {
+  if (item?.pallet_tier) {
+    const m = Number(item.pallet_min_qty) || 0;
+    if (m > 0) return m;
+  }
+  return 0;
 }
 
 // Round to 2 decimal places (avoids 2.8800000000000003)

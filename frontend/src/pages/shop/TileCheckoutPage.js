@@ -41,9 +41,11 @@ const extractAxiosErrorDetail = (err, fallback = 'Request failed') => {
   return err?.message || fallback;
 };
 
+const COLLECTION_READY_MSG = 'We will notify you via email or call, once your order is ready from your selected store';
+
 const DEFAULT_SETTINGS = {
   delivery: { enabled: true, free_threshold: 499, default_fee: 49.99, label: 'Home Delivery', description: 'Delivered within 3-5 working days', zones: [], congestion_charge: { enabled: true, amount: 18.00, label: 'Congestion Charge (Central London)' }, express: { enabled: true, extra_fee: 25.00, label: 'Express Delivery', description: '2-3 working days', standard_label: 'Standard Delivery', standard_description: '5-7 working days' } },
-  collection: { enabled: true, label: 'Click & Collect', description: 'FREE - Collect from our store', ready_time: 'Ready within 24 hours', stores: [{ id: '1', name: 'Tile Station - Tonbridge', address: 'Unit 5, Cannon Lane, Tonbridge TN9 1PP', active: true }] },
+  collection: { enabled: true, label: 'Click & Collect', description: 'FREE - Collect from our store', ready_time: COLLECTION_READY_MSG, stores: [{ id: '1', name: 'Tile Station - Tonbridge', address: 'Unit 5, Cannon Lane, Tonbridge TN9 1PP', active: true }] },
   time_slots: [],
   text: { step1_title: 'Your Details', step2_title: 'Delivery Method', step3_title: 'Payment', secure_message: 'Your payment information is encrypted and secure.', order_notes_placeholder: 'Special instructions for delivery...', success_message: 'Thank you! Your order has been placed.' },
   min_order: 0,
@@ -161,7 +163,12 @@ const TileCheckoutPage = () => {
           setSettings(prev => ({
             ...prev,
             delivery: { ...prev.delivery, ...(d.settings.delivery || {}) },
-            collection: { ...prev.collection, ...(d.settings.collection || {}) },
+            collection: (() => {
+              const merged = { ...prev.collection, ...(d.settings.collection || {}) };
+              // Legacy stored copy — replaced by the notify-on-ready message
+              if (merged.ready_time === 'Ready within 24 hours') merged.ready_time = COLLECTION_READY_MSG;
+              return merged;
+            })(),
             time_slots: d.settings.time_slots || prev.time_slots,
             text: { ...prev.text, ...(d.settings.text || {}) },
             min_order: d.settings.min_order ?? prev.min_order,
@@ -175,6 +182,24 @@ const TileCheckoutPage = () => {
   }, []);
 
   const { isTrade, tradeDiscount } = useTradeUser();
+
+  // Click & Collect stores — real showrooms (warehouses filtered server-side).
+  // Falls back to the admin checkout-settings store list if the API is empty.
+  const [shopStores, setShopStores] = useState([]);
+  const [collectStore, setCollectStore] = useState(null);
+  useEffect(() => {
+    axios.get(`${API_URL}/api/shop/stores`)
+      .then(res => setShopStores(Array.isArray(res.data) ? res.data : []))
+      .catch(() => {});
+  }, []);
+  const collectStores = shopStores.length > 0
+    ? shopStores
+    : (settings.collection.stores || []).filter(s => s.active !== false);
+  useEffect(() => {
+    if (!collectStore && collectStores.length > 0) setCollectStore(collectStores[0]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shopStores, settings.collection.stores]);
+
   const subtotal = useMemo(() => cartItems.reduce(
     (sum, item) => sum + getEffectivePrice(item, isTrade, tradeDiscount) * (item.quantity || 0),
     0
@@ -370,6 +395,10 @@ const TileCheckoutPage = () => {
         return false;
       }
     }
+    if (delivery.method === 'collect' && collectStores.length > 0 && !collectStore) {
+      toast.error('Please select a collection store');
+      return false;
+    }
     if (!billing.same_as_delivery) {
       if (!billing.address1 || !billing.city || !billing.postcode) {
         toast.error('Please fill in your billing address');
@@ -452,7 +481,13 @@ const TileCheckoutPage = () => {
           quantity: item.quantity, image: item.image,
         })),
         customer: details,
-        delivery: { ...delivery, fee: deliveryFee || 0, express_fee: expressFee },
+        delivery: {
+          ...delivery,
+          fee: deliveryFee || 0,
+          express_fee: expressFee,
+          collect_store_id: delivery.method === 'collect' ? (collectStore?.id || null) : null,
+          collect_store_name: delivery.method === 'collect' ? (collectStore?.name || null) : null,
+        },
         billing: billingPayload,
         payment: payment,
         promo_code: promoApplied?.code || null,
@@ -752,8 +787,11 @@ const TileCheckoutPage = () => {
                           <span className="font-semibold text-gray-900">{settings.delivery.label}</span>
                           <p className="text-sm text-gray-500">{settings.delivery.description}</p>
                           {deliveryTerms && <p className="text-[10px] text-gray-400 mt-0.5">{deliveryTerms}</p>}
-                          {subtotal >= settings.delivery.free_threshold && (
+                          {subtotal >= settings.delivery.free_threshold && itemDeliveryCharge === 0 && (
                             <span className="inline-block mt-1 text-xs font-medium text-green-600 bg-green-50 px-2 py-0.5 rounded">FREE on this order</span>
+                          )}
+                          {itemDeliveryCharge > 0 && (
+                            <span className="inline-block mt-1 text-xs font-medium text-amber-700 bg-amber-50 px-2 py-0.5 rounded">£{itemDeliveryCharge.toFixed(2)} item delivery charge applies</span>
                           )}
                         </div>
                       </button>
@@ -925,19 +963,34 @@ const TileCheckoutPage = () => {
                     </div>
                   )}
 
-                  {/* Collection Store */}
-                  {delivery.method === 'collect' && settings.collection.stores?.length > 0 && (
+                  {/* Collection Store — selectable list of showrooms */}
+                  {delivery.method === 'collect' && collectStores.length > 0 && (
                     <div className="border-t pt-6">
                       <h3 className="font-semibold text-gray-900 mb-3">Collection Store</h3>
-                      {settings.collection.stores.filter(s => s.active !== false).map(store => (
-                        <div key={store.id} className="flex items-start gap-3 p-4 bg-gray-50 rounded-lg">
-                          <MapPin className="w-5 h-5 text-[#F7EA1C] mt-0.5 flex-shrink-0" />
-                          <div>
-                            <p className="font-medium">{store.name}</p>
-                            <p className="text-sm text-gray-500">{store.address}</p>
-                          </div>
-                        </div>
-                      ))}
+                      <div className="space-y-2">
+                        {collectStores.map(store => {
+                          const sel = collectStore?.id === store.id;
+                          return (
+                            <button
+                              key={store.id}
+                              type="button"
+                              onClick={() => setCollectStore(store)}
+                              data-testid={`collect-store-${store.id}`}
+                              className={`w-full flex items-start gap-3 p-4 rounded-xl border-2 text-left transition-all ${sel ? 'border-[#F7EA1C] bg-[#F7EA1C]/5' : 'border-gray-200 bg-gray-50 hover:border-gray-300'}`}
+                            >
+                              <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center mt-0.5 flex-shrink-0 ${sel ? 'border-[#F7EA1C]' : 'border-gray-300'}`}>
+                                {sel && <div className="w-2.5 h-2.5 rounded-full bg-[#F7EA1C]" />}
+                              </div>
+                              <MapPin className={`w-5 h-5 mt-0.5 flex-shrink-0 ${sel ? 'text-[#F7EA1C]' : 'text-gray-400'}`} />
+                              <div>
+                                <p className="font-medium">{store.name}</p>
+                                {store.address && <p className="text-sm text-gray-500">{store.address}</p>}
+                                {typeof store.opening_hours === 'string' && store.opening_hours && <p className="text-xs text-gray-400 mt-0.5">{store.opening_hours}</p>}
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
                     </div>
                   )}
 
@@ -1032,7 +1085,7 @@ const TileCheckoutPage = () => {
                         <span className="truncate">
                           {delivery.method === 'delivery'
                             ? <>Delivery to <span className="font-medium text-[#1C1917]">{delivery.address1}, {delivery.city}, {delivery.postcode}</span></>
-                            : <>Click &amp; Collect — <span className="font-medium text-[#1C1917]">{settings.collection.stores[0]?.name || 'Store'}</span></>
+                            : <>Click &amp; Collect — <span className="font-medium text-[#1C1917]">{collectStore?.name || settings.collection.stores[0]?.name || 'Store'}</span></>
                           }
                         </span>
                       </div>
@@ -1114,8 +1167,8 @@ const TileCheckoutPage = () => {
                   </div>
                 )}
 
-                {/* Qualifies badge */}
-                {delivery.method === 'delivery' && subtotal >= freeThreshold && (
+                {/* Qualifies badge — only when NO mandatory item delivery charge applies */}
+                {delivery.method === 'delivery' && subtotal >= freeThreshold && itemDeliveryCharge === 0 && (
                   <motion.div
                     initial={{ opacity: 0, scale: 0.95 }}
                     animate={{ opacity: 1, scale: 1 }}
@@ -1129,6 +1182,17 @@ const TileCheckoutPage = () => {
                       <p className="text-[11px] text-emerald-700/80">Saved £{(settings.delivery.default_fee || 49.99).toFixed(2)} on shipping</p>
                     </div>
                   </motion.div>
+                )}
+
+                {/* Mandatory item delivery charge — replaces the free-delivery badge */}
+                {delivery.method === 'delivery' && itemDeliveryCharge > 0 && (
+                  <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 flex items-center gap-2.5" data-testid="mandatory-delivery-banner">
+                    <Truck className="w-5 h-5 text-amber-600 flex-shrink-0" />
+                    <div>
+                      <p className="text-sm font-semibold text-amber-900">£{itemDeliveryCharge.toFixed(2)} delivery charge applies</p>
+                      <p className="text-[11px] text-amber-700/80">Some items in your basket are excluded from free delivery.</p>
+                    </div>
+                  </div>
                 )}
 
                 {/* Cart Items — animated list */}

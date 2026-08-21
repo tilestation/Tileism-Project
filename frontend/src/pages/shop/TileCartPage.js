@@ -9,7 +9,7 @@ import { useCart } from '../../contexts/TileCartContext';
 import { fetchDeliveryTerms } from '../../lib/deliveryTerms';
 import { ShopHeader, ShopFooter } from './TileStationHome';
 import { useTradeUser } from '../../hooks/useTradeUser';
-import { formatCartQuantity, snapCartQuantity, getCartStepSize, getTierUpsell } from '../../utils/cartDisplay';
+import { formatCartQuantity, snapCartQuantity, getCartStepSize, getCartMinQuantity, getTierUpsell } from '../../utils/cartDisplay';
 import { getEffectivePrice, getEffectiveSubtotal, getRetailIncVat, getActiveTierDiscount } from '../../utils/cartPricing';
 import WalletExpressButton from '../../components/shop/WalletExpressButton';
 import CartSaveBanner from '../../components/shop/CartSaveBanner';
@@ -526,7 +526,7 @@ const TileCartPage = () => {
                             value={item.quantity}
                             onChange={(e) => updateQuantity(item.id, item.priceType, snapCartQuantity(item, parseFloat(e.target.value) || getCartStepSize(item)))}
                             className="w-14 text-center border-0 tabular-nums font-semibold text-[#1C1917] p-0 h-8"
-                            min={getCartStepSize(item)}
+                            min={getCartMinQuantity(item) || getCartStepSize(item)}
                           />
                           <motion.button whileTap={{ scale: 0.9 }}
                             onClick={() => updateQuantity(item.id, item.priceType, snapCartQuantity(item, item.quantity + getCartStepSize(item)))}
@@ -563,7 +563,7 @@ const TileCartPage = () => {
                             value={item.quantity}
                             onChange={(e) => updateQuantity(item.id, item.priceType, snapCartQuantity(item, parseFloat(e.target.value) || getCartStepSize(item)))}
                             className="w-14 text-center border-0 tabular-nums font-semibold text-[#1C1917] p-0 h-8"
-                            min={getCartStepSize(item)}
+                            min={getCartMinQuantity(item) || getCartStepSize(item)}
                           />
                           <motion.button whileTap={{ scale: 0.9 }}
                             onClick={() => updateQuantity(item.id, item.priceType, snapCartQuantity(item, item.quantity + getCartStepSize(item)))}

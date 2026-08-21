@@ -124,6 +124,8 @@ export const TileCartProvider = ({ children }) => {
           // Pallet tier is null for per-m² lines, 'half_pallet' / 'full_pallet'
           // for pallet-rate lines. Used by basket UI to show the tier badge.
           pallet_tier: tile.pallet_tier || null,
+          // Minimum basket quantity for pallet-rate lines (steppers clamp to this)
+          pallet_min_qty: tile.pallet_min_qty || null,
           quantity: itemQuantity,
           size: tile.size,
           finish: tile.finish,
