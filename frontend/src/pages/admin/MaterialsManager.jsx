@@ -65,6 +65,7 @@ const MaterialsManager = () => (
     isMatch={isMaterial}
     subTabs={MATERIAL_SUB_TABS}
     facetCategory="materials"
+    seriesQuickEdit
     columns={[
       { key: 'color',      label: 'Colour',   render: (p) => p.color || (Array.isArray(p.colors) && p.colors[0]) || '—' },
       { key: 'coverage',   label: 'Coverage', render: (p) => {

@@ -78,6 +78,100 @@ import { useManagerConfig } from './managers/useManagerConfig';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
 
+// Inline series editor cell — click the pencil, pick/type a series, Enter saves.
+// Saving updates supplier_products AND mirrors to tiles so the storefront card
+// regroups immediately. Existing series names are offered via a datalist.
+const SeriesQuickEditCell = ({ product, onSaved, categoryKey }) => {
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState('');
+  const [saving, setSaving] = useState(false);
+  const explicit = product.range_name || product.series || product.series_name || '';
+  const rowKey = product.sku || product.supplier_code;
+
+  const save = async (next) => {
+    const clean = String(next || '').trim();
+    if (clean === String(explicit).trim()) { setEditing(false); return; }
+    setSaving(true);
+    try {
+      const res = await fetch(`${API_URL}/api/supplier-sync/products/bulk-series-update`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          products: [{ supplier: product.supplier, sku: product.sku || product.supplier_code }],
+          series: clean,
+        }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      toast.success(clean ? `Moved to "${clean}" series` : 'Series cleared — falls back to auto-grouping');
+      setEditing(false);
+      onSaved();
+    } catch (err) {
+      toast.error(`Series update failed: ${err.message}`);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (editing) {
+    return (
+      <div className="flex items-center gap-1">
+        <input
+          autoFocus
+          list={`series-options-${categoryKey}`}
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') save(e.currentTarget.value);
+            if (e.key === 'Escape') setEditing(false);
+          }}
+          placeholder="Series name…"
+          className="w-36 px-1.5 py-1 text-xs border border-slate-300 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
+          data-testid={`series-input-${rowKey}`}
+          disabled={saving}
+        />
+        <button
+          type="button"
+          onClick={() => save(value)}
+          disabled={saving}
+          className="p-1 rounded bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50"
+          title="Save series"
+          data-testid={`series-save-${rowKey}`}
+        >
+          {saving ? <RefreshCw className="w-3 h-3 animate-spin" /> : <CheckCircle className="w-3 h-3" />}
+        </button>
+        <button
+          type="button"
+          onClick={() => setEditing(false)}
+          disabled={saving}
+          className="p-1 rounded text-gray-400 hover:text-gray-600"
+          title="Cancel"
+        >
+          <X className="w-3 h-3" />
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={() => { setValue(explicit); setEditing(true); }}
+      className="group/series inline-flex items-center gap-1 max-w-[160px] text-left"
+      title={explicit ? `Series: ${explicit} — click to change` : 'No explicit series (auto-grouped by name) — click to set one'}
+      data-testid={`series-cell-${rowKey}`}
+    >
+      {explicit ? (
+        <span className="inline-flex px-1.5 py-0.5 rounded text-[10px] font-medium bg-slate-100 text-slate-700 border border-slate-200 truncate">
+          {explicit}
+        </span>
+      ) : (
+        <span className="text-[10px] text-gray-400 italic">auto</span>
+      )}
+      <Edit2 className="w-3 h-3 text-gray-300 group-hover/series:text-slate-600 flex-shrink-0" />
+    </button>
+  );
+};
+
 // Given a stored sub-tab config ({key, label, keywords[]}) and a product,
 // return whether the product should appear in that sub-tab. `all` / empty
 // keywords always match everything.
@@ -123,6 +217,7 @@ const ManagerPageShell = ({
   topBanner = null,      // ReactNode slot rendered above the search bar (e.g. sub-category chips)
   showLegacyLink = true, // hide the "Legacy full editor" link for pages where it's not relevant
   hideDefaultBanner = false, // hide the built-in "How this page works" info banner
+  seriesQuickEdit = false, // show an inline-editable Series column (re-group storefront cards in one click)
 }) => {
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -535,6 +630,12 @@ const ManagerPageShell = ({
   // in future — for now, always on so admins see grouping everywhere.
   const groupedProducts = useMemo(() => groupBySeries(filteredProducts), [filteredProducts]);
 
+  // Distinct series names across this Manager — feeds the Series quick-edit datalist
+  const allSeriesNames = useMemo(
+    () => groupBySeries(products).map(g => g.series).filter(s => s && s !== 'Individual').sort(),
+    [products]
+  );
+
   // Per-series completeness % across all Studio attributes (Colour + extras)
   const seriesCompleteness = useMemo(() => {
     const attrs = [{ key: 'color', label: 'Colour', arrayField: 'colors' }, ...studioAttributeOptions];
@@ -917,6 +1018,11 @@ const ManagerPageShell = ({
           </>
         ) : (
           <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+            {seriesQuickEdit && (
+              <datalist id={`series-options-${categoryKey}`}>
+                {allSeriesNames.map(s => <option key={s} value={s} />)}
+              </datalist>
+            )}
             <table className="w-full text-sm">
               <thead className="bg-gray-50 border-b border-gray-200">
                 <tr>
@@ -930,6 +1036,9 @@ const ManagerPageShell = ({
                     />
                   </th>
                   <th className="px-3 py-2 text-left font-medium text-gray-700">Product</th>
+                  {seriesQuickEdit && (
+                    <th className="px-3 py-2 text-left font-medium text-gray-700" title="Which storefront card this product groups under — click a cell to re-group it">Series</th>
+                  )}
                   {columns.map(c => (
                     <th key={c.key} className="px-3 py-2 text-left font-medium text-gray-700">{c.label}</th>
                   ))}
@@ -967,7 +1076,7 @@ const ManagerPageShell = ({
                             data-testid={`${categoryKey}-series-check-${group.series}`}
                           />
                         </td>
-                        <td colSpan={columns.length + 3} className="px-3 py-2">
+                        <td colSpan={columns.length + 3 + (seriesQuickEdit ? 1 : 0)} className="px-3 py-2">
                           <div className="flex items-center gap-2 text-sm font-semibold text-gray-800">
                             <Layers className="w-4 h-4 text-slate-500" />
                             <span>{group.series} Series</span>
@@ -1005,7 +1114,7 @@ const ManagerPageShell = ({
                     ) : (
                       <tr className="border-y border-dashed border-gray-200" data-testid={`${categoryKey}-series-header-individual`}>
                         <td className="px-3 py-2" />
-                        <td colSpan={columns.length + 3} className="px-3 py-1 text-[11px] text-gray-500 italic">
+                        <td colSpan={columns.length + 3 + (seriesQuickEdit ? 1 : 0)} className="px-3 py-1 text-[11px] text-gray-500 italic">
                           Individual — {group.products.length} product{group.products.length !== 1 ? 's' : ''} (no series assigned)
                         </td>
                       </tr>
@@ -1036,6 +1145,15 @@ const ManagerPageShell = ({
                               {p.published && <CheckCircle className="w-3 h-3 inline ml-1 text-green-500" />}
                             </div>
                           </td>
+                          {seriesQuickEdit && (
+                            <td className="px-3 py-2">
+                              <SeriesQuickEditCell
+                                product={p}
+                                categoryKey={categoryKey}
+                                onSaved={fetchProducts}
+                              />
+                            </td>
+                          )}
                           {columns.map(c => (
                             <td key={c.key} className="px-3 py-2 text-gray-700">
                               {c.key === 'size' ? (

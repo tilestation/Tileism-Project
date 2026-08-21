@@ -9237,3 +9237,10 @@ See `/app/memory/test_credentials.md`
 - TileCollectionsPage card rating derivation changed: 4.0 + hash%10/10 → 4.5 + hash%6/10 (deterministic per series name → stable, storefront-wide, auto-applies to future products). Values: 4.5/4.6/4.7/4.8/4.9/5.0.
 - Card now shows the numeric rating next to stars, with partial-fill 5th star so 4.6 vs 4.9 is visibly different (previous Math.round would have shown 5 full stars for everything ≥4.5).
 - Verified via screenshot: min 4.5, max 5.0, all six values present across cards. PDP review section unchanged (real customer reviews).
+
+## Aug 21, 2026 — Series Quick-Edit column (Materials Manager)
+- New backend: PUT /api/supplier-sync/products/bulk-series-update — sets/clears series + range_name on supplier_products AND mirrors series to tiles (sku/supplier_code match), so admin grouping and storefront card grouping update together. Clearing (empty series) reverts to auto name-parsing.
+- New frontend: ManagerPageShell prop `seriesQuickEdit` (opt-in, enabled on MaterialsManager) adds a Series column: chip shows explicit series or 'auto'; click pencil → inline input with datalist of existing series names; Enter/✓ saves, Esc cancels. testids: series-cell-{sku}, series-input-{sku}, series-save-{sku}.
+- Fixed during testing: clear path used defaultValue heuristic that resurrected the old value — switched to controlled input.
+- Verified via UI: set → product instantly regrouped under new series banner; clear → back to 'auto' + banner gone. Test values cleaned (product 4405 + ULT-PSSF20G restored).
+- Other managers can enable by passing `seriesQuickEdit` in their config.

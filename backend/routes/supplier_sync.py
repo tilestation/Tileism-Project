@@ -6734,6 +6734,66 @@ def bulk_update_product_delivery_settings(data: BulkDeliverySettingsRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ============================================================
+# SERIES QUICK-EDIT ENDPOINT (re-group storefront cards)
+# ============================================================
+
+class BulkSeriesRequest(BaseModel):
+    products: List[dict]  # List of {supplier, sku}
+    series: Optional[str] = None  # Empty/None clears the explicit series
+
+
+@router.put("/products/bulk-series-update")
+def bulk_update_product_series(data: BulkSeriesRequest):
+    """
+    Set (or clear) the explicit series/range on multiple products at once.
+    The series drives BOTH the admin manager grouping (range_name/series) and
+    the storefront collection-card grouping (tiles.series beats name parsing).
+    Updates supplier_products and mirrors to tiles (matched by sku).
+    """
+    try:
+        db = get_db()
+        updated_count = 0
+        series = (data.series or "").strip() or None
+
+        update_data = {
+            "series": series,
+            "range_name": series,
+            "updated_at": datetime.now(timezone.utc),
+        }
+
+        for product in data.products:
+            supplier = product.get('supplier')
+            sku = product.get('sku')
+
+            query = build_product_query(supplier, sku)
+            if not query:
+                continue
+
+            result = db.supplier_products.update_one(query, {"$set": update_data})
+            if result.modified_count > 0:
+                updated_count += 1
+
+            # Tiles docs carry a null supplier — match on sku/supplier_code only
+            if sku:
+                db.tiles.update_one(
+                    {"$or": [{"sku": sku}, {"supplier_code": sku}]},
+                    {"$set": {"series": series}}
+                )
+
+        logger.info(f"Bulk series update: {updated_count} products -> series={series!r}")
+        return {
+            "success": True,
+            "message": f"Series updated for {updated_count} products",
+            "updated_count": updated_count,
+        }
+
+    except Exception as e:
+        logger.error(f"Error in bulk series update: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+
 @router.get("/products/margin-guard-summary")
 def margin_guard_summary():
     """
