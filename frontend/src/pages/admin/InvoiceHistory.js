@@ -502,8 +502,10 @@ export const InvoiceHistory = () => {
   const getDepositAmount = (invoice) => {
     const grossTotal = invoice.gross_total || 0;
     const outstanding = invoice.amount_outstanding || 0;
-    // Deposit = Total - Outstanding (what's been paid)
-    return Math.round((grossTotal - outstanding) * 100) / 100;
+    // Trade credit is a ledger movement, not money into the till/bank —
+    // takings/revenue figures count only cash/card actually received.
+    const credit = Number(invoice.credit_redeemed) || 0;
+    return Math.max(0, Math.round((grossTotal - outstanding - credit) * 100) / 100);
   };
 
   // Helper to get the payment amount for a specific date
@@ -926,6 +928,7 @@ export const InvoiceHistory = () => {
         invoiceCount: 0, 
         vat: 0,
         paymentMethods: {}, // Track by payment method
+        creditRedeemed: 0, // Trade credit settled (non-cash)
         refundCount: 0,
         refundTotal: 0,
         refundMethod: null
@@ -939,6 +942,12 @@ export const InvoiceHistory = () => {
       const paymentMethodsArray = inv.payment_methods || [];
       const grossTotal = inv.gross_total || 0;
       const vat = inv.vat || 0;
+      const invCredit = Number(inv.credit_redeemed) || 0;
+      
+      // Trade credit settles on the invoice date — tracked separately (non-cash)
+      if (invCredit > 0 && breakdown[inv.date]) {
+        breakdown[inv.date].creditRedeemed += invCredit;
+      }
       
       // Helper to get method name for a deposit
       const getMethodName = (deposit, idx) => {
@@ -998,23 +1007,25 @@ export const InvoiceHistory = () => {
         if (invDate && invDate >= start && invDate <= end) {
           const dateKey = inv.date;
           if (breakdown[dateKey]) {
-            const actualPaid = getDepositAmount(inv); // Use actual paid, not grossTotal
+            const actualPaid = getDepositAmount(inv); // Cash/card actually received (credit excluded)
             breakdown[dateKey].revenue += actualPaid;
             breakdown[dateKey].invoiceCount += 1;
-            // Prorate VAT based on actual paid
+            // Prorate VAT on the settled amount (cash + credit — the sale is real either way)
             if (grossTotal > 0) {
-              breakdown[dateKey].vat += (actualPaid / grossTotal) * vat;
+              breakdown[dateKey].vat += ((actualPaid + invCredit) / grossTotal) * vat;
             }
             
-            // Track payment method
-            const method = inv.payment_method && inv.payment_method.trim() 
-              ? inv.payment_method 
-              : (inv.payment_methods?.[0]?.method || (Number(inv.credit_redeemed || 0) > 0 ? 'Trade Credit' : 'Not Specified'));
-            if (!breakdown[dateKey].paymentMethods[method]) {
-              breakdown[dateKey].paymentMethods[method] = { count: 0, total: 0 };
+            // Track payment method (cash/card only — credit shown as its own line)
+            if (actualPaid > 0) {
+              const method = inv.payment_method && inv.payment_method.trim() 
+                ? inv.payment_method 
+                : (inv.payment_methods?.[0]?.method || 'Not Specified');
+              if (!breakdown[dateKey].paymentMethods[method]) {
+                breakdown[dateKey].paymentMethods[method] = { count: 0, total: 0 };
+              }
+              breakdown[dateKey].paymentMethods[method].count += 1;
+              breakdown[dateKey].paymentMethods[method].total += actualPaid;
             }
-            breakdown[dateKey].paymentMethods[method].count += 1;
-            breakdown[dateKey].paymentMethods[method].total += actualPaid;
           }
         }
       }
@@ -1087,6 +1098,19 @@ export const InvoiceHistory = () => {
       const deposits = inv.deposits || [];
       const validDeposits = deposits.filter(d => d.amount && parseFloat(d.amount) > 0);
       const paymentMethodsArray = inv.payment_methods || [];
+      const invCredit = Number(inv.credit_redeemed) || 0;
+      
+      // Trade credit settles on the invoice date — its own NON-CASH bucket
+      const invMatchesDate = type === 'daily'
+        ? inv.date === filterDateStr
+        : (invDate && invDate >= start && invDate <= end);
+      if (invCredit > 0 && invMatchesDate) {
+        if (!methods['Trade Credit (non-cash)']) {
+          methods['Trade Credit (non-cash)'] = { count: 0, total: 0 };
+        }
+        methods['Trade Credit (non-cash)'].count += 1;
+        methods['Trade Credit (non-cash)'].total += invCredit;
+      }
       
       // Helper to get method name for a deposit
       const getMethodName = (deposit, idx) => {
@@ -1138,16 +1162,21 @@ export const InvoiceHistory = () => {
           }
         });
       } else {
-        // Fallback to payment_method for invoices without deposits
-        // Only count if invoice date is in range
-        if (invDate && invDate >= start && invDate <= end) {
-          const method = inv.payment_method || (Number(inv.credit_redeemed || 0) > 0 ? 'Trade Credit' : 'Unknown');
-          const paidAmount = getActualPaidAmount(inv);
-          if (!methods[method]) {
-            methods[method] = { count: 0, total: 0 };
+        // Fallback to payment_method for invoices without deposits.
+        // Only cash/card actually received counts here — the trade-credit
+        // portion is already tracked in its own non-cash bucket above.
+        if (invMatchesDate) {
+          const cashPaid = Math.max(0, getActualPaidAmount(inv) - invCredit);
+          if (cashPaid > 0) {
+            const method = (inv.payment_method && inv.payment_method !== 'Trade Credit')
+              ? inv.payment_method
+              : 'Unknown';
+            if (!methods[method]) {
+              methods[method] = { count: 0, total: 0 };
+            }
+            methods[method].count += 1;
+            methods[method].total += cashPaid;
           }
-          methods[method].count += 1;
-          methods[method].total += paidAmount;
         }
       }
     });
@@ -4338,7 +4367,7 @@ export const InvoiceHistory = () => {
                   <th className="text-right py-2 px-3 font-semibold">Invoices</th>
                   <th className="text-left py-2 px-3 font-semibold">Payment Methods</th>
                   <th className="text-right py-2 px-3 font-semibold">VAT</th>
-                  <th className="text-right py-2 px-3 font-semibold">Revenue</th>
+                  <th className="text-right py-2 px-3 font-semibold">Received (cash/card)</th>
                   <th className="text-right py-2 px-3 font-semibold text-red-600">Refunds</th>
                   <th className="text-right py-2 px-3 font-semibold">Net</th>
                 </tr>
@@ -4362,13 +4391,22 @@ export const InvoiceHistory = () => {
                       <td className="py-2 px-3">{dayName}</td>
                       <td className="py-2 px-3 text-right">{day.invoiceCount}</td>
                       <td className="py-2 px-3">
-                        {Object.entries(day.paymentMethods).length > 0 ? (
+                        {(Object.entries(day.paymentMethods).length > 0 || day.creditRedeemed > 0) ? (
                           <div className="flex flex-wrap gap-1">
                             {Object.entries(day.paymentMethods).map(([method, data]) => (
                               <span key={method} className="text-xs bg-gray-100 px-1.5 py-0.5 rounded">
                                 {method}: {formatCurrency(data.total)}
                               </span>
                             ))}
+                            {day.creditRedeemed > 0 && (
+                              <span
+                                className="text-xs bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded"
+                                title="Settled from trade credit balance — no money into the till/bank"
+                                data-testid={`breakdown-credit-chip-${index}`}
+                              >
+                                Trade credit: {formatCurrency(day.creditRedeemed)} (non-cash)
+                              </span>
+                            )}
                           </div>
                         ) : (
                           <span className="text-xs text-gray-400">-</span>
@@ -4408,6 +4446,14 @@ export const InvoiceHistory = () => {
                   </td>
                   <td className={`py-3 px-3 text-right ${breakdownType === 'weekly' ? 'text-green-800' : 'text-purple-800'}`}>
                     {formatCurrency(breakdownType === 'weekly' ? getWeeklyRevenue() : getMonthlyRevenue())}
+                    {(() => {
+                      const creditTotal = breakdownType ? getDailyBreakdown(breakdownType).reduce((sum, d) => sum + (d.creditRedeemed || 0), 0) : 0;
+                      return creditTotal > 0 ? (
+                        <div className="text-[11px] font-normal text-amber-700" data-testid="breakdown-credit-total">
+                          + {formatCurrency(creditTotal)} trade credit (non-cash)
+                        </div>
+                      ) : null;
+                    })()}
                   </td>
                   <td className="py-3 px-3 text-right text-red-600">
                     -{formatCurrency(breakdownType && getDailyBreakdown(breakdownType).reduce((sum, d) => sum + d.refundTotal, 0))}
