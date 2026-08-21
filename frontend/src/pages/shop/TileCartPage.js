@@ -260,8 +260,21 @@ const TileCartPage = () => {
 
   const subtotal = getEffectiveSubtotal(cart, isTrade, tradeDiscount);
   const isCollection = deliveryMethod === 'collection';
+  // Mandatory item delivery charge — mirrors checkout: highest single charge
+  // among marked items, waived only when NON-marked items alone cross threshold.
+  const markedCharges = [];
+  let eligibleSubtotal = 0;
+  cart.forEach(item => {
+    const f = itemFlags(item);
+    const line = getEffectivePrice(item, isTrade, tradeDiscount) * (item.quantity || 0);
+    if (f.delivery_charge_required && Number(f.delivery_charge) > 0) markedCharges.push(Number(f.delivery_charge));
+    else eligibleSubtotal += line;
+  });
+  const itemDeliveryCharge = (!isCollection && markedCharges.length > 0 && eligibleSubtotal < deliveryThreshold)
+    ? Math.max(...markedCharges)
+    : 0;
   const deliveryFee = isCollection ? 0 : (subtotal >= deliveryThreshold ? 0 : defaultDeliveryFee);
-  const totalExVat = subtotal + deliveryFee;
+  const totalExVat = subtotal + deliveryFee + itemDeliveryCharge;
   const vatAmount = isTrade ? Math.round(totalExVat * 0.20 * 100) / 100 : 0;
   const totalIncVat = isTrade ? Math.round((totalExVat + vatAmount) * 100) / 100 : totalExVat;
 
@@ -336,7 +349,24 @@ const TileCartPage = () => {
       {!isCollection && (
         <div className="sticky top-0 z-30" data-testid="free-delivery-banner">
           <AnimatePresence mode="wait">
-            {subtotal < freeThreshold ? (
+            {itemDeliveryCharge > 0 ? (
+              <motion.div
+                key="item-charge"
+                initial={{ y: -20, opacity: 0 }}
+                animate={{ y: 0, opacity: 1 }}
+                exit={{ y: -20, opacity: 0 }}
+                transition={{ duration: 0.3 }}
+                className="bg-[#1C1917] text-white px-4 py-2.5 shadow-md"
+                data-testid="free-delivery-banner-item-charge"
+              >
+                <div className="max-w-[1200px] mx-auto flex items-center justify-center gap-2.5">
+                  <Truck className="w-4 h-4 text-amber-400 flex-shrink-0" />
+                  <span className="text-[12px] sm:text-[13px] font-semibold">
+                    A <span className="font-bold text-amber-400 tabular-nums">£{itemDeliveryCharge.toFixed(2)}</span> delivery charge applies — some items are excluded from FREE delivery
+                  </span>
+                </div>
+              </motion.div>
+            ) : subtotal < freeThreshold ? (
               <motion.div
                 key="progress"
                 initial={{ y: -20, opacity: 0 }}
@@ -726,7 +756,7 @@ const TileCartPage = () => {
                 )}
 
                 {/* Free delivery progress */}
-                {!isCollection && subtotal < freeThreshold && (
+                {!isCollection && itemDeliveryCharge === 0 && subtotal < freeThreshold && (
                   <div className="bg-white rounded-xl p-4 border border-[#E7E5E4]" data-testid="free-delivery-progress-wrap">
                     <div className="flex items-center justify-between text-[12px] font-medium text-[#1C1917] mb-2">
                       <span className="flex items-center gap-1.5">
@@ -747,7 +777,7 @@ const TileCartPage = () => {
                     </div>
                   </div>
                 )}
-                {!isCollection && subtotal >= freeThreshold && (
+                {!isCollection && itemDeliveryCharge === 0 && subtotal >= freeThreshold && (
                   <motion.div
                     initial={{ opacity: 0, scale: 0.95 }}
                     animate={{ opacity: 1, scale: 1 }}
@@ -761,6 +791,15 @@ const TileCartPage = () => {
                       <p className="text-[11px] text-emerald-700/80">Saved £{safeToFixed(defaultDeliveryFee, 2)} on shipping</p>
                     </div>
                   </motion.div>
+                )}
+                {!isCollection && itemDeliveryCharge > 0 && (
+                  <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 flex items-center gap-2.5" data-testid="cart-mandatory-delivery-note">
+                    <Truck className="w-5 h-5 text-amber-600 flex-shrink-0" />
+                    <div>
+                      <p className="text-sm font-semibold text-amber-900">£{itemDeliveryCharge.toFixed(2)} delivery charge applies</p>
+                      <p className="text-[11px] text-amber-700/80">Some items in your basket are excluded from free delivery.</p>
+                    </div>
+                  </div>
                 )}
                 {!isCollection && deliveryTerms && (
                   <p className="text-[10px] text-[#A8A29E] leading-snug px-1" data-testid="delivery-exclusion-smallprint">
@@ -777,6 +816,13 @@ const TileCartPage = () => {
                   <div className="flex justify-between items-baseline" data-testid="cart-credit-back-row">
                     <span className="text-[13px] text-emerald-700 font-medium">Credit back you&apos;ll earn</span>
                     <span className="font-semibold text-emerald-700 tabular-nums">&pound;{creditBackEarned.toFixed(2)}</span>
+                  </div>
+                )}
+
+                {!isCollection && itemDeliveryCharge > 0 && (
+                  <div className="flex justify-between items-baseline" data-testid="cart-item-delivery-charge-row">
+                    <span className="text-[13px] text-amber-700 font-medium flex items-center gap-1.5"><Truck className="w-3.5 h-3.5" /> Item delivery charge</span>
+                    <span className="font-semibold text-amber-700 tabular-nums">+ &pound;{itemDeliveryCharge.toFixed(2)}</span>
                   </div>
                 )}
 

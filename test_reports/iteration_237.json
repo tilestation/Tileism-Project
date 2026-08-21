@@ -1,0 +1,63 @@
+{
+  "summary": "Regression sweep of the two reported bugs (m² unit leakage + FREE-delivery banner on mandatory-charge baskets) on the real preview URL. 7/7 requested scenarios PASS. (1) UNIT HEAL basket: stale localStorage line with pricing_unit='m2' healed to 'unit' by TileCartContext's delivery-flags mount effect — basket renders '£13.14 / each' + '54 pcs', zero 'm²' anywhere in the item card, and localStorage pricing_unit persists as 'unit'. (2) UNIT HEAL checkout: same stale seed loaded straight into /shop/tile-checkout — order-summary chip shows '54 pcs' (no m²) and localStorage healed to 'unit'. (3) MANDATORY CHARGE (tile-ULT-PSSF20G temporarily flagged delivery_charge_required=true / 29.99 via Mongo): amber sticky strip 'A £29.99 delivery charge applies — some items are excluded from FREE delivery' present (free-delivery-banner-item-charge), free-delivery-qualified absent (0 nodes), 'You qualify for FREE delivery' string absent from the DOM, cart-mandatory-delivery-note present, cart-item-delivery-charge-row '+ £29.99' present, Delivery row shows combined £109.98 (79.99+29.99) and grand total £819.54 = 709.56+79.99+29.99 (arithmetically correct). Flags REVERTED afterwards (verified in Mongo: delivery_charge_required=false, delivery_charge=null). (4) Normal free-delivery flow after revert: 108 pcs (£1419.12, threshold £1000) → green 'You qualify for FREE delivery · Saved £79.99' strip + summary banner, Delivery FREE, total £1419.12; 54 pcs (£709.56) → progress strip \"You're £290.44 away from FREE delivery / 71%\". (5) PDP→cart: guest ULT-EC Full Pallet add → '£11.50 / each', '60 pcs', 'Full Pallet rate' badge, pricing_unit persisted as 'unit' in localStorage; desktop minus stepper clamps at 60 (3 clicks, stays 60). (6) TRADE regression (trade.test@tilestation.co.uk): login → /shop/trade/account, Per unit qty 1 → '£9.99 / each ex. VAT', 'Trade −£1.11/unit · (−£1.11) · You saved £1.11 on this line', 'Credit back you'll earn £0.20' row, volume table first tier £9.99 / Extra 8% Off. Zero console errors across all runs (only the pre-existing React 'non-boolean attribute jsx' dev warning). (7) Backend pytest test_trade_pricing_unit_regression.py 9/9 PASS.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "TileCartPage order summary (mandatory delivery charge state)",
+        "issue": "The £29.99 item delivery charge is DISPLAYED TWICE: once as its own 'Item delivery charge + £29.99' row and again folded into the 'Delivery £109.98' row (79.99+29.99). Summing the visible rows gives £849.53 while the printed TOTAL is £819.54 (which is correct). Show the charge only once — either keep the standalone row and leave Delivery at £79.99, or drop the standalone row.",
+        "selector": "[data-testid=\"cart-item-delivery-charge-row\"]",
+        "priority": "MEDIUM"
+      },
+      {
+        "component": "Storefront copy vs actual free-delivery threshold",
+        "issue": "Effective free-delivery threshold in this preview is £1000 (progress bar / FREE gate), but the announcement ribbon says 'Free delivery on orders over £499' and the basket small print says '...unless your other items exceed £499.'. £709.56 basket is charged £79.99 delivery while the header promises free over £499 — user-visible contradiction. Drive both copies from the same setting.",
+        "selector": "[data-testid=\"free-delivery-banner\"]",
+        "priority": "MEDIUM"
+      },
+      {
+        "component": "TileCartPage / TileCheckoutPage qty chip pluralisation",
+        "issue": "Unit lines render '1 pcs' for quantity 1 (should be '1 pc'/'1 each'). Cosmetic only.",
+        "selector": "[data-testid=\"cart-qty-context-ut-easy-clean\"]",
+        "priority": "LOW"
+      },
+      {
+        "component": "VolumePricingTable (trade, fixed-£ discount)",
+        "issue": "Carried over from iteration_236 and still present: tiers 2-4 price at flat −£1.11 (£9.44/£8.90/£8.35) while the savings labels show the percent equivalent (Extra 14%/18%/24% Off), so price and label disagree. Tier 1 (£9.99 / 8%) is consistent.",
+        "selector": "[data-testid=\"volume-pricing-table\"]",
+        "priority": "LOW"
+      },
+      {
+        "component": "TileCheckoutPage order summary line",
+        "issue": "Checkout summary line renders only the qty chip + price (no product name/thumbnail placeholder text) for a line seeded without an image — cannot confirm which product a line is from the summary. Low impact (real cart lines carry images).",
+        "selector": "checkout order summary item row",
+        "priority": "LOW"
+      }
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_trade_pricing_unit_regression.py",
+    "/app/test_reports/pytest/trade_unit_regression_237.xml"
+  ],
+  "action_items": [
+    "MEDIUM: stop double-displaying the mandatory item delivery charge in the basket summary (standalone row + inside the combined Delivery figure).",
+    "MEDIUM: reconcile the announcement-ribbon / delivery-terms '£499' copy with the actual £1000 free-delivery threshold (single source of truth).",
+    "LOW: pluralise the unit qty chip ('1 pc' not '1 pcs').",
+    "LOW (carry-over): align trade volume-table tier prices with the 'Extra X% Off' labels for fixed-£ discounts."
+  ],
+  "critical_code_review_comments": [
+    "TileCartContext heal effect runs once on mount with an empty dep array and reads `cart` from the closure — fine today because the cart is hydrated from localStorage in useState, but if the cart is ever hydrated asynchronously (server cart merge) stale lines added after mount will never heal. Consider healing inside addToCart / on cart-id change instead.",
+    "itemDeliveryCharge logic is duplicated in TileCartPage and TileCheckoutPage (marked-charge max + threshold waiver). Extract to a shared util (e.g. utils/cartPricing) so the two pages cannot drift.",
+    "delivery-flags returns pricing_unit for every identifier alias (id/sku/supplier_code/slug) — good; keep the 200-id cap in mind for very large carts."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100% (9/9)", "frontend": "100% of the 7 requested scenarios pass; 5 non-blocking issues logged (2 MEDIUM display/copy, 3 LOW cosmetic)"},
+  "seed_data_creation": "Temporary: tiles doc 'tile-ULT-PSSF20G' delivery_charge_required=true/delivery_charge=29.99 for the banner test, then REVERTED to false/null (verified in Mongo). No orders created; shop_orders untouched. Temp mongo helper script deleted.",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "test_credentials": "Trade: trade.test@tilestation.co.uk / TradeTest123! (login at /shop/trade/login → /shop/trade/account)",
+  "context_for_next_testing_agent": "Basket = /shop/tile-cart (legacy empty /shop/cart still exists). Effective free-delivery threshold in preview = £1000 while site copy says £499. Unit heal verified working for both basket and checkout via POST /api/shop/delivery-flags (returns pricing_unit keyed by id/sku/supplier_code/slug). To retest mandatory charge, set delivery_charge_required/delivery_charge on tiles id 'tile-ULT-PSSF20G' and revert after. Desktop qty stepper: use 'div.hidden.md\\:flex button' (the first input[type=number] on the page is the hidden mobile one). Open items: item-delivery-charge double display, £499 vs £1000 copy mismatch, '1 pcs' pluralisation, trade tier price/label mismatch.",
+  "rca_of_the_issue": "Both reported bugs are genuinely fixed at source. (a) m² leakage: stale localStorage lines kept pricing_unit='m2'; the new TileCartContext mount effect + checkout's delivery-flags .then now overwrite it from the authoritative backend value ('unit' when pallet_qty_unit=='unit'), and CollectionDetailPage now trusts palletInfo.isUnit when writing new lines, so both old and new lines render '/ each' + 'pcs'. (b) FREE-delivery banner: TileCartPage now computes itemDeliveryCharge (max marked charge, waived only when the non-marked subtotal alone crosses the threshold) and gates both the sticky strip and the summary green banner on itemDeliveryCharge===0, so a marked item suppresses the FREE-delivery claim and adds the amber banners/rows. Only remaining defect in that path is presentational: the charge appears in two summary rows."
+}

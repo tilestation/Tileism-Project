@@ -18,7 +18,7 @@ export function formatCartQuantity(item) {
   const pricingUnit = item?.pricing_unit || 'm2';
 
   if (pricingUnit === 'unit') {
-    return `${_trim(q)} pcs`;
+    return `${_trim(q)} ${Number(q) === 1 ? 'pc' : 'pcs'}`;
   }
 
   // m² path — show box estimate when we know boxes-per-m²
@@ -39,7 +39,7 @@ export function formatCartQuantityShort(item) {
   const q = Number(item?.quantity ?? 0);
   if (!q || isNaN(q)) return '0';
   const pricingUnit = item?.pricing_unit || 'm2';
-  if (pricingUnit === 'unit') return `${_trim(q)} pcs`;
+  if (pricingUnit === 'unit') return `${_trim(q)} ${Number(q) === 1 ? 'pc' : 'pcs'}`;
   return `${_trim(q)} m²`;
 }
 

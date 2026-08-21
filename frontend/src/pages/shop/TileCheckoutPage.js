@@ -214,7 +214,23 @@ const TileCheckoutPage = () => {
     const ids = [...new Set(cartItems.map(i => String(i.id || i.product_id || '')).filter(Boolean))];
     if (ids.length === 0) { setDeliveryFlags({}); return; }
     axios.post(`${API_URL}/api/shop/delivery-flags`, { ids })
-      .then(res => setDeliveryFlags(res.data?.flags || {}))
+      .then(res => {
+        const flags = res.data?.flags || {};
+        setDeliveryFlags(flags);
+        // Heal stale unit labels on lines added before pricing_unit was stored correctly
+        setCartItems(prev => {
+          let changed = false;
+          const next = prev.map(item => {
+            const f = flags[String(item.id || item.product_id || '')];
+            if (f?.pricing_unit && f.pricing_unit !== item.pricing_unit) {
+              changed = true;
+              return { ...item, pricing_unit: f.pricing_unit };
+            }
+            return item;
+          });
+          return changed ? next : prev;
+        });
+      })
       .catch(() => {});
   }, [cartItems]);
 

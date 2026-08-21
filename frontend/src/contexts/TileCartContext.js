@@ -45,6 +45,37 @@ export const TileCartProvider = ({ children }) => {
     localStorage.setItem('tilestation_cart', JSON.stringify(cart));
   }, [cart]);
 
+  // One-time heal: older cart lines may carry a stale pricing_unit ('m2' for
+  // unit-priced products). Re-resolve from live product data so every page
+  // (basket, checkout, savings math) shows the right unit.
+  useEffect(() => {
+    const ids = [...new Set(cart.map(i => String(i.id || i.product_id || '')).filter(Boolean))];
+    if (ids.length === 0) return;
+    fetch(`${process.env.REACT_APP_BACKEND_URL}/api/shop/delivery-flags`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids }),
+    })
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => {
+        const flags = d?.flags || {};
+        setCart(prev => {
+          let changed = false;
+          const next = prev.map(item => {
+            const f = flags[String(item.id || item.product_id || '')];
+            if (f?.pricing_unit && f.pricing_unit !== item.pricing_unit) {
+              changed = true;
+              return { ...item, pricing_unit: f.pricing_unit };
+            }
+            return item;
+          });
+          return changed ? next : prev;
+        });
+      })
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const addToCart = (tile, quantity = 1, priceType = 'room_lot') => {
     setCart(prevCart => {
       // Handle both call patterns:

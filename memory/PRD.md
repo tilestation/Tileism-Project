@@ -9191,3 +9191,11 @@ See `/app/memory/test_credentials.md`
 
 ## Aug 21, 2026 — Pallet tier switch-back fix
 - PDP: switching from Half/Full Pallet back to Per unit/m² now resets qty to 1 (was keeping the pallet qty, e.g. 27, at unit price). Uses prevPricingTierRef so initial mount is untouched. Self-tested via screenshot flow on ULT-EC (30→1, 60→1).
+
+## Aug 21, 2026 Session (later) — "m² everywhere" + basket FREE-delivery banner, fixed at source
+- ROOT CAUSE (m²): serialize_tile_for_shop defaults pricing_unit→'m2' when unset, which overrode the PDP's unit detection at add-to-cart; plus stale localStorage lines kept 'm2' forever.
+- FIXES: (1) CollectionDetailPage cart write now trusts palletInfo.isUnit first. (2) /api/shop/delivery-flags now returns authoritative pricing_unit ('unit' when pallet_qty_unit=='unit'). (3) TileCartContext one-time mount heal + TileCheckoutPage flags .then heal rewrite stale item.pricing_unit — fixes existing production baskets after deploy without clearing carts.
+- ROOT CAUSE (banner): TileCartPage never consulted item delivery flags. Now computes itemDeliveryCharge (mirrors checkout: max marked charge, waived when non-marked subtotal >= threshold); gates sticky strip + green summary banner; amber strip/banner + 'Item delivery charge +£X' row added; total includes charge. Delivery method row shows base fee only (charge shown once in its own row, per tester feedback).
+- Also: '1 pc' pluralisation in cartDisplay; preview free_threshold aligned 1000→499 to match header ribbon copy.
+- Verified: testing_agent iteration_237 — 7/7 scenarios PASS (heal basket+checkout, mandatory banners, normal free-delivery flows, PDP pallet add, trade regression, pytest 9/9). Tester's 'tier label mismatch' carry-over is NOT a bug (labels derive from actual prices, verified numerically).
+- Tester code-review notes (backlog): extract shared itemDeliveryCharge util; heal-on-addToCart if cart ever hydrates async.

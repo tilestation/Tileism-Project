@@ -2615,7 +2615,8 @@ async def _get_delivery_flags(db, ids: list) -> dict:
         ]},
         {"_id": 0, "id": 1, "sku": 1, "supplier_code": 1, "slug": 1,
          "delivery_charge_required": 1, "delivery_charge": 1,
-         "parcel_delivery": 1, "parcel_fee": 1},
+         "parcel_delivery": 1, "parcel_fee": 1,
+         "pricing_unit": 1, "pallet_qty_unit": 1},
     )
     flags = {}
     async for doc in cursor:
@@ -2624,6 +2625,12 @@ async def _get_delivery_flags(db, ids: list) -> dict:
             "delivery_charge": float(doc.get("delivery_charge") or 0),
             "parcel_delivery": bool(doc.get("parcel_delivery")),
             "parcel_fee": float(doc.get("parcel_fee") or 0),
+            # Authoritative pricing unit — lets the cart heal stale lines that
+            # stored 'm2' for unit-priced products (adhesives, trims, bags).
+            "pricing_unit": (
+                "unit" if (doc.get("pallet_qty_unit") == "unit" or doc.get("pricing_unit") == "unit")
+                else (doc.get("pricing_unit") or None)
+            ),
         }
         for key_field in ("id", "sku", "supplier_code", "slug"):
             v = doc.get(key_field)

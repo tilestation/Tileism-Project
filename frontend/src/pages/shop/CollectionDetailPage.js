@@ -1646,7 +1646,10 @@ const CollectionDetailPage = () => {
       // the +/- stepper can step by a full box.
       sqm_per_box: sqmPerBox || null,
       tiles_per_box: selectedProduct.tiles_per_box || null,
-      pricing_unit: selectedProduct.pricing_unit || (palletInfo.isUnit ? 'unit' : 'm2'),
+      // The PDP's unit determination (palletInfo.isUnit — pallet_qty_unit /
+      // surface heuristics) is what the customer SAW ("Per unit £X each"), so
+      // it wins over the API's pricing_unit which defaults to 'm2' when unset.
+      pricing_unit: palletInfo.isUnit ? 'unit' : (selectedProduct.pricing_unit || 'm2'),
       // Tier config for the "add 1 box to unlock X% off" upsell nudge
       tier_thresholds: selectedProduct.tier_thresholds || null,
       tier_discounts: selectedProduct.tier_discounts || null,
