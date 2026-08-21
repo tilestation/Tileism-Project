@@ -1027,7 +1027,8 @@ async def save_invoice(input: InvoiceCreate, current_user: dict = Depends(get_cu
     
     # Trade credit can fully cover the invoice — then no cash/card payment is needed
     _credit_covers = (
-        float(input.credit_redeemed_amount or 0) > 0
+        float(input.gross_total or 0) > 0
+        and float(input.credit_redeemed_amount or 0) > 0
         and (input.credit_redeemed_account or "").strip()
         and float(input.credit_redeemed_amount or 0) >= float(input.gross_total or 0) - 0.005
     )

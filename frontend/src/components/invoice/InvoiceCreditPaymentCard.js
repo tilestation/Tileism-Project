@@ -115,11 +115,14 @@ export const InvoiceCreditPaymentCard = ({
             </p>
           </div>
         </div>
-        {appliedNum > 0 && (
-          <span className="px-3 py-1 rounded-full text-xs font-semibold bg-emerald-600 text-white inline-flex items-center gap-1">
-            <Sparkles className="w-3 h-3" />£{appliedNum.toFixed(2)} applied
-          </span>
-        )}
+        {/* Always rendered (invisible when unapplied) so applying credit never
+            shifts the layout — a blur-commit layout shift was eating the first
+            click on the Save button below this card. */}
+        <span
+          className={`px-3 py-1 rounded-full text-xs font-semibold bg-emerald-600 text-white inline-flex items-center gap-1 ${appliedNum > 0 ? '' : 'invisible'}`}
+        >
+          <Sparkles className="w-3 h-3" />£{appliedNum.toFixed(2)} applied
+        </span>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-12 gap-2 items-end">
@@ -135,6 +138,7 @@ export const InvoiceCreditPaymentCard = ({
             value={appliedNum > 0 ? appliedNum.toFixed(2) : draft}
             onChange={(e) => setDraft(e.target.value)}
             onBlur={(e) => commit(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') commit(e.currentTarget.value); }}
             placeholder={`0.00 (max £${ceiling.toFixed(2)})`}
             className="h-9 bg-white"
             data-testid="epos-credit-amount-input"
@@ -152,17 +156,16 @@ export const InvoiceCreditPaymentCard = ({
           </Button>
         </div>
         <div className="md:col-span-2">
-          {appliedNum > 0 ? (
-            <Button
-              type="button"
-              onClick={clear}
-              variant="outline"
-              className="w-full h-9 border-rose-200 text-rose-700 hover:bg-rose-50"
-              data-testid="epos-credit-clear-btn"
-            >
-              Clear
-            </Button>
-          ) : null}
+          <Button
+            type="button"
+            onClick={clear}
+            variant="outline"
+            disabled={appliedNum <= 0}
+            className={`w-full h-9 border-rose-200 text-rose-700 hover:bg-rose-50 ${appliedNum > 0 ? '' : 'invisible'}`}
+            data-testid="epos-credit-clear-btn"
+          >
+            Clear
+          </Button>
         </div>
         <div className="md:col-span-2 text-right">
           <p className="text-[10px] text-emerald-800/70">After redemption</p>
@@ -172,16 +175,16 @@ export const InvoiceCreditPaymentCard = ({
         </div>
       </div>
 
-      {appliedNum > 0 && (
+      <div className="mt-2 min-h-[26px]">
         <p
-          className="mt-2 text-[11px] text-emerald-800 bg-white/60 rounded px-2 py-1 inline-block"
+          className={`text-[11px] text-emerald-800 bg-white/60 rounded px-2 py-1 inline-block ${appliedNum > 0 ? '' : 'invisible'}`}
           data-testid="epos-credit-deduct-line"
         >
           → Will deduct <strong>£{appliedNum.toFixed(2)}</strong> from{' '}
           {trade.trade_account_number} on save. Remaining balance:{' '}
           <strong>£{remaining.toFixed(2)}</strong>.
         </p>
-      )}
+      </div>
     </div>
   );
 };

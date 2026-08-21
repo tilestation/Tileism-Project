@@ -106,7 +106,7 @@ export const InvoiceDepositsSection = ({
                     className="w-full px-3 py-2 h-9 border rounded-md text-sm bg-gray-100 cursor-not-allowed"
                     value="Cash"
                     disabled
-                    data-testid={`deposit-method-${index}`}
+                    data-testid={`deposit-method-locked-${index}`}
                   >
                     <option value="Cash">Cash</option>
                   </select>

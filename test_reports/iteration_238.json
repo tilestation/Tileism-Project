@@ -1,0 +1,33 @@
+{
+  "summary": "Frontend UI click-through verification of the credit-only invoice save fix on /admin/invoice (logged in as admin@test.com). CRITICAL FLOW PASSES: line item added via product search (SKU D11197, qty 1, price 10 -> gross 12.00 inc VAT), trade customer trade@test.com linked (banner + 'Pay with Trade Credit' card shown, balance 25.50), 'Apply max (12.00)' applied -> Amount Outstanding 0.00, default Payments Received row left untouched (date 21/08/2026 auto-filled, no method, amount blank) -> 'Save & Update Stock' produced NO error toast and the Staff PIN dialog opened. Neither 'At least one payment...' nor 'Amount is required for payment entry 1...' appeared. Guard regressions were also exercised. Nothing was persisted (no valid staff PIN), DB verified unchanged: T-00021 credit_balance = 25.50, db.invoices count 120, credit_transactions for T-00021 = 0 — so no cleanup was required.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "InvoiceCreditPaymentCard + Save button", "issue": "First click on 'Save & Update Stock' is silently swallowed when the trade-credit amount input was just typed into. Root cause: the credit amount input commits only onBlur; the Save mousedown blurs it -> commit() -> parent state update -> the card re-renders (Clear button + 'Will deduct ...' line appear, layout shifts ~25px) -> the Save button moves before mouseup so no click event fires. Result: NO toast, NO PIN dialog, no feedback; user must click Save a second time (reproduced 3/3 runs, even after a 6s settle wait; second click always worked). This is the same class of 'EPOS refuses to save / nothing happens' complaint the user reported.", "selector": "[data-testid=\"save-invoice-btn\"] / [data-testid=\"epos-credit-amount-input\"]", "priority": "HIGH"}
+    ],
+    "integration_issues": [
+      {"flow": "GUARD 1 - method 'Card' selected, amount 0, no credit", "issue": "Save is correctly BLOCKED but the toast shown is 'At least one payment with amount is required...' not the expected 'Amount is required for payment entry 1...'. Reason: the hasValidPayment check (Invoice.js ~1742) runs before the per-row loop, so a method-only row with no credit can never reach the per-row message. Functionally safe, message is just less specific. Verified the per-row message DOES fire when credit fully covers the invoice and a row has a method but no amount (toast: 'Amount is required for payment entry 1. Please enter an amount or remove the entry.') - so the new per-row logic works.", "affected_selectors": ["[data-testid=\"deposit-method-0\"]", "[data-testid=\"save-invoice-btn\"]"]}
+    ],
+    "design_issues": [
+      {"screen": "Admin dashboard (console)", "issues": ["React warning: 'Each child in a list should have a unique key prop' in AdminDashboard render", "Two repeated 403 resource errors on every admin page load (non-blocking)"]}
+    ]
+  },
+  "test_report_links": [],
+  "action_items": [
+    "Fix the swallowed first Save click: commit the trade-credit amount on change (or onKeyUp/debounced) instead of only onBlur, or use onMouseDown/pointerDown on the Save button, or reserve space for the 'Clear' button + deduct line so no layout shift occurs on commit.",
+    "Optional: reorder validation in handleSaveInvoice so a row with a method but no amount reports the specific 'Amount is required for payment entry N' message even when no credit is applied."
+  ],
+  "critical_code_review_comments": [
+    "InvoiceCreditPaymentCard.js: value/onBlur-only commit pattern makes state land after the next mousedown - any adjacent primary action can lose its click. Commit on change (clamped) and keep draft only for formatting.",
+    "InvoiceDepositsSection.js uses the same data-testid `deposit-method-{index}` on two different elements (lines 109 and 125) - keep it unique per branch.",
+    "Invoice.js is very large (>3300 lines); handleSaveInvoice validation should move into a pure, unit-testable helper."
+  ],
+  "updated_files": ["/app/frontend/src/components/invoice/InvoiceLineItemsTable.js (added missing data-testid=\"qty-input-{index}\" on the Qty input)"],
+  "success_rate": {"backend": "not tested (frontend-only run)", "frontend": "3/4 scenarios pass (credit-only save PASS, guard2 PASS on 2nd click, guard3 PASS, guard1 blocked but with generic message)"},
+  "seed_data_creation": "None persisted. Used existing fixtures: product SKU D11197 (Test Product, stock 382) and trade@test.com / T-00021 (balance 25.50, untouched).",
+  "should_call_test_agent_after_fix": true,
+  "should_main_agent_self_test": false,
+  "test_credentials": "admin@test.com / admin123 (/admin/login); staff PIN unknown so save stopped at the PIN dialog by design",
+  "context_for_next_testing_agent": "Product SKU TIL-LST881 does not exist in db.tiles - use D11197 (in stock 382) for EPOS line items. Order Type must be set ('Store Order') before save or validation blocks with 'Order type is required'. Search modal opens on focus of [data-testid=invoice-sku-input-0]; rows are [data-testid^=product-search-row-]. Qty input now has [data-testid=qty-input-0]. Toasts are sonner: locator '[data-sonner-toast]'. IMPORTANT: after typing into [data-testid=epos-credit-amount-input], click Save twice (first click is eaten by the blur-commit re-render) - use the 'Apply max' button instead to avoid it. End-of-run DB state verified clean: T-00021 = 25.50, invoices = 120.",
+  "rca_of_the_issue": "Credit-only validation fix verified working end-to-end in the UI: creditCoversInvoice short-circuits both the 'at least one payment' and completePayments checks, and the per-row loop now skips date-only rows, so the auto-dated empty Payments Received row no longer blocks save - the PIN dialog opened cleanly. Remaining defect found is unrelated to the validation logic: the trade-credit amount field commits only on blur, and the resulting re-render/layout shift consumes the first Save click (silent no-op)."
+}

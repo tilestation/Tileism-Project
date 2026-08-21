@@ -1734,6 +1734,7 @@ export const Invoice = () => {
     // Trade credit can fully cover the invoice — no cash/card payment needed then
     const vTotals = calculateTotals();
     const creditCoversInvoice =
+      vTotals.grossTotal > 0 &&
       vTotals.creditRedeemed > 0 &&
       !!invoiceData.creditRedeemedAccount &&
       vTotals.grossTotal - vTotals.creditRedeemed <= 0.005;
@@ -1746,15 +1747,18 @@ export const Invoice = () => {
       return;
     }
     
-    // Validate each deposit entry - if date is filled, amount must also be filled
+    // Validate each deposit entry. The date is auto-filled on the default row,
+    // so a row only counts as an intentional entry when it has an amount or a
+    // method — date-only rows are treated as empty (e.g. credit-only invoices).
     for (let i = 0; i < invoiceData.deposits.length; i++) {
       const deposit = invoiceData.deposits[i];
-      // Skip empty rows (no date and no amount)
-      if (!deposit.date && (!deposit.amount || parseFloat(deposit.amount) <= 0)) {
+      const amt = parseFloat(deposit.amount) || 0;
+      const hasMethod = deposit.method && deposit.method.trim() !== '';
+      if (amt <= 0 && !hasMethod) {
         continue;
       }
-      // If date is filled but amount is empty, show error
-      if (deposit.date && (!deposit.amount || parseFloat(deposit.amount) <= 0)) {
+      // Method chosen but amount missing — incomplete entry
+      if (amt <= 0 && hasMethod) {
         toast.error(`Amount is required for payment entry ${i + 1}. Please enter an amount or remove the entry.`);
         return;
       }

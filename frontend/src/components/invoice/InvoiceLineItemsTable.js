@@ -405,6 +405,7 @@ export const InvoiceLineItemsTable = ({
                           onUpdateLineItem(index, 'qty', value);
                         }}
                         placeholder="0"
+                        data-testid={`qty-input-${index}`}
                       />
                       {/* Box info and round-up button */}
                       {item.tiles_per_box && item.qty && (() => {

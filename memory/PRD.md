@@ -9210,3 +9210,10 @@ See `/app/memory/test_credentials.md`
 - Problem: trade credit fully covered invoice (£42.84 of £51.98 balance, cash/card due £0.00) but EPOS demanded a Payments Received entry with method — impossible to save cleanly.
 - Fix: frontend (Invoice.js handleSaveInvoice) + backend (invoices.py POST + PUT validation) now skip the "at least one payment" requirement when credit_redeemed_amount (+account) covers gross_total (0.5p tolerance). Partial credit still requires a payment for the remainder. PUT derives coverage from existing.credit_redeemed (credit redeems at create only).
 - Verified via API: credit-only invoice saved, balance 25.50→13.50 atomic, redeemed_in_store ledger tx logged, no discrepancy. Test data cleaned + balance restored.
+
+## Aug 21, 2026 — EPOS credit-only save: second blocker found & fixed (user deployed but still blocked)
+- Blocker 2: default Payments Received row auto-fills today's DATE; old per-row validation treated date-only rows as incomplete ("Amount is required for payment entry 1"). Now a row only counts as intentional when it has an amount or method; method-without-amount still errors.
+- Testing agent iteration_238 verified full UI click-through: line item + trade link + Apply max + untouched default row → Save → PIN dialog, no errors. Guards intact (method w/o amount blocked; partial credit w/o payment blocked; normal cash flow unchanged).
+- Bonus HIGH bug fixed (found by tester): first Save click swallowed after typing in credit amount input — blur-commit caused layout shift (Clear btn + deduct line appearing) that moved Save before mouseup. Fixed by reserving layout space (invisible placeholders) + Enter-to-commit. Re-verified: single Save click straight from focused input opens PIN dialog.
+- Safety guard added both ends: credit only "covers" the invoice when gross_total > 0.
+- Also: deposit-method testid de-duplicated (locked variant → deposit-method-locked-{i}); tester added qty-input-{i} testid in InvoiceLineItemsTable.
