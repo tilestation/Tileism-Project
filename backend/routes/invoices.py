@@ -1371,12 +1371,18 @@ async def save_invoice(input: InvoiceCreate, current_user: dict = Depends(get_cu
                 detail=f"Could not redeem £{redeemed_amount:.2f} from {redeemed_ref} — insufficient balance or account not found",
             )
         prior_balance = float(update_res.get("credit_balance") or 0)
+        _credit_set = {
+            "credit_redeemed": redeemed_amount,
+            "credit_redeemed_account": redeemed_ref,
+        }
+        # Credit-only invoice — record "Trade Credit" as the payment method so
+        # history/reports never show a blank/unknown payment.
+        if not (invoice_dict.get("payment_method") or "").strip():
+            _credit_set["payment_method"] = "Trade Credit"
+            invoice_dict["payment_method"] = "Trade Credit"
         await db.invoices.update_one(
             {"id": invoice_dict["id"]},
-            {"$set": {
-                "credit_redeemed": redeemed_amount,
-                "credit_redeemed_account": redeemed_ref,
-            }},
+            {"$set": _credit_set},
         )
         invoice_dict["credit_redeemed"] = redeemed_amount
         invoice_dict["credit_redeemed_account"] = redeemed_ref

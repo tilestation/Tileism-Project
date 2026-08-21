@@ -957,7 +957,7 @@ export const InvoiceHistory = () => {
         }
         return inv.payment_method && inv.payment_method.trim() 
           ? inv.payment_method 
-          : (inv.payment_methods?.[0]?.method || 'Not Specified');
+          : (inv.payment_methods?.[0]?.method || (Number(inv.credit_redeemed || 0) > 0 ? 'Trade Credit' : 'Not Specified'));
       };
       
       if (deposits.length > 0) {
@@ -1009,7 +1009,7 @@ export const InvoiceHistory = () => {
             // Track payment method
             const method = inv.payment_method && inv.payment_method.trim() 
               ? inv.payment_method 
-              : (inv.payment_methods?.[0]?.method || 'Not Specified');
+              : (inv.payment_methods?.[0]?.method || (Number(inv.credit_redeemed || 0) > 0 ? 'Trade Credit' : 'Not Specified'));
             if (!breakdown[dateKey].paymentMethods[method]) {
               breakdown[dateKey].paymentMethods[method] = { count: 0, total: 0 };
             }
@@ -1105,7 +1105,7 @@ export const InvoiceHistory = () => {
         }
         return inv.payment_method && inv.payment_method.trim() 
           ? inv.payment_method 
-          : (inv.payment_methods?.[0]?.method || 'Not Specified');
+          : (inv.payment_methods?.[0]?.method || (Number(inv.credit_redeemed || 0) > 0 ? 'Trade Credit' : 'Not Specified'));
       };
       
       if (validDeposits.length > 0) {
@@ -1141,7 +1141,7 @@ export const InvoiceHistory = () => {
         // Fallback to payment_method for invoices without deposits
         // Only count if invoice date is in range
         if (invDate && invDate >= start && invDate <= end) {
-          const method = inv.payment_method || 'Unknown';
+          const method = inv.payment_method || (Number(inv.credit_redeemed || 0) > 0 ? 'Trade Credit' : 'Unknown');
           const paidAmount = getActualPaidAmount(inv);
           if (!methods[method]) {
             methods[method] = { count: 0, total: 0 };
@@ -3444,6 +3444,8 @@ export const InvoiceHistory = () => {
                       // Check if there are multiple payments (split payment)
                       const deposits = selectedInvoice.deposits || [];
                       const validDeposits = deposits.filter(d => d.amount && parseFloat(d.amount) > 0);
+                      const creditUsed = Number(selectedInvoice.credit_redeemed || 0) > 0;
+                      const creditSuffix = creditUsed ? ' + Trade Credit' : '';
                       
                       // If multiple deposits with amounts, it's a split payment
                       if (validDeposits.length > 1) {
@@ -3455,13 +3457,13 @@ export const InvoiceHistory = () => {
                         const uniqueMethods = [...new Set(allMethods)];
                         
                         if (uniqueMethods.length > 0) {
-                          return 'Split (' + uniqueMethods.join(' + ') + ')';
+                          return 'Split (' + uniqueMethods.join(' + ') + creditSuffix + ')';
                         }
                         return 'Split Payment';
                       } else if (validDeposits.length === 1 && validDeposits[0].method) {
-                        return validDeposits[0].method;
+                        return validDeposits[0].method + creditSuffix;
                       } else {
-                        return selectedInvoice.payment_method || '-';
+                        return selectedInvoice.payment_method || (creditUsed ? 'Trade Credit' : '-');
                       }
                     })()}
                   </span>

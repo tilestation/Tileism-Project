@@ -9217,3 +9217,8 @@ See `/app/memory/test_credentials.md`
 - Bonus HIGH bug fixed (found by tester): first Save click swallowed after typing in credit amount input — blur-commit caused layout shift (Clear btn + deduct line appearing) that moved Save before mouseup. Fixed by reserving layout space (invisible placeholders) + Enter-to-commit. Re-verified: single Save click straight from focused input opens PIN dialog.
 - Safety guard added both ends: credit only "covers" the invoice when gross_total > 0.
 - Also: deposit-method testid de-duplicated (locked variant → deposit-method-locked-{i}); tester added qty-input-{i} testid in InvoiceLineItemsTable.
+
+## Aug 21, 2026 — "Trade Credit" recorded as payment method (no more Unknown/-)
+- New credit-only invoices: backend sets payment_method="Trade Credit" when credit redeems with no cash/card payments (frontend payload does the same). Verified via API: saved invoice has payment_method 'Trade Credit'; test data cleaned, T-00021 balance restored 25.50.
+- Existing invoices (e.g. prod INV-214572 saved with ''): InvoiceHistory display fallbacks now credit-aware — modal shows 'Trade Credit' (or 'Card + Trade Credit' for splits); daily/method breakdown buckets use 'Trade Credit' instead of 'Not Specified'/'Unknown' when credit_redeemed > 0.
+- Deliberately NOT added to the manual payment-method dropdown: picking it manually would not deduct the ledger balance (discrepancy risk); credit must flow through the Pay with Trade Credit card.

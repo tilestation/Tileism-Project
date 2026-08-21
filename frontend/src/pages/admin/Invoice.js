@@ -1915,10 +1915,13 @@ export const Invoice = () => {
           amount: parseFloat(d.amount) || 0
         }));
       
-      // For backward compatibility, save the primary payment method
+      // For backward compatibility, save the primary payment method.
+      // Credit-only invoices are recorded as "Trade Credit" so history and
+      // reports never show a blank/unknown payment.
+      const creditAppliedAmt = parseFloat(invoiceData.creditRedeemedAmount) || 0;
       const primaryPaymentMethod = depositsWithPayment.length > 0 
         ? depositsWithPayment[0].method 
-        : '';
+        : (creditAppliedAmt > 0 && invoiceData.creditRedeemedAccount ? 'Trade Credit' : '');
       
       // Save invoice with staff PIN if verified
       const invoicePayload = {
