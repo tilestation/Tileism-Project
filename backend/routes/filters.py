@@ -11,6 +11,8 @@ from bson import ObjectId
 import os
 import re
 import logging
+from collections import defaultdict
+from routes.series_utils import product_group_key
 
 logger = logging.getLogger(__name__)
 
@@ -1609,6 +1611,76 @@ async def get_filters_for_page(
         if filters:
             result.append(fg)
     
+    # ---- Per-option collection counts ----
+    # "How many storefront cards will I see if I tick this?" — counts with the
+    # SAME matching rules the collections endpoint uses (digit-bounded regex
+    # for sizes, case-insensitive substring for colour/finish/material) and the
+    # SAME series grouping the storefront renders.
+    try:
+        if result and source == "tiles":
+            docs = await product_collection.find(
+                product_query,
+                {"_id": 0, "series": 1, "original_series": 1, "display_name": 1, "name": 1,
+                 "size": 1, "finish": 1, "color": 1, "material": 1, "attributes": 1},
+            ).to_list(20000)
+
+            countable_fields = {"size", "finish", "color", "material"}
+
+            def _field_strings(p, base_field):
+                attrs = p.get("attributes") or {}
+                out = []
+                for raw in (p.get(base_field), attrs.get(base_field)):
+                    if isinstance(raw, list):
+                        out.extend([str(x) for x in raw if x])
+                    elif raw:
+                        out.append(str(raw))
+                return out
+
+            # base field -> list of (group_key, [strings])
+            rows_by_field = {}
+            needed = set()
+            for fg2 in result:
+                for f2 in fg2.get("filters", []):
+                    base = f2.get("slug") if f2.get("slug") in countable_fields else f2.get("auto_populate_field")
+                    if base in countable_fields:
+                        needed.add(base)
+            if needed and docs:
+                for base in needed:
+                    rows = []
+                    for p in docs:
+                        strings = _field_strings(p, base)
+                        if strings:
+                            rows.append((product_group_key(p), strings))
+                    rows_by_field[base] = rows
+
+                count_cache = {}
+
+                def _option_count(base, value):
+                    key = (base, value.lower())
+                    if key in count_cache:
+                        return count_cache[key]
+                    if base == "size":
+                        rx = re.compile(rf"(?<![0-9]){re.escape(value)}(?![0-9])", re.IGNORECASE)
+                        match = lambda s: bool(rx.search(s))
+                    else:
+                        low = value.lower()
+                        match = lambda s: low in s.lower()
+                    groups = {gk for gk, strings in rows_by_field.get(base, []) if any(match(s) for s in strings)}
+                    count_cache[key] = len(groups)
+                    return count_cache[key]
+
+                for fg2 in result:
+                    for f2 in fg2.get("filters", []):
+                        base = f2.get("slug") if f2.get("slug") in countable_fields else f2.get("auto_populate_field")
+                        if base not in countable_fields:
+                            continue
+                        for v in f2.get("values", []):
+                            val = str(v.get("value", "")).strip()
+                            if val:
+                                v["count"] = _option_count(base, val)
+    except Exception as e:
+        logger.warning(f"Filter collection counts skipped: {e}")
+
     return {
         "page_slug": page_slug,
         "display_style": page_settings.get("display_style", "sidebar") if page_settings else "sidebar",

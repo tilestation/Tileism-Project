@@ -149,9 +149,14 @@ const FilterPanel = ({
                   />
                   <Label 
                     htmlFor={`${filter.slug}-${option.value}`}
-                    className="text-sm cursor-pointer flex-1"
+                    className="text-sm cursor-pointer flex-1 flex items-center justify-between gap-2"
                   >
-                    {option.label || option.value}
+                    <span>{option.label || option.value}</span>
+                    {typeof option.count === 'number' && (
+                      <span className="text-[11px] text-gray-400 tabular-nums" data-testid={`filter-count-${filter.slug}-${option.value}`}>
+                        {option.count}
+                      </span>
+                    )}
                   </Label>
                 </div>
               );

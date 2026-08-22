@@ -66,6 +66,7 @@ const BathroomManager = () => (
     editFields={EDIT_FIELDS}
     presetCategory="bathroom"
     facetCategory="custom"
+    seriesQuickEdit
     tierPricingDefaults={{ default_unit: 'unit' }}
     bannerBullets={[
       'Search or filter to find a bathroom product (toilet, basin, bath, shower, tap, accessory).',

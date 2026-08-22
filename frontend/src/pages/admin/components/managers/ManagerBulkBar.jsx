@@ -33,6 +33,7 @@ const ManagerBulkBar = ({
   onJumpToProduct,
   onOpenTierPricing,
   onOpenDelivery,
+  onOpenSeriesMove,
   onOpenAssignColours,
   onOpenBulkCategory,
   onOpenBulkFields,
@@ -261,6 +262,19 @@ const ManagerBulkBar = ({
         >
           <Truck className="w-3.5 h-3.5" />
           Delivery
+        </button>
+      )}
+      {!hidden.has('seriesMove') && onOpenSeriesMove && (
+        <button
+          type="button"
+          onClick={onOpenSeriesMove}
+          disabled={saving}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/15 hover:bg-white/25 transition text-[13px] font-medium"
+          data-testid="bar-series-move"
+          title="Move all selected products into one series (re-groups the storefront card)"
+        >
+          <LayoutGrid className="w-3.5 h-3.5" />
+          Series
         </button>
       )}
       {!hidden.has('bulkFields') && onOpenBulkFields && (

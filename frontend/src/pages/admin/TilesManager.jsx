@@ -45,6 +45,7 @@ const TilesManager = () => (
     isMatch={isTile}
     subTabs={TILE_SUB_TABS}
     facetCategory="tiles"
+    seriesQuickEdit
     columns={[
       { key: 'size',        label: 'Size' },
       { key: 'thickness',   label: 'Thickness' },

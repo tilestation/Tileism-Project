@@ -45,6 +45,7 @@ const FlooringManager = () => (
     isMatch={isFlooring}
     subTabs={FLOOR_SUB_TABS}
     facetCategory="tiles"
+    seriesQuickEdit
     columns={[
       { key: 'size',       label: 'Size' },
       { key: 'thickness',  label: 'Thickness' },

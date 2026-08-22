@@ -281,6 +281,9 @@ const ManagerPageShell = ({
   const [marginGuardOnly, setMarginGuardOnly] = useState(false);
   // Delivery rules modal (mandatory charge + parcel shipping)
   const [showDeliveryCharge, setShowDeliveryCharge] = useState(false);
+  const [showSeriesMove, setShowSeriesMove] = useState(false);
+  const [bulkSeriesValue, setBulkSeriesValue] = useState('');
+  const [bulkSeriesSaving, setBulkSeriesSaving] = useState(false);
   // Delivery rules quick filters
   const [filterDeliveryCharge, setFilterDeliveryCharge] = useState(false);
   const [filterParcel, setFilterParcel] = useState(false);
@@ -1249,6 +1252,7 @@ const ManagerPageShell = ({
         onOpenAssignColours={() => setShowAssignColours(true)}
         onOpenTierPricing={() => setShowTierPricing(true)}
         onOpenDelivery={() => setShowDeliveryCharge(true)}
+        onOpenSeriesMove={seriesQuickEdit ? () => { setBulkSeriesValue(''); setShowSeriesMove(true); } : undefined}
         onOpenBulkFields={() => setShowBulkFields(true)}
         onOpenAIDescriptions={() => setShowAIDescriptions(true)}
         onOpenBulkImages={() => setShowBulkImages(true)}
@@ -1405,6 +1409,66 @@ const ManagerPageShell = ({
         selectedProducts={bulk.getSelectedList()}
         onSaved={fetchProducts}
       />
+
+      {/* Bulk Series Move — regroup all selected products under one series */}
+      {seriesQuickEdit && showSeriesMove && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={() => !bulkSeriesSaving && setShowSeriesMove(false)}>
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md p-5" onClick={(e) => e.stopPropagation()}>
+            <h3 className="font-semibold text-gray-900 mb-1">Move {bulk.getSelectedList().length} product{bulk.getSelectedList().length === 1 ? '' : 's'} to a series</h3>
+            <p className="text-xs text-gray-500 mb-4">
+              Sets the explicit series on every selected product — the admin grouping and the
+              storefront card update together. Save with an empty name to revert to auto-grouping.
+            </p>
+            <input
+              autoFocus
+              list={`series-options-${categoryKey}`}
+              value={bulkSeriesValue}
+              onChange={(e) => setBulkSeriesValue(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Escape') setShowSeriesMove(false); }}
+              placeholder="Series name (pick existing or type new)…"
+              className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-400"
+              data-testid="bulk-series-input"
+              disabled={bulkSeriesSaving}
+            />
+            <div className="flex justify-end gap-2 mt-4">
+              <Button variant="outline" onClick={() => setShowSeriesMove(false)} disabled={bulkSeriesSaving}>Cancel</Button>
+              <Button
+                onClick={async () => {
+                  const list = bulk.getSelectedList();
+                  setBulkSeriesSaving(true);
+                  try {
+                    const res = await fetch(`${API_URL}/api/supplier-sync/products/bulk-series-update`, {
+                      method: 'PUT',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({
+                        products: list.map(p => ({ supplier: p.supplier, sku: p.sku || p.supplier_code })),
+                        series: bulkSeriesValue.trim(),
+                      }),
+                    });
+                    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                    const d = await res.json();
+                    toast.success(bulkSeriesValue.trim()
+                      ? `Moved ${d.updated_count} product${d.updated_count === 1 ? '' : 's'} to "${bulkSeriesValue.trim()}"`
+                      : `Series cleared on ${d.updated_count} product${d.updated_count === 1 ? '' : 's'} — back to auto-grouping`);
+                    setShowSeriesMove(false);
+                    bulk.clearAll();
+                    fetchProducts();
+                  } catch (err) {
+                    toast.error(`Series move failed: ${err.message}`);
+                  } finally {
+                    setBulkSeriesSaving(false);
+                  }
+                }}
+                disabled={bulkSeriesSaving}
+                className="bg-slate-800 hover:bg-slate-900 text-white"
+                data-testid="bulk-series-save"
+              >
+                {bulkSeriesSaving ? 'Moving…' : `Move ${bulk.getSelectedList().length}`}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <TierPricingModal
         open={showTierPricing}
