@@ -35,6 +35,16 @@ def _safe_str(val) -> str:
     return str(val)
 
 
+def _exact_size_regex(value: str) -> dict:
+    """
+    Regex filter for a size token that can't bleed into neighbouring digits —
+    a plain substring regex made '20x120' match '120x120'. Digits must not
+    touch either end of the match.
+    """
+    v = re.escape(str(value).strip())
+    return {"$regex": rf"(?<![0-9]){v}(?![0-9])", "$options": "i"}
+
+
 def parse_tile_size(size_str: str) -> tuple:
     """
     Parse tile size string and return dimensions in meters and area in m².
@@ -331,8 +341,8 @@ async def get_tile_products(
     
     if size:
         query.setdefault("$and", []).append({"$or": [
-            {"size": {"$regex": size, "$options": "i"}},
-            {"attributes.size": {"$regex": size, "$options": "i"}}
+            {"size": _exact_size_regex(size)},
+            {"attributes.size": _exact_size_regex(size)}
         ]})
     
     if finish:
@@ -749,14 +759,14 @@ async def _get_tile_collections_impl(
         size_values = [s.strip() for s in size.split(',') if s.strip()]
         if len(size_values) == 1:
             match_query.setdefault("$and", []).append({"$or": [
-                {"size": {"$regex": size_values[0], "$options": "i"}},
-                {"attributes.size": {"$regex": size_values[0], "$options": "i"}}
+                {"size": _exact_size_regex(size_values[0])},
+                {"attributes.size": _exact_size_regex(size_values[0])}
             ]})
         elif len(size_values) > 1:
             or_clauses = []
             for s in size_values:
-                or_clauses.append({"size": {"$regex": s, "$options": "i"}})
-                or_clauses.append({"attributes.size": {"$regex": s, "$options": "i"}})
+                or_clauses.append({"size": _exact_size_regex(s)})
+                or_clauses.append({"attributes.size": _exact_size_regex(s)})
             match_query.setdefault("$and", []).append({"$or": or_clauses})
     
     if color:
@@ -824,7 +834,7 @@ async def _get_tile_collections_impl(
                 "finish": {"attributes.finish": {"$regex": value, "$options": "i"}},
                 "material": {"material": {"$regex": value, "$options": "i"}},
                 "color": {"color": {"$regex": value, "$options": "i"}},
-                "size": {"attributes.size": {"$regex": value, "$options": "i"}},
+                "size": {"attributes.size": _exact_size_regex(value)},
                 "sale": {"labels": {"$in": ["SALE", "Sale", "sale"]}},
                 "new": {"labels": {"$in": ["NEW", "New", "new"]}},
                 "bestseller": {"labels": {"$in": ["BESTSELLER", "Bestseller", "bestseller"]}},

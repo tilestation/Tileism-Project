@@ -9244,3 +9244,8 @@ See `/app/memory/test_credentials.md`
 - Fixed during testing: clear path used defaultValue heuristic that resurrected the old value — switched to controlled input.
 - Verified via UI: set → product instantly regrouped under new series banner; clear → back to 'auto' + banner gone. Test values cleaned (product 4405 + ULT-PSSF20G restored).
 - Other managers can enable by passing `seriesQuickEdit` in their config.
+
+## Aug 22, 2026 — Size filter substring bug fixed
+- Bug: size filters used plain substring $regex, so '20x120' matched '120x120' (and similar bleed for any size whose token is a suffix of another). User saw 120x120 collections when filtering 20x120cm.
+- Fix: _exact_size_regex() helper in tiles.py — (?<![0-9])VALUE(?![0-9]) anchors so digits can't touch either end. Applied to: single & multi size filter in _get_tile_collections_impl, the tiles list endpoint (line ~340), and the legacy field:value filter mapping.
+- Verified via API: size=20x120cm → 0 groups (none exist in preview; previously leaked 120x120), size=120x120cm → 10 groups all genuinely 120x120, size=60x120cm → 50 groups all contain it, multi 120x120cm,30x60cm → 59 groups all contain at least one. Frontend sidebar passes size= straight to this endpoint (comma-joined), so UI is covered.
