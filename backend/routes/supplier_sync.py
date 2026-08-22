@@ -4122,12 +4122,18 @@ def get_all_supplier_products(
         if supplier:
             query["supplier"] = supplier
         if search:
+            safe = re.escape(search.strip())
             query["$or"] = [
-                {"name": {"$regex": search, "$options": "i"}},
-                {"product_name": {"$regex": search, "$options": "i"}},
-                {"sku": {"$regex": search, "$options": "i"}},
-                {"category": {"$regex": search, "$options": "i"}},
-                {"supplier_product_name": {"$regex": search, "$options": "i"}}
+                {"name": {"$regex": safe, "$options": "i"}},
+                {"product_name": {"$regex": safe, "$options": "i"}},
+                {"sku": {"$regex": safe, "$options": "i"}},
+                {"category": {"$regex": safe, "$options": "i"}},
+                {"supplier_product_name": {"$regex": safe, "$options": "i"}},
+                # Series/range names — admins search by the group header they
+                # see on screen, which often isn't part of any product name
+                {"series": {"$regex": safe, "$options": "i"}},
+                {"range_name": {"$regex": safe, "$options": "i"}},
+                {"original_series": {"$regex": safe, "$options": "i"}},
             ]
         
         # Series filter — match `series` field exactly. Required so the

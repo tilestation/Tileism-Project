@@ -512,7 +512,8 @@ const ManagerPageShell = ({
         const name = String(`${p.product_name || ''} ${p.our_product_name || ''} ${p.name || ''}`).toLowerCase();
         const sku = String(p.sku || p.supplier_code || '').toLowerCase();
         const supplier = String(p.supplier || '').toLowerCase();
-        return name.includes(q) || sku.includes(q) || supplier.includes(q);
+        const series = String(`${p.range_name || ''} ${p.series || ''} ${p.series_name || ''}`).toLowerCase();
+        return name.includes(q) || sku.includes(q) || supplier.includes(q) || series.includes(q);
       });
     }
     // Gap filter — only products missing every shop-tab destination

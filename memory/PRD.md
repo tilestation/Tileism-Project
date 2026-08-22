@@ -9264,3 +9264,8 @@ See `/app/memory/test_credentials.md`
 - InvoiceHistory drift badge now computes per-period trade credit (getCreditRedeemedTotals: daily=dateFilter, weekly/monthly via boundaries, showroom-filtered, invoice-date attribution) and threads credit + creditExplained through the check().
 - Three states: GREEN (all match; shows "Trade credit this month: £X (non-cash — excluded on both sides)" line when credit > 0; testid reconciliation-credit-line); AMBER (testid reconciliation-badge-credit) when every drifting period's gap == that period's trade credit (±1p) — reassuring copy "the till is NOT out", per-period breakdown with labelled Trade credit lines, explains one report still counts credit and clears on deploy; RED unchanged for genuine drift but rows now include a "Trade credit (non-cash)" line and mark drifts that match credit.
 - Verified ALL states in UI: green + credit line (backend fixed both sides), amber (temporarily reverted the analytics credit subtraction to simulate a stale deploy — rendered exactly as designed, then reverted). Test invoice INV-BADGE-TEST cleaned, T-00021 restored 25.50.
+
+## Aug 22, 2026 — Series-name search fixed
+- Bug: searching a series/range name (e.g. 'Straight Edge L Shape Trims') in Supplier Products returned 0 when the phrase isn't part of any product NAME (series assigned via admin tools).
+- Fix: backend /api/supplier-sync/products search $or now also matches series, range_name, original_series (and the search term is re.escape'd so brackets etc. can't 500). ManagerPageShell client-side search also includes range_name/series/series_name.
+- Verified: synthetic product named 'L Shape Trim Bright Silver 10mm' with series 'Straight Edge L Shape Trims' → search by series name returns it; cleaned after.
