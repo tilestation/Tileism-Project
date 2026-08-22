@@ -537,6 +537,28 @@ export const InvoiceHistory = () => {
   // Calculate revenue directly during render (no state dependency)
   // Revenue = actual deposits taken on this specific date, NOT invoice totals
   // IMPORTANT: Deposits are attributed to their payment date, not the invoice date
+  // Trade credit settled in each reconciliation period — non-cash, excluded
+  // from takings on BOTH sides. The badge uses this to (a) show credit as its
+  // own labelled line and (b) recognise when a drift is EXACTLY the credit
+  // amount (one report still counting credit as money) instead of alarming.
+  const getCreditRedeemedTotals = () => {
+    const invoicesToUse = getShowroomFilteredInvoices();
+    const filterDate = formatDateDDMMYYYY(dateFilter);
+    const { start: weekStart, end: weekEnd } = getWeekBoundaries();
+    const { start: monthStart, end: monthEnd } = getMonthBoundaries();
+    let daily = 0, weekly = 0, monthly = 0;
+    invoicesToUse.forEach(inv => {
+      const credit = Number(inv.credit_redeemed) || 0;
+      if (credit <= 0) return;
+      if (inv.date === filterDate) daily += credit;
+      const invDate = parseInvoiceDate(inv.date);
+      if (invDate && invDate >= weekStart && invDate <= weekEnd) weekly += credit;
+      if (invDate && invDate >= monthStart && invDate <= monthEnd) monthly += credit;
+    });
+    const r2 = (n) => Math.round(n * 100) / 100;
+    return { daily: r2(daily), weekly: r2(weekly), monthly: r2(monthly) };
+  };
+
   const getDailyRevenue = () => {
     const invoicesToUse = getShowroomFilteredInvoices();
     const filterDate = formatDateDDMMYYYY(dateFilter);
@@ -1326,20 +1348,27 @@ export const InvoiceHistory = () => {
         // bit-fiddling can produce sub-penny differences that aren't
         // real drift; flag only meaningful gaps.
         const TOLERANCE = 0.01;
-        const check = (page, sa) => {
+        const credits = getCreditRedeemedTotals();
+        const check = (page, sa, credit) => {
           const drift = Math.round((page - sa) * 100) / 100;
-          return { page, superAdmin: sa, drift, matches: Math.abs(drift) <= TOLERANCE };
+          const matches = Math.abs(drift) <= TOLERANCE;
+          // Drift exactly equal to the period's trade credit = one report is
+          // still counting credit as money received. Not a till discrepancy.
+          const creditExplained = !matches && credit > 0 && Math.abs(Math.abs(drift) - credit) <= TOLERANCE;
+          return { page, superAdmin: sa, drift, matches, credit, creditExplained };
         };
-        const daily = check(pageDaily, saDaily);
-        const weekly = check(pageWeekly, saWeekly);
-        const monthly = check(pageMonthly, saMonthly);
+        const daily = check(pageDaily, saDaily, credits.daily);
+        const weekly = check(pageWeekly, saWeekly, credits.weekly);
+        const monthly = check(pageMonthly, saMonthly, credits.monthly);
         setReconciliation({
           computedAt: new Date().toISOString(),
           showroomName: storeRecord.showroom_name || '',
           daily,
           weekly,
           monthly,
+          creditTotals: credits,
           anyDrift: !daily.matches || !weekly.matches || !monthly.matches,
+          anyRealDrift: [daily, weekly, monthly].some(p => !p.matches && !p.creditExplained),
         });
       } catch (err) {
         if (cancelled) return;
@@ -4892,6 +4921,7 @@ function ReconciliationBadge({ result }) {
   }
 
   const fmt = (n) => `£${(n ?? 0).toFixed(2)}`;
+  const monthCredit = result.creditTotals?.monthly || 0;
   const driftRows = [
     { label: 'Today', d: result.daily },
     { label: 'This week', d: result.weekly },
@@ -4910,7 +4940,47 @@ function ReconciliationBadge({ result }) {
           <strong>Reconciled with Super-Admin</strong>
           {result.showroomName ? ` · ${result.showroomName}` : ''}
           {' '}· all three periods match to the penny.
+          {monthCredit > 0 && (
+            <span className="text-emerald-700/80" data-testid="reconciliation-credit-line">
+              {' '}Trade credit this month: <span className="font-mono">{fmt(monthCredit)}</span> (non-cash — excluded on both sides).
+            </span>
+          )}
         </span>
+      </div>
+    );
+  }
+
+  // Every drifting period is explained EXACTLY by trade credit — one report is
+  // still counting credit as money received (e.g. a not-yet-deployed backend).
+  // The till is not out, so inform instead of alarming.
+  if (!result.anyRealDrift) {
+    return (
+      <div
+        className="rounded-md border border-amber-300 bg-amber-50 text-amber-900 px-3 py-2 text-xs space-y-1 mb-2"
+        data-testid="reconciliation-badge-credit"
+      >
+        <div className="flex items-center gap-1.5 font-semibold">
+          <AlertCircle className="w-3.5 h-3.5 text-amber-600" />
+          Difference is exactly trade credit (non-cash)
+          {result.showroomName ? ` · ${result.showroomName}` : ''} — the till is NOT out.
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-x-4 gap-y-1 pl-5">
+          {driftRows.map(r => (
+            <div key={r.label}>
+              <div className="font-semibold">{r.label}</div>
+              <div>This page: <span className="font-mono">{fmt(r.d.page)}</span></div>
+              <div>Super-Admin: <span className="font-mono">{fmt(r.d.superAdmin)}</span></div>
+              <div className="font-semibold">
+                Trade credit: <span className="font-mono">{fmt(r.d.credit)}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="pl-5 text-[11px] opacity-80 pt-1">
+          This page excludes trade credit from money received; the Store Performance
+          card is still counting it. Both reports agree once credit is excluded —
+          this clears when the latest build is deployed.
+        </div>
       </div>
     );
   }
@@ -4931,8 +5001,12 @@ function ReconciliationBadge({ result }) {
             <div className="font-semibold">{r.label}</div>
             <div>This page: <span className="font-mono">{fmt(r.d.page)}</span></div>
             <div>Super-Admin: <span className="font-mono">{fmt(r.d.superAdmin)}</span></div>
+            {r.d.credit > 0 && (
+              <div>Trade credit (non-cash): <span className="font-mono">{fmt(r.d.credit)}</span></div>
+            )}
             <div className="font-semibold">
               Drift: <span className="font-mono">{fmt(r.d.drift)}</span>
+              {r.d.creditExplained ? ' — matches trade credit' : ''}
             </div>
           </div>
         ))}
