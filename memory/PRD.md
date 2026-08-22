@@ -17,6 +17,24 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Aug 22, 2026 — Forked session] 🟢 Series Rename Studio — VERIFIED (iteration_239, 100% pass)
+
+**Owner ask**: "Multiple items with different names in one series — give me the most comprehensive and easiest way to change all names within Name Sanity."
+
+**Delivered**: New "Series Rename" tab inside /admin/product-name-sanity (next to "Flagged Names").
+1. **Backend** (`/app/backend/routes/product_name_sanity.py`):
+   - `GET /api/product-name-sanity/series-list` — all distinct series + counts, biggest first (cap 800).
+   - `GET /api/product-name-sanity/series-products?series=X` — every product in a series with `parts{color,size,finish}` extracted from the CURRENT NAME first (attributes are often stale — e.g. Dolomite Onyx had color='bianco' on Green tiles), attribute fallback, plus `standardised_name`. Extraction: size regex (normalises 60x120 → 60x120cm, ≥200 → mm), finish token list (longest-first), ~120-word colour list incl. Italian (bianco/nero/grigio) with multi-word colours (Dark Grey).
+   - `/apply` query now matches `sku` OR `supplier_code` (supports RSA Tiles / ThermoSphere rows).
+2. **Frontend** (`/app/frontend/src/pages/admin/SeriesRenameStudio.jsx`, new; `ProductNameSanity.jsx` gained tab bar):
+   - Searchable series picker (client-side filter, counts per series).
+   - 3 modes: **Standardise** (Series+Colour+Size+Finish with toggleable parts), **Find & Replace** (case-insensitive across series), **Manual** (inline edits; edits cleared on mode switch).
+   - Live preview grid Current → New, changed rows amber + "changes" badge, per-row checkbox + select-all, per-row manual override with reset button, title tooltip on truncated names.
+   - **Duplicate-name guard**: red chip "⚠ N would share identical names" + warning inside the Apply confirm when a pattern collapses names.
+   - Apply posts to existing `/apply` (mirrors to tiles + products; never touches supplier `name`).
+**Testing**: 12/12 backend pytest + full UI flows incl. apply/restore (iteration_239, 100% both). Test suite self-restores data: `/app/backend/tests/test_series_rename_studio.py`.
+
+
 ### [Aug 8, 2026 — Forked, session F+10, feature block 7 — Phase 1] 🟢 Landing-Page Preview + Per-Product Sale Panel + Rich Description — SHIPPED
 
 **Owner ask** (with 3 live-site screenshots of tilestation.co.uk/shop/collection/Moonstone):

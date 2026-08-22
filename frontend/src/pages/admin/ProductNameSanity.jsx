@@ -20,6 +20,8 @@ import {
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
 import { Badge } from '../../components/ui/badge';
+import { Layers } from 'lucide-react';
+import SeriesRenameStudio from './SeriesRenameStudio';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
 
@@ -43,6 +45,7 @@ const ProductNameSanity = () => {
   const [supplierFilter, setSupplierFilter] = useState('');
   const [issueFilter, setIssueFilter] = useState('');
   const [limit, setLimit] = useState(200);
+  const [activeTab, setActiveTab] = useState('flagged');
 
   const authHeaders = () => {
     const token = localStorage.getItem('token');
@@ -172,11 +175,33 @@ const ProductNameSanity = () => {
               <p className="text-xs text-gray-500">Spot garbled, truncated, or missing-attribute product names — and fix them one click at a time.</p>
             </div>
           </div>
-          <Button variant="outline" size="sm" onClick={loadReport} disabled={loading} data-testid="pns-refresh">
-            <RefreshCw className={`w-4 h-4 mr-1.5 ${loading ? 'animate-spin' : ''}`} /> Rescan
-          </Button>
+          {activeTab === 'flagged' && (
+            <Button variant="outline" size="sm" onClick={loadReport} disabled={loading} data-testid="pns-refresh">
+              <RefreshCw className={`w-4 h-4 mr-1.5 ${loading ? 'animate-spin' : ''}`} /> Rescan
+            </Button>
+          )}
         </div>
 
+        {/* Tabs */}
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setActiveTab('flagged')}
+            className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${activeTab === 'flagged' ? 'bg-slate-800 text-white' : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'}`}
+            data-testid="pns-tab-flagged"
+          >
+            <AlertTriangle className="w-4 h-4" /> Flagged Names
+          </button>
+          <button
+            onClick={() => setActiveTab('series')}
+            className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${activeTab === 'series' ? 'bg-indigo-600 text-white' : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'}`}
+            data-testid="pns-tab-series"
+          >
+            <Layers className="w-4 h-4" /> Series Rename
+          </button>
+        </div>
+
+        {activeTab === 'series' ? <SeriesRenameStudio /> : (
+        <>
         {/* Stats strip */}
         <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
           <div className="bg-white border border-gray-200 rounded p-3">
@@ -362,6 +387,8 @@ const ProductNameSanity = () => {
           <Wand2 className="w-3 h-3" />
           Edit any name directly and click <b>Save</b> — nothing changes until you save. The <Wand2 className="w-3 h-3 inline text-violet-500" /> button loads the auto-suggestion (built from <code>product_name + color + size + finish</code>) if you want it.
         </div>
+        </>
+        )}
       </div>
     </div>
   );

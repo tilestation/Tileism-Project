@@ -1,0 +1,44 @@
+{
+  "summary": "Full-stack test of the new 'Series Rename Studio' tab on /admin/product-name-sanity. Backend: 12/12 pytest tests pass (series-list, series-products, apply, auth/validation, flagged-report regression) plus a DB-level mirror check confirming apply writes supplier_products(product_name/our_product_name/display_name) and mirrors to tiles(name/display_name/website_name) while leaving supplier `name` untouched. Frontend: login as admin, both tabs render, series list (254 items) + client-side search, Dolomite Onyx loads 23 rows, Standardise toggles, Find & Replace (4 of 23), checkbox/select-all flows, Manual edit + reset, and the full Apply flow with window.confirm -> success toast 'Renamed 1 product' -> table reload. All renames applied during testing were reverted; a DB sweep confirms zero TESTRENAME/MIRRORCHK residue and LP-1132 restored across supplier_products + tiles.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {"flow": "Admin UI login (pre-existing, not feature-related)", "issue": "Intermittent: 2 of 5 runs the app was stuck on the 'Starting up… Connecting to server' boot gate and the login POST never fired, so localStorage token was never set. Retry succeeded. Also 2x console 403 resource errors on the /admin dashboard after login (pre-existing).", "affected_selectors": ["[data-testid=\"submit-button\"]"]}
+    ],
+    "design_issues": [
+      {"screen": "Series Rename tab", "issues": ["Layout, contrast and spacing look good; amber highlight + 'changes'/'same' badges are clear. Only nit: the New Name inputs truncate long names with no tooltip/title, so the admin cannot read the full proposed name without clicking into the field."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_series_rename_studio.py",
+    "/app/backend/tests/verify_series_rename_mirror.py",
+    "/app/backend/tests/verify_series_rename_cleanup.py",
+    "/app/test_reports/pytest/series_rename_results.xml"
+  ],
+  "action_items": [
+    "Optional safety: Standardise mode with a part unticked (e.g. untick Size) makes MANY rows resolve to the identical name (all 23 Dolomite Onyx rows -> 'Dolomite Onyx <Colour> <Finish>'). Consider a duplicate-name warning before Apply so an admin cannot accidentally collapse a whole series into duplicate names.",
+    "Optional UX: manual edits in `edits{}` persist when the mode is switched (a manual value still overrides Standardise/Replace output silently). Either clear edits on mode change or badge the row as 'manually edited'.",
+    "Optional robustness: srs-series-item testids embed the raw series name (spaces/quotes). Slugify for stable automation selectors, and guard against rows where both sku and supplier_code are null (React key collision + apply would report not_found)."
+  ],
+  "critical_code_review_comments": [
+    "product_name_sanity.py /apply correctly leaves the supplier's original `name` field untouched and only writes our display fields — verified in Mongo (LP-1132 name stayed 'Dolmen Bianco 120x120cm Matt').",
+    "series-products responses contain no Mongo _id and derive colour/size/finish from the current name first with attribute fallback — verified LP-3631 gives parts.color='Blanco' while DB attr color='bianco'.",
+    "series-list is capped at 800 groups and series-products at 3000 docs with no pagination signal; fine for current data (254 series) but silently truncates if the catalogue grows."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_series_rename_studio.py",
+    "/app/backend/tests/verify_series_rename_mirror.py",
+    "/app/backend/tests/verify_series_rename_cleanup.py"
+  ],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "seed_data_creation": "None. Real data was used: LP-1132 was renamed to '... TESTRENAME' / '... TESTRENAME2' / '... MIRRORCHK' during API+UI tests and each time renamed back to 'Dolomite Onyx Bianco 120x120cm Matt'. DB sweep confirms 0 residual docs in supplier_products/tiles/products.",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "test_credentials": "admin@test.com / admin123 (super_admin); login returns field 'token'",
+  "context_for_next_testing_agent": "Series Rename Studio is fully verified (backend + UI incl. apply/restore). Pytest suite: /app/backend/tests/test_series_rename_studio.py (12 tests, self-restoring). UI login via data-testid email-input/password-input/submit-button can be flaky on cold boot — poll localStorage 'token' for up to 30s and retry. The Series tab resets to 'Flagged' if the SPA remounts, so re-open the tab defensively. Do NOT click 'Auto-fix all (200)' on the Flagged tab.",
+  "rca_of_the_issue": "No functional defects found. The two failed UI runs were caused by the app's boot gate ('Starting up… Connecting to server') delaying React hydration so the login click never reached the form handler — mitigated in the test by polling for the token and retrying; not a product bug in the Series Rename feature."
+}

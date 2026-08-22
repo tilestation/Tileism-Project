@@ -288,9 +288,9 @@ async def apply_new_names(
     failed: list[dict] = []
 
     for item in payload.items:
-        query = {"sku": item.sku}
+        query: dict = {"$or": [{"sku": item.sku}, {"supplier_code": item.sku}]}
         if item.supplier:
-            query["supplier"] = item.supplier
+            query = {"$and": [query, {"supplier": item.supplier}]}
 
         # IMPORTANT: `name` = the SUPPLIER's original product name — never touch it here.
         # Renames from Name Sanity only change OUR storefront/display name fields.
@@ -916,3 +916,145 @@ async def ghost_sweep_purge(
         "deleted": deleted,
         "failed": failed,
     }
+
+
+
+# ---------- Series Rename Studio ----------
+
+_FINISH_PATTERN = re.compile(
+    r"\b(semi[- ]?polished|anti[- ]?slip|sugar effect|polished|lappato|matte|matt|glossy|gloss|satin|rustic|structured|honed|textured|brushed|riven|grip|carving|natural)\b",
+    re.IGNORECASE,
+)
+
+_COLOR_WORDS = [
+    "dark grey", "light grey", "dark gray", "light gray", "off white", "warm grey", "cool grey",
+    "dark blue", "light blue", "dark green", "light green", "dark brown", "light brown",
+    "anthracite", "charcoal", "graphite", "terracotta", "burgundy", "turquoise", "cappuccino",
+    "chocolate", "grey", "gray", "white", "black", "green", "blue", "red", "yellow", "orange",
+    "purple", "pink", "brown", "beige", "cream", "ivory", "sand", "taupe", "greige", "silver",
+    "gold", "copper", "bronze", "rust", "cotto", "bone", "almond", "pearl", "smoke", "ash",
+    "mink", "mocha", "coffee", "walnut", "honey", "amber", "navy", "teal", "aqua", "emerald",
+    "sage", "olive", "mustard", "ochre", "blush", "coral", "maroon", "lilac", "lavender",
+    "denim", "oyster", "dove", "fog", "mist", "steel", "iron", "lead", "slate", "carbon",
+    "oxide", "basalt", "tobacco", "caramel", "latte", "vanilla", "ecru", "linen", "chalk",
+    "salt", "midnight", "bianco", "blanco", "nero", "grigio", "marrone", "avorio", "perla",
+    "antracite", "crema", "arctic", "glacier", "snow", "cloud",
+]
+_COLOR_PATTERN = re.compile(r"\b(" + "|".join(_COLOR_WORDS) + r")\b", re.IGNORECASE)
+
+_SIZE_PATTERN = re.compile(r"(\d+(?:\.\d+)?)\s*[x×]\s*(\d+(?:\.\d+)?)\s*(cm|mm|m)?\b", re.IGNORECASE)
+
+
+def _tidy_num(n: str) -> str:
+    return n.rstrip("0").rstrip(".") if "." in n else n
+
+
+def _extract_size(text: str) -> str:
+    m = _SIZE_PATTERN.search(text or "")
+    if not m:
+        return ""
+    a, b, unit = _tidy_num(m.group(1)), _tidy_num(m.group(2)), (m.group(3) or "").lower()
+    if not unit:
+        unit = "mm" if max(float(a), float(b)) >= 200 else "cm"
+    return f"{a}x{b}{unit}"
+
+
+def _extract_finish(text: str) -> str:
+    m = _FINISH_PATTERN.search(text or "")
+    return m.group(1).title() if m else ""
+
+
+def _extract_color(text: str) -> str:
+    m = _COLOR_PATTERN.search(text or "")
+    return m.group(1).title() if m else ""
+
+
+def _strip_series_words(name: str, series: str) -> str:
+    """Remove the series' words from the name so extraction only sees the variant part."""
+    s_tokens = set(_norm_text(series).split())
+    kept = [w for w in re.split(r"\s+", name or "") if _norm_text(w) not in s_tokens]
+    return " ".join(kept)
+
+
+def _clean_attr(v: str) -> str:
+    if not v:
+        return ""
+    upper = v.upper()
+    if upper.startswith("NEW_") or upper.startswith("TEST_") or any(p in upper for p in _PLACEHOLDER_TOKENS):
+        return ""
+    return v.strip()
+
+
+def _compose_series_name(series: str, color: str, size: str, finish: str) -> str:
+    parts = [series.strip()]
+    for p in (color, size, finish):
+        if p and _norm_text(p).replace(" ", "") not in _norm_text(" ".join(parts)).replace(" ", ""):
+            parts.append(p)
+    return re.sub(r"\s+", " ", " ".join(parts)).strip()
+
+
+@router.get("/series-list")
+async def series_list_for_rename(
+    q: Optional[str] = Query(None, description="Optional case-insensitive series name filter"),
+    current_user: dict = Depends(get_current_user),
+):
+    """All distinct series values in supplier_products with product counts, biggest first."""
+    if not has_permission(current_user, "supplier_products"):
+        raise HTTPException(403, "You need the Supplier Products permission")
+
+    db = get_db()
+    match: dict = {"$and": [
+        {"series": {"$nin": [None, ""]}},
+        {"$or": [{"deleted_at": {"$exists": False}}, {"deleted_at": None}]},
+    ]}
+    if q:
+        match["$and"].append({"series": {"$regex": re.escape(q.strip()), "$options": "i"}})
+
+    pipeline = [
+        {"$match": match},
+        {"$group": {"_id": "$series", "count": {"$sum": 1}}},
+        {"$sort": {"count": -1, "_id": 1}},
+        {"$limit": 800},
+    ]
+    out = []
+    async for r in db.supplier_products.aggregate(pipeline):
+        out.append({"name": r["_id"], "count": r["count"]})
+    return {"series": out}
+
+
+@router.get("/series-products")
+async def series_products_for_rename(
+    series: str = Query(..., min_length=1),
+    current_user: dict = Depends(get_current_user),
+):
+    """Every product in a series, with colour/size/finish parts extracted from the
+    CURRENT NAME first (attributes are often stale) falling back to attribute
+    fields, plus a composed standardised suggestion."""
+    if not has_permission(current_user, "supplier_products"):
+        raise HTTPException(403, "You need the Supplier Products permission")
+
+    db = get_db()
+    filt = {"series": series, "$or": [{"deleted_at": {"$exists": False}}, {"deleted_at": None}]}
+    rows: list[dict] = []
+    async for doc in db.supplier_products.find(filt).limit(3000):
+        name = str(doc.get("product_name") or doc.get("name") or "").strip()
+        remainder = _strip_series_words(name, series)
+
+        color = _extract_color(remainder) or _clean_attr(_first(doc.get("color") or doc.get("colors"))).title()
+        size = _extract_size(remainder) or _extract_size(_first(doc.get("size") or doc.get("sizes"))) or _clean_attr(_first(doc.get("size") or doc.get("sizes")))
+        finish = _extract_finish(remainder) or _clean_attr(_first(doc.get("finish") or doc.get("finishes"))).title()
+
+        parts = {"color": color, "size": size, "finish": finish}
+        rows.append({
+            "sku": doc.get("sku") or doc.get("supplier_code"),
+            "supplier": doc.get("supplier"),
+            "product_name": name,
+            "attr_color": _first(doc.get("color") or doc.get("colors")),
+            "attr_size": _first(doc.get("size") or doc.get("sizes")),
+            "attr_finish": _first(doc.get("finish") or doc.get("finishes")),
+            "parts": parts,
+            "standardised_name": _compose_series_name(series, color, size, finish),
+        })
+
+    rows.sort(key=lambda r: (r["product_name"] or "").lower())
+    return {"series": series, "count": len(rows), "rows": rows}
