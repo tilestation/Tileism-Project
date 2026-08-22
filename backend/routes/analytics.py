@@ -1112,7 +1112,7 @@ async def get_showroom_sales_breakdown(
     invoice_query = {"deleted_at": {"$exists": False}}
     all_invoices = await db.invoices.find(invoice_query, {
         "_id": 0, "id": 1, "date": 1, "showroom_id": 1, "showroom_name": 1,
-        "gross_total": 1, "amount_outstanding": 1, "deposits": 1
+        "gross_total": 1, "amount_outstanding": 1, "deposits": 1, "credit_redeemed": 1
     }).to_list(100000)
     
     # Initialize showroom data
@@ -1175,10 +1175,14 @@ async def get_showroom_sales_breakdown(
             if not invoice_date_str:
                 continue
             
-            # Calculate actual paid = gross_total - amount_outstanding
+            # Calculate actual money received = gross_total - outstanding - trade credit.
+            # Trade credit is a ledger movement, not till/bank money — Invoice History
+            # excludes it the same way, keeping the drift badge green.
             amount_outstanding = inv.get("amount_outstanding", 0) or 0
             amount_outstanding = round(amount_outstanding * 100) / 100
-            actual_paid = round((gross_total - amount_outstanding) * 100) / 100
+            credit_redeemed = float(inv.get("credit_redeemed", 0) or 0)
+            actual_paid = round((gross_total - amount_outstanding - credit_redeemed) * 100) / 100
+            actual_paid = max(0, actual_paid)
             
             if is_date_in_range(invoice_date_str, month_start, now):
                 showroom_data[showroom_id]["month"]["revenue"] += actual_paid
