@@ -15,7 +15,7 @@ import React, { useState, useCallback, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
 import {
-  ShieldCheck, AlertTriangle, RefreshCw, Save, X, ArrowLeft, Zap, Filter, Search, Wand2,
+  ShieldCheck, AlertTriangle, RefreshCw, Save, X, ArrowLeft, Filter, Search, Wand2,
 } from 'lucide-react';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
@@ -133,31 +133,6 @@ const ProductNameSanity = () => {
     }
   };
 
-  const applyAllSuggested = async () => {
-    const count = report.rows.length;
-    if (count === 0) { toast.info('No rows to fix'); return; }
-    if (!window.confirm(`Auto-apply the suggested name to ALL ${count} flagged product${count === 1 ? '' : 's'} shown?\n\nEach product's suggested name will REPLACE its current name in the database. This is logged.`)) return;
-    setRunning(true);
-    try {
-      const params = new URLSearchParams();
-      if (supplierFilter) params.set('supplier', supplierFilter);
-      if (issueFilter) params.append('only_issues', issueFilter);
-      params.set('limit', String(count));
-      const res = await fetch(`${API_URL}/api/product-name-sanity/apply-suggested?${params}`, {
-        method: 'POST',
-        headers: authHeaders(),
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      toast.success(`Auto-fixed ${data.updated} product name${data.updated === 1 ? '' : 's'} (${data.skipped} skipped)`);
-      loadReport();
-    } catch (err) {
-      toast.error(`Auto-fix failed: ${err.message}`);
-    } finally {
-      setRunning(false);
-    }
-  };
-
   const suppliers = Object.keys(report.supplier_counts || {}).sort();
 
   return (
@@ -263,15 +238,6 @@ const ProductNameSanity = () => {
             >
               {running ? <RefreshCw className="w-4 h-4 mr-1.5 animate-spin" /> : <Save className="w-4 h-4 mr-1.5" />}
               Save all edited {editedItems.length ? `(${editedItems.length})` : ''}
-            </Button>
-            <Button
-              onClick={applyAllSuggested}
-              disabled={running || report.rows.length === 0}
-              className="bg-emerald-600 hover:bg-emerald-700 text-white"
-              data-testid="pns-auto-fix-all"
-            >
-              {running ? <RefreshCw className="w-4 h-4 mr-1.5 animate-spin" /> : <Zap className="w-4 h-4 mr-1.5" />}
-              Auto-fix all {report.rows.length ? `(${report.rows.length})` : ''}
             </Button>
           </div>
         </div>

@@ -38,16 +38,22 @@ router = APIRouter(prefix="/product-name-sanity", tags=["product-name-sanity"])
 
 _PLACEHOLDER_TOKENS = ("TBD", "TEMP", "XXX", "N/A", "???", "??")
 _NONE_TOKENS = ("None", "null", "NULL", "none")
+_NONEISH_RE = re.compile(r"^\s*(none|null|n/?a|nan|-+)?(\s*[x×]\s*(none|null|nan))?\s*$", re.IGNORECASE)
+
+
+def _is_noneish(v) -> bool:
+    """True for empty/garbage values like 'None', 'null', 'NonexNone', 'None x None'."""
+    return bool(_NONEISH_RE.fullmatch(str(v or "")))
 
 
 def _first(field_value) -> str:
     """Products sometimes store color/size/finish as an array. Take the first non-empty."""
     if isinstance(field_value, list):
         for v in field_value:
-            if v and str(v).strip() and str(v) not in _NONE_TOKENS:
+            if v and str(v).strip() and not _is_noneish(v):
                 return str(v).strip()
         return ""
-    if field_value and str(field_value).strip() and str(field_value) not in _NONE_TOKENS:
+    if field_value and str(field_value).strip() and not _is_noneish(field_value):
         return str(field_value).strip()
     return ""
 
@@ -98,6 +104,7 @@ def build_suggested_name(doc: dict) -> str:
       4. Collapse whitespace + title-case.
     """
     raw = str(doc.get("product_name") or doc.get("name") or "").strip()
+    raw = re.sub(r"none\s*[x×]\s*none", " ", raw, flags=re.IGNORECASE)
     for tok in _NONE_TOKENS + _PLACEHOLDER_TOKENS:
         raw = re.sub(rf"\b{re.escape(tok)}\b", " ", raw, flags=re.IGNORECASE)
     raw = re.sub(r"\s+", " ", raw).strip()
@@ -336,92 +343,6 @@ async def apply_new_names(
         after_data={"count_ok": ok, "count_failed": len(failed)},
     )
     return {"ok": True, "updated": ok, "failed": failed}
-
-
-@router.post("/apply-suggested")
-async def apply_suggested_names(
-    only_issues: Optional[List[str]] = Query(None, description="Optional filter: apply only rows tagged with these issues"),
-    supplier: Optional[str] = Query(None),
-    limit: int = Query(500, ge=1, le=5000),
-    current_user: dict = Depends(get_current_user),
-):
-    """One-click auto-fix: apply the server-generated suggestion to every flagged row.
-    Preview first via GET /report — this endpoint writes to the DB."""
-    if not has_permission(current_user, "supplier_products"):
-        raise HTTPException(403, "You need the Supplier Products permission to apply auto-fixes")
-
-    db = get_db()
-    filt: dict = {"$or": [{"deleted_at": {"$exists": False}}, {"deleted_at": None}]}
-    if supplier:
-        filt["supplier"] = supplier
-
-    now = datetime.now(timezone.utc)
-    updated = 0
-    skipped = 0
-    changed_samples: list[dict] = []
-
-    async for doc in db.supplier_products.find(filt).limit(limit * 3):
-        issues = _scan_issues(doc)
-        if not issues:
-            skipped += 1
-            continue
-        if only_issues and not any(i in issues for i in only_issues):
-            skipped += 1
-            continue
-        suggested = build_suggested_name(doc)
-        current = str(doc.get("product_name") or doc.get("name") or "").strip()
-        if suggested == current or len(suggested) < 3:
-            skipped += 1
-            continue
-
-        res = await db.supplier_products.update_one(
-            {"_id": doc["_id"]},
-            {"$set": {
-                "product_name": suggested,
-                "our_product_name": suggested,
-                "display_name": suggested,
-                "updated_at": now,
-                "product_name_fixed_by": current_user.get("email"),
-                "product_name_fixed_at": now,
-            }},
-        )
-        if res.modified_count:
-            # Mirror to `tiles` + `products` collections (some routes read from there,
-            # especially the storefront and EPOS). Best-effort — errors are swallowed.
-            try:
-                await db.tiles.update_one(
-                    {"sku": doc.get("sku")},
-                    {"$set": {"name": suggested, "updated_at": now}},
-                )
-            except Exception:
-                pass
-            try:
-                await db.products.update_many(
-                    {"sku": doc.get("sku")},
-                    {"$set": {"name": suggested, "product_name": suggested, "updated_at": now}},
-                )
-            except Exception:
-                pass
-            updated += 1
-            if len(changed_samples) < 20:
-                changed_samples.append({
-                    "sku": doc.get("sku"),
-                    "before": current,
-                    "after": suggested,
-                    "issues": issues,
-                })
-            if updated >= limit:
-                break
-
-    await log_audit(
-        action="RENAME_AUTO",
-        entity_type="supplier_product",
-        user=current_user,
-        entity_id="bulk-auto",
-        entity_name=f"{updated} products auto-renamed via Name Sanity Report",
-        after_data={"updated": updated, "skipped": skipped, "filter_issues": only_issues, "filter_supplier": supplier},
-    )
-    return {"ok": True, "updated": updated, "skipped": skipped, "samples": changed_samples}
 
 
 @router.post("/sync-to-epos-website")
@@ -977,7 +898,7 @@ def _strip_series_words(name: str, series: str) -> str:
 
 
 def _clean_attr(v: str) -> str:
-    if not v:
+    if not v or _is_noneish(v):
         return ""
     upper = v.upper()
     if upper.startswith("NEW_") or upper.startswith("TEST_") or any(p in upper for p in _PLACEHOLDER_TOKENS):

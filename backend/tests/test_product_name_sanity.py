@@ -47,10 +47,6 @@ class TestAuthGuards:
         r = requests.post(f"{API}/product-name-sanity/apply", json={"items": []}, timeout=30)
         assert r.status_code in (401, 403)
 
-    def test_apply_suggested_requires_auth(self):
-        r = requests.post(f"{API}/product-name-sanity/apply-suggested", timeout=30)
-        assert r.status_code in (401, 403)
-
 
 # ---------- REPORT SHAPE + FILTERS ----------
 
@@ -170,22 +166,3 @@ class TestValidation:
         r = requests.post(f"{API}/product-name-sanity/apply", headers=admin_headers,
                           json={"items": [{"sku": "X", "new_name": "a" * 251}]}, timeout=30)
         assert r.status_code == 422
-
-
-# ---------- APPLY-SUGGESTED (bulk) ----------
-
-class TestApplySuggested:
-    def test_apply_suggested_small_limit(self, admin_headers):
-        # Small blast radius: limit=3
-        r = requests.post(f"{API}/product-name-sanity/apply-suggested?limit=3",
-                          headers=admin_headers, timeout=60)
-        assert r.status_code == 200, r.text
-        d = r.json()
-        assert d["ok"] is True
-        assert "updated" in d and "skipped" in d and "samples" in d
-        assert isinstance(d["samples"], list)
-        # Each sample has before/after/sku/issues
-        for s in d["samples"]:
-            for k in ("sku", "before", "after", "issues"):
-                assert k in s
-            assert s["before"] != s["after"]

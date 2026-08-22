@@ -17,6 +17,18 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Aug 22, 2026 — Forked session, part 2] 🟢 Series Rename in the DRAWER + Auto-fix all DELETED — VERIFIED
+
+**Owner feedback** (screenshot of live tilestation.co.uk Name Sanity drawer): "I don't see any difference… what is that auto-fix all, if it's crap then delete that shit and tell me where you made the changes."
+Root cause: owner uses the **NameSanityDrawer** (slide-in from Supplier Products), not the standalone /admin/product-name-sanity page where the tab was first added.
+
+**Delivered**:
+1. **Auto-fix all deleted everywhere**: button + handler removed from `NameSanityDrawer.jsx` and `ProductNameSanity.jsx`; backend `POST /apply-suggested` endpoint deleted; its pytest tests removed (22/22 remaining tests pass).
+2. **Series Rename added to the drawer**: tab bar (Flagged Names / Series Rename NEW) at the top of NameSanityDrawer; SeriesRenameStudio embedded. Sync/Rescan header buttons hidden on the series view.
+3. **NonexNone garbage handling**: `_is_noneish()` regex — attribute values like 'NonexNone'/'None x None'/'null' now treated as empty in `_first`/`_clean_attr`; `build_suggested_name` strips `none x none` patterns (Trimline 'Straight NonexNone' → 'Straight').
+
+**Verified**: screenshot of drawer on /admin/supplier-products — Auto-fix gone (locator count 0), Series tab loads 23 Dolomite Onyx rows, duplicate chip correctly flags 2 pre-existing identical names. NOTE: owner must REDEPLOY to see this on tilestation.co.uk.
+
 ### [Aug 22, 2026 — Forked session] 🟢 Series Rename Studio — VERIFIED (iteration_239, 100% pass)
 
 **Owner ask**: "Multiple items with different names in one series — give me the most comprehensive and easiest way to change all names within Name Sanity."
