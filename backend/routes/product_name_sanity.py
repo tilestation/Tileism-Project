@@ -965,12 +965,18 @@ async def series_products_for_rename(
         size = _extract_size(remainder) or _extract_size(_first(doc.get("size") or doc.get("sizes"))) or _clean_attr(_first(doc.get("size") or doc.get("sizes")))
         finish = _extract_finish(remainder) or _clean_attr(_first(doc.get("finish") or doc.get("finishes"))).title()
 
+        feed_name = str(doc.get("name") or "").strip()
+        if feed_name and feed_name != name:
+            supplier_name = feed_name
+        else:
+            supplier_name = str(doc.get("original_supplier_name") or doc.get("supplier_product_name") or feed_name or "").strip()
+
         parts = {"color": color, "size": size, "finish": finish}
         rows.append({
             "sku": doc.get("sku") or doc.get("supplier_code"),
             "supplier": doc.get("supplier"),
             "product_name": name,
-            "supplier_name": str(doc.get("name") or "").strip(),
+            "supplier_name": supplier_name,
             "attr_color": _first(doc.get("color") or doc.get("colors")),
             "attr_size": _first(doc.get("size") or doc.get("sizes")),
             "attr_finish": _first(doc.get("finish") or doc.get("finishes")),

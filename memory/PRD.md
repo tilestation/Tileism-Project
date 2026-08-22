@@ -30,7 +30,7 @@ Root cause: owner uses the **NameSanityDrawer** (slide-in from Supplier Products
 **Verified**: screenshot of drawer on /admin/supplier-products — Auto-fix gone (locator count 0), Series tab loads 23 Dolomite Onyx rows, duplicate chip correctly flags 2 pre-existing identical names. NOTE: owner must REDEPLOY to see this on tilestation.co.uk.
 
 ### [Aug 22, 2026 — Forked session, part 3] 🟢 "Supplier calls it" column in Series Rename grid — VERIFIED
-Owner ask: "show supplier products names against our names to fix so I know what I am fighting against". Backend `series-products` now returns `supplier_name` (the `name` field = supplier's original feed name); grid shows Supplier calls it (sky-blue italic, testid srs-suppliername-{sku}, shows "same as ours" when identical) | Our current name | New name. Screenshot-verified on Dolomite Onyx (supplier calls them "Dolmen …").
+Owner ask: "show supplier products names against our names to fix so I know what I am fighting against". Backend `series-products` returns `supplier_name`: uses feed `name` when it differs from our `product_name`; falls back to `original_supplier_name` / `supplier_product_name` for the ~1,014 docs where `name` was overwritten by our renames. Grid shows Supplier calls it (sky-blue italic, testid srs-suppliername-{sku}, "same as ours" when identical) | Our current name | New name. curl + screenshot verified (Dolomite Onyx → "Dolmen …", Modis → "Modis Calacatta …"). Owner's follow-up screenshot lacked the column because live site ran the pre-column deploy — needs redeploy.
 
 ### [Aug 22, 2026 — Forked session] 🟢 Series Rename Studio — VERIFIED (iteration_239, 100% pass)
 
