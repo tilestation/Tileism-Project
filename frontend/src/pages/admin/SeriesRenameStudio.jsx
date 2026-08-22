@@ -288,7 +288,8 @@ const SeriesRenameStudio = () => {
                         <input type="checkbox" checked={allIncluded} onChange={toggleAll} className="accent-indigo-600" data-testid="srs-select-all" />
                       </th>
                       <th className="px-3 py-2 font-medium w-24">SKU</th>
-                      <th className="px-3 py-2 font-medium">Current name</th>
+                      <th className="px-3 py-2 font-medium text-sky-700">Supplier calls it</th>
+                      <th className="px-3 py-2 font-medium">Our current name</th>
                       <th className="px-3 py-2 w-6"></th>
                       <th className="px-3 py-2 font-medium">New name</th>
                     </tr>
@@ -302,6 +303,13 @@ const SeriesRenameStudio = () => {
                         <td className="px-3 py-2 font-mono text-[11px] text-slate-600">
                           <div>{row.sku}</div>
                           <div className="text-[10px] text-gray-400">{row.supplier}</div>
+                        </td>
+                        <td className="px-3 py-2 text-sky-800/70 italic" data-testid={`srs-suppliername-${row.sku}`}>
+                          {row.supplier_name
+                            ? (row.supplier_name === row.product_name
+                                ? <span className="not-italic text-gray-300" title="Supplier name is identical to our current name">same as ours</span>
+                                : row.supplier_name)
+                            : <span className="not-italic text-gray-300">—</span>}
                         </td>
                         <td className="px-3 py-2 text-slate-700">{row.product_name || <span className="text-gray-300">— empty —</span>}</td>
                         <td className="px-2 py-2 text-gray-300"><ArrowRight className="w-3.5 h-3.5" /></td>

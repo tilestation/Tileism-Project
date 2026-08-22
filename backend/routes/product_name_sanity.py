@@ -970,6 +970,7 @@ async def series_products_for_rename(
             "sku": doc.get("sku") or doc.get("supplier_code"),
             "supplier": doc.get("supplier"),
             "product_name": name,
+            "supplier_name": str(doc.get("name") or "").strip(),
             "attr_color": _first(doc.get("color") or doc.get("colors")),
             "attr_size": _first(doc.get("size") or doc.get("sizes")),
             "attr_finish": _first(doc.get("finish") or doc.get("finishes")),

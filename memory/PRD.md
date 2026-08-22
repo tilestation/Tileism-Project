@@ -29,6 +29,9 @@ Root cause: owner uses the **NameSanityDrawer** (slide-in from Supplier Products
 
 **Verified**: screenshot of drawer on /admin/supplier-products — Auto-fix gone (locator count 0), Series tab loads 23 Dolomite Onyx rows, duplicate chip correctly flags 2 pre-existing identical names. NOTE: owner must REDEPLOY to see this on tilestation.co.uk.
 
+### [Aug 22, 2026 — Forked session, part 3] 🟢 "Supplier calls it" column in Series Rename grid — VERIFIED
+Owner ask: "show supplier products names against our names to fix so I know what I am fighting against". Backend `series-products` now returns `supplier_name` (the `name` field = supplier's original feed name); grid shows Supplier calls it (sky-blue italic, testid srs-suppliername-{sku}, shows "same as ours" when identical) | Our current name | New name. Screenshot-verified on Dolomite Onyx (supplier calls them "Dolmen …").
+
 ### [Aug 22, 2026 — Forked session] 🟢 Series Rename Studio — VERIFIED (iteration_239, 100% pass)
 
 **Owner ask**: "Multiple items with different names in one series — give me the most comprehensive and easiest way to change all names within Name Sanity."
