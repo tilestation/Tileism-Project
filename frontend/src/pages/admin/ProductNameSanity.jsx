@@ -260,7 +260,7 @@ const ProductNameSanity = () => {
                   <th className="px-3 py-2 font-medium text-sky-700">Supplier name</th>
                   <th className="px-3 py-2 font-medium w-56">Issues</th>
                   <th className="px-3 py-2 font-medium w-48">Fields</th>
-                  <th className="px-3 py-2 font-medium">New name (edit &amp; save)</th>
+                  <th className="px-3 py-2 font-medium min-w-[320px]">New name (edit &amp; save)</th>
                   <th className="px-3 py-2 font-medium text-right w-40">Actions</th>
                 </tr>
               </thead>
@@ -315,7 +315,7 @@ const ProductNameSanity = () => {
                           <Input
                             value={currentEdit}
                             onChange={(e) => setSuggestedEdits(prev => ({ ...prev, [row.sku]: e.target.value }))}
-                            className="h-8 text-xs"
+                            className="h-9 text-sm"
                             data-testid={`pns-suggest-${row.sku}`}
                           />
                           {row.suggested_name && row.suggested_name !== currentEdit && (

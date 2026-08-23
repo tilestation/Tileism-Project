@@ -29,6 +29,9 @@ Root cause: owner uses the **NameSanityDrawer** (slide-in from Supplier Products
 
 **Verified**: screenshot of drawer on /admin/supplier-products — Auto-fix gone (locator count 0), Series tab loads 23 Dolomite Onyx rows, duplicate chip correctly flags 2 pre-existing identical names. NOTE: owner must REDEPLOY to see this on tilestation.co.uk.
 
+### [Aug 23, 2026 — Forked session, part 5] 🟢 Bigger New Name inputs — VERIFIED
+Owner: "make the new name big so I can see it properly". New-name column now `min-w-[320px]`, inputs `h-9 text-sm` (were h-8 text-xs, squeezing to ~120px) in NameSanityDrawer, ProductNameSanity and SeriesRenameStudio. Screenshot-verified: full names visible.
+
 ### [Aug 23, 2026 — Forked session, part 4] 🟢 Supplier name column in FLAGGED NAMES table too — VERIFIED
 Owner ask: "add Supplier product name side by side for me to edit if needed" (on the Flagged Names tab). `_serialize_row` now returns `supplier_name` via shared `_supplier_original_name()` helper (feed `name` if differs from ours, else `original_supplier_name`/`supplier_product_name`). Both NameSanityDrawer.jsx and ProductNameSanity.jsx flagged tables show a "Supplier name" column (sky italic, testid pns-suppliername-{sku}) with a Copy button (pns-use-supplier-{sku}) that loads the supplier name into the New Name edit box. Gotcha fixed: duplicate `Layers` lucide import in ProductNameSanity.jsx broke compile — removed. Screenshot + interaction verified (copy button fills edit box).
 

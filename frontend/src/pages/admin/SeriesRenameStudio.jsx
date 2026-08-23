@@ -291,7 +291,7 @@ const SeriesRenameStudio = () => {
                       <th className="px-3 py-2 font-medium text-sky-700">Supplier calls it</th>
                       <th className="px-3 py-2 font-medium">Our current name</th>
                       <th className="px-3 py-2 w-6"></th>
-                      <th className="px-3 py-2 font-medium">New name</th>
+                      <th className="px-3 py-2 font-medium min-w-[320px]">New name</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
@@ -319,7 +319,7 @@ const SeriesRenameStudio = () => {
                               value={row.newName}
                               title={row.newName}
                               onChange={(e) => setEdits(prev => ({ ...prev, [row.sku]: e.target.value }))}
-                              className={`h-8 text-xs ${row.changed ? 'border-amber-400 bg-white font-medium text-amber-900' : ''}`}
+                              className={`h-9 text-sm ${row.changed ? 'border-amber-400 bg-white font-medium text-amber-900' : ''}`}
                               data-testid={`srs-newname-${row.sku}`}
                             />
                             {edits[row.sku] !== undefined && (
