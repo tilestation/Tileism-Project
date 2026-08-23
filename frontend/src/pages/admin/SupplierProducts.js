@@ -266,7 +266,12 @@ export default function SupplierProducts() {
   };
   
   const [showSyncDialog, setShowSyncDialog] = useState(false);
-  const [showNameSanity, setShowNameSanity] = useState(false);
+  const [showNameSanity, setShowNameSanityState] = useState(() => sessionStorage.getItem('ts_name_sanity_open') === '1');
+  const setShowNameSanity = (open) => {
+    setShowNameSanityState(open);
+    if (open) sessionStorage.setItem('ts_name_sanity_open', '1');
+    else sessionStorage.removeItem('ts_name_sanity_open');
+  };
   const [syncLoading, setSyncLoading] = useState(false);
   const [userRole, setUserRole] = useState(null);
   const [previewImage, setPreviewImage] = useState(null);

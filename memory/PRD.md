@@ -29,6 +29,9 @@ Root cause: owner uses the **NameSanityDrawer** (slide-in from Supplier Products
 
 **Verified**: screenshot of drawer on /admin/supplier-products — Auto-fix gone (locator count 0), Series tab loads 23 Dolomite Onyx rows, duplicate chip correctly flags 2 pre-existing identical names. NOTE: owner must REDEPLOY to see this on tilestation.co.uk.
 
+### [Aug 23, 2026 — Forked session, part 6] 🟢 Name Sanity drawer survives page refresh — VERIFIED
+Owner: "Upon refreshing the dialogue box name sanity closes. It should stay open until I close." `showNameSanity` in SupplierProducts.js now persisted via sessionStorage key `ts_name_sanity_open` (setter wrapper); drawer tab persisted via `ts_name_sanity_view` in NameSanityDrawer.jsx. Playwright-verified: open → refresh → reopens on same tab; close → refresh → stays closed. Note: product SELECTION doesn't survive refresh (drawer falls back to full scan) — selection state was never persisted.
+
 ### [Aug 23, 2026 — Forked session, part 5] 🟢 Bigger New Name inputs — VERIFIED
 Owner: "make the new name big so I can see it properly". New-name column now `min-w-[320px]`, inputs `h-9 text-sm` (were h-8 text-xs, squeezing to ~120px) in NameSanityDrawer, ProductNameSanity and SeriesRenameStudio. Screenshot-verified: full names visible.
 

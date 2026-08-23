@@ -56,7 +56,8 @@ const NameSanityDrawer = ({ open, onClose, defaultSupplier = '', onRenamed, sele
   const [ghostEdits, setGhostEdits] = useState({});   // { `${col}|${sku}`: 'new name typed by admin' }
   const [ghostSaving, setGhostSaving] = useState(false);
   const [ghostAdopting, setGhostAdopting] = useState(false);
-  const [view, setView] = useState('flagged');
+  const [view, setViewState] = useState(() => sessionStorage.getItem('ts_name_sanity_view') || 'flagged');
+  const setView = (v) => { setViewState(v); sessionStorage.setItem('ts_name_sanity_view', v); };
 
   const scoped = Array.isArray(selectedSkus) && selectedSkus.length > 0;
 
