@@ -15,12 +15,11 @@ import React, { useState, useCallback, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
 import {
-  ShieldCheck, AlertTriangle, RefreshCw, Save, X, ArrowLeft, Filter, Search, Wand2,
+  ShieldCheck, AlertTriangle, RefreshCw, Save, X, ArrowLeft, Filter, Search, Wand2, Layers, Copy,
 } from 'lucide-react';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
 import { Badge } from '../../components/ui/badge';
-import { Layers } from 'lucide-react';
 import SeriesRenameStudio from './SeriesRenameStudio';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
@@ -258,6 +257,7 @@ const ProductNameSanity = () => {
                 <tr className="text-left text-gray-500">
                   <th className="px-3 py-2 font-medium w-24">SKU</th>
                   <th className="px-3 py-2 font-medium">Current name</th>
+                  <th className="px-3 py-2 font-medium text-sky-700">Supplier name</th>
                   <th className="px-3 py-2 font-medium w-56">Issues</th>
                   <th className="px-3 py-2 font-medium w-48">Fields</th>
                   <th className="px-3 py-2 font-medium">New name (edit &amp; save)</th>
@@ -276,6 +276,25 @@ const ProductNameSanity = () => {
                         <div className="text-[10px] text-gray-400">{row.supplier}</div>
                       </td>
                       <td className="px-3 py-2 text-slate-800">{row.product_name || <span className="text-gray-300">— empty —</span>}</td>
+                      <td className="px-3 py-2" data-testid={`pns-suppliername-${row.sku}`}>
+                        {row.supplier_name && row.supplier_name !== row.product_name ? (
+                          <div className="flex items-start gap-1.5">
+                            <span className="text-sky-800/70 italic">{row.supplier_name}</span>
+                            <button
+                              onClick={() => setSuggestedEdits(prev => ({ ...prev, [row.sku]: row.supplier_name }))}
+                              className="flex-shrink-0 mt-0.5 text-sky-500 hover:text-sky-700"
+                              title="Copy supplier name into New Name so you can edit it"
+                              data-testid={`pns-use-supplier-${row.sku}`}
+                            >
+                              <Copy className="w-3 h-3" />
+                            </button>
+                          </div>
+                        ) : row.supplier_name ? (
+                          <span className="text-gray-300">same as ours</span>
+                        ) : (
+                          <span className="text-gray-300">—</span>
+                        )}
+                      </td>
                       <td className="px-3 py-2">
                         <div className="flex flex-wrap gap-1">
                           {row.issues.map(i => (

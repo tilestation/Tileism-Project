@@ -29,6 +29,9 @@ Root cause: owner uses the **NameSanityDrawer** (slide-in from Supplier Products
 
 **Verified**: screenshot of drawer on /admin/supplier-products — Auto-fix gone (locator count 0), Series tab loads 23 Dolomite Onyx rows, duplicate chip correctly flags 2 pre-existing identical names. NOTE: owner must REDEPLOY to see this on tilestation.co.uk.
 
+### [Aug 23, 2026 — Forked session, part 4] 🟢 Supplier name column in FLAGGED NAMES table too — VERIFIED
+Owner ask: "add Supplier product name side by side for me to edit if needed" (on the Flagged Names tab). `_serialize_row` now returns `supplier_name` via shared `_supplier_original_name()` helper (feed `name` if differs from ours, else `original_supplier_name`/`supplier_product_name`). Both NameSanityDrawer.jsx and ProductNameSanity.jsx flagged tables show a "Supplier name" column (sky italic, testid pns-suppliername-{sku}) with a Copy button (pns-use-supplier-{sku}) that loads the supplier name into the New Name edit box. Gotcha fixed: duplicate `Layers` lucide import in ProductNameSanity.jsx broke compile — removed. Screenshot + interaction verified (copy button fills edit box).
+
 ### [Aug 22, 2026 — Forked session, part 3] 🟢 "Supplier calls it" column in Series Rename grid — VERIFIED
 Owner ask: "show supplier products names against our names to fix so I know what I am fighting against". Backend `series-products` returns `supplier_name`: uses feed `name` when it differs from our `product_name`; falls back to `original_supplier_name` / `supplier_product_name` for the ~1,014 docs where `name` was overwritten by our renames. Grid shows Supplier calls it (sky-blue italic, testid srs-suppliername-{sku}, "same as ours" when identical) | Our current name | New name. curl + screenshot verified (Dolomite Onyx → "Dolmen …", Modis → "Modis Calacatta …"). Owner's follow-up screenshot lacked the column because live site ran the pre-column deploy — needs redeploy.
 

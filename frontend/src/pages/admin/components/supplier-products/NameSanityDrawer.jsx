@@ -16,7 +16,7 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import { toast } from 'sonner';
 import {
-  ShieldCheck, AlertTriangle, RefreshCw, Save, X, Filter, Search, Wand2, Send, MapPin, Trash2, Ghost, Layers,
+  ShieldCheck, AlertTriangle, RefreshCw, Save, X, Filter, Search, Wand2, Send, MapPin, Trash2, Ghost, Layers, Copy,
 } from 'lucide-react';
 import { Button } from '../../../../components/ui/button';
 import { Input } from '../../../../components/ui/input';
@@ -899,6 +899,7 @@ const NameSanityDrawer = ({ open, onClose, defaultSupplier = '', onRenamed, sele
                   <tr className="text-left text-gray-500">
                     <th className="px-3 py-2 font-medium w-24">SKU</th>
                     <th className="px-3 py-2 font-medium">Current name</th>
+                    <th className="px-3 py-2 font-medium text-sky-700">Supplier name</th>
                     <th className="px-3 py-2 font-medium w-56">Issues</th>
                     <th className="px-3 py-2 font-medium w-48">Fields</th>
                     <th className="px-3 py-2 font-medium">New name (edit &amp; save)</th>
@@ -918,6 +919,25 @@ const NameSanityDrawer = ({ open, onClose, defaultSupplier = '', onRenamed, sele
                         </td>
                         <td className="px-3 py-2 text-slate-800 align-top">
                           {row.product_name || <span className="text-gray-300">— empty —</span>}
+                        </td>
+                        <td className="px-3 py-2 align-top" data-testid={`pns-suppliername-${row.sku}`}>
+                          {row.supplier_name && row.supplier_name !== row.product_name ? (
+                            <div className="flex items-start gap-1.5">
+                              <span className="text-sky-800/70 italic">{row.supplier_name}</span>
+                              <button
+                                onClick={() => setSuggestedEdits(prev => ({ ...prev, [row.sku]: row.supplier_name }))}
+                                className="flex-shrink-0 mt-0.5 text-sky-500 hover:text-sky-700"
+                                title="Copy supplier name into New Name so you can edit it"
+                                data-testid={`pns-use-supplier-${row.sku}`}
+                              >
+                                <Copy className="w-3 h-3" />
+                              </button>
+                            </div>
+                          ) : row.supplier_name ? (
+                            <span className="text-gray-300">same as ours</span>
+                          ) : (
+                            <span className="text-gray-300">—</span>
+                          )}
                         </td>
                         <td className="px-3 py-2 align-top">
                           <div className="flex flex-wrap gap-1">

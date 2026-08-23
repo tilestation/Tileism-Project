@@ -145,12 +145,22 @@ def build_suggested_name(doc: dict) -> str:
     return " ".join(words_out).strip()
 
 
+def _supplier_original_name(doc: dict, ours: str) -> str:
+    """Supplier's own name: feed `name` when it differs from ours, else the preserved original."""
+    feed = str(doc.get("name") or "").strip()
+    if feed and feed != ours:
+        return feed
+    return str(doc.get("original_supplier_name") or doc.get("supplier_product_name") or feed or "").strip()
+
+
 def _serialize_row(doc: dict, issues: List[str]) -> dict:
+    ours = str(doc.get("product_name") or doc.get("name") or "").strip()
     return {
         "id": str(doc.get("id") or doc.get("_id") or ""),
         "sku": doc.get("sku") or doc.get("supplier_code"),
         "supplier": doc.get("supplier"),
-        "product_name": doc.get("product_name") or doc.get("name") or "",
+        "product_name": ours,
+        "supplier_name": _supplier_original_name(doc, ours),
         "color": _first(doc.get("color") or doc.get("colors")),
         "size": _first(doc.get("size") or doc.get("sizes")),
         "finish": _first(doc.get("finish") or doc.get("finishes")),
@@ -966,10 +976,7 @@ async def series_products_for_rename(
         finish = _extract_finish(remainder) or _clean_attr(_first(doc.get("finish") or doc.get("finishes"))).title()
 
         feed_name = str(doc.get("name") or "").strip()
-        if feed_name and feed_name != name:
-            supplier_name = feed_name
-        else:
-            supplier_name = str(doc.get("original_supplier_name") or doc.get("supplier_product_name") or feed_name or "").strip()
+        supplier_name = _supplier_original_name(doc, name)
 
         parts = {"color": color, "size": size, "finish": finish}
         rows.append({
