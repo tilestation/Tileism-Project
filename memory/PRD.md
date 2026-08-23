@@ -29,6 +29,9 @@ Root cause: owner uses the **NameSanityDrawer** (slide-in from Supplier Products
 
 **Verified**: screenshot of drawer on /admin/supplier-products — Auto-fix gone (locator count 0), Series tab loads 23 Dolomite Onyx rows, duplicate chip correctly flags 2 pre-existing identical names. NOTE: owner must REDEPLOY to see this on tilestation.co.uk.
 
+### [Aug 23, 2026 — Forked session, part 8] 🟢 Series Health Score badges — VERIFIED
+`series-list` now returns `health` (0-100 tidiness %) per series via `_series_health()`: a product counts tidy if name starts with the series, 2+ words, not ALL-CAPS, no garbage tokens (none/null/tbd), not a duplicate within the series. SeriesRenameStudio picker shows colored % badges (green ≥90 / amber ≥60 / red <60, testid srs-health-{name}) + "Messiest/Biggest" sort toggle (srs-sort-messiest). Verified: 254 badges, messiest-first puts 0% series on top; 12/12 backend tests still pass.
+
 ### [Aug 23, 2026 — Forked session, part 7] 🟢 ALL-CAPS case corrector — VERIFIED
 Owner: "make these capital lettered words into small letters, put a corrector". New `/app/frontend/src/utils/nameCase.js` `smartCase()`: SHOUTING CAPS → Title Case; digit tokens fully lowercased (10MM→10mm, 100PCS→100pcs, 1200X600X10MM→1200x600x10mm); standalone X→x. UI in both flagged tables (drawer + standalone): amber "Fix ALL-CAPS (n)" bulk button (pns-fix-case-all, next to Save all edited — fills New Name boxes, user reviews then saves) + per-row CaseLower button (pns-fix-case-{sku}). Buttons only show/enable when a fix would change something. Node-verified conversions + screenshot (count badge, disabled state on clean rows).
 

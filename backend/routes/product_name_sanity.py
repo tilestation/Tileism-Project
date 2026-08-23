@@ -924,6 +924,35 @@ def _compose_series_name(series: str, color: str, size: str, finish: str) -> str
     return re.sub(r"\s+", " ", " ".join(parts)).strip()
 
 
+_MESSY_TOKEN_RE = re.compile(r"none\s*[x×]\s*none|\b(none|null|tbd|xxx|n/a)\b", re.IGNORECASE)
+
+
+def _series_health(series: str, names: list) -> int:
+    """% of products whose name is tidy: starts with the series, 2+ words, not ALL-CAPS,
+    no garbage tokens, no duplicates. 100 = perfectly tidy."""
+    total = len(names)
+    if not total:
+        return 100
+    s_norm = _norm_text(series)
+    seen: set = set()
+    tidy = 0
+    for raw in names:
+        n = str(raw or "").strip()
+        key = n.lower()
+        ok = (
+            len(n) >= 3
+            and len(n.split()) >= 2
+            and _norm_text(n).startswith(s_norm)
+            and not (n.upper() == n and any(c.isalpha() for c in n))
+            and not _MESSY_TOKEN_RE.search(n)
+            and key not in seen
+        )
+        seen.add(key)
+        if ok:
+            tidy += 1
+    return round(100 * tidy / total)
+
+
 @router.get("/series-list")
 async def series_list_for_rename(
     q: Optional[str] = Query(None, description="Optional case-insensitive series name filter"),
@@ -943,13 +972,17 @@ async def series_list_for_rename(
 
     pipeline = [
         {"$match": match},
-        {"$group": {"_id": "$series", "count": {"$sum": 1}}},
+        {"$group": {"_id": "$series", "count": {"$sum": 1}, "names": {"$push": {"$ifNull": ["$product_name", "$name"]}}}},
         {"$sort": {"count": -1, "_id": 1}},
         {"$limit": 800},
     ]
     out = []
     async for r in db.supplier_products.aggregate(pipeline):
-        out.append({"name": r["_id"], "count": r["count"]})
+        out.append({
+            "name": r["_id"],
+            "count": r["count"],
+            "health": _series_health(r["_id"], r.get("names") or []),
+        })
     return {"series": out}
 
 

@@ -6,7 +6,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { toast } from 'sonner';
 import {
-  Layers, Search, RefreshCw, Save, Wand2, Replace, Pencil, ArrowRight, X, RotateCcw,
+  Layers, Search, RefreshCw, Save, Wand2, Replace, Pencil, ArrowRight, X, RotateCcw, ArrowDownWideNarrow,
 } from 'lucide-react';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
@@ -18,6 +18,13 @@ const escapeRegExp = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const authHeaders = () => {
   const token = localStorage.getItem('token');
   return token ? { Authorization: `Bearer ${token}` } : {};
+};
+
+const healthBadge = (h) => {
+  if (h == null) return null;
+  if (h >= 90) return { label: 'Tidy', cls: 'bg-emerald-100 text-emerald-700' };
+  if (h >= 60) return { label: 'OK', cls: 'bg-amber-100 text-amber-700' };
+  return { label: 'Messy', cls: 'bg-red-100 text-red-600' };
 };
 
 const MODES = [
@@ -40,6 +47,7 @@ const SeriesRenameStudio = () => {
   const [edits, setEdits] = useState({});                  // { sku: manual override }
   const [deselected, setDeselected] = useState(new Set()); // skus excluded from apply
   const [applying, setApplying] = useState(false);
+  const [sortBy, setSortBy] = useState('biggest'); // 'biggest' | 'messiest'
 
   const loadSeries = useCallback(async () => {
     setLoadingSeries(true);
@@ -80,9 +88,10 @@ const SeriesRenameStudio = () => {
 
   const filteredSeries = useMemo(() => {
     const q = seriesQuery.trim().toLowerCase();
-    if (!q) return seriesList;
-    return seriesList.filter(s => s.name.toLowerCase().includes(q));
-  }, [seriesList, seriesQuery]);
+    const arr = q ? seriesList.filter(s => s.name.toLowerCase().includes(q)) : [...seriesList];
+    if (sortBy === 'messiest') arr.sort((a, b) => (a.health ?? 100) - (b.health ?? 100) || b.count - a.count);
+    return arr;
+  }, [seriesList, seriesQuery, sortBy]);
 
   const computeNewName = useCallback((row) => {
     if (edits[row.sku] !== undefined) return edits[row.sku];
@@ -164,9 +173,20 @@ const SeriesRenameStudio = () => {
         <div className="flex items-center gap-2 mb-2">
           <Layers className="w-4 h-4 text-indigo-600" />
           <span className="text-sm font-semibold text-gray-800">Pick a series</span>
-          <Button variant="ghost" size="sm" className="ml-auto h-7 w-7 p-0" onClick={loadSeries} disabled={loadingSeries} data-testid="srs-refresh-series">
-            <RefreshCw className={`w-3.5 h-3.5 ${loadingSeries ? 'animate-spin' : ''}`} />
-          </Button>
+          <div className="ml-auto flex items-center">
+            <Button
+              variant="ghost" size="sm"
+              className={`h-7 px-1.5 text-[10px] ${sortBy === 'messiest' ? 'text-red-600 bg-red-50' : 'text-gray-400'}`}
+              onClick={() => setSortBy(prev => prev === 'messiest' ? 'biggest' : 'messiest')}
+              title={sortBy === 'messiest' ? 'Sorting messiest first — click for biggest first' : 'Sort messiest first'}
+              data-testid="srs-sort-messiest"
+            >
+              <ArrowDownWideNarrow className="w-3.5 h-3.5 mr-0.5" /> {sortBy === 'messiest' ? 'Messiest' : 'Biggest'}
+            </Button>
+            <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={loadSeries} disabled={loadingSeries} data-testid="srs-refresh-series">
+              <RefreshCw className={`w-3.5 h-3.5 ${loadingSeries ? 'animate-spin' : ''}`} />
+            </Button>
+          </div>
         </div>
         <div className="relative mb-2">
           <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
@@ -183,17 +203,31 @@ const SeriesRenameStudio = () => {
             <div className="text-center py-8 text-gray-400 text-xs"><RefreshCw className="w-4 h-4 mx-auto animate-spin mb-1" />Loading…</div>
           ) : filteredSeries.length === 0 ? (
             <div className="text-center py-6 text-gray-400 text-xs">No series found</div>
-          ) : filteredSeries.map(s => (
+          ) : filteredSeries.map(s => {
+            const hb = healthBadge(s.health);
+            return (
             <button
               key={s.name}
               onClick={() => pickSeries(s)}
-              className={`w-full text-left px-2.5 py-1.5 rounded text-xs flex items-center justify-between gap-2 transition-colors ${selected?.name === s.name ? 'bg-indigo-600 text-white' : 'hover:bg-indigo-50 text-gray-700'}`}
+              className={`w-full text-left px-2.5 py-1.5 rounded text-xs flex items-center justify-between gap-1.5 transition-colors ${selected?.name === s.name ? 'bg-indigo-600 text-white' : 'hover:bg-indigo-50 text-gray-700'}`}
               data-testid={`srs-series-item-${s.name}`}
             >
               <span className="truncate">{s.name}</span>
-              <span className={`flex-shrink-0 text-[10px] px-1.5 py-0.5 rounded-full ${selected?.name === s.name ? 'bg-indigo-500 text-indigo-100' : 'bg-gray-100 text-gray-500'}`}>{s.count}</span>
+              <span className="flex items-center gap-1 flex-shrink-0">
+                {hb && (
+                  <span
+                    className={`text-[9px] px-1 py-0.5 rounded font-semibold leading-none ${hb.cls}`}
+                    title={`${s.health}% of names are tidy (start with the series, proper case, no garbage/duplicates)`}
+                    data-testid={`srs-health-${s.name}`}
+                  >
+                    {s.health}%
+                  </span>
+                )}
+                <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${selected?.name === s.name ? 'bg-indigo-500 text-indigo-100' : 'bg-gray-100 text-gray-500'}`}>{s.count}</span>
+              </span>
             </button>
-          ))}
+            );
+          })}
         </div>
       </div>
 
