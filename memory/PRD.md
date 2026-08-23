@@ -29,6 +29,9 @@ Root cause: owner uses the **NameSanityDrawer** (slide-in from Supplier Products
 
 **Verified**: screenshot of drawer on /admin/supplier-products — Auto-fix gone (locator count 0), Series tab loads 23 Dolomite Onyx rows, duplicate chip correctly flags 2 pre-existing identical names. NOTE: owner must REDEPLOY to see this on tilestation.co.uk.
 
+### [Aug 23, 2026 — Forked session, part 7] 🟢 ALL-CAPS case corrector — VERIFIED
+Owner: "make these capital lettered words into small letters, put a corrector". New `/app/frontend/src/utils/nameCase.js` `smartCase()`: SHOUTING CAPS → Title Case; digit tokens fully lowercased (10MM→10mm, 100PCS→100pcs, 1200X600X10MM→1200x600x10mm); standalone X→x. UI in both flagged tables (drawer + standalone): amber "Fix ALL-CAPS (n)" bulk button (pns-fix-case-all, next to Save all edited — fills New Name boxes, user reviews then saves) + per-row CaseLower button (pns-fix-case-{sku}). Buttons only show/enable when a fix would change something. Node-verified conversions + screenshot (count badge, disabled state on clean rows).
+
 ### [Aug 23, 2026 — Forked session, part 6] 🟢 Name Sanity drawer survives page refresh — VERIFIED
 Owner: "Upon refreshing the dialogue box name sanity closes. It should stay open until I close." `showNameSanity` in SupplierProducts.js now persisted via sessionStorage key `ts_name_sanity_open` (setter wrapper); drawer tab persisted via `ts_name_sanity_view` in NameSanityDrawer.jsx. Playwright-verified: open → refresh → reopens on same tab; close → refresh → stays closed. Note: product SELECTION doesn't survive refresh (drawer falls back to full scan) — selection state was never persisted.
 

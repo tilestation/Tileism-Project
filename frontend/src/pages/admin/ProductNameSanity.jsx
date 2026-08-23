@@ -15,11 +15,12 @@ import React, { useState, useCallback, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
 import {
-  ShieldCheck, AlertTriangle, RefreshCw, Save, X, ArrowLeft, Filter, Search, Wand2, Layers, Copy,
+  ShieldCheck, AlertTriangle, RefreshCw, Save, X, ArrowLeft, Filter, Search, Wand2, Layers, Copy, CaseLower,
 } from 'lucide-react';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
 import { Badge } from '../../components/ui/badge';
+import { smartCase } from '../../utils/nameCase';
 import SeriesRenameStudio from './SeriesRenameStudio';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
@@ -134,6 +135,23 @@ const ProductNameSanity = () => {
 
   const suppliers = Object.keys(report.supplier_counts || {}).sort();
 
+  const caseFixableCount = report.rows.filter((r) => {
+    const cur = suggestedEdits[r.sku] ?? r.product_name;
+    return cur && smartCase(cur) !== cur;
+  }).length;
+
+  const fixCaseAll = () => {
+    setSuggestedEdits((prev) => {
+      const next = { ...prev };
+      report.rows.forEach((r) => {
+        const cur = next[r.sku] ?? r.product_name;
+        const fixed = smartCase(cur);
+        if (cur && fixed !== cur) next[r.sku] = fixed;
+      });
+      return next;
+    });
+  };
+
   return (
     <div className="min-h-screen bg-gray-50 pb-16">
       {/* Header */}
@@ -229,6 +247,17 @@ const ProductNameSanity = () => {
           </Button>
           <div className="ml-auto flex items-center gap-2">
             <Button
+              variant="outline"
+              onClick={fixCaseAll}
+              disabled={running || caseFixableCount === 0}
+              className="border-amber-500 text-amber-700 hover:bg-amber-50 disabled:opacity-50"
+              data-testid="pns-fix-case-all"
+              title="Convert SHOUTING CAPS names to Title Case in the New Name boxes below (10MM stays 10mm) — review then hit Save all edited"
+            >
+              <CaseLower className="w-4 h-4 mr-1.5" />
+              Fix ALL-CAPS {caseFixableCount ? `(${caseFixableCount})` : ''}
+            </Button>
+            <Button
               onClick={saveAllEdited}
               disabled={running || editedItems.length === 0}
               className="bg-blue-600 hover:bg-blue-700 text-white"
@@ -318,6 +347,18 @@ const ProductNameSanity = () => {
                             className="h-9 text-sm"
                             data-testid={`pns-suggest-${row.sku}`}
                           />
+                          {currentEdit && smartCase(currentEdit) !== currentEdit && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => setSuggestedEdits(prev => ({ ...prev, [row.sku]: smartCase(currentEdit) }))}
+                              className="h-8 px-2 flex-shrink-0 border-amber-300"
+                              title={`Fix case: ${smartCase(currentEdit)}`}
+                              data-testid={`pns-fix-case-${row.sku}`}
+                            >
+                              <CaseLower className="w-3.5 h-3.5 text-amber-600" />
+                            </Button>
+                          )}
                           {row.suggested_name && row.suggested_name !== currentEdit && (
                             <Button
                               size="sm"
