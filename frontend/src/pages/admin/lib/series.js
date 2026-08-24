@@ -138,6 +138,28 @@ export const getSeriesNameFromString = (productName) => {
   return candidate;
 };
 
+// Normalise for equality comparison (lowercase, collapsed whitespace).
+const normForCompare = (v) => String(v || '').toLowerCase().replace(/\s+/g, ' ').trim();
+
+// Explicit admin-assigned series may legitimately contain dimensions —
+// flooring ranges like "Herringbone 80 x 300 x 10/3mm Engineered Wood".
+// Basic shape check only; the import-dump protection is isOwnProductName.
+const looksLikeAssignedSeriesName = (v) => {
+  if (!v) return false;
+  const s = String(v).trim();
+  return s.length > 0 && s.length <= 80 && /[a-z]/i.test(s);
+};
+
+// The historical Canopy import bug dumped each row's FULL PRODUCT NAME into
+// series-carrying fields. Detect that case: the series value equals one of
+// this row's own name fields → treat as junk, not a series label.
+const isOwnProductName = (v, p) => {
+  const s = normForCompare(v);
+  if (!s) return true;
+  return ['our_product_name', 'display_name', 'name', 'product_name', 'original_series', 'unique_name']
+    .some((k) => normForCompare(p[k]) === s);
+};
+
 /**
  * Resolve the effective series name for a product object OR raw string.
  * Priority (each filtered by looksLikeCleanSeriesName except the fallback):
@@ -148,10 +170,18 @@ export const getSeriesNameFromString = (productName) => {
  *                        ORIGINAL SUPPLIER PRODUCT NAME, never overwritten)
  *   5. unique_name      (older Canopy-imports store the range here)
  *   6. fallback: smart parse of the display name
+ * Explicit fields (1-3) additionally accept dimension-carrying labels
+ * (e.g. flooring "Herringbone 80 x 300 Engineered Wood") as long as the
+ * value isn't just this row's own product name dumped by an old import.
  */
 export const getSeriesName = (productOrName) => {
   if (productOrName && typeof productOrName === 'object') {
-    for (const k of ['range_name', 'series', 'series_name', 'original_series', 'unique_name']) {
+    for (const k of ['range_name', 'series', 'series_name']) {
+      const v = productOrName[k];
+      if (looksLikeCleanSeriesName(v)) return String(v).trim();
+      if (looksLikeAssignedSeriesName(v) && !isOwnProductName(v, productOrName)) return String(v).trim();
+    }
+    for (const k of ['original_series', 'unique_name']) {
       const v = productOrName[k];
       if (looksLikeCleanSeriesName(v)) return String(v).trim();
     }

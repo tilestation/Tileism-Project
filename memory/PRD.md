@@ -29,6 +29,12 @@ Root cause: owner uses the **NameSanityDrawer** (slide-in from Supplier Products
 
 **Verified**: screenshot of drawer on /admin/supplier-products — Auto-fix gone (locator count 0), Series tab loads 23 Dolomite Onyx rows, duplicate chip correctly flags 2 pre-existing identical names. NOTE: owner must REDEPLOY to see this on tilestation.co.uk.
 
+### [Aug 24, 2026 — Forked session, part 13] 🟢 BUG FIX: Set Series not grouping flooring products — VERIFIED
+Owner: "Setting series name in Engineered Wood (Flooring) section but it's not piling selected products in that series name. Works in Tiles but not here."
+**Root cause**: `looksLikeCleanSeriesName()` in `/app/frontend/src/pages/admin/lib/series.js` rejects ANY value containing dimensions (`/\d{2,}\s*(x|cm|mm...)/`). Flooring series like "Herringbone 80 x 300 x 10/3mm Engineered Wood" failed the check, so `getSeriesName()` ignored the freshly-assigned range_name/series and fell back to name-parsing → old singleton groups. Tile series ("Dolomite Onyx") pass the check, hence "works in Tiles".
+**Fix**: explicit fields (range_name/series/series_name) now ALSO accept dimension-carrying labels via `looksLikeAssignedSeriesName()` (≤80 chars, has a letter) UNLESS the value equals one of the row's own name fields (`isOwnProductName()` — preserves the historical Canopy import-dump protection). original_series/unique_name keep the strict clean check. Also: `/api/admin/series/bulk-assign` now mirrors `series` to the `tiles` collection (parity with bulk-series-update) so storefront grouping follows.
+**Verified**: assigned "Herringbone 80 x 300 x 10/3mm Engineered Wood" to 3 Canopy SKUs (HE6000-2) → screenshot shows ONE group header "… Engineered Wood Series — 3 products". Test data restored to original series after.
+
 ### [Aug 24, 2026 — Forked session, part 12] 🟢 Showroom filter dropdown in Quotation History — VERIFIED
 "All Showrooms" select (testid qh-showroom-filter) next to the status filter — options derived from distinct showroom_name values in the loaded quotes + an "Unassigned" option (value __unassigned__ matches quotes with no showroom). Combines with search + status filters (matchesBase). Playwright-verified: Chingford filter shows only Chingford quote, Unassigned hides both assigned test quotes. Test quotes deleted after.
 

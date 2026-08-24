@@ -203,6 +203,15 @@ async def bulk_assign_series(
                 continue
             if res.modified_count:
                 updated += 1
+            # Mirror to the live `tiles` collection so storefront collection
+            # grouping follows the assignment (parity with bulk-series-update).
+            try:
+                await db.tiles.update_one(
+                    {"$or": [{"sku": it.sku}, {"supplier_code": it.sku}]},
+                    {"$set": {"series": it.series.strip(), "updated_at": now}},
+                )
+            except Exception:
+                pass
         except Exception as e:
             failed.append({"sku": it.sku, "reason": str(e)})
 
