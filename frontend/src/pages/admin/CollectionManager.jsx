@@ -25,7 +25,8 @@ import {
   ArrowDown,
   List,
   Grid,
-  FileText
+  FileText,
+  Move
 } from 'lucide-react';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
@@ -53,6 +54,26 @@ export default function CollectionManager({ embedded = false }) {
   const [savingSettings, setSavingSettings] = useState(false);
   const [viewMode, setViewMode] = useState('grid'); // 'grid' or 'reorder'
   const [savingOrder, setSavingOrder] = useState(false);
+  const [adjustFor, setAdjustFor] = useState(null); // collection being view-adjusted
+
+  const handleSaveAdjust = async (seriesName, zoom, posX, posY) => {
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch(`${API_URL}/api/website-admin/collections/${encodeURIComponent(seriesName)}`, {
+        method: 'PUT',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ hero_zoom: zoom, hero_pos_x: posX, hero_pos_y: posY }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      toast.success(`"${seriesName}" card view saved — website updates within a minute`);
+      setAdjustFor(null);
+      setCollections(prev => prev.map(c => c.series_name === seriesName
+        ? { ...c, hero_zoom: zoom, hero_pos_x: posX, hero_pos_y: posY }
+        : c));
+    } catch (error) {
+      toast.error('Failed to save view adjustment');
+    }
+  };
 
   const fetchCollections = useCallback(async () => {
     setLoading(true);
@@ -621,6 +642,7 @@ export default function CollectionManager({ embedded = false }) {
               onToggleFeatured={toggleFeatured}
               onToggleHidden={toggleHidden}
               onUpdateSettings={handleUpdateSettings}
+              onAdjustView={setAdjustFor}
               isUploading={uploadingFor === collection.series_name}
               isR2Url={isR2Url}
             />
@@ -633,6 +655,120 @@ export default function CollectionManager({ embedded = false }) {
           {searchTerm ? 'No collections match your search' : 'No collections found'}
         </div>
       )}
+
+      {adjustFor && (
+        <AdjustViewModal
+          collection={adjustFor}
+          onClose={() => setAdjustFor(null)}
+          onSave={handleSaveAdjust}
+        />
+      )}
+    </div>
+  );
+}
+
+function AdjustViewModal({ collection, onClose, onSave }) {
+  const [zoom, setZoom] = useState(Number(collection.hero_zoom) || 1);
+  const [posX, setPosX] = useState(collection.hero_pos_x ?? 50);
+  const [posY, setPosY] = useState(collection.hero_pos_y ?? 50);
+  const [saving, setSaving] = useState(false);
+  const dragRef = React.useRef(null);
+  const boxRef = React.useRef(null);
+
+  const image = collection.hero_image || collection.auto_hero_image;
+
+  const onMouseDown = (e) => {
+    e.preventDefault();
+    dragRef.current = { startX: e.clientX, startY: e.clientY, baseX: posX, baseY: posY };
+  };
+  const onMouseMove = (e) => {
+    if (!dragRef.current || !boxRef.current) return;
+    const rect = boxRef.current.getBoundingClientRect();
+    const dx = ((e.clientX - dragRef.current.startX) / rect.width) * 100;
+    const dy = ((e.clientY - dragRef.current.startY) / rect.height) * 100;
+    setPosX(Math.min(100, Math.max(0, Math.round(dragRef.current.baseX - dx))));
+    setPosY(Math.min(100, Math.max(0, Math.round(dragRef.current.baseY - dy))));
+  };
+  const endDrag = () => { dragRef.current = null; };
+
+  return (
+    <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" onMouseMove={onMouseMove} onMouseUp={endDrag} onMouseLeave={endDrag}>
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden" data-testid="adjust-view-modal">
+        <div className="flex items-center justify-between px-4 py-3 border-b">
+          <h3 className="font-semibold text-gray-900 flex items-center gap-2">
+            <Move className="w-4 h-4 text-indigo-600" />
+            Adjust card view — {collection.series_name}
+          </h3>
+          <button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-full" data-testid="adjust-view-close">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        <div className="p-4 space-y-4">
+          <p className="text-xs text-gray-500">Drag the image to reposition it • use the slider to zoom. This is exactly how the card will look on the website.</p>
+
+          {/* Live preview — same aspect ratio as the storefront card */}
+          <div
+            ref={boxRef}
+            className="relative aspect-[3/4] w-full overflow-hidden rounded-lg bg-gray-100 cursor-move select-none mx-auto"
+            onMouseDown={onMouseDown}
+            data-testid="adjust-view-preview"
+          >
+            <div className="relative w-full h-full" style={{ transform: `scale(${zoom})` }}>
+              <img
+                src={image}
+                alt={collection.series_name}
+                draggable={false}
+                className="absolute inset-0 w-full h-full object-cover"
+                style={{ objectPosition: `${posX}% ${posY}%` }}
+              />
+            </div>
+            <div className="absolute bottom-2 left-2 bg-black/60 text-white text-[10px] px-2 py-0.5 rounded-full pointer-events-none">
+              {Math.round(zoom * 100)}% • {posX}%, {posY}%
+            </div>
+          </div>
+
+          {/* Zoom slider */}
+          <div className="flex items-center gap-3">
+            <ZoomIn className="w-4 h-4 text-gray-400 flex-shrink-0" />
+            <input
+              type="range"
+              min="1"
+              max="3"
+              step="0.05"
+              value={zoom}
+              onChange={(e) => setZoom(Number(e.target.value))}
+              className="flex-1 accent-indigo-600"
+              data-testid="adjust-view-zoom"
+            />
+            <span className="text-xs font-mono text-gray-600 w-12 text-right">{Math.round(zoom * 100)}%</span>
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between px-4 py-3 border-t bg-gray-50">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => { setZoom(1); setPosX(50); setPosY(50); }}
+            data-testid="adjust-view-reset"
+          >
+            <RefreshCw className="w-3.5 h-3.5 mr-1.5" /> Reset
+          </Button>
+          <div className="flex gap-2">
+            <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
+            <Button
+              size="sm"
+              className="bg-indigo-600 hover:bg-indigo-700 text-white"
+              disabled={saving}
+              onClick={async () => { setSaving(true); await onSave(collection.series_name, zoom, posX, posY); setSaving(false); }}
+              data-testid="adjust-view-save"
+            >
+              {saving ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> : <Save className="w-3.5 h-3.5 mr-1.5" />}
+              Save view
+            </Button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -644,6 +780,7 @@ function CollectionCard({
   onToggleFeatured, 
   onToggleHidden,
   onUpdateSettings,
+  onAdjustView,
   isUploading,
   isR2Url
 }) {
@@ -732,6 +869,19 @@ function CollectionCard({
                 <Upload className="w-4 h-4 mr-1" />
                 {hasCustomImage ? 'Change' : 'Upload'}
               </Button>
+              
+              {displayImage && (
+                <Button
+                  size="sm"
+                  onClick={() => onAdjustView(collection)}
+                  className="bg-indigo-600 text-white hover:bg-indigo-700"
+                  title="Drag to reposition and zoom the card image"
+                  data-testid={`adjust-view-${collection.series_name}`}
+                >
+                  <Move className="w-4 h-4 mr-1" />
+                  Adjust
+                </Button>
+              )}
               
               {hasCustomImage && (
                 <Button

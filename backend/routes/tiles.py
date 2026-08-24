@@ -1444,6 +1444,14 @@ async def _get_tile_collections_impl(
                 collection["hero_image"] = settings["custom_hero_image"]
                 collection["has_custom_image"] = True
             
+            # Hero framing (Adjust View editor in Collection Manager)
+            if settings.get("hero_zoom"):
+                collection["hero_zoom"] = settings["hero_zoom"]
+            if settings.get("hero_pos_x") is not None:
+                collection["hero_pos_x"] = settings["hero_pos_x"]
+            if settings.get("hero_pos_y") is not None:
+                collection["hero_pos_y"] = settings["hero_pos_y"]
+            
             # Apply other custom settings
             collection["is_featured"] = settings.get("is_featured", False)
             collection["display_order"] = settings.get("display_order", 0)

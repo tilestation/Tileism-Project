@@ -29,6 +29,13 @@ Root cause: owner uses the **NameSanityDrawer** (slide-in from Supplier Products
 
 **Verified**: screenshot of drawer on /admin/supplier-products — Auto-fix gone (locator count 0), Series tab loads 23 Dolomite Onyx rows, duplicate chip correctly flags 2 pre-existing identical names. NOTE: owner must REDEPLOY to see this on tilestation.co.uk.
 
+### [Aug 24, 2026 — Forked session, part 18] 🟢 Collection card "Adjust View" (drag + zoom) — VERIFIED
+Owner: "Can I drag and adjust the view… and adjust the zoom of the collection image?" Built per-collection hero framing:
+1. **Storage**: `collection_settings` gains `hero_zoom` (1–3), `hero_pos_x`, `hero_pos_y` (0–100, object-position %). PUT /website-admin/collections/{name} whitelists them; GET /website-admin/collections + storefront GET /tiles/collections both return them.
+2. **Storefront** (TileCollectionsPage card): slideshow container gets `transform: scale(hero_zoom)`, imgs get `objectPosition` — only when framing set; hover zoom unaffected. Storefront card testid is `collection-card-{kebab-case-name}` (lowercase!).
+3. **Admin** (CollectionManager.jsx): "Adjust" button (indigo, Move icon, testid adjust-view-{name}) in the card hover overlay → AdjustViewModal (adjust-view-modal): aspect-[3/4] live preview, mouse-drag to pan (inverted delta → objectPosition), zoom slider 100–300% (adjust-view-zoom), Reset, Save (adjust-view-save) → PUT + toast.
+**Verified end-to-end**: set 160% + 64%/57% on Dolomite Onyx in editor → API returned values → storefront DOM showed `transform: scale(1.6); object-position: 64% 57%`. Test framing reset after. Note: storefront caches ~1 min after changes.
+
 ### [Aug 24, 2026 — Forked session, part 17] 🟢 BUG FIX: closing images panel navigated to random page — VERIFIED
 `goBack` in ProductImagesGridPanel used `window.history.back()` — as a modal that jumped to an arbitrary previous history entry. Now calls `onClose()` when provided (modal usage from SupplierProducts closes in place + fetchProducts refresh); history.back() kept only as fallback for prop-less usage. Playwright-verified: dashboard→supplier-products→open panel→X → stays on supplier-products?supplier=Plus39, modal closed.
 

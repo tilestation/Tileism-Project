@@ -385,6 +385,11 @@ export const CollectionCard = ({
     : (normaliseImageUrl(hero_image) || getLifestyleImage(series_name));
 
   const colorCount = variant_count || color_swatches.length + (additional_colors || 0);
+
+  // Admin-set hero framing (Collection Manager → Adjust View)
+  const heroZoom = Number(collection.hero_zoom) || 1;
+  const heroPos = `${collection.hero_pos_x ?? 50}% ${collection.hero_pos_y ?? 50}%`;
+  const hasHeroFraming = heroZoom !== 1 || collection.hero_pos_x != null || collection.hero_pos_y != null;
   const badgeLabel = variant_type === 'color' 
     ? (colorCount === 1 ? 'COLOUR' : 'COLOURS')
     : (colorCount === 1 ? 'VARIANT' : 'VARIANTS');
@@ -598,12 +603,13 @@ export const CollectionCard = ({
         <div className={`relative ${aspectRatio} overflow-hidden rounded-lg bg-gray-100 mb-4`}
         >
           {/* Image Slideshow */}
-          <div className="relative w-full h-full">
+          <div className="relative w-full h-full" style={heroZoom !== 1 ? { transform: `scale(${heroZoom})` } : undefined}>
             {allImages.map((img, index) => (
               <img
                 key={index}
                 src={img.image}
                 alt={`${series_name} - ${img.color || `View ${index + 1}`}`}
+                style={hasHeroFraming ? { objectPosition: heroPos } : undefined}
                 className={`absolute inset-0 w-full h-full object-cover transition-all duration-700 ease-out
                   ${index === currentImageIndex ? 'opacity-100 scale-100' : 'opacity-0 scale-105'}
                   ${isHovering ? 'group-hover:scale-110' : ''}`}

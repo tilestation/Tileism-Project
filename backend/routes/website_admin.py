@@ -2282,6 +2282,9 @@ async def get_all_collections():
                 "display_order": setting.get("display_order", 0),
                 "is_hidden": setting.get("is_hidden", False),
                 "variant_label": setting.get("variant_label"),
+                "hero_zoom": setting.get("hero_zoom"),
+                "hero_pos_x": setting.get("hero_pos_x"),
+                "hero_pos_y": setting.get("hero_pos_y"),
             }
         
         # Build collections list
@@ -2304,6 +2307,9 @@ async def get_all_collections():
                 "custom_title": settings.get("custom_title"),
                 "custom_description": settings.get("custom_description"),
                 "variant_label": settings.get("variant_label"),
+                "hero_zoom": settings.get("hero_zoom"),
+                "hero_pos_x": settings.get("hero_pos_x"),
+                "hero_pos_y": settings.get("hero_pos_y"),
                 "is_featured": settings.get("is_featured", False),
                 "display_order": settings.get("display_order", 0),
                 "is_hidden": settings.get("is_hidden", False),
@@ -2348,6 +2354,12 @@ async def update_collection_settings(series_name: str, settings: dict):
             update_data["is_hidden"] = settings["is_hidden"]
         if "variant_label" in settings:
             update_data["variant_label"] = settings["variant_label"]
+        if "hero_zoom" in settings:
+            update_data["hero_zoom"] = settings["hero_zoom"]
+        if "hero_pos_x" in settings:
+            update_data["hero_pos_x"] = settings["hero_pos_x"]
+        if "hero_pos_y" in settings:
+            update_data["hero_pos_y"] = settings["hero_pos_y"]
         
         await db.collection_settings.update_one(
             {"series_name": series_name},
