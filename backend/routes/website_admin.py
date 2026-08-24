@@ -2261,8 +2261,12 @@ async def get_all_collections():
             elif p.get("image"):
                 group["images"].append(p["image"])
             
-            # Collect prices
+            # Collect prices (coerce — some imports store prices as strings)
             price = p.get("room_lot_price") or p.get("price")
+            try:
+                price = float(price)
+            except (TypeError, ValueError):
+                price = None
             if price:
                 group["prices"].append(price)
             
@@ -2274,7 +2278,10 @@ async def get_all_collections():
         custom_settings = {}
         settings_cursor = db.collection_settings.find({})
         async for setting in settings_cursor:
-            custom_settings[setting["series_name"]] = {
+            key = setting.get("series_name")
+            if not key:
+                continue
+            custom_settings[key] = {
                 "custom_hero_image": setting.get("custom_hero_image"),
                 "custom_title": setting.get("custom_title"),
                 "custom_description": setting.get("custom_description"),
@@ -2319,7 +2326,14 @@ async def get_all_collections():
             })
         
         # Sort by featured status, display_order, then by product_count
-        collections.sort(key=lambda x: (-x["is_featured"], x["display_order"], -x["product_count"]))
+        # (bool/float coercion — settings docs can hold None or string values)
+        def _sort_key(x):
+            try:
+                order = float(x.get("display_order") or 0)
+            except (TypeError, ValueError):
+                order = 0.0
+            return (-bool(x.get("is_featured")), order, -x.get("product_count", 0))
+        collections.sort(key=_sort_key)
         
         return {
             "collections": collections,

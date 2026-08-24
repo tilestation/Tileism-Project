@@ -29,6 +29,13 @@ Root cause: owner uses the **NameSanityDrawer** (slide-in from Supplier Products
 
 **Verified**: screenshot of drawer on /admin/supplier-products — Auto-fix gone (locator count 0), Series tab loads 23 Dolomite Onyx rows, duplicate chip correctly flags 2 pre-existing identical names. NOTE: owner must REDEPLOY to see this on tilestation.co.uk.
 
+### [Aug 24, 2026 — Forked session, part 20] 🟡 PROD crash on /admin/collections — hardened, awaiting owner confirm
+Owner's live site showed the error boundary on /admin/collections; preview loads fine (data-dependent). Found + fixed real crash paths:
+1. `collection.min_price?.toFixed(2)` throws when prod stores prices as STRINGS (optional chaining doesn't guard non-numbers) → now `Number(x||0).toFixed(2)`.
+2. `c.series_name.toLowerCase()` unguarded → `(c.series_name||'')`.
+3. Backend get_all_collections: price coercion to float (string prices previously either crashed `min()` → 500 or leaked strings to frontend); sort key hardened (bool/float coercion for is_featured/display_order); settings docs without series_name skipped.
+Preview verified loads (547 collections). If owner still sees crash after redeploy → get browser console error (F12); could also be stale-chunk cache right after deploy (Try Again/reload heals).
+
 ### [Aug 24, 2026 — Forked session, part 19] 🟢 Product Photo Framing + one-place workflow — VERIFIED
 Owner picked "Product Photo Framing", then asked why framing wasn't all in the bulk Images panel. Delivered BOTH:
 1. **Per-image PDP framing**: `image_framing` list [{url, zoom, x, y}] on supplier_products, mirrored to tiles by extended `_mirror_images_to_live`; `POST /supplier-sync/set-image-framing` (defaults reset/remove the entry); `serialize_tile_for_shop` returns it; PDP (CollectionDetailPage.js) `getImageFraming(url)` applies objectPosition+scale to the main viewer (hover magnifier still wins while zooming). Verified on storefront DOM: `object-position: 20% 80%; transform: scale(2)`.

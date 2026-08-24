@@ -282,7 +282,7 @@ export default function CollectionManager({ embedded = false }) {
   };
 
   const filteredCollections = collections.filter(c => 
-    c.series_name.toLowerCase().includes(searchTerm.toLowerCase())
+    (c.series_name || '').toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   const isR2Url = (url) => url?.includes('images.tilestation.co.uk') || url?.includes('r2.dev');
@@ -951,7 +951,7 @@ function CollectionCard({
             <div className="flex justify-between">
               <span className="text-gray-500">Price Range:</span>
               <span className="font-medium">
-                £{collection.min_price?.toFixed(2)} - £{collection.max_price?.toFixed(2)}
+                £{Number(collection.min_price || 0).toFixed(2)} - £{Number(collection.max_price || 0).toFixed(2)}
               </span>
             </div>
             {collection.custom_description && (
