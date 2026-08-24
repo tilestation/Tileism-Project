@@ -29,6 +29,9 @@ Root cause: owner uses the **NameSanityDrawer** (slide-in from Supplier Products
 
 **Verified**: screenshot of drawer on /admin/supplier-products — Auto-fix gone (locator count 0), Series tab loads 23 Dolomite Onyx rows, duplicate chip correctly flags 2 pre-existing identical names. NOTE: owner must REDEPLOY to see this on tilestation.co.uk.
 
+### [Aug 24, 2026 — Forked session, part 17] 🟢 BUG FIX: closing images panel navigated to random page — VERIFIED
+`goBack` in ProductImagesGridPanel used `window.history.back()` — as a modal that jumped to an arbitrary previous history entry. Now calls `onClose()` when provided (modal usage from SupplierProducts closes in place + fetchProducts refresh); history.back() kept only as fallback for prop-less usage. Playwright-verified: dashboard→supplier-products→open panel→X → stays on supplier-products?supplier=Plus39, modal closed.
+
 ### [Aug 24, 2026 — Forked session, part 16] 🟢 BUG FIX: uploaded images not showing on PDP — VERIFIED
 Owner: "New images uploaded but not showing on PDP" (Plus39 Moonstone Carbon, 16 imgs in admin, PDP unchanged). **Root cause**: `/supplier-sync/upload-product-image`, `/delete-product-image`, `/reorder-images` only wrote `supplier_products.images`; the storefront PDP reads `tiles.images` — no mirror existed. **Fix**: shared `_mirror_images_to_live(db, obj_id)` helper (supplier_sync.py, sync pymongo) copies the current images array to the tiles doc (sku/supplier_code match) after each of the 3 operations. **Backfill**: new `POST /supplier-sync/sync-images-to-live {supplier}` + indigo "Sync to Website" button in ProductImagesGridPanel header (testid sync-images-to-live) for images uploaded BEFORE the fix — owner must click it once per affected supplier after deploying. Verified: upload→tiles gains image (arrays equal), delete→tiles follows, backfill endpoint + button + toast work.
 

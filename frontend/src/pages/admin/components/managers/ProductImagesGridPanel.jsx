@@ -683,7 +683,11 @@ export default function ProductImagesGridPanel({
       });
 
   const goBack = () => {
-    window.history.back();
+    if (onClose) {
+      onClose();
+    } else {
+      window.history.back();
+    }
   };
 
   return (
