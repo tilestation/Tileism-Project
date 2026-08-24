@@ -3308,6 +3308,22 @@ export const InvoiceHistory = () => {
                           <Button
                             variant="ghost"
                             size="sm"
+                            className="text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50"
+                            onClick={() => {
+                              setSelectedInvoices([invoice.id]);
+                              setTargetStore('');
+                              setShowTransferDialog(true);
+                            }}
+                            title={`Move to another showroom (Super Admin)${invoice.showroom_name ? ` — currently ${invoice.showroom_name}` : ''}`}
+                            data-testid={`transfer-invoice-${invoice.id}`}
+                          >
+                            <Building2 className="h-4 w-4" />
+                          </Button>
+                          )}
+                          {isSuperAdmin && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
                             className="text-red-600 hover:text-red-700 hover:bg-red-50"
                             onClick={() => handleDeleteConfirm(invoice)}
                             title="Delete (Super Admin only)"
@@ -4586,7 +4602,8 @@ export const InvoiceHistory = () => {
           
           {/* Warning */}
           <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800">
-            <strong>Note:</strong> This action will transfer all selected invoices and their associated revenue to the target showroom. 
+            <strong>Note:</strong> This action will transfer all selected invoices and their associated revenue to the target showroom.
+            The invoice letterhead (store name, address, phone) on PDFs, reprints and emails switches to the new store automatically.
             All transfers are logged in the audit trail.
           </div>
           
