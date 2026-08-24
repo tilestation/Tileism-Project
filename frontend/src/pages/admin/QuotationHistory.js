@@ -77,6 +77,7 @@ export const QuotationHistory = () => {
     } catch { return ''; }
   });
   const [statusFilter, setStatusFilter] = useState('all');
+  const [showroomQuoteFilter, setShowroomQuoteFilter] = useState('');
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [quotationToDelete, setQuotationToDelete] = useState(null);
   const [viewDialogOpen, setViewDialogOpen] = useState(false);
@@ -442,23 +443,28 @@ export const QuotationHistory = () => {
     }
   };
 
+  const showroomOptions = [...new Set(quotations.map(q => q.showroom_name).filter(Boolean))].sort();
+
   const filteredQuotations = quotations.filter(q => {
     const matchesSearch = 
       q.quotation_no?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       q.customer_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       q.customer_phone?.includes(searchTerm);
-    
-    if (statusFilter === 'all') return matchesSearch;
+    const matchesShowroom = !showroomQuoteFilter
+      || (showroomQuoteFilter === '__unassigned__' ? !q.showroom_name : q.showroom_name === showroomQuoteFilter);
+    const matchesBase = matchesSearch && matchesShowroom;
+
+    if (statusFilter === 'all') return matchesBase;
     if (statusFilter === 'active') {
       const isExpired = new Date(q.expiry_date) < new Date();
-      return matchesSearch && q.status !== 'converted' && !isExpired;
+      return matchesBase && q.status !== 'converted' && !isExpired;
     }
-    if (statusFilter === 'converted') return matchesSearch && q.status === 'converted';
+    if (statusFilter === 'converted') return matchesBase && q.status === 'converted';
     if (statusFilter === 'expired') {
       const isExpired = new Date(q.expiry_date) < new Date();
-      return matchesSearch && isExpired && q.status !== 'converted';
+      return matchesBase && isExpired && q.status !== 'converted';
     }
-    return matchesSearch;
+    return matchesBase;
   });
 
   if (loading) {
@@ -716,6 +722,18 @@ export const QuotationHistory = () => {
               />
             </div>
             <div className="flex gap-2">
+              <select
+                className="px-3 py-2 border rounded-md text-sm"
+                value={showroomQuoteFilter}
+                onChange={(e) => setShowroomQuoteFilter(e.target.value)}
+                data-testid="qh-showroom-filter"
+              >
+                <option value="">All Showrooms</option>
+                {showroomOptions.map(name => (
+                  <option key={name} value={name}>{name}</option>
+                ))}
+                <option value="__unassigned__">Unassigned</option>
+              </select>
               <select
                 className="px-3 py-2 border rounded-md text-sm"
                 value={statusFilter}

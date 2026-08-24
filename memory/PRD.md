@@ -29,6 +29,9 @@ Root cause: owner uses the **NameSanityDrawer** (slide-in from Supplier Products
 
 **Verified**: screenshot of drawer on /admin/supplier-products — Auto-fix gone (locator count 0), Series tab loads 23 Dolomite Onyx rows, duplicate chip correctly flags 2 pre-existing identical names. NOTE: owner must REDEPLOY to see this on tilestation.co.uk.
 
+### [Aug 24, 2026 — Forked session, part 12] 🟢 Showroom filter dropdown in Quotation History — VERIFIED
+"All Showrooms" select (testid qh-showroom-filter) next to the status filter — options derived from distinct showroom_name values in the loaded quotes + an "Unassigned" option (value __unassigned__ matches quotes with no showroom). Combines with search + status filters (matchesBase). Playwright-verified: Chingford filter shows only Chingford quote, Unassigned hides both assigned test quotes. Test quotes deleted after.
+
 ### [Aug 24, 2026 — Forked session, part 11] 🟢 Showroom column in Quotation History — VERIFIED
 Colored "Showroom" badge column added between Customer and Created By in QuotationHistory.js (testid qh-showroom-{quotation_no}). Deterministic per-store colour via `showroomBadgeCls()` hash (6-colour palette); grey "Unassigned" when missing. Backend list already returned showroom_name. Screenshot-verified with Gravesend + Unassigned test quotes (deleted after).
 
