@@ -1314,31 +1314,47 @@ export default function ProductImagesGridPanel({
 }
 
 
-function ImageFramingModal({ img, title, hint, aspectClass = 'aspect-square', initial, onClose, onSave }) {
+const FRAME_DIMS = { 'aspect-square': [300, 300], 'aspect-[3/4]': [285, 380] };
+
+export function ImageFramingModal({ img, title, hint, aspectClass = 'aspect-square', initial, onClose, onSave }) {
   const [zoom, setZoom] = useState(initial ? Number(initial.zoom) || 1 : 1);
   const [posX, setPosX] = useState(initial?.x ?? 50);
   const [posY, setPosY] = useState(initial?.y ?? 50);
   const [saving, setSaving] = useState(false);
+  const [nat, setNat] = useState(null); // natural image dimensions
   const dragRef = React.useRef(null);
-  const boxRef = React.useRef(null);
+
+  const [frameW, frameH] = FRAME_DIMS[aspectClass] || FRAME_DIMS['aspect-square'];
+  const cover = nat ? Math.max(frameW / nat.w, frameH / nat.h) : 1;
+  const dispW = nat ? nat.w * cover * zoom : frameW;
+  const dispH = nat ? nat.h * cover * zoom : frameH;
+  const offX = ((frameW - dispW) * posX) / 100;
+  const offY = ((frameH - dispH) * posY) / 100;
 
   const onMouseDown = (e) => {
     e.preventDefault();
-    dragRef.current = { startX: e.clientX, startY: e.clientY, baseX: posX, baseY: posY };
+    dragRef.current = {
+      startX: e.clientX, startY: e.clientY,
+      baseX: posX, baseY: posY,
+      denomX: frameW - dispW, denomY: frameH - dispH,
+    };
   };
   const onMouseMove = (e) => {
-    if (!dragRef.current || !boxRef.current) return;
-    const rect = boxRef.current.getBoundingClientRect();
-    const dx = ((e.clientX - dragRef.current.startX) / rect.width) * 100;
-    const dy = ((e.clientY - dragRef.current.startY) / rect.height) * 100;
-    setPosX(Math.min(100, Math.max(0, Math.round(dragRef.current.baseX - dx))));
-    setPosY(Math.min(100, Math.max(0, Math.round(dragRef.current.baseY - dy))));
+    const d = dragRef.current;
+    if (!d) return;
+    const dx = e.clientX - d.startX;
+    const dy = e.clientY - d.startY;
+    // 1:1 dragging: the image follows the mouse exactly
+    if (Math.abs(d.denomX) > 1) setPosX(Math.min(100, Math.max(0, Math.round(d.baseX + (dx / d.denomX) * 100))));
+    if (Math.abs(d.denomY) > 1) setPosY(Math.min(100, Math.max(0, Math.round(d.baseY + (dy / d.denomY) * 100))));
   };
   const endDrag = () => { dragRef.current = null; };
 
+  const imgStyle = { width: dispW, height: dispH, left: offX, top: offY, maxWidth: 'none', maxHeight: 'none' };
+
   return (
     <div className="fixed inset-0 bg-black/60 z-[70] flex items-center justify-center p-4" onMouseMove={onMouseMove} onMouseUp={endDrag} onMouseLeave={endDrag}>
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm overflow-hidden" data-testid="image-framing-modal">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden" data-testid="image-framing-modal">
         <div className="flex items-center justify-between px-4 py-3 border-b">
           <h3 className="font-semibold text-gray-900 text-sm flex items-center gap-2 min-w-0">
             <Move className="w-4 h-4 text-amber-600 flex-shrink-0" />
@@ -1350,24 +1366,32 @@ function ImageFramingModal({ img, title, hint, aspectClass = 'aspect-square', in
         </div>
 
         <div className="p-4 space-y-3">
-          <p className="text-xs text-gray-500">{hint}</p>
+          <p className="text-xs text-gray-500">{hint} The full photo is shown faded — the bright window is what customers see.</p>
 
-          {/* Live preview — same frame shape as the website */}
-          <div
-            ref={boxRef}
-            className={`relative ${aspectClass} w-full overflow-hidden rounded-lg bg-gray-100 cursor-move select-none`}
-            onMouseDown={onMouseDown}
-            data-testid="framing-preview"
-          >
-            <img
-              src={img}
-              alt=""
-              draggable={false}
-              className="absolute inset-0 w-full h-full object-cover"
-              style={{ objectPosition: `${posX}% ${posY}%`, transform: `scale(${zoom})` }}
-            />
-            <div className="absolute bottom-2 left-2 bg-black/60 text-white text-[10px] px-2 py-0.5 rounded-full pointer-events-none">
-              {Math.round(zoom * 100)}% • {posX}%, {posY}%
+          {/* Stage: full image ghosted, bright crop window on top */}
+          <div className="relative w-full overflow-hidden rounded-lg bg-gray-900/90 select-none" style={{ height: frameH + 90 }}>
+            <div
+              className="absolute cursor-move"
+              style={{ width: frameW, height: frameH, left: '50%', top: '50%', transform: 'translate(-50%, -50%)' }}
+              onMouseDown={onMouseDown}
+              data-testid="framing-preview"
+            >
+              {/* Ghost: entire photo, faded, extends beyond the frame */}
+              <img
+                src={img}
+                alt=""
+                draggable={false}
+                className="absolute opacity-30 pointer-events-none"
+                style={imgStyle}
+                onLoad={(e) => setNat({ w: e.target.naturalWidth, h: e.target.naturalHeight })}
+              />
+              {/* Bright crop window — exactly what the website shows */}
+              <div className="absolute inset-0 overflow-hidden ring-2 ring-amber-400 rounded-sm">
+                <img src={img} alt="" draggable={false} className="absolute" style={imgStyle} />
+              </div>
+              <div className="absolute -bottom-7 left-1/2 -translate-x-1/2 bg-black/70 text-white text-[10px] px-2 py-0.5 rounded-full pointer-events-none whitespace-nowrap">
+                {Math.round(zoom * 100)}% • {posX}%, {posY}%
+              </div>
             </div>
           </div>
 

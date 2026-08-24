@@ -2095,7 +2095,7 @@ const CollectionDetailPage = () => {
                       style={(() => {
                         if (isZooming && previewThumbIdx === null) return { transform: 'scale(2)', transformOrigin: `${zoomPosition.x}% ${zoomPosition.y}%` };
                         const f = getImageFraming(productImages[previewThumbIdx ?? mainImageIndex]);
-                        return f ? { objectPosition: `${f.x}% ${f.y}%`, transform: `scale(${f.zoom})` } : {};
+                        return f ? { objectPosition: `${f.x}% ${f.y}%`, transform: `scale(${f.zoom})`, transformOrigin: `${f.x}% ${f.y}%` } : {};
                       })()}
                       onClick={() => openLightbox(previewThumbIdx ?? mainImageIndex)}
                     />

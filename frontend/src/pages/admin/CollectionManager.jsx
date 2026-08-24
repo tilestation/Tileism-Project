@@ -31,6 +31,7 @@ import {
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
 import { toast } from 'sonner';
+import { ImageFramingModal } from './components/managers/ProductImagesGridPanel';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL || '';
 
@@ -657,118 +658,16 @@ export default function CollectionManager({ embedded = false }) {
       )}
 
       {adjustFor && (
-        <AdjustViewModal
-          collection={adjustFor}
+        <ImageFramingModal
+          img={adjustFor.hero_image || adjustFor.auto_hero_image}
+          title={`Adjust card view — ${adjustFor.series_name}`}
+          aspectClass="aspect-[3/4]"
+          hint="Drag to reposition • slide to zoom. The bright window is exactly how the card looks on the website."
+          initial={adjustFor.hero_zoom || adjustFor.hero_pos_x != null ? { zoom: adjustFor.hero_zoom || 1, x: adjustFor.hero_pos_x ?? 50, y: adjustFor.hero_pos_y ?? 50 } : undefined}
           onClose={() => setAdjustFor(null)}
-          onSave={handleSaveAdjust}
+          onSave={(z, x, y) => handleSaveAdjust(adjustFor.series_name, z, x, y)}
         />
       )}
-    </div>
-  );
-}
-
-function AdjustViewModal({ collection, onClose, onSave }) {
-  const [zoom, setZoom] = useState(Number(collection.hero_zoom) || 1);
-  const [posX, setPosX] = useState(collection.hero_pos_x ?? 50);
-  const [posY, setPosY] = useState(collection.hero_pos_y ?? 50);
-  const [saving, setSaving] = useState(false);
-  const dragRef = React.useRef(null);
-  const boxRef = React.useRef(null);
-
-  const image = collection.hero_image || collection.auto_hero_image;
-
-  const onMouseDown = (e) => {
-    e.preventDefault();
-    dragRef.current = { startX: e.clientX, startY: e.clientY, baseX: posX, baseY: posY };
-  };
-  const onMouseMove = (e) => {
-    if (!dragRef.current || !boxRef.current) return;
-    const rect = boxRef.current.getBoundingClientRect();
-    const dx = ((e.clientX - dragRef.current.startX) / rect.width) * 100;
-    const dy = ((e.clientY - dragRef.current.startY) / rect.height) * 100;
-    setPosX(Math.min(100, Math.max(0, Math.round(dragRef.current.baseX - dx))));
-    setPosY(Math.min(100, Math.max(0, Math.round(dragRef.current.baseY - dy))));
-  };
-  const endDrag = () => { dragRef.current = null; };
-
-  return (
-    <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" onMouseMove={onMouseMove} onMouseUp={endDrag} onMouseLeave={endDrag}>
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden" data-testid="adjust-view-modal">
-        <div className="flex items-center justify-between px-4 py-3 border-b">
-          <h3 className="font-semibold text-gray-900 flex items-center gap-2">
-            <Move className="w-4 h-4 text-indigo-600" />
-            Adjust card view — {collection.series_name}
-          </h3>
-          <button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-full" data-testid="adjust-view-close">
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-
-        <div className="p-4 space-y-4">
-          <p className="text-xs text-gray-500">Drag the image to reposition it • use the slider to zoom. This is exactly how the card will look on the website.</p>
-
-          {/* Live preview — same aspect ratio as the storefront card */}
-          <div
-            ref={boxRef}
-            className="relative aspect-[3/4] w-full overflow-hidden rounded-lg bg-gray-100 cursor-move select-none mx-auto"
-            onMouseDown={onMouseDown}
-            data-testid="adjust-view-preview"
-          >
-            <div className="relative w-full h-full" style={{ transform: `scale(${zoom})` }}>
-              <img
-                src={image}
-                alt={collection.series_name}
-                draggable={false}
-                className="absolute inset-0 w-full h-full object-cover"
-                style={{ objectPosition: `${posX}% ${posY}%` }}
-              />
-            </div>
-            <div className="absolute bottom-2 left-2 bg-black/60 text-white text-[10px] px-2 py-0.5 rounded-full pointer-events-none">
-              {Math.round(zoom * 100)}% • {posX}%, {posY}%
-            </div>
-          </div>
-
-          {/* Zoom slider */}
-          <div className="flex items-center gap-3">
-            <ZoomIn className="w-4 h-4 text-gray-400 flex-shrink-0" />
-            <input
-              type="range"
-              min="1"
-              max="3"
-              step="0.05"
-              value={zoom}
-              onChange={(e) => setZoom(Number(e.target.value))}
-              className="flex-1 accent-indigo-600"
-              data-testid="adjust-view-zoom"
-            />
-            <span className="text-xs font-mono text-gray-600 w-12 text-right">{Math.round(zoom * 100)}%</span>
-          </div>
-        </div>
-
-        <div className="flex items-center justify-between px-4 py-3 border-t bg-gray-50">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => { setZoom(1); setPosX(50); setPosY(50); }}
-            data-testid="adjust-view-reset"
-          >
-            <RefreshCw className="w-3.5 h-3.5 mr-1.5" /> Reset
-          </Button>
-          <div className="flex gap-2">
-            <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
-            <Button
-              size="sm"
-              className="bg-indigo-600 hover:bg-indigo-700 text-white"
-              disabled={saving}
-              onClick={async () => { setSaving(true); await onSave(collection.series_name, zoom, posX, posY); setSaving(false); }}
-              data-testid="adjust-view-save"
-            >
-              {saving ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> : <Save className="w-3.5 h-3.5 mr-1.5" />}
-              Save view
-            </Button>
-          </div>
-        </div>
-      </div>
     </div>
   );
 }

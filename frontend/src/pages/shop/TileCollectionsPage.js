@@ -603,7 +603,7 @@ export const CollectionCard = ({
         <div className={`relative ${aspectRatio} overflow-hidden rounded-lg bg-gray-100 mb-4`}
         >
           {/* Image Slideshow */}
-          <div className="relative w-full h-full" style={heroZoom !== 1 ? { transform: `scale(${heroZoom})` } : undefined}>
+          <div className="relative w-full h-full" style={heroZoom !== 1 ? { transform: `scale(${heroZoom})`, transformOrigin: heroPos } : undefined}>
             {allImages.map((img, index) => (
               <img
                 key={index}
