@@ -29,6 +29,9 @@ Root cause: owner uses the **NameSanityDrawer** (slide-in from Supplier Products
 
 **Verified**: screenshot of drawer on /admin/supplier-products — Auto-fix gone (locator count 0), Series tab loads 23 Dolomite Onyx rows, duplicate chip correctly flags 2 pre-existing identical names. NOTE: owner must REDEPLOY to see this on tilestation.co.uk.
 
+### [Aug 24, 2026 — Forked session, part 15] 🟢 Collection card images: full image + hover-only zoom — VERIFIED
+Owner: "Images on collection are zoomed in or show half, I need to see full images and only show zoomed in when hovering." TileCollectionsPage.js: main collection card slideshow images `object-cover` → `object-contain` (bg-gray-100 letterbox), hover keeps `group-hover:scale-110`; recently-viewed thumbnails same change. Screenshot-verified both default (full image) and hover (zoom + overlay) states.
+
 ### [Aug 24, 2026 — Forked session, part 14] 🟢 "Set as collection image" button in product images panel — VERIFIED
 Owner asked where to change series/collection card images (answer: /admin/collection-manager custom_hero_image, or first product's primary image). Then requested a one-click shortcut. Added to `ProductImagesGridPanel.jsx` (the "Upload Images" panel / "{Supplier} Images" modal): indigo Image button on every photo's hover overlay (testid set-collection-image-{sku}-{idx}) → prompt pre-filled with product.series/range_name guess → PUT /api/website-admin/collections/{series_name} {custom_hero_image} (same collection_settings doc Collection Manager + storefront tiles.py read). Verified end-to-end on LEPORCE (698 buttons, toast, collection_settings doc written; test doc deleted).
 

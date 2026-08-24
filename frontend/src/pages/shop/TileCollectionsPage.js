@@ -604,7 +604,7 @@ export const CollectionCard = ({
                 key={index}
                 src={img.image}
                 alt={`${series_name} - ${img.color || `View ${index + 1}`}`}
-                className={`absolute inset-0 w-full h-full object-cover transition-all duration-700 ease-out
+                className={`absolute inset-0 w-full h-full object-contain transition-all duration-700 ease-out
                   ${index === currentImageIndex ? 'opacity-100 scale-100' : 'opacity-0 scale-105'}
                   ${isHovering ? 'group-hover:scale-110' : ''}`}
                 loading="lazy"
@@ -979,7 +979,7 @@ const RecentlyViewed = ({ onQuickView }) => {
                 <img 
                   src={imageUrl(item.image) || getLifestyleImage(item.series_name)}
                   alt={item.series_name}
-                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                  className="w-full h-full object-contain group-hover:scale-105 transition-transform duration-500"
                 />
               </div>
               <p className="text-sm font-medium text-gray-900 group-hover:text-amber-600 transition-colors">
