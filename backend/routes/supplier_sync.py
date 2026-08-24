@@ -15012,6 +15012,53 @@ def bulk_delete_custom_mappings(
 
 
 
+def _mirror_images_to_live(db, obj_id):
+    """Keep the live `tiles` doc (what the storefront PDP reads) in sync with the
+    supplier product's images array after an upload / delete / reorder."""
+    try:
+        sp = db.supplier_products.find_one({"_id": obj_id}, {"sku": 1, "supplier_code": 1, "images": 1})
+        if not sp:
+            return
+        key = sp.get("sku") or sp.get("supplier_code")
+        if not key:
+            return
+        db.tiles.update_one(
+            {"$or": [{"sku": key}, {"supplier_code": key}]},
+            {"$set": {"images": sp.get("images", []), "updated_at": datetime.now(timezone.utc)}},
+        )
+    except Exception as e:
+        logger.warning(f"Image mirror to tiles failed for {obj_id}: {e}")
+
+
+@router.post("/sync-images-to-live")
+def sync_images_to_live(data: dict):
+    """One-click backfill: push every supplier product's images array to its live
+    tiles doc (for images uploaded before the automatic mirror existed)."""
+    supplier = (data or {}).get("supplier")
+    if not supplier:
+        raise HTTPException(status_code=400, detail="supplier is required")
+    db = get_db()
+    checked = updated = 0
+    for sp in db.supplier_products.find(
+        {"supplier": supplier, "images.0": {"$exists": True}},
+        {"sku": 1, "supplier_code": 1, "images": 1},
+    ):
+        key = sp.get("sku") or sp.get("supplier_code")
+        if not key:
+            continue
+        checked += 1
+        tile = db.tiles.find_one({"$or": [{"sku": key}, {"supplier_code": key}]}, {"images": 1})
+        if not tile:
+            continue
+        if (tile.get("images") or []) != (sp.get("images") or []):
+            db.tiles.update_one(
+                {"_id": tile["_id"]},
+                {"$set": {"images": sp["images"], "updated_at": datetime.now(timezone.utc)}},
+            )
+            updated += 1
+    return {"success": True, "supplier": supplier, "checked": checked, "updated": updated}
+
+
 @router.post("/upload-product-image")
 async def upload_product_image(
     image: UploadFile = File(...),
@@ -15119,6 +15166,8 @@ async def upload_product_image(
         if result.matched_count == 0:
             raise HTTPException(status_code=404, detail="Product not found")
         
+        _mirror_images_to_live(db, obj_id)
+        
         return {
             "success": True,
             "image_url": image_url,
@@ -15166,6 +15215,8 @@ def delete_product_image(data: dict):
         
         if result.matched_count == 0:
             raise HTTPException(status_code=404, detail="Product not found")
+        
+        _mirror_images_to_live(db, obj_id)
         
         # Optionally: Delete the actual file from storage (R2 or local)
         # For now, we just remove the reference
@@ -15221,6 +15272,8 @@ def reorder_product_images(data: dict):
         
         if result.matched_count == 0:
             raise HTTPException(status_code=404, detail="Product not found")
+        
+        _mirror_images_to_live(db, obj_id)
         
         return {
             "success": True,

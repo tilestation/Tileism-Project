@@ -777,6 +777,29 @@ export default function ProductImagesGridPanel({
             </div>
           </div>
           <div className="flex items-center gap-2">
+            {/* Sync images to website (backfill for uploads made before auto-mirror) */}
+            <button
+              onClick={async () => {
+                try {
+                  const res = await fetch(`${API_URL}/api/supplier-sync/sync-images-to-live`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ supplier: supplierName }),
+                  });
+                  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                  const d = await res.json();
+                  toast.success(`Website images synced — ${d.updated} product${d.updated === 1 ? '' : 's'} updated (${d.checked} checked)`);
+                } catch (err) {
+                  toast.error(`Sync failed: ${err.message}`);
+                }
+              }}
+              className="px-3 py-1.5 rounded-lg text-sm font-medium bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-100 flex items-center gap-2"
+              title="Push these images to the live website product pages (new uploads sync automatically — use this for older uploads)"
+              data-testid="sync-images-to-live"
+            >
+              <Upload className="w-4 h-4" />
+              Sync to Website
+            </button>
             {/* Bulk Delete Toggle */}
             <button
               onClick={() => {
