@@ -1128,10 +1128,15 @@ export default function ProductImagesGridPanel({
                       </div>
                       
                       {/* Drag hint */}
-                      {product.images && product.images.length > 1 && !bulkDeleteMode && (
+                      {product.images && product.images.length > 0 && !bulkDeleteMode && (
                         <p className="text-xs text-gray-400 mt-2 flex items-center gap-1">
                           <GripVertical className="w-3 h-3" />
-                          Drag to reorder • First image = Primary
+                          {product.images.length > 1 ? 'Drag to reorder • First image = Primary • ' : ''}
+                          Hover a photo for actions: <Star className="w-3 h-3 inline text-green-500" /> primary
+                          <span className="mx-0.5">•</span>
+                          <Image className="w-3 h-3 inline text-indigo-500" /> collection card image
+                          <span className="mx-0.5">•</span>
+                          <Trash2 className="w-3 h-3 inline text-red-400" /> delete
                         </p>
                       )}
                     </div>
