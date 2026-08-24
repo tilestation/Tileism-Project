@@ -29,6 +29,9 @@ Root cause: owner uses the **NameSanityDrawer** (slide-in from Supplier Products
 
 **Verified**: screenshot of drawer on /admin/supplier-products — Auto-fix gone (locator count 0), Series tab loads 23 Dolomite Onyx rows, duplicate chip correctly flags 2 pre-existing identical names. NOTE: owner must REDEPLOY to see this on tilestation.co.uk.
 
+### [Aug 24, 2026 — Forked session, part 14] 🟢 "Set as collection image" button in product images panel — VERIFIED
+Owner asked where to change series/collection card images (answer: /admin/collection-manager custom_hero_image, or first product's primary image). Then requested a one-click shortcut. Added to `ProductImagesGridPanel.jsx` (the "Upload Images" panel / "{Supplier} Images" modal): indigo Image button on every photo's hover overlay (testid set-collection-image-{sku}-{idx}) → prompt pre-filled with product.series/range_name guess → PUT /api/website-admin/collections/{series_name} {custom_hero_image} (same collection_settings doc Collection Manager + storefront tiles.py read). Verified end-to-end on LEPORCE (698 buttons, toast, collection_settings doc written; test doc deleted).
+
 ### [Aug 24, 2026 — Forked session, part 13] 🟢 BUG FIX: Set Series not grouping flooring products — VERIFIED
 Owner: "Setting series name in Engineered Wood (Flooring) section but it's not piling selected products in that series name. Works in Tiles but not here."
 **Root cause**: `looksLikeCleanSeriesName()` in `/app/frontend/src/pages/admin/lib/series.js` rejects ANY value containing dimensions (`/\d{2,}\s*(x|cm|mm...)/`). Flooring series like "Herringbone 80 x 300 x 10/3mm Engineered Wood" failed the check, so `getSeriesName()` ignored the freshly-assigned range_name/series and fell back to name-parsing → old singleton groups. Tile series ("Dolomite Onyx") pass the check, hence "works in Tiles".

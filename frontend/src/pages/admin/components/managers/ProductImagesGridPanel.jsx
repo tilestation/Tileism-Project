@@ -520,6 +520,27 @@ export default function ProductImagesGridPanel({
     }
   };
 
+  const handleSetCollectionImage = async (product, img) => {
+    const guess = (product.series || product.range_name || getSeriesName(product) || '').trim();
+    const seriesName = window.prompt(
+      'Use this photo as the collection card image on the website.\n\nCollection name:',
+      guess
+    );
+    if (!seriesName || !seriesName.trim()) return;
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch(`${API_URL}/api/website-admin/collections/${encodeURIComponent(seriesName.trim())}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ custom_hero_image: img }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      toast.success(`"${seriesName.trim()}" collection card now uses this photo (manage in Collection Manager)`);
+    } catch (err) {
+      toast.error(`Failed to set collection image: ${err.message}`);
+    }
+  };
+
   // Toggle image selection for bulk delete
   const toggleImageSelection = (productId, imageUrl) => {
     setSelectedImages(prev => {
@@ -1070,6 +1091,18 @@ export default function ProductImagesGridPanel({
                                         <Star className="w-3 h-3" />
                                       </button>
                                     )}
+                                    {/* Set as collection card image (website) */}
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleSetCollectionImage(product, img);
+                                      }}
+                                      className="p-1.5 bg-indigo-500 text-white rounded hover:bg-indigo-600"
+                                      title="Set as collection card image on the website"
+                                      data-testid={`set-collection-image-${product.sku || product._id}-${idx}`}
+                                    >
+                                      <Image className="w-3 h-3" />
+                                    </button>
                                     {/* Delete button */}
                                     <button
                                       onClick={(e) => {
