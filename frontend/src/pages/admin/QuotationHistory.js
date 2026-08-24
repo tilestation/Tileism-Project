@@ -20,6 +20,7 @@ import {
   MessageCircle,
   AlertTriangle,
   Link2,
+  Building2,
 } from 'lucide-react';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
@@ -84,6 +85,40 @@ export const QuotationHistory = () => {
   const [linkResults, setLinkResults] = useState([]);
   const [linkSearching, setLinkSearching] = useState(false);
   const [linking, setLinking] = useState(false);
+
+  // Reassign showroom (super admin only)
+  const [reassignDialog, setReassignDialog] = useState({ open: false, quotation: null });
+  const [showroomsList, setShowroomsList] = useState([]);
+  const [reassignTarget, setReassignTarget] = useState('');
+  const [reassigning, setReassigning] = useState(false);
+
+  const openReassignDialog = async (quotation) => {
+    setReassignTarget('');
+    setReassignDialog({ open: true, quotation });
+    if (showroomsList.length === 0) {
+      try {
+        const res = await api.getShowrooms();
+        setShowroomsList((res.data || []).filter(s => !s.is_warehouse && s.is_active !== false));
+      } catch {
+        toast.error('Failed to load showrooms');
+      }
+    }
+  };
+
+  const handleReassignShowroom = async () => {
+    if (!reassignTarget || !reassignDialog.quotation) return;
+    setReassigning(true);
+    try {
+      const res = await api.reassignQuotationShowroom(reassignDialog.quotation.id, reassignTarget);
+      toast.success(`${reassignDialog.quotation.quotation_no} moved to ${res.data.showroom_name} — letterhead updated`);
+      setReassignDialog({ open: false, quotation: null });
+      fetchQuotations();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to reassign showroom');
+    } finally {
+      setReassigning(false);
+    }
+  };
 
   useEffect(() => {
     fetchQuotations();
@@ -859,6 +894,18 @@ export const QuotationHistory = () => {
                             </Button>
                           )}
                           {isSuperAdmin && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => openReassignDialog(quotation)}
+                              title={`Change showroom (Super Admin)${quotation.showroom_name ? ` — currently ${quotation.showroom_name}` : ''}`}
+                              className="text-indigo-600 hover:text-indigo-700"
+                              data-testid={`qh-reassign-${quotation.quotation_no}`}
+                            >
+                              <Building2 className="h-4 w-4" />
+                            </Button>
+                          )}
+                          {isSuperAdmin && (
                           <Button
                             variant="ghost"
                             size="sm"
@@ -898,6 +945,54 @@ export const QuotationHistory = () => {
             </Button>
             <Button variant="destructive" onClick={handleDelete}>
               Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Reassign Showroom Dialog (Super Admin) */}
+      <Dialog open={reassignDialog.open} onOpenChange={(o) => !o && setReassignDialog({ open: false, quotation: null })}>
+        <DialogContent data-testid="qh-reassign-dialog">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Building2 className="h-5 w-5 text-indigo-600" />
+              Change Showroom
+            </DialogTitle>
+            <DialogDescription>
+              Move quotation <strong>{reassignDialog.quotation?.quotation_no}</strong> to a different showroom.
+              The letterhead (store name, address, phone, email) on the PDF and emails will switch to the new store.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="text-sm">
+              <span className="text-gray-500">Current showroom: </span>
+              <span className="font-medium">{reassignDialog.quotation?.showroom_name || 'Not set'}</span>
+            </div>
+            <select
+              className="w-full h-10 text-sm border border-gray-300 rounded-md px-3"
+              value={reassignTarget}
+              onChange={(e) => setReassignTarget(e.target.value)}
+              data-testid="qh-reassign-select"
+            >
+              <option value="">Select new showroom…</option>
+              {showroomsList.map(s => (
+                <option key={s.id} value={s.id} disabled={s.name === reassignDialog.quotation?.showroom_name}>
+                  {s.name}{s.address ? ` — ${s.address}` : ''}{s.name === reassignDialog.quotation?.showroom_name ? ' (current)' : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setReassignDialog({ open: false, quotation: null })}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleReassignShowroom}
+              disabled={!reassignTarget || reassigning}
+              className="bg-indigo-600 hover:bg-indigo-700 text-white"
+              data-testid="qh-reassign-confirm"
+            >
+              {reassigning ? 'Moving…' : 'Move Quotation'}
             </Button>
           </DialogFooter>
         </DialogContent>

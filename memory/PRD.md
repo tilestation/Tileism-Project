@@ -29,6 +29,14 @@ Root cause: owner uses the **NameSanityDrawer** (slide-in from Supplier Products
 
 **Verified**: screenshot of drawer on /admin/supplier-products — Auto-fix gone (locator count 0), Series tab loads 23 Dolomite Onyx rows, duplicate chip correctly flags 2 pre-existing identical names. NOTE: owner must REDEPLOY to see this on tilestation.co.uk.
 
+### [Aug 24, 2026 — Forked session, part 9] 🟢 Quotation showroom reassignment (Super Admin) — VERIFIED
+Owner: "allow Super Admin to change/allocate quotations to different showrooms — must change the store letterhead/name/address on the quote."
+1. **Backend** (`/app/backend/routes/quotations.py`): `POST /api/quotations/{id}/reassign-showroom` (body {showroom_id}, super_admin only, 403 otherwise). Rebuilds `company_info` from the target showroom doc: name="Tile Station - {name}", address, city="{city} {postcode}", phone, email; keeps companyNo/vatNo. Sets showroom_id/showroom_name + showroom_reassigned_by/at; audit-logged REASSIGN_SHOWROOM. Showroom lookup by `id` with `_id` ObjectId fallback (legacy docs).
+2. **PDF + email letterhead** now print `company_info.name` (uppercase) instead of hardcoded "TILE STATION" — so store name shows after reassignment.
+3. **Bug fixed en route**: PDF generator crashed 500 when a line item had `due_price: None` (`item.get("total", qty*due_price)` evaluates fallback eagerly) — now None-safe.
+4. **Frontend** (`QuotationHistory.js` + api.js `reassignQuotationShowroom`): indigo Building2 action button (super admin only, testid qh-reassign-{quotation_no}) → dialog (qh-reassign-dialog) showing current showroom + select of active non-warehouse showrooms (current disabled) → Move Quotation (qh-reassign-confirm) → toast + refresh.
+**Verified end-to-end**: created test quote at Gravesend → reassigned to Chingford via API (company_info fully rebuilt) → PDF text extraction confirms "TILE STATION - CHINGFORD" + Chingford address/phone on letterhead → UI dialog moved it to Tonbridge with success toast. Test quote deleted after.
+
 ### [Aug 23, 2026 — Forked session, part 8] 🟢 Series Health Score badges — VERIFIED
 `series-list` now returns `health` (0-100 tidiness %) per series via `_series_health()`: a product counts tidy if name starts with the series, 2+ words, not ALL-CAPS, no garbage tokens (none/null/tbd), not a duplicate within the series. SeriesRenameStudio picker shows colored % badges (green ≥90 / amber ≥60 / red <60, testid srs-health-{name}) + "Messiest/Biggest" sort toggle (srs-sort-messiest). Verified: 254 badges, messiest-first puts 0% series on top; 12/12 backend tests still pass.
 

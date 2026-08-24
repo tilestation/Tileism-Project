@@ -440,6 +440,12 @@ export const api = {
       { headers: getAuthHeader() },
     ),
   
+  reassignQuotationShowroom: (id, showroomId) =>
+    axios.post(`${API}/quotations/${id}/reassign-showroom`,
+      { showroom_id: showroomId },
+      { headers: getAuthHeader() },
+    ),
+
   downloadQuotationPdf: (id) =>
     axios.get(`${API}/quotations/${id}/pdf`, { 
       headers: getAuthHeader(), 

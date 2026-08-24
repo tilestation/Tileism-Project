@@ -102,6 +102,10 @@ class QuotationUpdate(BaseModel):
     status: Optional[str] = None
 
 
+class ReassignShowroomRequest(BaseModel):
+    showroom_id: str
+
+
 @router.get("")
 async def get_quotations(
     status: Optional[str] = None,
@@ -572,6 +576,79 @@ async def revert_to_active(quotation_id: str, current_user: dict = Depends(get_c
     return {"message": "Quotation reverted to active", "quotation_no": existing.get("quotation_no")}
 
 
+@router.post("/{quotation_id}/reassign-showroom")
+async def reassign_quotation_showroom(
+    quotation_id: str,
+    body: ReassignShowroomRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """Move a quotation to a different showroom — Super Admin only.
+    Rebuilds the company_info letterhead (store name / address / phone / email)
+    from the target showroom so PDFs and emails show the new store."""
+    if current_user.get("role") != "super_admin":
+        raise HTTPException(status_code=403, detail="Only Super Admins can reassign quotations to another showroom")
+
+    db = get_db()
+
+    quotation = await db.quotations.find_one({"id": quotation_id}, {"_id": 0})
+    if not quotation:
+        raise HTTPException(status_code=404, detail="Quotation not found")
+
+    showroom = await db.showrooms.find_one({"id": body.showroom_id})
+    if not showroom:
+        try:
+            from bson import ObjectId
+            showroom = await db.showrooms.find_one({"_id": ObjectId(body.showroom_id)})
+        except Exception:
+            showroom = None
+    if not showroom:
+        raise HTTPException(status_code=404, detail="Showroom not found")
+
+    old_name = quotation.get("showroom_name") or (quotation.get("company_info") or {}).get("name") or "—"
+    existing_ci = quotation.get("company_info") or {}
+    city_line = " ".join(p for p in [showroom.get("city") or "", showroom.get("postcode") or ""] if p).strip()
+    new_company_info = {
+        "name": f"Tile Station - {showroom.get('name')}",
+        "address": showroom.get("address") or existing_ci.get("address", ""),
+        "city": city_line or existing_ci.get("city", ""),
+        "telephone": showroom.get("phone") or existing_ci.get("telephone", ""),
+        "email": showroom.get("email") or existing_ci.get("email", ""),
+        "companyNo": existing_ci.get("companyNo") or "11982550",
+        "vatNo": existing_ci.get("vatNo") or "324 251 828",
+    }
+
+    now = datetime.now(timezone.utc)
+    await db.quotations.update_one(
+        {"id": quotation_id},
+        {"$set": {
+            "showroom_id": showroom.get("id") or str(showroom.get("_id")),
+            "showroom_name": showroom.get("name"),
+            "company_info": new_company_info,
+            "showroom_reassigned_by": current_user.get("email"),
+            "showroom_reassigned_at": now.isoformat(),
+            "updated_at": now.isoformat(),
+        }},
+    )
+
+    await log_audit(
+        action="REASSIGN_SHOWROOM",
+        entity_type="quotation",
+        user=current_user,
+        entity_id=quotation_id,
+        entity_name=quotation.get("quotation_no"),
+        before_data={"showroom_name": old_name},
+        after_data={"showroom_name": showroom.get("name"), "company_info": new_company_info},
+        details=f"Quotation {quotation.get('quotation_no')} moved from {old_name} to {showroom.get('name')}",
+    )
+
+    return {
+        "message": f"Quotation moved to {showroom.get('name')}",
+        "quotation_no": quotation.get("quotation_no"),
+        "showroom_name": showroom.get("name"),
+        "company_info": new_company_info,
+    }
+
+
 # ----------------------------------------------------------------------
 # Manual invoice-linking for orphaned converted quotes (4 Jun 2026).
 #
@@ -764,8 +841,9 @@ async def generate_quotation_pdf_bytes(quotation: dict) -> bytes:
     company_no = company_info.get("companyNo", "11982550")
     vat_no = company_info.get("vatNo", "324 251 828")
     
-    # Company Header
-    elements.append(Paragraph("TILE STATION", title_style))
+    # Company Header — letterhead follows the quotation's assigned showroom
+    company_name = (company_info.get("name") or "Tile Station").upper()
+    elements.append(Paragraph(company_name, title_style))
     elements.append(Paragraph(f"{company_address}, {company_city}", subtitle_style))
     elements.append(Paragraph(f"Tel: {company_phone} | Email: {company_email}", subtitle_style))
     elements.append(Paragraph(f"Company No: {company_no} | VAT No: {vat_no}", subtitle_style))
@@ -827,11 +905,13 @@ async def generate_quotation_pdf_bytes(quotation: dict) -> bytes:
     product_style = ParagraphStyle('ProductName', fontSize=9, leading=11)
     
     for item in line_items:
-        qty = item.get("quantity", 0)
-        m2 = item.get("m2", 0)
-        price = item.get("price", 0)
-        due_price = item.get("due_price", price)
-        total = item.get("total", qty * due_price)
+        qty = item.get("quantity") or 0
+        m2 = item.get("m2") or 0
+        price = item.get("price") or 0
+        due_price = item.get("due_price") or price
+        total = item.get("total")
+        if total is None:
+            total = qty * due_price
         
         # Calculate discount percentage
         discount_pct = 0
@@ -980,6 +1060,7 @@ async def email_quotation_pdf(quotation_id: str, request: QuotationEmailRequest,
     company_email = company_info.get("email", "info@tilestation.co.uk")
     company_address = company_info.get("address", "Unit 3 Trade City")
     company_city = company_info.get("city", "Northfleet Gravesend DA11 8AB")
+    company_name = (company_info.get("name") or "Tile Station").upper()
     
     custom_message = request.message or ""
     if custom_message:
@@ -997,7 +1078,7 @@ async def email_quotation_pdf(quotation_id: str, request: QuotationEmailRequest,
     html_content = f"""
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
         <div style="background: #1e40af; color: white; padding: 20px; text-align: center;">
-            <h1 style="margin: 0;">TILE STATION</h1>
+            <h1 style="margin: 0;">{company_name}</h1>
             <p style="margin: 5px 0 0 0; font-size: 14px;">Amazing Tiles - Beautiful Bathrooms - Excellent Service</p>
         </div>
         
