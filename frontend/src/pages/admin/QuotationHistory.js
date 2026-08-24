@@ -43,6 +43,22 @@ const toTitleCase = (str) => {
   return str.replace(/\b\w/g, char => char.toUpperCase());
 };
 
+// Deterministic per-showroom badge colour so each store is instantly recognisable
+const SHOWROOM_BADGE_COLORS = [
+  'bg-blue-100 text-blue-700',
+  'bg-emerald-100 text-emerald-700',
+  'bg-purple-100 text-purple-700',
+  'bg-amber-100 text-amber-700',
+  'bg-rose-100 text-rose-700',
+  'bg-cyan-100 text-cyan-700',
+];
+const showroomBadgeCls = (name) => {
+  if (!name) return 'bg-gray-100 text-gray-400';
+  let h = 0;
+  for (const c of name) h = (h * 31 + c.charCodeAt(0)) % 997;
+  return SHOWROOM_BADGE_COLORS[h % SHOWROOM_BADGE_COLORS.length];
+};
+
 export const QuotationHistory = () => {
   const navigate = useNavigate();
   const location = useLocation();
@@ -786,6 +802,7 @@ export const QuotationHistory = () => {
                     <th className="text-left py-3 px-4 font-medium text-sm">Quotation No</th>
                     <th className="text-left py-3 px-4 font-medium text-sm">Date</th>
                     <th className="text-left py-3 px-4 font-medium text-sm">Customer</th>
+                    <th className="text-left py-3 px-4 font-medium text-sm">Showroom</th>
                     <th className="text-left py-3 px-4 font-medium text-sm">Created By</th>
                     <th className="text-left py-3 px-4 font-medium text-sm">Items</th>
                     <th className="text-right py-3 px-4 font-medium text-sm">Total</th>
@@ -808,6 +825,11 @@ export const QuotationHistory = () => {
                           <p className="font-medium text-sm">{quotation.customer_name || '-'}</p>
                           <p className="text-xs text-gray-500">{quotation.customer_phone || ''}</p>
                         </div>
+                      </td>
+                      <td className="py-3 px-4" data-testid={`qh-showroom-${quotation.quotation_no}`}>
+                        <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${showroomBadgeCls(quotation.showroom_name)}`}>
+                          {quotation.showroom_name || 'Unassigned'}
+                        </span>
                       </td>
                       <td className="py-3 px-4 text-sm">
                         {quotation.staff_name || quotation.sales_person || quotation.created_by || '-'}
