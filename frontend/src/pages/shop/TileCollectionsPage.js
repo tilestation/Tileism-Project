@@ -597,21 +597,33 @@ export const CollectionCard = ({
         {/* Image Container */}
         <div className={`relative ${aspectRatio} overflow-hidden rounded-lg bg-gray-100 mb-4`}
         >
-          {/* Image Slideshow */}
+          {/* Image Slideshow — full image (object-contain) over a blurred
+              cover-fill of the same photo so there are never white gaps */}
           <div className="relative w-full h-full">
             {allImages.map((img, index) => (
-              <img
+              <div
                 key={index}
-                src={img.image}
-                alt={`${series_name} - ${img.color || `View ${index + 1}`}`}
-                className={`absolute inset-0 w-full h-full object-contain transition-all duration-700 ease-out
-                  ${index === currentImageIndex ? 'opacity-100 scale-100' : 'opacity-0 scale-105'}
-                  ${isHovering ? 'group-hover:scale-110' : ''}`}
-                loading="lazy"
-                onError={(e) => {
-                  e.target.src = getLifestyleImage(series_name);
-                }}
-              />
+                className={`absolute inset-0 transition-opacity duration-700 ease-out ${index === currentImageIndex ? 'opacity-100' : 'opacity-0'}`}
+              >
+                <img
+                  src={img.image}
+                  alt=""
+                  aria-hidden="true"
+                  className="absolute inset-0 w-full h-full object-cover blur-xl scale-110 opacity-70"
+                  loading="lazy"
+                  onError={(e) => { e.target.style.display = 'none'; }}
+                />
+                <img
+                  src={img.image}
+                  alt={`${series_name} - ${img.color || `View ${index + 1}`}`}
+                  className={`relative w-full h-full object-contain transition-transform duration-700 ease-out
+                    ${isHovering ? 'group-hover:scale-110' : ''}`}
+                  loading="lazy"
+                  onError={(e) => {
+                    e.target.src = getLifestyleImage(series_name);
+                  }}
+                />
+              </div>
             ))}
           </div>
 
@@ -975,11 +987,18 @@ const RecentlyViewed = ({ onQuickView }) => {
               to={`/shop/collection/${encodeURIComponent(item.series_name)}`}
               className="group"
             >
-              <div className="aspect-square rounded-lg overflow-hidden bg-gray-100 mb-2">
+              <div className="aspect-square rounded-lg overflow-hidden bg-gray-100 mb-2 relative">
+                <img
+                  src={imageUrl(item.image) || getLifestyleImage(item.series_name)}
+                  alt=""
+                  aria-hidden="true"
+                  className="absolute inset-0 w-full h-full object-cover blur-xl scale-110 opacity-70"
+                  onError={(e) => { e.target.style.display = 'none'; }}
+                />
                 <img 
                   src={imageUrl(item.image) || getLifestyleImage(item.series_name)}
                   alt={item.series_name}
-                  className="w-full h-full object-contain group-hover:scale-105 transition-transform duration-500"
+                  className="relative w-full h-full object-contain group-hover:scale-105 transition-transform duration-500"
                 />
               </div>
               <p className="text-sm font-medium text-gray-900 group-hover:text-amber-600 transition-colors">
