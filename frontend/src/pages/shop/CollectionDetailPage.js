@@ -1773,6 +1773,10 @@ const CollectionDetailPage = () => {
   // and string ops on it crash the whole page.
   const productImages = normaliseImageList(selectedProduct?.images);
 
+  // Per-image framing set by admin (Images panel → Frame button)
+  const getImageFraming = (url) =>
+    (selectedProduct?.image_framing || []).find(f => normaliseImageUrl(f.url) === url);
+
   // Lightbox handlers
   const openLightbox = (index) => {
     setLightboxIndex(index);
@@ -2088,7 +2092,11 @@ const CollectionDetailPage = () => {
                       src={productImages[previewThumbIdx ?? mainImageIndex]}
                       alt={selectedProduct?.display_name || decodedSeriesName}
                       className="w-full h-full object-cover transition-all duration-200 cursor-zoom-in pdp-img-fade"
-                      style={isZooming && previewThumbIdx === null ? { transform: 'scale(2)', transformOrigin: `${zoomPosition.x}% ${zoomPosition.y}%` } : {}}
+                      style={(() => {
+                        if (isZooming && previewThumbIdx === null) return { transform: 'scale(2)', transformOrigin: `${zoomPosition.x}% ${zoomPosition.y}%` };
+                        const f = getImageFraming(productImages[previewThumbIdx ?? mainImageIndex]);
+                        return f ? { objectPosition: `${f.x}% ${f.y}%`, transform: `scale(${f.zoom})` } : {};
+                      })()}
                       onClick={() => openLightbox(previewThumbIdx ?? mainImageIndex)}
                     />
                   )}

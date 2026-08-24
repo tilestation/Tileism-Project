@@ -29,6 +29,12 @@ Root cause: owner uses the **NameSanityDrawer** (slide-in from Supplier Products
 
 **Verified**: screenshot of drawer on /admin/supplier-products — Auto-fix gone (locator count 0), Series tab loads 23 Dolomite Onyx rows, duplicate chip correctly flags 2 pre-existing identical names. NOTE: owner must REDEPLOY to see this on tilestation.co.uk.
 
+### [Aug 24, 2026 — Forked session, part 19] 🟢 Product Photo Framing + one-place workflow — VERIFIED
+Owner picked "Product Photo Framing", then asked why framing wasn't all in the bulk Images panel. Delivered BOTH:
+1. **Per-image PDP framing**: `image_framing` list [{url, zoom, x, y}] on supplier_products, mirrored to tiles by extended `_mirror_images_to_live`; `POST /supplier-sync/set-image-framing` (defaults reset/remove the entry); `serialize_tile_for_shop` returns it; PDP (CollectionDetailPage.js) `getImageFraming(url)` applies objectPosition+scale to the main viewer (hover magnifier still wins while zooming). Verified on storefront DOM: `object-position: 20% 80%; transform: scale(2)`.
+2. **One-place workflow in Images panel** (ProductImagesGridPanel.jsx): amber Move button per photo (frame-image-{sku}-{idx}) opens shared `ImageFramingModal` (generalised: img/title/hint/aspectClass/initial/onSave); the indigo "set as collection image" button now AUTO-OPENS the same editor in 3:4 card shape after saving the image → saves hero_zoom/x/y to collection settings. Collection Manager "Adjust" button retained as a second entry point.
+Verified: collection flow (auto-open, save toast) + product flow (square editor) + PDP rendering. All test framing/data cleaned up.
+
 ### [Aug 24, 2026 — Forked session, part 18] 🟢 Collection card "Adjust View" (drag + zoom) — VERIFIED
 Owner: "Can I drag and adjust the view… and adjust the zoom of the collection image?" Built per-collection hero framing:
 1. **Storage**: `collection_settings` gains `hero_zoom` (1–3), `hero_pos_x`, `hero_pos_y` (0–100, object-position %). PUT /website-admin/collections/{name} whitelists them; GET /website-admin/collections + storefront GET /tiles/collections both return them.

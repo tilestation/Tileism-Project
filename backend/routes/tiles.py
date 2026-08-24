@@ -207,6 +207,8 @@ def serialize_tile_for_shop(tile: dict) -> dict:
         # Samples toggle — PDP hides the "Order a Sample" button when true
         "samples_hidden": bool(tile.get("samples_hidden", False)),
         "images": tile.get("images", []),
+        # Per-image framing set in admin (zoom + focal point for PDP main viewer)
+        "image_framing": tile.get("image_framing") or [],
         # If the admin has explicitly marked this SKU as out of stock,
         # ALWAYS surface in_stock=False even if a previous supplier sync
         # set always_in_stock=True. The manual override is authoritative.

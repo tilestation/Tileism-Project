@@ -18,7 +18,7 @@
  *   onClose               — optional close callback for the embedded case.
  */
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { X, Upload, Image, Trash2, RefreshCw, Plus, Check, ZoomIn, Package, CheckSquare, Square, Star, GripVertical, ArrowLeft, Search } from 'lucide-react';
+import { X, Upload, Image, Trash2, RefreshCw, Plus, Check, ZoomIn, Package, CheckSquare, Square, Star, GripVertical, ArrowLeft, Search, Move, Save } from 'lucide-react';
 import { toast } from 'sonner';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
@@ -42,6 +42,8 @@ export default function ProductImagesGridPanel({
   const [zoomedImage, setZoomedImage] = useState(null);
   const [uploadingFor, setUploadingFor] = useState(null);
   const [deletingImages, setDeletingImages] = useState(new Set());
+  const [framingFor, setFramingFor] = useState(null); // { product, img } being framed for the PDP
+  const [collectionFrame, setCollectionFrame] = useState(null); // { seriesName, img } being framed for the collection card
   
   // Search and filter state — either from URL query (standalone mode, for
   // backwards compat) or from props (embedded mode inside a Manager / Sheet).
@@ -520,6 +522,28 @@ export default function ProductImagesGridPanel({
     }
   };
 
+  const handleSaveFraming = async (product, img, zoom, posX, posY) => {
+    try {
+      const res = await fetch(`${API_URL}/api/supplier-sync/set-image-framing`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ product_id: product._id, image_url: img, zoom, pos_x: posX, pos_y: posY }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const d = await res.json();
+      toast.success(d.reset ? 'Framing reset to default' : 'Photo framing saved — the product page uses this view');
+      setFramingFor(null);
+      setProducts(prev => prev.map(p => {
+        if (p._id !== product._id) return p;
+        const framing = (p.image_framing || []).filter(f => f.url !== img);
+        if (!d.reset) framing.push({ url: img, zoom, x: posX, y: posY });
+        return { ...p, image_framing: framing };
+      }));
+    } catch (err) {
+      toast.error(`Failed to save framing: ${err.message}`);
+    }
+  };
+
   const handleSetCollectionImage = async (product, img) => {
     const guess = (product.series || product.range_name || getSeriesName(product) || '').trim();
     const seriesName = window.prompt(
@@ -535,9 +559,27 @@ export default function ProductImagesGridPanel({
         body: JSON.stringify({ custom_hero_image: img }),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      toast.success(`"${seriesName.trim()}" collection card now uses this photo (manage in Collection Manager)`);
+      toast.success(`"${seriesName.trim()}" collection card now uses this photo — adjust the view below`);
+      setCollectionFrame({ seriesName: seriesName.trim(), img });
     } catch (err) {
       toast.error(`Failed to set collection image: ${err.message}`);
+    }
+  };
+
+  const handleSaveCollectionFraming = async (zoom, posX, posY) => {
+    if (!collectionFrame) return;
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch(`${API_URL}/api/website-admin/collections/${encodeURIComponent(collectionFrame.seriesName)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ hero_zoom: zoom, hero_pos_x: posX, hero_pos_y: posY }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      toast.success(`"${collectionFrame.seriesName}" card view saved — website updates within a minute`);
+      setCollectionFrame(null);
+    } catch (err) {
+      toast.error(`Failed to save card view: ${err.message}`);
     }
   };
 
@@ -1118,6 +1160,18 @@ export default function ProductImagesGridPanel({
                                         <Star className="w-3 h-3" />
                                       </button>
                                     )}
+                                    {/* Frame image (zoom + focal point on the PDP) */}
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setFramingFor({ product, img });
+                                      }}
+                                      className="p-1.5 bg-amber-500 text-white rounded hover:bg-amber-600"
+                                      title="Adjust how this photo is framed on the product page (drag + zoom)"
+                                      data-testid={`frame-image-${product.sku || product._id}-${idx}`}
+                                    >
+                                      <Move className="w-3 h-3" />
+                                    </button>
                                     {/* Set as collection card image (website) */}
                                     <button
                                       onClick={(e) => {
@@ -1214,6 +1268,28 @@ export default function ProductImagesGridPanel({
       </div>
 
       {/* Image Zoom Modal */}
+      {framingFor && (
+        <ImageFramingModal
+          img={framingFor.img}
+          title={`Frame photo — ${framingFor.product.our_product_name || framingFor.product.product_name || framingFor.product.name}`}
+          hint="Drag to reposition • slide to zoom. This is exactly how the photo appears in the product page viewer."
+          initial={(framingFor.product.image_framing || []).find(f => f.url === framingFor.img)}
+          onClose={() => setFramingFor(null)}
+          onSave={(z, x, y) => handleSaveFraming(framingFor.product, framingFor.img, z, x, y)}
+        />
+      )}
+
+      {collectionFrame && (
+        <ImageFramingModal
+          img={collectionFrame.img}
+          title={`Adjust collection card — ${collectionFrame.seriesName}`}
+          aspectClass="aspect-[3/4]"
+          hint="Drag to reposition • slide to zoom. This is exactly how the collection card looks on the website."
+          onClose={() => setCollectionFrame(null)}
+          onSave={handleSaveCollectionFraming}
+        />
+      )}
+
       {zoomedImage && (
         <div 
           className="fixed inset-0 bg-black/90 flex items-center justify-center z-[60]"
@@ -1233,6 +1309,107 @@ export default function ProductImagesGridPanel({
           />
         </div>
       )}
+    </div>
+  );
+}
+
+
+function ImageFramingModal({ img, title, hint, aspectClass = 'aspect-square', initial, onClose, onSave }) {
+  const [zoom, setZoom] = useState(initial ? Number(initial.zoom) || 1 : 1);
+  const [posX, setPosX] = useState(initial?.x ?? 50);
+  const [posY, setPosY] = useState(initial?.y ?? 50);
+  const [saving, setSaving] = useState(false);
+  const dragRef = React.useRef(null);
+  const boxRef = React.useRef(null);
+
+  const onMouseDown = (e) => {
+    e.preventDefault();
+    dragRef.current = { startX: e.clientX, startY: e.clientY, baseX: posX, baseY: posY };
+  };
+  const onMouseMove = (e) => {
+    if (!dragRef.current || !boxRef.current) return;
+    const rect = boxRef.current.getBoundingClientRect();
+    const dx = ((e.clientX - dragRef.current.startX) / rect.width) * 100;
+    const dy = ((e.clientY - dragRef.current.startY) / rect.height) * 100;
+    setPosX(Math.min(100, Math.max(0, Math.round(dragRef.current.baseX - dx))));
+    setPosY(Math.min(100, Math.max(0, Math.round(dragRef.current.baseY - dy))));
+  };
+  const endDrag = () => { dragRef.current = null; };
+
+  return (
+    <div className="fixed inset-0 bg-black/60 z-[70] flex items-center justify-center p-4" onMouseMove={onMouseMove} onMouseUp={endDrag} onMouseLeave={endDrag}>
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm overflow-hidden" data-testid="image-framing-modal">
+        <div className="flex items-center justify-between px-4 py-3 border-b">
+          <h3 className="font-semibold text-gray-900 text-sm flex items-center gap-2 min-w-0">
+            <Move className="w-4 h-4 text-amber-600 flex-shrink-0" />
+            <span className="truncate">{title}</span>
+          </h3>
+          <button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-full flex-shrink-0" data-testid="framing-close">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        <div className="p-4 space-y-3">
+          <p className="text-xs text-gray-500">{hint}</p>
+
+          {/* Live preview — same frame shape as the website */}
+          <div
+            ref={boxRef}
+            className={`relative ${aspectClass} w-full overflow-hidden rounded-lg bg-gray-100 cursor-move select-none`}
+            onMouseDown={onMouseDown}
+            data-testid="framing-preview"
+          >
+            <img
+              src={img}
+              alt=""
+              draggable={false}
+              className="absolute inset-0 w-full h-full object-cover"
+              style={{ objectPosition: `${posX}% ${posY}%`, transform: `scale(${zoom})` }}
+            />
+            <div className="absolute bottom-2 left-2 bg-black/60 text-white text-[10px] px-2 py-0.5 rounded-full pointer-events-none">
+              {Math.round(zoom * 100)}% • {posX}%, {posY}%
+            </div>
+          </div>
+
+          {/* Zoom slider */}
+          <div className="flex items-center gap-3">
+            <ZoomIn className="w-4 h-4 text-gray-400 flex-shrink-0" />
+            <input
+              type="range"
+              min="1"
+              max="3"
+              step="0.05"
+              value={zoom}
+              onChange={(e) => setZoom(Number(e.target.value))}
+              className="flex-1 accent-amber-600"
+              data-testid="framing-zoom"
+            />
+            <span className="text-xs font-mono text-gray-600 w-12 text-right">{Math.round(zoom * 100)}%</span>
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between px-4 py-3 border-t bg-gray-50">
+          <button
+            onClick={() => { setZoom(1); setPosX(50); setPosY(50); }}
+            className="text-xs text-gray-500 hover:text-gray-700 flex items-center gap-1"
+            data-testid="framing-reset"
+          >
+            <RefreshCw className="w-3 h-3" /> Reset
+          </button>
+          <div className="flex gap-2">
+            <button onClick={onClose} className="px-3 py-1.5 text-xs border rounded-lg hover:bg-gray-100">Cancel</button>
+            <button
+              disabled={saving}
+              onClick={async () => { setSaving(true); await onSave(zoom, posX, posY); setSaving(false); }}
+              className="px-3 py-1.5 text-xs bg-amber-600 text-white rounded-lg hover:bg-amber-700 flex items-center gap-1.5 disabled:opacity-50"
+              data-testid="framing-save"
+            >
+              {saving ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
+              Save framing
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

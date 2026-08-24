@@ -15016,7 +15016,7 @@ def _mirror_images_to_live(db, obj_id):
     """Keep the live `tiles` doc (what the storefront PDP reads) in sync with the
     supplier product's images array after an upload / delete / reorder."""
     try:
-        sp = db.supplier_products.find_one({"_id": obj_id}, {"sku": 1, "supplier_code": 1, "images": 1})
+        sp = db.supplier_products.find_one({"_id": obj_id}, {"sku": 1, "supplier_code": 1, "images": 1, "image_framing": 1})
         if not sp:
             return
         key = sp.get("sku") or sp.get("supplier_code")
@@ -15024,10 +15024,55 @@ def _mirror_images_to_live(db, obj_id):
             return
         db.tiles.update_one(
             {"$or": [{"sku": key}, {"supplier_code": key}]},
-            {"$set": {"images": sp.get("images", []), "updated_at": datetime.now(timezone.utc)}},
+            {"$set": {
+                "images": sp.get("images", []),
+                "image_framing": sp.get("image_framing", []),
+                "updated_at": datetime.now(timezone.utc),
+            }},
         )
     except Exception as e:
         logger.warning(f"Image mirror to tiles failed for {obj_id}: {e}")
+
+
+@router.post("/set-image-framing")
+def set_image_framing(data: dict):
+    """Save per-image framing (zoom + focal point) shown on the storefront PDP.
+    Default values (zoom 1, 50/50) remove the entry (reset)."""
+    product_id = (data or {}).get("product_id")
+    image_url = (data or {}).get("image_url")
+    if not product_id or not image_url:
+        raise HTTPException(status_code=400, detail="product_id and image_url are required")
+    try:
+        zoom = round(float(data.get("zoom") or 1), 2)
+        pos_x = int(data.get("pos_x")) if data.get("pos_x") is not None else 50
+        pos_y = int(data.get("pos_y")) if data.get("pos_y") is not None else 50
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Invalid zoom/pos values")
+    zoom = min(max(zoom, 1.0), 3.0)
+    pos_x = min(max(pos_x, 0), 100)
+    pos_y = min(max(pos_y, 0), 100)
+
+    db = get_db()
+    from bson import ObjectId
+    try:
+        obj_id = ObjectId(product_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid product_id")
+    sp = db.supplier_products.find_one({"_id": obj_id}, {"image_framing": 1})
+    if not sp:
+        raise HTTPException(status_code=404, detail="Product not found")
+
+    framing = [f for f in (sp.get("image_framing") or []) if f.get("url") != image_url]
+    is_default = abs(zoom - 1) < 0.01 and pos_x == 50 and pos_y == 50
+    if not is_default:
+        framing.append({"url": image_url, "zoom": zoom, "x": pos_x, "y": pos_y})
+
+    db.supplier_products.update_one(
+        {"_id": obj_id},
+        {"$set": {"image_framing": framing, "updated_at": datetime.now(timezone.utc)}},
+    )
+    _mirror_images_to_live(db, obj_id)
+    return {"success": True, "reset": is_default, "framing_count": len(framing)}
 
 
 @router.post("/sync-images-to-live")
