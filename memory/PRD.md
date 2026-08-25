@@ -9438,3 +9438,8 @@ See `/app/memory/test_credentials.md`
 - Testids: group-by-size-toggle, group-by-finish-toggle (group headers keep size-group-{key} prefix).
 - Verified in preview: Finish tab → By finish → groups (Matt, Polished, Golden Brushed UV Oiled…) → "Move group to…" moved group into bucket. No DB writes; test chip removed.
 - USER MUST REDEPLOY.
+
+## Aug 25, 2026 (later 8) — "By colour" + "By range" pool grouping
+- GROUP_OPTIONS generalised: size / finish / color / range in one segmented control (only options with >1 distinct value show; clicking active turns grouping off). 'range' groups by getSeriesName(p); 'color' falls back to colors[0]. Testids: group-by-{size|finish|color|range}-toggle.
+- Verified in preview: all 4 toggles render; colour groups (aqua/beige/…) and range groups (series names) render with Add/Move-group-to and whole-group drag. No DB writes.
+- USER MUST REDEPLOY.
