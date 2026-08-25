@@ -4150,19 +4150,43 @@ def get_all_supplier_products(
         if new_only:
             query["in_products_db"] = {"$ne": True}
         
-        # Sort by product_name first (groups series together), then by last_synced
+        # Sort so same-series rows stay CONTIGUOUS across pagination — the
+        # admin UI groups the current page by series, so plain alphabetical
+        # product_name sorting could split a series across pages ("where's
+        # the 6th one?"). Sort key: effective series (range_name > series >
+        # series_name), falling back to the product's own name.
         if supplier == "Canopy":
             sort_order = [("material_order", 1), ("type_order", 1), ("sort_order", 1), ("name", 1)]
+            products_list = list(
+                db.supplier_products.find(query).skip(skip).limit(limit).sort(sort_order)
+            )
         else:
-            # Sort by product_name to group series together, then by size pattern for natural ordering
-            sort_order = [("product_name", 1)]
-        
-        products_cursor = db.supplier_products.find(
-            query
-        ).skip(skip).limit(limit).sort(sort_order)
+            pipeline = [
+                {"$match": query},
+                {"$addFields": {"_series_sort": {"$toLower": {"$let": {
+                    "vars": {
+                        "rn": {"$toString": {"$ifNull": ["$range_name", ""]}},
+                        "s": {"$toString": {"$ifNull": ["$series", ""]}},
+                        "sn": {"$toString": {"$ifNull": ["$series_name", ""]}},
+                        "pn": {"$toString": {"$ifNull": ["$product_name", {"$ifNull": ["$name", ""]}]}},
+                    },
+                    "in": {"$switch": {
+                        "branches": [
+                            {"case": {"$gt": [{"$strLenCP": "$$rn"}, 0]}, "then": "$$rn"},
+                            {"case": {"$gt": [{"$strLenCP": "$$s"}, 0]}, "then": "$$s"},
+                            {"case": {"$gt": [{"$strLenCP": "$$sn"}, 0]}, "then": "$$sn"},
+                        ],
+                        "default": "$$pn",
+                    }},
+                }}}}},
+                {"$sort": {"_series_sort": 1, "product_name": 1, "_id": 1}},
+                {"$skip": skip},
+                {"$limit": limit},
+                {"$project": {"_series_sort": 0}},
+            ]
+            products_list = list(db.supplier_products.aggregate(pipeline))
         
         # Build a set of all SKUs we're returning to batch-check against products collection
-        products_list = list(products_cursor)
         skus_to_check = [p.get("sku") for p in products_list if p.get("sku")]
         
         # Batch check which SKUs exist in the products collection

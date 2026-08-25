@@ -9397,3 +9397,10 @@ See `/app/memory/test_credentials.md`
 - Verified in preview: assigned "UT Mega Cleaning & Grout Range 15kg 1L Special - Merged" (dimension tokens + '&' + ' - ' + 9 words) to 3 Ultra Tile products from 2 different buckets → admin UI shows ONE group "(3)" with the exact name. Test data reset after.
 - Storefront grouping (tiles.py:979) already trusted `series` verbatim — unchanged.
 - USER MUST REDEPLOY for live effect.
+
+## Aug 25, 2026 (later 3) — "Where's the 6th one?" — pagination split root-caused + fixed
+- Investigated LIVE data: user's Set Series at 18:02 DID update all 6 docs (5 UT Cleaning rows + ULT-TX1L "Ut Tile Xtreme 1l"). The Flowable rows were NOT part of the 6 (untouched since Aug 24).
+- ROOT CAUSE: /api/supplier-sync/products sorted by product_name alphabetically with 50-row pages; frontend groups per page. "Ut Tile Xtreme 1l" sorted onto page 2 while its 5 series-mates sat on page 1 → the group header showed 5 and the 6th looked missing.
+- FIX (supplier_sync.py get_all_supplier_products): non-Canopy listing now uses an aggregation sort on effective series key (range_name > series > series_name, fallback own name, lowercased) then product_name then _id — same-series rows are always contiguous, so a series renders as ONE complete group. Canopy keeps its custom material/type ordering.
+- Verified in preview: all 6 rows contiguous in API page and admin UI shows "Ultra Tile Cleaning & Maintenance Series — 6 products" as one group.
+- USER MUST REDEPLOY (frontend fix from earlier today + this backend fix).
