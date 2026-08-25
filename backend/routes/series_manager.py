@@ -23,6 +23,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Optional
 
+from bson import ObjectId
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
@@ -177,7 +178,10 @@ async def bulk_assign_series(
     failed: list[dict] = []
 
     for it in payload.items:
-        q: dict = {"$or": [{"sku": it.sku}, {"supplier_code": it.sku}]}
+        q_or = [{"sku": it.sku}, {"supplier_code": it.sku}]
+        if ObjectId.is_valid(it.sku):
+            q_or.append({"_id": ObjectId(it.sku)})
+        q: dict = {"$or": q_or}
         if payload.supplier:
             q["supplier"] = payload.supplier
         try:
@@ -334,6 +338,9 @@ async def heal_series_drift(
     per_supplier: dict[str, int] = {}
     async for doc in db.supplier_products.find(filt).limit(20000):
         scanned += 1
+        # Manual admin assignments are sacred — never overwrite them.
+        if doc.get("range_assigned_by"):
+            continue
         unique_val = str(doc.get("unique_name") or "").strip()
         series_val = str(doc.get("series") or "").strip()
         range_val = str(doc.get("range_name") or "").strip()

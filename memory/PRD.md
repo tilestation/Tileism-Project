@@ -9387,3 +9387,13 @@ See `/app/memory/test_credentials.md`
 - FIX (backend /app/backend/routes/tiles.py, /api/tiles/collections): when a collection has NO explicit card framing, the card now INHERITS the framing of the product photo that IS the card's hero image (matched by URL across all series products). Explicit "Adjust card view" framing still overrides. Also added "image_framing" to the products projection (line ~886) — it was missing, which silently blocked the lookup.
 - Verified in preview: set-image-framing 1.7/15/85 on Opaco product photo → /api/tiles/collections returns hero_zoom 1.7/15/85 for Opaco card → reset → returns None. Storefront hero_zoom rendering DOM-verified earlier same day.
 - USER MUST REDEPLOY BACKEND (GitHub → Railway) for the inherit to go live.
+
+## Aug 25, 2026 (later 2) — "No rules" manual series assignment
+- User demand: Set Series must group products under EXACTLY the typed name, no validation rules.
+- Fixes:
+  1. `/app/frontend/src/pages/admin/lib/series.js` getSeriesName: explicit fields (range_name/series/series_name) now trusted VERBATIM — no cleanliness gates (length/dimension/word-count). Only remaining guard = own-product-name import-junk check, and even that is skipped when `range_assigned_by` stamp exists.
+  2. `/app/backend/routes/series_manager.py` bulk-assign: also matches `_id` (rows without sku/supplier_code no longer skipped); heal-drift now NEVER touches rows with `range_assigned_by` (manual assignments sacred).
+  3. `/app/backend/routes/supplier_sync.py` bulk-series-update: now writes series_name + range_assigned_by stamp for parity.
+- Verified in preview: assigned "UT Mega Cleaning & Grout Range 15kg 1L Special - Merged" (dimension tokens + '&' + ' - ' + 9 words) to 3 Ultra Tile products from 2 different buckets → admin UI shows ONE group "(3)" with the exact name. Test data reset after.
+- Storefront grouping (tiles.py:979) already trusted `series` verbatim — unchanged.
+- USER MUST REDEPLOY for live effect.

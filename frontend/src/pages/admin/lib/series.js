@@ -144,6 +144,7 @@ const normForCompare = (v) => String(v || '').toLowerCase().replace(/\s+/g, ' ')
 // Explicit admin-assigned series may legitimately contain dimensions —
 // flooring ranges like "Herringbone 80 x 300 x 10/3mm Engineered Wood".
 // Basic shape check only; the import-dump protection is isOwnProductName.
+// eslint-disable-next-line no-unused-vars
 const looksLikeAssignedSeriesName = (v) => {
   if (!v) return false;
   const s = String(v).trim();
@@ -176,10 +177,17 @@ const isOwnProductName = (v, p) => {
  */
 export const getSeriesName = (productOrName) => {
   if (productOrName && typeof productOrName === 'object') {
+    // Explicitly assigned series fields are trusted VERBATIM — whatever the
+    // admin typed is the group, no cleanliness rules. The only guard is the
+    // historical import bug that dumped the row's own product name into these
+    // fields; rows carrying an admin assignment stamp skip even that.
+    const adminAssigned = Boolean(productOrName.range_assigned_by);
     for (const k of ['range_name', 'series', 'series_name']) {
       const v = productOrName[k];
-      if (looksLikeCleanSeriesName(v)) return String(v).trim();
-      if (looksLikeAssignedSeriesName(v) && !isOwnProductName(v, productOrName)) return String(v).trim();
+      if (v == null) continue;
+      const s = String(v).trim();
+      if (!s) continue;
+      if (adminAssigned || !isOwnProductName(s, productOrName)) return s;
     }
     for (const k of ['original_series', 'unique_name']) {
       const v = productOrName[k];

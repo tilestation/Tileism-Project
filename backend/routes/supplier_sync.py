@@ -6765,6 +6765,8 @@ def bulk_update_product_series(data: BulkSeriesRequest):
         update_data = {
             "series": series,
             "range_name": series,
+            "series_name": series,
+            "range_assigned_by": "admin-quick-edit",
             "updated_at": datetime.now(timezone.utc),
         }
 
