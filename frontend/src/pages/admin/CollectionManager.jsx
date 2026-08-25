@@ -662,7 +662,7 @@ export default function CollectionManager({ embedded = false }) {
           img={adjustFor.hero_image || adjustFor.auto_hero_image}
           title={`Adjust card view — ${adjustFor.series_name}`}
           aspectClass="aspect-[3/4]"
-          hint="Drag to reposition • slide to zoom. The bright window is exactly how the card looks on the website."
+          hint="The bright rectangle is exactly what shows on the website card — drag it, or zoom in for a tighter crop."
           initial={adjustFor.hero_zoom || adjustFor.hero_pos_x != null ? { zoom: adjustFor.hero_zoom || 1, x: adjustFor.hero_pos_x ?? 50, y: adjustFor.hero_pos_y ?? 50 } : undefined}
           onClose={() => setAdjustFor(null)}
           onSave={(z, x, y) => handleSaveAdjust(adjustFor.series_name, z, x, y)}

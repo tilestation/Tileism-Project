@@ -1272,7 +1272,7 @@ export default function ProductImagesGridPanel({
         <ImageFramingModal
           img={framingFor.img}
           title={`Frame photo — ${framingFor.product.our_product_name || framingFor.product.product_name || framingFor.product.name}`}
-          hint="Drag to reposition • slide to zoom. This is exactly how the photo appears in the product page viewer."
+          hint="The bright rectangle is exactly what shows in the product page viewer — drag it, or zoom in for a tighter crop."
           initial={(framingFor.product.image_framing || []).find(f => f.url === framingFor.img)}
           onClose={() => setFramingFor(null)}
           onSave={(z, x, y) => handleSaveFraming(framingFor.product, framingFor.img, z, x, y)}
@@ -1284,7 +1284,7 @@ export default function ProductImagesGridPanel({
           img={collectionFrame.img}
           title={`Adjust collection card — ${collectionFrame.seriesName}`}
           aspectClass="aspect-[3/4]"
-          hint="Drag to reposition • slide to zoom. This is exactly how the collection card looks on the website."
+          hint="The bright rectangle is exactly what shows on the collection card — drag it, or zoom in for a tighter crop."
           onClose={() => setCollectionFrame(null)}
           onSave={handleSaveCollectionFraming}
         />
@@ -1317,43 +1317,80 @@ export default function ProductImagesGridPanel({
 const FRAME_DIMS = { 'aspect-square': [300, 300], 'aspect-[3/4]': [285, 380] };
 
 export function ImageFramingModal({ img, title, hint, aspectClass = 'aspect-square', initial, onClose, onSave }) {
-  const [zoom, setZoom] = useState(initial ? Number(initial.zoom) || 1 : 1);
+  const [zoom, setZoom] = useState(initial ? Math.min(3, Math.max(1, Number(initial.zoom) || 1)) : 1);
   const [posX, setPosX] = useState(initial?.x ?? 50);
   const [posY, setPosY] = useState(initial?.y ?? 50);
   const [saving, setSaving] = useState(false);
   const [nat, setNat] = useState(null); // natural image dimensions
+  const [stageW, setStageW] = useState(470);
+  const stageRef = React.useRef(null);
   const dragRef = React.useRef(null);
+  const STAGE_H = 300;
 
   const [frameW, frameH] = FRAME_DIMS[aspectClass] || FRAME_DIMS['aspect-square'];
-  const cover = nat ? Math.max(frameW / nat.w, frameH / nat.h) : 1;
-  const dispW = nat ? nat.w * cover * zoom : frameW;
-  const dispH = nat ? nat.h * cover * zoom : frameH;
-  const offX = ((frameW - dispW) * posX) / 100;
-  const offY = ((frameH - dispH) * posY) / 100;
 
-  const onMouseDown = (e) => {
-    e.preventDefault();
-    dragRef.current = {
-      startX: e.clientX, startY: e.clientY,
-      baseX: posX, baseY: posY,
-      denomX: frameW - dispW, denomY: frameH - dispH,
+  React.useLayoutEffect(() => {
+    if (stageRef.current) setStageW(stageRef.current.clientWidth);
+  }, []);
+
+  React.useEffect(() => {
+    const el = stageRef.current;
+    if (!el) return;
+    const onWheel = (e) => {
+      e.preventDefault();
+      setZoom((z) => Math.min(3, Math.max(1, Math.round((z + (e.deltaY < 0 ? 0.1 : -0.1)) * 20) / 20)));
     };
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
+  }, []);
+
+  // Full photo always fits inside the stage — never clipped
+  const pad = 20;
+  const fit = nat ? Math.min((stageW - pad) / nat.w, (STAGE_H - pad) / nat.h) : 0;
+  const dispW = nat ? nat.w * fit : 0;
+  const dispH = nat ? nat.h * fit : 0;
+  const imgLeft = (stageW - dispW) / 2;
+  const imgTop = (STAGE_H - dispH) / 2;
+
+  // Bright crop rectangle = exactly what customers see (cover-fit at current zoom)
+  const cover = nat ? Math.max(frameW / nat.w, frameH / nat.h) : 1;
+  const rectW = nat ? (frameW / (cover * zoom)) * fit : 0;
+  const rectH = nat ? (frameH / (cover * zoom)) * fit : 0;
+  const slackX = dispW - rectW;
+  const slackY = dispH - rectH;
+  const rectLeft = imgLeft + slackX * (posX / 100);
+  const rectTop = imgTop + slackY * (posY / 100);
+  const canPan = slackX > 1 || slackY > 1;
+
+  const clampPct = (v) => Math.min(100, Math.max(0, Math.round(v)));
+
+  const onPointerDown = (e) => {
+    if (!nat) return;
+    e.preventDefault();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    const box = stageRef.current.getBoundingClientRect();
+    const px = e.clientX - box.left;
+    const py = e.clientY - box.top;
+    let bx = posX, by = posY;
+    const inside = px >= rectLeft && px <= rectLeft + rectW && py >= rectTop && py <= rectTop + rectH;
+    if (!inside) {
+      // click anywhere on the photo → centre the crop there
+      if (slackX > 1) bx = clampPct(((px - imgLeft - rectW / 2) / slackX) * 100);
+      if (slackY > 1) by = clampPct(((py - imgTop - rectH / 2) / slackY) * 100);
+      setPosX(bx); setPosY(by);
+    }
+    dragRef.current = { startX: e.clientX, startY: e.clientY, baseX: bx, baseY: by };
   };
-  const onMouseMove = (e) => {
+  const onPointerMove = (e) => {
     const d = dragRef.current;
     if (!d) return;
-    const dx = e.clientX - d.startX;
-    const dy = e.clientY - d.startY;
-    // 1:1 dragging: the image follows the mouse exactly
-    if (Math.abs(d.denomX) > 1) setPosX(Math.min(100, Math.max(0, Math.round(d.baseX + (dx / d.denomX) * 100))));
-    if (Math.abs(d.denomY) > 1) setPosY(Math.min(100, Math.max(0, Math.round(d.baseY + (dy / d.denomY) * 100))));
+    if (slackX > 1) setPosX(clampPct(d.baseX + ((e.clientX - d.startX) / slackX) * 100));
+    if (slackY > 1) setPosY(clampPct(d.baseY + ((e.clientY - d.startY) / slackY) * 100));
   };
   const endDrag = () => { dragRef.current = null; };
 
-  const imgStyle = { width: dispW, height: dispH, left: offX, top: offY, maxWidth: 'none', maxHeight: 'none' };
-
   return (
-    <div className="fixed inset-0 bg-black/60 z-[70] flex items-center justify-center p-4" onMouseMove={onMouseMove} onMouseUp={endDrag} onMouseLeave={endDrag}>
+    <div className="fixed inset-0 bg-black/60 z-[70] flex items-center justify-center p-4">
       <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden" data-testid="image-framing-modal">
         <div className="flex items-center justify-between px-4 py-3 border-b">
           <h3 className="font-semibold text-gray-900 text-sm flex items-center gap-2 min-w-0">
@@ -1366,49 +1403,82 @@ export function ImageFramingModal({ img, title, hint, aspectClass = 'aspect-squa
         </div>
 
         <div className="p-4 space-y-3">
-          <p className="text-xs text-gray-500">{hint} The full photo is shown faded — the bright window is what customers see.</p>
+          <p className="text-xs text-gray-500">{hint}</p>
 
-          {/* Stage: full image ghosted, bright crop window on top */}
-          <div className="relative w-full overflow-hidden rounded-lg bg-gray-900/90 select-none" style={{ height: frameH + 90 }}>
-            <div
-              className="absolute cursor-move"
-              style={{ width: frameW, height: frameH, left: '50%', top: '50%', transform: 'translate(-50%, -50%)' }}
-              onMouseDown={onMouseDown}
-              data-testid="framing-preview"
-            >
-              {/* Ghost: entire photo, faded, extends beyond the frame */}
-              <img
-                src={img}
-                alt=""
-                draggable={false}
-                className="absolute opacity-30 pointer-events-none"
-                style={imgStyle}
-                onLoad={(e) => setNat({ w: e.target.naturalWidth, h: e.target.naturalHeight })}
+          {/* Stage: the WHOLE photo, with a bright crop rectangle over it */}
+          <div
+            ref={stageRef}
+            className={`relative w-full overflow-hidden rounded-lg bg-gray-900/90 select-none ${canPan ? 'cursor-move' : ''}`}
+            style={{ height: STAGE_H, touchAction: 'none' }}
+            onPointerDown={onPointerDown}
+            onPointerMove={onPointerMove}
+            onPointerUp={endDrag}
+            onPointerCancel={endDrag}
+            data-testid="framing-preview"
+          >
+            <img
+              src={img}
+              alt=""
+              draggable={false}
+              className="absolute pointer-events-none"
+              style={nat ? { width: dispW, height: dispH, left: imgLeft, top: imgTop, maxWidth: 'none', maxHeight: 'none' } : { opacity: 0 }}
+              onLoad={(e) => setNat({ w: e.target.naturalWidth, h: e.target.naturalHeight })}
+            />
+            {!nat && (
+              <div className="absolute inset-0 flex items-center justify-center text-white/60 text-xs">Loading photo…</div>
+            )}
+            {nat && (
+              <div
+                className="absolute ring-2 ring-amber-400 rounded-sm pointer-events-none"
+                style={{ left: rectLeft, top: rectTop, width: rectW, height: rectH, boxShadow: '0 0 0 9999px rgba(2,6,23,0.6)' }}
+                data-testid="framing-crop-rect"
               />
-              {/* Bright crop window — exactly what the website shows */}
-              <div className="absolute inset-0 overflow-hidden ring-2 ring-amber-400 rounded-sm">
-                <img src={img} alt="" draggable={false} className="absolute" style={imgStyle} />
-              </div>
-              <div className="absolute -bottom-7 left-1/2 -translate-x-1/2 bg-black/70 text-white text-[10px] px-2 py-0.5 rounded-full pointer-events-none whitespace-nowrap">
+            )}
+            {nat && (
+              <div className="absolute bottom-2 left-1/2 -translate-x-1/2 bg-black/70 text-white text-[10px] px-2 py-0.5 rounded-full pointer-events-none whitespace-nowrap">
                 {Math.round(zoom * 100)}% • {posX}%, {posY}%
               </div>
-            </div>
+            )}
           </div>
 
-          {/* Zoom slider */}
-          <div className="flex items-center gap-3">
-            <ZoomIn className="w-4 h-4 text-gray-400 flex-shrink-0" />
-            <input
-              type="range"
-              min="1"
-              max="3"
-              step="0.05"
-              value={zoom}
-              onChange={(e) => setZoom(Number(e.target.value))}
-              className="flex-1 accent-amber-600"
-              data-testid="framing-zoom"
-            />
-            <span className="text-xs font-mono text-gray-600 w-12 text-right">{Math.round(zoom * 100)}%</span>
+          <div className="flex items-center gap-4">
+            <div className="flex-1 min-w-0 space-y-1.5">
+              <div className="flex items-center gap-3">
+                <ZoomIn className="w-4 h-4 text-gray-400 flex-shrink-0" />
+                <input
+                  type="range"
+                  min="1"
+                  max="3"
+                  step="0.05"
+                  value={zoom}
+                  onChange={(e) => setZoom(Number(e.target.value))}
+                  className="flex-1 accent-amber-600"
+                  data-testid="framing-zoom"
+                />
+                <span className="text-xs font-mono text-gray-600 w-12 text-right">{Math.round(zoom * 100)}%</span>
+              </div>
+              {nat && !canPan ? (
+                <p className="text-[11px] text-amber-600" data-testid="framing-pan-hint">Zoom in (slider or mouse wheel) to choose which part of the photo shows.</p>
+              ) : (
+                <p className="text-[11px] text-gray-400">Drag the bright rectangle — or click anywhere on the photo — to choose the crop. Mouse wheel zooms.</p>
+              )}
+            </div>
+            <div className="flex-shrink-0 text-center">
+              <div
+                className="rounded-md overflow-hidden ring-1 ring-gray-300 bg-gray-100 mx-auto"
+                style={{ width: 84, height: Math.round(84 * frameH / frameW) }}
+                data-testid="framing-customer-preview"
+              >
+                <img
+                  src={img}
+                  alt=""
+                  draggable={false}
+                  className="w-full h-full object-cover"
+                  style={{ objectPosition: `${posX}% ${posY}%`, transform: `scale(${zoom})`, transformOrigin: `${posX}% ${posY}%` }}
+                />
+              </div>
+              <p className="text-[10px] text-gray-500 mt-1">Customer view</p>
+            </div>
           </div>
         </div>
 
