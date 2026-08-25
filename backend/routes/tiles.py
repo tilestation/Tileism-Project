@@ -1684,11 +1684,13 @@ async def _get_collection_products_impl(
     
     # Also fetch custom description from collection_settings (admin-set, takes priority)
     custom_description = ""
+    custom_description_source = ""
     variant_label = None
     try:
         coll_settings = db.collection_settings.find_one({"series_name": series_name})
         if coll_settings and coll_settings.get("custom_description"):
             custom_description = coll_settings["custom_description"]
+            custom_description_source = "settings"
         if coll_settings and coll_settings.get("variant_label"):
             variant_label = coll_settings["variant_label"]
     except Exception:
@@ -1714,6 +1716,7 @@ async def _get_collection_products_impl(
             )
             if product_with_desc and product_with_desc.get("description"):
                 custom_description = product_with_desc["description"]
+                custom_description_source = "product_fallback"
         except Exception:
             pass
     
@@ -1972,6 +1975,7 @@ async def _get_collection_products_impl(
         "series_name": series_name,
         "series_description": series_description,
         "custom_description": custom_description,
+        "custom_description_source": custom_description_source,
         "variant_label": variant_label,
         "products": serialized,
         "draft_count": draft_count,

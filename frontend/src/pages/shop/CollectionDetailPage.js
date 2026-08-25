@@ -410,19 +410,27 @@ const CollectionDetailPage = () => {
           });
         }
         
-        // Get custom description (admin-set) or series-level description
+        // Get custom description (admin-set) or series-level description.
+        // IMPORTANT: only an EXPLICIT admin collection description (saved in
+        // collection_settings) may override each product's own description.
+        // The backend also falls back to "one arbitrary product's description"
+        // — that must NEVER mask the selected variant's own text, otherwise
+        // regenerated descriptions look "stuck" on one size.
         setVariantLabelOverride(data.variant_label || '');
-        const desc = (data.custom_description && data.custom_description.trim()) 
-          ? data.custom_description 
-          : (data.series_description && data.series_description.trim()) 
-            ? data.series_description 
-            : '';
-        if (desc) {
-          setCollectionDescription(desc);
-          setDescriptionSource(
-            (data.custom_description && data.custom_description.trim()) ? 'custom' : 'series'
-          );
+        const customDesc = (data.custom_description || '').trim();
+        const seriesDesc = (data.series_description || '').trim();
+        const customSrc = data.custom_description_source || (customDesc ? 'settings' : '');
+        if (customDesc && customSrc === 'settings') {
+          setCollectionDescription(customDesc);
+          setDescriptionSource('custom');
+        } else if (seriesDesc) {
+          setCollectionDescription(seriesDesc);
+          setDescriptionSource('series');
+        } else if (customDesc) {
+          setCollectionDescription(customDesc);
+          setDescriptionSource('fallback');
         } else {
+          setCollectionDescription('');
           setDescriptionSource('auto');
         }
         
@@ -2232,10 +2240,12 @@ const CollectionDetailPage = () => {
             {/* On mobile, this moves below the Add to Cart button */}
             <div className="hidden lg:block">
             {selectedProduct && (() => {
-              // Priority: admin/series description → the product's own saved description
-              // (e.g. AI-generated per product) → auto-generated template
-              const savedDescription = (collectionDescription && collectionDescription.trim())
-                || (selectedProduct.description || '').trim();
+              // Priority: explicit admin collection description → the selected
+              // product's OWN description (per-variant or series-wide AI text)
+              // → any remaining collection-level text → auto-generated template
+              const savedDescription = (descriptionSource === 'custom' && collectionDescription.trim())
+                || (selectedProduct.description || '').trim()
+                || (collectionDescription || '').trim();
               if (savedDescription) {
                 // Split description into paragraphs for readability
                 // If it has explicit line breaks, use those. Otherwise, split every 2-3 sentences.
@@ -3547,8 +3557,9 @@ const CollectionDetailPage = () => {
             {/* Collection Description - MOBILE ONLY (shown after Add to Cart) */}
             <div className="lg:hidden">
             {selectedProduct && (() => {
-              const savedDescription = (collectionDescription && collectionDescription.trim())
-                || (selectedProduct.description || '').trim();
+              const savedDescription = (descriptionSource === 'custom' && collectionDescription.trim())
+                || (selectedProduct.description || '').trim()
+                || (collectionDescription || '').trim();
               if (savedDescription) {
                 const rawText = savedDescription;
                 let paragraphs;

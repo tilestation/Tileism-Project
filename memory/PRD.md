@@ -9411,3 +9411,12 @@ See `/app/memory/test_credentials.md`
 - Backend prompt hardened (products.py generate-series-description): never invent colours/sizes/ratings when not provided; never single out one size.
 - Verified in preview: endpoint returns unified series text; full modal run 2/2 success, 2 products updated, description saved (Premium Oak test draft).
 - USER MUST REDEPLOY.
+
+## Aug 25, 2026 (later 5) — "Descriptions stuck to one size" TRUE root cause fixed
+- DEEP DIAGNOSIS: PDP (CollectionDetailPage) displayed `collectionDescription` with TOP priority. When collection_settings.custom_description was empty, the backend collection endpoint (tiles.py ~1700) FELL BACK to ONE ARBITRARY product's description (find_one) and returned it AS custom_description → PDP showed that one product's (single-size) text for EVERY variant. Any regeneration (series or per-product) was invisible → user's "stuck to one size / no difference".
+- FIXES:
+  1. Backend (tiles.py collection detail): new `custom_description_source` field — "settings" (explicit admin) vs "product_fallback".
+  2. Frontend (CollectionDetailPage.js, both desktop+mobile blocks): display priority now = explicit admin collection description ('settings') > selectedProduct.description (per-variant/series AI text) > remaining collection-level text (series tracking or fallback) > auto template. Stale series_description_tracking text also no longer masks fresh product texts.
+- VERIFIED in preview: two different test descs on Opaco LP-1127/LP-1147 → PDP switches text with variant; admin override set → wins for all variants; cleanup done.
+- NOTE: live site checked — Cenere Stone NOW shows the unified collection text on tilestation.co.uk (user's series-scope run had already written correct data at 18:19 UTC; old display bug masked it in some states).
+- USER MUST REDEPLOY.
