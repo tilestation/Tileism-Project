@@ -193,6 +193,11 @@ const AssignColoursModal = ({ open, onOpenChange, selectedList = [], onSuccess, 
     e.dataTransfer.setData('text/sku', sku);
     e.dataTransfer.effectAllowed = 'move';
   };
+  // Drag a whole size-group header — carries every SKU in the group
+  const handleGroupDragStart = (e, skus) => {
+    e.dataTransfer.setData('text/skus', skus.join(','));
+    e.dataTransfer.effectAllowed = 'move';
+  };
   const handleDragOver = (e, bucketIdx) => {
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
@@ -200,17 +205,24 @@ const AssignColoursModal = ({ open, onOpenChange, selectedList = [], onSuccess, 
   };
   const handleDrop = (e, bucketIdx) => {
     e.preventDefault();
-    const sku = e.dataTransfer.getData('text/sku');
-    if (!sku) return;
+    const multi = e.dataTransfer.getData('text/skus');
+    const skus = multi ? multi.split(',').filter(Boolean) : [e.dataTransfer.getData('text/sku')].filter(Boolean);
+    if (skus.length === 0) return;
     if (bucketIdx === 'pool') {
       // Drop into unassigned pool — remove from any bucket
       setBuckets(prev => prev.map(b => {
         const next = new Set(b.skus);
-        next.delete(sku);
+        skus.forEach(sku => next.delete(sku));
         return { ...b, skus: next };
       }));
     } else {
-      moveSkuToBucket(sku, bucketIdx);
+      setBuckets(prev => prev.map((b, i) => {
+        const nextSkus = new Set(b.skus);
+        if (i === bucketIdx) skus.forEach(sku => nextSkus.add(sku));
+        else if (!isMulti) skus.forEach(sku => nextSkus.delete(sku));
+        return { ...b, skus: nextSkus };
+      }));
+      if (skus.length > 1) toast.success(`${skus.length} products dropped into "${buckets[bucketIdx]?.name}"`);
     }
     setDragOverBucket(null);
   };
@@ -228,6 +240,45 @@ const AssignColoursModal = ({ open, onOpenChange, selectedList = [], onSuccess, 
 
   // Pool shown on the left: in add/remove modes products never leave the pool
   const poolProducts = isMulti ? selectedList : unassignedProducts;
+
+  // ---- Group-by-size: assign a whole size group to a bucket in one click ----
+  const [groupBySize, setGroupBySize] = useState(true);
+  const sizeOf = (p) => {
+    const raw = p.size || (p.attributes && p.attributes.size) || '';
+    const s = String(raw).trim();
+    if (s) return s;
+    // fall back to a size pattern in the product name, e.g. 600x1200mm / 60x120cm
+    const nm = String(p.product_name || p.display_name || p.name || '');
+    const m = nm.match(/\d{2,4}\s*x\s*\d{2,4}(?:\s*x\s*\d{1,3})?\s*(?:mm|cm)?/i);
+    return m ? m[0].replace(/\s+/g, '') : 'No size';
+  };
+  const sizeGroups = useMemo(() => {
+    const map = new Map();
+    poolProducts.forEach(p => {
+      const key = sizeOf(p);
+      if (!map.has(key)) map.set(key, []);
+      map.get(key).push(p);
+    });
+    return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0], undefined, { numeric: true }));
+  }, [poolProducts]);
+  const showSizeGroups = groupBySize && sizeGroups.length > 1;
+
+  // One-click: move/add every product of one size into the chosen bucket
+  const assignGroupToBucket = (groupProducts, bucketName) => {
+    const target = buckets.find(b => b.name === bucketName);
+    const skus = groupProducts.map(p => p.sku || p.supplier_code).filter(s => s && !(target && target.skus.has(s)));
+    if (skus.length === 0) return;
+    setBuckets(prev => prev.map(b => {
+      if (b.name === bucketName) return { ...b, skus: new Set([...b.skus, ...skus]) };
+      if (!isMulti) {
+        const next = new Set(b.skus);
+        skus.forEach(sku => next.delete(sku));
+        return { ...b, skus: next };
+      }
+      return b;
+    }));
+    toast.success(`${isMulti ? 'Added' : 'Moved'} ${skus.length} product(s) to "${bucketName}"`);
+  };
 
   const addBucket = (presetName) => {
     const name = (presetName ?? newColour).trim();
@@ -368,6 +419,48 @@ const AssignColoursModal = ({ open, onOpenChange, selectedList = [], onSuccess, 
   );
 
   const productName = (p) => (p.product_name || p.display_name || p.our_product_name || p.name || p.sku || p.supplier_code);
+
+  const renderPoolRow = (p) => {
+    const sku = p.sku || p.supplier_code;
+    const memberships = isMulti ? buckets.filter(b => b.skus.has(sku)).map(b => b.name) : [];
+    const curArr = Array.isArray(p[arrayFieldFor(attr)]) && p[arrayFieldFor(attr)].length > 0 ? p[arrayFieldFor(attr)] : null;
+    const cur = curArr ? curArr.join(', ') : (p[attr.key] || null);
+    return (
+      <li
+        key={sku || p._id}
+        draggable
+        onDragStart={(e) => handleDragStart(e, sku)}
+        className="text-xs bg-gray-50 rounded px-2 py-1.5 flex items-center gap-2 cursor-grab active:cursor-grabbing hover:bg-gray-100 active:opacity-50"
+      >
+        <GripVertical className="w-3 h-3 text-gray-400 flex-shrink-0" />
+        <div className="min-w-0 flex-1">
+          <div className="font-medium text-gray-800 break-words leading-snug" title={productName(p)}>{productName(p)}</div>
+          <div className="text-[10px] text-gray-500 break-words">
+            {p.supplier} · {sku}
+            {cur && <span className="ml-1 text-orange-600">(current: {cur})</span>}
+            {memberships.length > 0 && (
+              <span className={`ml-1 font-medium ${saveMode === 'remove' ? 'text-red-600' : 'text-emerald-700'}`}>
+                [{saveMode === 'remove' ? 'remove' : 'in'}: {memberships.join(', ')}]
+              </span>
+            )}
+          </div>
+        </div>
+        {buckets.length > 0 && (
+          <select
+            className="text-[10px] border border-gray-300 rounded px-1 py-0.5 max-w-[95px] flex-shrink-0"
+            value=""
+            onChange={(e) => { if (e.target.value !== '') moveSkuToBucket(sku, Number(e.target.value)); }}
+            data-testid={`move-to-bucket-${sku}`}
+          >
+            <option value="">{isMulti ? (saveMode === 'remove' ? 'Strip via…' : 'Add to…') : 'Move to…'}</option>
+            {buckets.map((b, i) => (
+              <option key={i} value={i} disabled={isMulti && b.skus.has(sku)}>{b.name.length > 40 ? `${b.name.slice(0, 40)}…` : b.name}</option>
+            ))}
+          </select>
+        )}
+      </li>
+    );
+  };
 
   // Special tabs merged in from the old Specs / Filters modal
   const isSpecial = attr.key.startsWith('__');
@@ -685,6 +778,19 @@ const AssignColoursModal = ({ open, onOpenChange, selectedList = [], onSuccess, 
             <div className="flex items-center justify-between mb-2 gap-2">
               <h4 className="font-semibold text-sm text-gray-700">{isMulti ? 'All products' : 'Unassigned'}</h4>
               <div className="flex items-center gap-1.5">
+                {sizeGroups.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={() => setGroupBySize(v => !v)}
+                    className={`h-6 px-2 text-[11px] rounded border font-medium inline-flex items-center gap-1 transition-colors ${
+                      groupBySize ? 'bg-indigo-600 border-indigo-600 text-white' : 'bg-white border-gray-300 text-gray-500 hover:bg-gray-50'
+                    }`}
+                    title="Group products by size — assign a whole size to a bucket in one click"
+                    data-testid="group-by-size-toggle"
+                  >
+                    <Layers className="w-3 h-3" /> By size
+                  </button>
+                )}
                 {poolProducts.length > 0 && buckets.length > 0 && (
                   <select
                     value=""
@@ -707,53 +813,51 @@ const AssignColoursModal = ({ open, onOpenChange, selectedList = [], onSuccess, 
                 <CheckCircle className="w-5 h-5 mx-auto mb-1 text-emerald-500" />
                 All selected products are in a bucket
               </p>
-            ) : (
-              <ul className="space-y-1">
-                {poolProducts.map(p => {
-                  const sku = p.sku || p.supplier_code;
-                  const memberships = isMulti ? buckets.filter(b => b.skus.has(sku)).map(b => b.name) : [];
-                  const curArr = Array.isArray(p[arrayFieldFor(attr)]) && p[arrayFieldFor(attr)].length > 0 ? p[arrayFieldFor(attr)] : null;
-                  const cur = curArr ? curArr.join(', ') : (p[attr.key] || null);
+            ) : showSizeGroups ? (
+              <div className="space-y-3">
+                {sizeGroups.map(([size, items]) => {
+                  const groupSkus = items.map(p => p.sku || p.supplier_code).filter(Boolean);
                   return (
-                    <li
-                      key={sku || p._id}
-                      draggable
-                      onDragStart={(e) => handleDragStart(e, sku)}
-                      className="text-xs bg-gray-50 rounded px-2 py-1.5 flex items-center gap-2 cursor-grab active:cursor-grabbing hover:bg-gray-100 active:opacity-50"
-                    >
-                      <GripVertical className="w-3 h-3 text-gray-400 flex-shrink-0" />
-                      <div className="min-w-0 flex-1">
-                        <div className="font-medium text-gray-800 break-words leading-snug" title={productName(p)}>{productName(p)}</div>
-                        <div className="text-[10px] text-gray-500 break-words">
-                          {p.supplier} · {sku}
-                          {cur && <span className="ml-1 text-orange-600">(current: {cur})</span>}
-                          {memberships.length > 0 && (
-                            <span className={`ml-1 font-medium ${saveMode === 'remove' ? 'text-red-600' : 'text-emerald-700'}`}>
-                              [{saveMode === 'remove' ? 'remove' : 'in'}: {memberships.join(', ')}]
-                            </span>
-                          )}
+                    <div key={size} data-testid={`size-group-${size}`}>
+                      <div
+                        draggable
+                        onDragStart={(e) => handleGroupDragStart(e, groupSkus)}
+                        className="flex items-center justify-between gap-2 px-2 py-1 rounded bg-indigo-50 border border-indigo-100 mb-1 cursor-grab active:cursor-grabbing"
+                        title="Drag this whole size group into a bucket — or use the dropdown"
+                      >
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <GripVertical className="w-3 h-3 text-indigo-300 flex-shrink-0" />
+                          <span className="text-[11px] font-bold text-indigo-900 truncate">{size}</span>
+                          <Badge variant="outline" className="text-[10px] bg-white">{items.length}</Badge>
                         </div>
+                        {buckets.length > 0 && (
+                          <select
+                            className="h-5 text-[10px] border border-indigo-300 rounded px-1 bg-white text-indigo-800 font-medium max-w-[120px] flex-shrink-0"
+                            value=""
+                            onChange={(e) => { if (e.target.value) assignGroupToBucket(items, e.target.value); }}
+                            data-testid={`assign-group-${size}`}
+                          >
+                            <option value="">{isMulti ? 'Add group to…' : 'Move group to…'}</option>
+                            {buckets.map(b => (
+                              <option key={b.name} value={b.name}>{b.name.length > 35 ? `${b.name.slice(0, 35)}…` : b.name}</option>
+                            ))}
+                          </select>
+                        )}
                       </div>
-                      {buckets.length > 0 && (
-                        <select
-                          className="text-[10px] border border-gray-300 rounded px-1 py-0.5 max-w-[95px] flex-shrink-0"
-                          value=""
-                          onChange={(e) => { if (e.target.value !== '') moveSkuToBucket(sku, Number(e.target.value)); }}
-                          data-testid={`move-to-bucket-${sku}`}
-                        >
-                          <option value="">{isMulti ? (saveMode === 'remove' ? 'Strip via…' : 'Add to…') : 'Move to…'}</option>
-                          {buckets.map((b, i) => (
-                            <option key={i} value={i} disabled={isMulti && b.skus.has(sku)}>{b.name.length > 40 ? `${b.name.slice(0, 40)}…` : b.name}</option>
-                          ))}
-                        </select>
-                      )}
-                    </li>
+                      <ul className="space-y-1 pl-2">
+                        {items.map(renderPoolRow)}
+                      </ul>
+                    </div>
                   );
                 })}
+              </div>
+            ) : (
+              <ul className="space-y-1">
+                {poolProducts.map(renderPoolRow)}
               </ul>
             )}
             <p className="text-[10px] text-gray-400 text-center mt-2 italic">
-              💡 Drag products right → into a {attr.label.toLowerCase()} bucket
+              💡 Drag products {showSizeGroups ? '— or a whole size group —' : ''} right → into a {attr.label.toLowerCase()} bucket
             </p>
           </div>
 

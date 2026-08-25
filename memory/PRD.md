@@ -9420,3 +9420,15 @@ See `/app/memory/test_credentials.md`
 - VERIFIED in preview: two different test descs on Opaco LP-1127/LP-1147 → PDP switches text with variant; admin override set → wins for all variants; cleanup done.
 - NOTE: live site checked — Cenere Stone NOW shows the unified collection text on tilestation.co.uk (user's series-scope run had already written correct data at 18:19 UTC; old display bug masked it in some states).
 - USER MUST REDEPLOY.
+
+## Aug 25, 2026 (later 6) — Size-grouped sub-category assignment (Attribute Studio)
+- Request: assigning products to multiple sub-categories one-by-one too slow; wants size grouping with group-level assignment.
+- Built in AssignColoursModal.jsx (Attribute Studio, applies to ALL bucket attributes incl. Sub-Category):
+  - "By size" toggle in the product pool (default ON, shown when >1 size) — groups pool by p.size (falls back to size pattern parsed from name)
+  - Each size group header: count badge + "Add group to…" dropdown → one click adds/moves the entire size group into a bucket
+  - Group headers are DRAGGABLE — drop a whole size group onto any bucket (multi-sku dataTransfer 'text/skus'; handleDrop handles both)
+  - Pool row renderer extracted to renderPoolRow (used by grouped + flat views)
+  - Testids: group-by-size-toggle, size-group-{size}, assign-group-{size}
+- Save path unchanged (bulk-update-unified per bucket with verification).
+- Verified in preview: 1059 products grouped into size sections; "Add group to…" put all 3 30x30cm products into a bucket in one click. No DB writes (didn't save); test saved-value chip removed.
+- USER MUST REDEPLOY.
