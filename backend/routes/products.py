@@ -1161,6 +1161,8 @@ Writing Guidelines:
 10. Make it sound premium and aspirational
 11. Only recommend applications that genuinely match this tile's type and suitability
 12. IMPORTANT: Always spell the collection name exactly as "{series_name}" - never alter it
+13. NEVER invent details: if no colours are listed above, do not mention colour options; if no sizes are listed, do not mention size options; never fabricate slip ratings, thicknesses or materials
+14. Do NOT single out one specific size or colour as if it were the only product — this text represents the whole collection
 
 Write the unified collection description now:"""
 

@@ -9404,3 +9404,10 @@ See `/app/memory/test_credentials.md`
 - FIX (supplier_sync.py get_all_supplier_products): non-Canopy listing now uses an aggregation sort on effective series key (range_name > series > series_name, fallback own name, lowercased) then product_name then _id — same-series rows are always contiguous, so a series renders as ONE complete group. Canopy keeps its custom material/type ordering.
 - Verified in preview: all 6 rows contiguous in API page and admin UI shows "Ultra Tile Cleaning & Maintenance Series — 6 products" as one group.
 - USER MUST REDEPLOY (frontend fix from earlier today + this backend fix).
+
+## Aug 25, 2026 (later 4) — Series-wide AI descriptions
+- Complaint: bulk "AI Descriptions" wrote per-product texts naming one exact size (e.g. "Black 60x90x2cm"), shown on the PDP for every size variant.
+- FIX: BulkAIDescriptionsModal rewritten with a scope choice — default "Whole series (recommended)": groups selection by series, ONE call to the existing /api/products/generate-series-description (aggregates all colours/sizes), same description saved to ALL products in the series via bulk-update-unified (split sku/supplier_code saves). "Each product" keeps old per-product behaviour (modes only shown there). Series preview panel shows grouping before running. New testids: bulk-ai-scope-series/product, bulk-ai-series-preview.
+- Backend prompt hardened (products.py generate-series-description): never invent colours/sizes/ratings when not provided; never single out one size.
+- Verified in preview: endpoint returns unified series text; full modal run 2/2 success, 2 products updated, description saved (Premium Oak test draft).
+- USER MUST REDEPLOY.
