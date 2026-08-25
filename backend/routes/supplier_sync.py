@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 import logging
 import os
 import json
+import math
 import tempfile
 import re
 import uuid
@@ -7854,13 +7855,24 @@ def bulk_update_sale_pricing(data: BulkSalePricingRequest):
                         # Calculate was_price
                         if data.was_price_markup and cost_price > 0:
                             was_price = round(cost_price * (1 + data.was_price_markup / 100), 2)
+                            # Calculate now_price from discount
+                            if data.discount_percentage and was_price > 0:
+                                now_price = round(was_price * (1 - data.discount_percentage / 100), 2)
+                            else:
+                                now_price = current_price
+                        elif data.discount_percentage and 0 < data.discount_percentage < 100 and current_price > 0:
+                            # % mode: the current price IS the sale price. Derive the
+                            # crossed-out WAS anchor (price ÷ (1 − pct)) and round it
+                            # UP to the nearest .99 — e.g. £39.20 → £39.99 — so the
+                            # storefront shows a clean "WAS £39.99" strike-through.
+                            raw_was = current_price / (1 - data.discount_percentage / 100)
+                            was_price = round(math.floor(raw_was) + 0.99, 2)
+                            if was_price < raw_was:
+                                was_price = round(was_price + 1, 2)
+                            now_price = current_price
+                            discount_pct = round((was_price - current_price) / was_price * 100, 1)
                         else:
                             was_price = current_price
-
-                        # Calculate now_price from discount
-                        if data.discount_percentage and was_price > 0:
-                            now_price = round(was_price * (1 - data.discount_percentage / 100), 2)
-                        else:
                             now_price = current_price
                     
                     # Calculate profit

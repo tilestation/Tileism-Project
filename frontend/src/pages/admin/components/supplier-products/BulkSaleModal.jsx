@@ -189,17 +189,25 @@ const BulkSaleModal = ({
                       </p>
                     </div>
                   ) : (
-                    <div className="flex items-center gap-3">
-                      <Input
-                        type="number"
-                        step="0.1"
-                        value={form.discount_percentage}
-                        onChange={(e) => setForm(prev => ({ ...prev, discount_percentage: e.target.value }))}
-                        placeholder="Discount %"
-                        className="w-32"
-                        data-testid="bulk-discount-percent-input"
-                      />
-                      <span className="text-sm text-gray-500">% off current price</span>
+                    <div>
+                      <div className="flex items-center gap-3">
+                        <Input
+                          type="number"
+                          step="0.1"
+                          value={form.discount_percentage}
+                          onChange={(e) => setForm(prev => ({ ...prev, discount_percentage: e.target.value }))}
+                          placeholder="Discount %"
+                          className="w-32"
+                          data-testid="bulk-discount-percent-input"
+                        />
+                        <span className="text-sm text-gray-500">% off current price</span>
+                      </div>
+                      <p className="text-xs text-gray-500 mt-2 bg-red-50 border border-red-100 rounded-lg p-2">
+                        Your current price becomes the <b className="text-red-600">SALE price</b>. The WAS anchor is
+                        worked out from the % and rounded UP to the nearest .99 — e.g. a £34.99 price at 12% shows
+                        <span className="line-through mx-1">WAS £39.99</span>
+                        crossed out next to it.
+                      </p>
                     </div>
                   )}
                 </div>

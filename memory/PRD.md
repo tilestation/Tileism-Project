@@ -9443,3 +9443,10 @@ See `/app/memory/test_credentials.md`
 - GROUP_OPTIONS generalised: size / finish / color / range in one segmented control (only options with >1 distinct value show; clicking active turns grouping off). 'range' groups by getSeriesName(p); 'color' falls back to colors[0]. Testids: group-by-{size|finish|color|range}-toggle.
 - Verified in preview: all 4 toggles render; colour groups (aqua/beige/…) and range groups (series names) render with Add/Move-group-to and whole-group drag. No DB writes.
 - USER MUST REDEPLOY.
+
+## Aug 25, 2026 (later 9) — % sale mode now shows a rounded-up WAS anchor
+- Request: "% off current price" should show a WAS price, rounded UP to the closest .99 (e.g. raw £39.20 → WAS £39.99).
+- FIX (supplier_sync.py bulk-sale-pricing POST, % branch): current price stays as the SALE price; WAS = price ÷ (1 − pct/100) rounded UP to nearest .99 (math.floor(raw)+0.99, +1 if still below raw); discount_percentage re-derived from the real WAS→NOW gap so the chip matches. Legacy was_price_markup branch untouched. Mirrors to products+tiles already in place.
+- Modal hint added in BulkSaleModal.jsx % mode explaining the behaviour.
+- VERIFIED in preview: LP-1127 £46.99 at 12% → WAS £53.99 (raw 53.40 ceil-to-.99), 13% chip; storefront PDP shows "WAS £53.99m² NOW £46.99m² SAVE £7.00 13% OFF" crossed out. Test sale cleared after.
+- USER MUST REDEPLOY.
