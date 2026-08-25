@@ -383,8 +383,8 @@ const ManagerPageShell = ({
 
   // ---- Fetch ----
   const [allIndex, setAllIndex] = useState(() => new Map());
-  const fetchProducts = useCallback(async () => {
-    setLoading(true);
+  const fetchProducts = useCallback(async (silent) => {
+    if (silent !== true) setLoading(true);
     try {
       const res = await fetch(`${API_URL}/api/supplier-sync/products?limit=5000`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -1351,8 +1351,9 @@ const ManagerPageShell = ({
             toast.success(`Updated ${scopedList.length} product${scopedList.length !== 1 ? 's' : ''}`);
             setShowBulkSaleLabels(false);
             setBulkSaleForm({ labels: [], custom_labels: [], discount_percentage: '', was_price: '', saleMode: 'was', action: 'add', applyDiscount: false });
-            bulk.clearAll();
-            fetchProducts();
+            // Keep the selection and the user's place on the page — silent
+            // refresh (no full-page spinner) so nothing jumps or deselects.
+            fetchProducts(true);
           } catch (err) {
             toast.error(`Sale/Labels update failed: ${err.message}`);
           } finally {

@@ -2299,8 +2299,8 @@ export default function SupplierProducts() {
   };
 
   // Fetch products based on supplier filter
-  const fetchProducts = useCallback(async () => {
-    setLoading(true);
+  const fetchProducts = useCallback(async (silent) => {
+    if (silent !== true) setLoading(true);
     try {
       const skip = (currentPage - 1) * productsPerPage;
       let url = `${API_URL}/api/supplier-sync/products?skip=${skip}&limit=${productsPerPage}`;
@@ -7897,8 +7897,8 @@ export default function SupplierProducts() {
         action: 'add',
         applyDiscount: false
       });
-      setSelectedProducts(new Set());
-      fetchProducts();
+      // Keep the selection and stay on the same page — silent refresh only
+      fetchProducts(true);
     } catch (error) {
       console.error('Error in bulk sale/labels:', error);
       toast.error('Failed to update products');

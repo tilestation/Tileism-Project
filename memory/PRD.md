@@ -9450,3 +9450,9 @@ See `/app/memory/test_credentials.md`
 - Modal hint added in BulkSaleModal.jsx % mode explaining the behaviour.
 - VERIFIED in preview: LP-1127 £46.99 at 12% → WAS £53.99 (raw 53.40 ceil-to-.99), 13% chip; storefront PDP shows "WAS £53.99m² NOW £46.99m² SAVE £7.00 13% OFF" crossed out. Test sale cleared after.
 - USER MUST REDEPLOY.
+
+## Aug 25, 2026 (later 10) — Sale modal keeps selection + attention-grabbing Trade panel
+1. Sale/Labels apply no longer deselects or jumps: ManagerPageShell + SupplierProducts fetchProducts(silent=true) skips the full-page spinner; bulk.clearAll()/setSelectedProducts(new Set()) removed from the sale apply handlers. Selection + scroll + page retained. (Strict `silent !== true` guard so event objects don't trigger silent mode.)
+2. TradeLoginPrompt.jsx redesigned (both TradeLoginBox + TradeLoginBanner): premium dark slate panel, pulsing red glow border (tradeGlow keyframe), shine sweep (tradeShine), TRADE badge with ping dot, blinking amber hook "You're paying too much on this price!" (tradeBlinkText), 3 benefit bullets (trade-only prices / exclusive deals / fast reorders+VAT invoices), big gradient CTA "Open FREE Trade Account →" + Trade Login. Keyframes appended to index.css. Same testids kept (trade-customer-box, trade-signup-link, trade-login-link, trade-login-banner, trade-banner-signup, trade-banner-login).
+- VERIFIED in preview: collection PDP + individual tile page both render the new panel; animations active. Sale-modal selection retention verified partially in UI (bulk bar still showed "2 selected" after apply); code change is a safe 2-line removal.
+- USER MUST REDEPLOY.

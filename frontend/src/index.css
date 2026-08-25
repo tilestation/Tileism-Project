@@ -138,3 +138,17 @@ code {
 .pdp-img-fade {
   animation: pdpImgFade 0.28s ease;
 }
+
+/* Trade prompt attention animations */
+@keyframes tradeGlow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.55), 0 8px 24px -8px rgba(0,0,0,0.35); }
+  50% { box-shadow: 0 0 0 7px rgba(239, 68, 68, 0), 0 8px 24px -8px rgba(0,0,0,0.35); }
+}
+@keyframes tradeShine {
+  0% { transform: translateX(-130%) skewX(-18deg); }
+  60%, 100% { transform: translateX(260%) skewX(-18deg); }
+}
+@keyframes tradeBlinkText {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
