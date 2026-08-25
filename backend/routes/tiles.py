@@ -884,6 +884,7 @@ async def _get_tile_collections_impl(
             "room_lot_price": 1,
             "supplier_name": 1,
             "images": 1,
+            "image_framing": 1,
             "labels": 1,
             "size": 1,
             "tier_pricing_disabled": 1,
@@ -1453,6 +1454,26 @@ async def _get_tile_collections_impl(
                 collection["hero_pos_x"] = settings["hero_pos_x"]
             if settings.get("hero_pos_y") is not None:
                 collection["hero_pos_y"] = settings["hero_pos_y"]
+            
+            # No explicit card framing? Inherit framing set on the product photo itself
+            if not settings.get("hero_zoom") and settings.get("hero_pos_x") is None:
+                hero_url = collection.get("hero_image")
+                if isinstance(hero_url, dict):
+                    hero_url = hero_url.get("url")
+                grp_f = series_groups.get(series_name)
+                if grp_f and hero_url:
+                    inherited = None
+                    for p in grp_f["products"]:
+                        for fr in (p.get("image_framing") or []):
+                            if isinstance(fr, dict) and fr.get("url") == hero_url:
+                                inherited = fr
+                                break
+                        if inherited:
+                            break
+                    if inherited:
+                        collection["hero_zoom"] = inherited.get("zoom", 1)
+                        collection["hero_pos_x"] = inherited.get("x", 50)
+                        collection["hero_pos_y"] = inherited.get("y", 50)
             
             # Apply other custom settings
             collection["is_featured"] = settings.get("is_featured", False)

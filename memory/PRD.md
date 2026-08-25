@@ -9380,3 +9380,10 @@ See `/app/memory/test_credentials.md`
 - Storefront math re-derived and confirmed identical: editor offset == object-position X%/Y% + scale(zoom) with transform-origin X% Y% (both card wrap-scale and PDP img-scale variants).
 - Verified in preview: full-photo stage (600x1200 img fully visible), wheel 100→160%, rect drag, click-jump, save → API 1.6/0/100 → storefront card DOM scale(1.8)/origin test earlier; product set-image-framing round-trip via curl. All test framing reset after (Opaco, Dolomite Onyx, preview product 4405, prod ZZZ Framing Diag doc nulled).
 - USER MUST REDEPLOY (GitHub → Railway) to get the new editor on tilestation.co.uk. Their 2 existing product framings (tiny zooms) can simply be re-framed with the new tool.
+
+## Aug 25, 2026 (later) — "Still not reflecting on Collection page" root-caused + card auto-inherit built
+- User HAD redeployed (live bundle main.01d1cf93.js contains the new crop-tool editor — verified framing-crop-rect in live chunk 7444.2d13758b). Their PG Epoxy product framing got reset to defaults (old dead-drag editor save before redeploy).
+- REAL GAP: per-image product framing (image_framing) only applied to the PDP viewer; collection listing cards (/tiles) use hero framing from collection_settings — user framed product photos and expected the CARDS to change.
+- FIX (backend /app/backend/routes/tiles.py, /api/tiles/collections): when a collection has NO explicit card framing, the card now INHERITS the framing of the product photo that IS the card's hero image (matched by URL across all series products). Explicit "Adjust card view" framing still overrides. Also added "image_framing" to the products projection (line ~886) — it was missing, which silently blocked the lookup.
+- Verified in preview: set-image-framing 1.7/15/85 on Opaco product photo → /api/tiles/collections returns hero_zoom 1.7/15/85 for Opaco card → reset → returns None. Storefront hero_zoom rendering DOM-verified earlier same day.
+- USER MUST REDEPLOY BACKEND (GitHub → Railway) for the inherit to go live.
