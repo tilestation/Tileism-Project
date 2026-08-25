@@ -241,27 +241,36 @@ const AssignColoursModal = ({ open, onOpenChange, selectedList = [], onSuccess, 
   // Pool shown on the left: in add/remove modes products never leave the pool
   const poolProducts = isMulti ? selectedList : unassignedProducts;
 
-  // ---- Group-by-size: assign a whole size group to a bucket in one click ----
-  const [groupBySize, setGroupBySize] = useState(true);
-  const sizeOf = (p) => {
-    const raw = p.size || (p.attributes && p.attributes.size) || '';
+  // ---- Group the pool by size or finish: assign a whole group to a bucket in one click ----
+  const [groupField, setGroupField] = useState('size');   // 'size' | 'finish' | null
+  const valueOf = (p, field) => {
+    const raw = p[field] || (p.attributes && p.attributes[field]) || '';
     const s = String(raw).trim();
     if (s) return s;
-    // fall back to a size pattern in the product name, e.g. 600x1200mm / 60x120cm
-    const nm = String(p.product_name || p.display_name || p.name || '');
-    const m = nm.match(/\d{2,4}\s*x\s*\d{2,4}(?:\s*x\s*\d{1,3})?\s*(?:mm|cm)?/i);
-    return m ? m[0].replace(/\s+/g, '') : 'No size';
+    if (field === 'size') {
+      // fall back to a size pattern in the product name, e.g. 600x1200mm / 60x120cm
+      const nm = String(p.product_name || p.display_name || p.name || '');
+      const m = nm.match(/\d{2,4}\s*x\s*\d{2,4}(?:\s*x\s*\d{1,3})?\s*(?:mm|cm)?/i);
+      if (m) return m[0].replace(/\s+/g, '');
+    }
+    return `No ${field}`;
   };
-  const sizeGroups = useMemo(() => {
+  const groupsFor = (field) => {
     const map = new Map();
     poolProducts.forEach(p => {
-      const key = sizeOf(p);
+      const key = valueOf(p, field);
       if (!map.has(key)) map.set(key, []);
       map.get(key).push(p);
     });
     return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0], undefined, { numeric: true }));
-  }, [poolProducts]);
-  const showSizeGroups = groupBySize && sizeGroups.length > 1;
+  };
+  const sizeGroupCount = useMemo(() => new Set(poolProducts.map(p => valueOf(p, 'size'))).size, [poolProducts]);
+  const finishGroupCount = useMemo(() => new Set(poolProducts.map(p => valueOf(p, 'finish'))).size, [poolProducts]);
+  const poolGroups = useMemo(
+    () => (groupField ? groupsFor(groupField) : []),
+    [poolProducts, groupField]   // eslint-disable-line react-hooks/exhaustive-deps
+  );
+  const showPoolGroups = groupField && poolGroups.length > 1;
 
   // One-click: move/add every product of one size into the chosen bucket
   const assignGroupToBucket = (groupProducts, bucketName) => {
@@ -778,18 +787,35 @@ const AssignColoursModal = ({ open, onOpenChange, selectedList = [], onSuccess, 
             <div className="flex items-center justify-between mb-2 gap-2">
               <h4 className="font-semibold text-sm text-gray-700">{isMulti ? 'All products' : 'Unassigned'}</h4>
               <div className="flex items-center gap-1.5">
-                {sizeGroups.length > 1 && (
-                  <button
-                    type="button"
-                    onClick={() => setGroupBySize(v => !v)}
-                    className={`h-6 px-2 text-[11px] rounded border font-medium inline-flex items-center gap-1 transition-colors ${
-                      groupBySize ? 'bg-indigo-600 border-indigo-600 text-white' : 'bg-white border-gray-300 text-gray-500 hover:bg-gray-50'
-                    }`}
-                    title="Group products by size — assign a whole size to a bucket in one click"
-                    data-testid="group-by-size-toggle"
-                  >
-                    <Layers className="w-3 h-3" /> By size
-                  </button>
+                {(sizeGroupCount > 1 || finishGroupCount > 1) && (
+                  <div className="inline-flex rounded border border-gray-300 overflow-hidden">
+                    {sizeGroupCount > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => setGroupField(v => (v === 'size' ? null : 'size'))}
+                        className={`h-6 px-2 text-[11px] font-medium inline-flex items-center gap-1 transition-colors ${
+                          groupField === 'size' ? 'bg-indigo-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'
+                        }`}
+                        title="Group products by size — assign a whole size to a bucket in one click"
+                        data-testid="group-by-size-toggle"
+                      >
+                        <Layers className="w-3 h-3" /> By size
+                      </button>
+                    )}
+                    {finishGroupCount > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => setGroupField(v => (v === 'finish' ? null : 'finish'))}
+                        className={`h-6 px-2 text-[11px] font-medium inline-flex items-center gap-1 transition-colors ${
+                          groupField === 'finish' ? 'bg-indigo-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'
+                        }`}
+                        title="Group products by finish — assign a whole finish to a bucket in one click"
+                        data-testid="group-by-finish-toggle"
+                      >
+                        <Layers className="w-3 h-3" /> By finish
+                      </button>
+                    )}
+                  </div>
                 )}
                 {poolProducts.length > 0 && buckets.length > 0 && (
                   <select
@@ -813,21 +839,21 @@ const AssignColoursModal = ({ open, onOpenChange, selectedList = [], onSuccess, 
                 <CheckCircle className="w-5 h-5 mx-auto mb-1 text-emerald-500" />
                 All selected products are in a bucket
               </p>
-            ) : showSizeGroups ? (
+            ) : showPoolGroups ? (
               <div className="space-y-3">
-                {sizeGroups.map(([size, items]) => {
+                {poolGroups.map(([groupKey, items]) => {
                   const groupSkus = items.map(p => p.sku || p.supplier_code).filter(Boolean);
                   return (
-                    <div key={size} data-testid={`size-group-${size}`}>
+                    <div key={groupKey} data-testid={`size-group-${groupKey}`}>
                       <div
                         draggable
                         onDragStart={(e) => handleGroupDragStart(e, groupSkus)}
                         className="flex items-center justify-between gap-2 px-2 py-1 rounded bg-indigo-50 border border-indigo-100 mb-1 cursor-grab active:cursor-grabbing"
-                        title="Drag this whole size group into a bucket — or use the dropdown"
+                        title={`Drag this whole ${groupField} group into a bucket — or use the dropdown`}
                       >
                         <div className="flex items-center gap-1.5 min-w-0">
                           <GripVertical className="w-3 h-3 text-indigo-300 flex-shrink-0" />
-                          <span className="text-[11px] font-bold text-indigo-900 truncate">{size}</span>
+                          <span className="text-[11px] font-bold text-indigo-900 truncate">{groupKey}</span>
                           <Badge variant="outline" className="text-[10px] bg-white">{items.length}</Badge>
                         </div>
                         {buckets.length > 0 && (
@@ -835,7 +861,7 @@ const AssignColoursModal = ({ open, onOpenChange, selectedList = [], onSuccess, 
                             className="h-5 text-[10px] border border-indigo-300 rounded px-1 bg-white text-indigo-800 font-medium max-w-[120px] flex-shrink-0"
                             value=""
                             onChange={(e) => { if (e.target.value) assignGroupToBucket(items, e.target.value); }}
-                            data-testid={`assign-group-${size}`}
+                            data-testid={`assign-group-${groupKey}`}
                           >
                             <option value="">{isMulti ? 'Add group to…' : 'Move group to…'}</option>
                             {buckets.map(b => (
@@ -857,7 +883,7 @@ const AssignColoursModal = ({ open, onOpenChange, selectedList = [], onSuccess, 
               </ul>
             )}
             <p className="text-[10px] text-gray-400 text-center mt-2 italic">
-              💡 Drag products {showSizeGroups ? '— or a whole size group —' : ''} right → into a {attr.label.toLowerCase()} bucket
+              💡 Drag products {showPoolGroups ? `— or a whole ${groupField} group —` : ''} right → into a {attr.label.toLowerCase()} bucket
             </p>
           </div>
 

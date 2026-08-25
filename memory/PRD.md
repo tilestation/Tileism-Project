@@ -9432,3 +9432,9 @@ See `/app/memory/test_credentials.md`
 - Save path unchanged (bulk-update-unified per bucket with verification).
 - Verified in preview: 1059 products grouped into size sections; "Add group to…" put all 3 30x30cm products into a bucket in one click. No DB writes (didn't save); test saved-value chip removed.
 - USER MUST REDEPLOY.
+
+## Aug 25, 2026 (later 7) — "By finish" pool grouping added alongside "By size"
+- Attribute Studio pool grouping generalised: groupField state ('size' | 'finish' | null), one segmented control with two mutually-exclusive buttons (By size / By finish) — clicking the active one turns grouping off. Buttons only shown when >1 distinct value exists. Same group headers, "Add/Move group to…" dropdown, whole-group drag. Default remains By size.
+- Testids: group-by-size-toggle, group-by-finish-toggle (group headers keep size-group-{key} prefix).
+- Verified in preview: Finish tab → By finish → groups (Matt, Polished, Golden Brushed UV Oiled…) → "Move group to…" moved group into bucket. No DB writes; test chip removed.
+- USER MUST REDEPLOY.
