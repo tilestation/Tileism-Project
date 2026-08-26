@@ -29,65 +29,17 @@ db = client[DB_NAME]
 
 def normalize_size(size_str: str) -> str:
     """
-    Normalize a tile size string to a consistent format.
-    
-    Tile sizes can be in:
-    - Centimeters: 30x60, 60x60, 80x160 (common in tile industry)
-    - Millimeters: 300x600, 600x600, 800x1600
-    
-    Logic:
-    - If dimensions are < 200, assume centimeters
-    - If dimensions are >= 200, assume millimeters
-    
-    Returns format: WIDTHxHEIGHTcm or WIDTHxHEIGHTmm
+    Normalize a tile size string to a consistent mm format (matches the
+    sizes_mm migration — product sizes are stored in mm).
+    "30x60" / "30x60cm" -> "300x600mm"; "100x100mm" stays "100x100mm".
+    Values that don't look like sizes pass through with spacing tidied.
     """
     if not size_str:
         return ""
-    
-    # Convert to lowercase and strip whitespace
-    s = size_str.lower().strip()
-    
-    # Remove all spaces
-    s = re.sub(r'\s+', '', s)
-    
-    # Extract numbers and dimensions
-    # Pattern matches: number(x)number(x)number(optional mm/cm)
-    pattern = r'^(\d+)[x×](\d+)(?:[x×](\d+))?(?:mm|cm)?$'
-    match = re.match(pattern, s)
-    
-    if match:
-        width = int(match.group(1))
-        height = int(match.group(2))
-        thickness = match.group(3)
-        
-        # Determine unit based on size values
-        # Tiles are typically sold in cm (30x60, 60x60, 80x80)
-        # or mm (300x600, 600x600, 800x800)
-        # If the largest dimension is < 200, it's likely cm
-        max_dim = max(width, height)
-        unit = "cm" if max_dim < 200 else "mm"
-        
-        if thickness:
-            return f"{width}x{height}x{thickness}{unit}"
-        else:
-            return f"{width}x{height}{unit}"
-    
-    # If pattern doesn't match, just lowercase and standardize x separator
+    from services.size_migration import normalize_size_to_mm
+    s = re.sub(r'\s+', '', str(size_str).lower().strip())
     s = re.sub(r'[×X]', 'x', s)
-    
-    # Try to determine unit from existing suffix or guess
-    if s.endswith('cm') or s.endswith('mm'):
-        return s
-    
-    # If it looks like a size, try to determine the unit
-    numbers = re.findall(r'\d+', s)
-    if len(numbers) >= 2:
-        max_dim = max(int(numbers[0]), int(numbers[1]))
-        unit = "cm" if max_dim < 200 else "mm"
-        # Replace any trailing unit and add correct one
-        s = re.sub(r'(mm|cm)?$', unit, s)
-    
-    return s
+    return normalize_size_to_mm(s)
 
 
 def format_size_label(size_str: str) -> str:

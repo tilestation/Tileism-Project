@@ -2,7 +2,7 @@
 // Data stays in mm — this is a render-time helper only.
 export const sizeToCm = (size) => {
   if (!size || typeof size !== 'string') return '';
-  const m = size.trim().match(/^(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)(?:\s*x\s*(\d+(?:\.\d+)?))?mm$/i);
+  const m = size.trim().match(/^(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)(?:\s*x\s*(\d+(?:\.\d+)?))?\s*mm$/i);
   if (!m) return '';
   const toCm = (v) => {
     const n = parseFloat(v) / 10;

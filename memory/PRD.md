@@ -9465,3 +9465,14 @@ See `/app/memory/test_credentials.md`
 - RAN in preview via startup: 1254+398+3 docs converted, 1655 backups. Verified: collections + /api/tiles/filters now 100% mm (0 cm, 0 unit-less). Unit tests on 20 formats pass.
 - PRODUCTION: migration AUTO-RUNS on next Railway deploy at backend startup (no manual step).
 - NOTE: product display NAMES still contain original cm text (deliberately untouched — slugs/SEO). Offer name rewrite separately if user asks.
+
+## Aug 26, 2026 (later) — Storefront size filter empty after mm migration — FIXED
+- SYMPTOM (live): after mm migration, sidebar Size filter showed only 2 options — the filter VALUES list (db.filter_types, slug 'size', 176 legacy values) still held old cm strings; counts→0→hidden.
+- FIXES:
+  1. filters.py normalize_size() rewritten to delegate to services.size_migration.normalize_size_to_mm (respects explicit mm/cm units — old code wrongly rewrote small mm sizes like 100x100mm→100x100cm).
+  2. server.py startup: after product migration, one-shot Size filter rebuild from live products (flag sizes_mm_filters_v1) via rebuild_filters_from_live_products(preserve_manual=False).
+  3. frontend sizeFormat.js sizeToCm regex tolerates spaced labels ("300 x 600 mm").
+  4. IMMEDIATE PROD FIX applied by calling prod's existing POST /api/filters/rebuild-from-live-products?filter_name=Size&preserve_manual=false → 33 values rebuilt, 32 with live counts (verified via prod for-page API). Remaining edge: small-mm sizes (100x100mm) normalized wrongly by OLD prod code → self-heals on next deploy via the startup rebuild.
+- Preview verified: 64 size values, all 64 count>0.
+- NOTE: size filter includes materials sizes (10kg/1l) — pre-existing trait, admin can exclude in Filters admin.
+- USER SHOULD REDEPLOY for the full self-heal + fixed normalize code.

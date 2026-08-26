@@ -9725,6 +9725,24 @@ async def startup_scheduler():
                 print(f"[size-mm] migration ran: {res['collections']}", flush=True)
         except Exception:
             logger.exception("[size-mm] startup migration failed")
+        # Then rebuild the Size filter values from live products so the
+        # storefront sidebar options match the mm product sizes (one-shot).
+        try:
+            from routes.tiles import get_tile_db
+            sdb = get_tile_db()
+            if not sdb.migration_flags.find_one({"key": "sizes_mm_filters_v1"}):
+                from routes.filters import rebuild_filters_from_live_products
+                fres = await rebuild_filters_from_live_products(filter_name="Size", preserve_manual=False)
+                sdb.migration_flags.update_one(
+                    {"key": "sizes_mm_filters_v1"},
+                    {"$set": {"key": "sizes_mm_filters_v1",
+                              "done_at": datetime.now(timezone.utc).isoformat(),
+                              "message": fres.get("message")}},
+                    upsert=True,
+                )
+                print(f"[size-mm] filter rebuild: {fres.get('message')}", flush=True)
+        except Exception:
+            logger.exception("[size-mm] size filter rebuild failed")
     asyncio.create_task(_migrate_sizes_mm())
 
     # 5 Jun 2026 — purge stale noindex flags on safe-listed paths so
