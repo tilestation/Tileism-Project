@@ -9506,3 +9506,20 @@ See `/app/memory/test_credentials.md`
 - No UI, no buttons — pure publish-time hook. Group Cleanup banner remains the safety net for anything ambiguous.
 - VERIFIED preview via curl (TEST-GUARD-1..4, cleaned up after): "Engineered Wood Plank"→flooring, "Adhesive 20kg"→materials via publish-to-website; "Heating Cable 990W"→underfloor-heating via bulk-update-unified auto_publish; admin-set 'bathroom' preserved on republish; signal-less item defaults to tiles. Dual-collection writes confirmed.
 - USER MUST REDEPLOY.
+
+## Aug 26, 2026 (later 6) — CLEARANCE PLATFORM (storefront takeover + Hub + PDF leaflets)
+- User wish: bold/super-attractive Clearance section ("boring" before), big banner w/ WHILE STOCKS LAST, big yellow badge w/ bleeding red fire effect, PDF leaflet of multiple products (poster 4-up + compact 8-up toggle, NO QR), Hub inside existing Managers workspace, super-easy marking incl. drafts not yet on production.
+- Design: design_agent guidelines at /app/design_guidelines.json (fire_red #FF2A00, brand_yellow #e5d918, void_black #0A0A0A, fireglow/badgeglow keyframes).
+- BACKEND NEW /app/backend/routes/clearance.py (registered in routes/__init__.py):
+  - GET /api/clearance/products — hub list (supplier_products+tiles union by Clearance label; nulls inverted was/pct when was<=price)
+  - POST /api/clearance/mark {product_ids,on} — JWT-admin protected; toggles 'Clearance' label on supplier_products+products+tiles; ON auto-publishes drafts missing from tiles via publish_supplier_products_to_website
+  - POST /api/clearance/leaflet/generate {skus,layout poster|compact} — JWT-admin; reportlab A4 PDF (black CLEARANCE header w/ yellow+red shadow, WHILE STOCKS LAST strip, product cards w/ image dl, WAS strike/NOW red/%OFF chip/stock note, yellow footer). Skus restricted to clearance-labelled, cap 60.
+  - PUT /api/clearance/leaflet/publish — JWT-admin; saves singleton db.clearance_leaflet
+  - GET /api/clearance/leaflet/config + GET /api/clearance/leaflet/current.pdf (PUBLIC, regenerates fresh each download, falls back to all clearance products)
+- tiles.py: collections endpoint + _impl accept `clearance=true` param (labels regex ^clearance$ i), added to cache key.
+- STOREFRONT (TileCollectionsPage.js): /tiles?clearance=true renders black hero takeover (marquee bg 0.05 opacity, fire-glow CLEARANCE wordmark, WHILE STOCKS LAST ribbon, red PDF download button data-testid=clearance-pdf-download); normal hero slideshow hidden in clearance mode; card badge = big yellow/red fire clearance-badge (SALE stack badge suppressed when CLEARANCE present); 'Clearance' results header + search placeholder; CLEARANCE added to fallback nav. index.css: fireglow/badgeglow/clearanceMarquee keyframes + prefers-reduced-motion.
+- Old /clearance route RETIRED → Navigate redirect to /tiles?clearance=true (ClearancePage.js left in repo, unrouted).
+- ADMIN: /admin/clearance = ClearanceHub.jsx (Clearance tab added to ManagerTabsBar, yellow theme). Hub: product table (WAS/NOW/%OFF/stock/Live/Manager-link/Remove), Leaflet Builder bar (layout toggle, Download PDF, Publish to Website), empty-state instructions. Marking: yellow 'Clearance' button in ManagerBulkBar (bar-mark-clearance, all Managers via ManagerPageShell) + SupplierProducts selection bar (sp-mark-clearance-btn); both send Bearer token from localStorage.
+- TESTED: testing_agent iteration_240 — backend 10/10 pytest (suite kept at /app/backend/tests/test_clearance_platform.py), frontend 100%. Post-test fixes applied & verified via curl: JWT auth on mark/generate/publish (403 unauth), module-level Mongo client, no DB_NAME fallback, inverted-WAS guard, sku validation + 60 cap, dead code, badge de-clutter, marquee opacity.
+- NOTE: 2 real clearance items (LP-6683/LP-6690 Dolomite Onyx) have inverted was_price (23.99 < 30) — WAS/%OFF auto-hidden for them; admin should fix pricing via Sale modal.
+- USER MUST REDEPLOY.

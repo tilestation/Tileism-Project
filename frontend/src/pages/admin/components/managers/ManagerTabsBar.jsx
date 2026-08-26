@@ -34,6 +34,7 @@ const HARDCODED_TABS = [
   { key: 'bathroom',  label: 'Bathroom',       icon: Bath,     to: '/admin/bathroom',          theme: 'cyan' },
   { key: 'underfloor_heating',       label: 'Underfloor Heat', icon: Flame,   to: '/admin/underfloor-heating', theme: 'red' },
   { key: 'tools',     label: 'Tools',          icon: Wrench,   to: '/admin/tools',             theme: 'slate' },
+  { key: 'clearance', label: 'Clearance',      icon: Flame,    to: '/admin/clearance',         theme: 'yellow' },
 ];
 
 const THEME_ACTIVE = {
@@ -47,6 +48,7 @@ const THEME_ACTIVE = {
   emerald:'border-emerald-600 text-emerald-700 bg-emerald-50',
   purple: 'border-purple-600 text-purple-700 bg-purple-50',
   pink:   'border-pink-600   text-pink-700   bg-pink-50',
+  yellow: 'border-yellow-500 text-yellow-800 bg-yellow-50',
 };
 
 const ManagerTabsBar = ({

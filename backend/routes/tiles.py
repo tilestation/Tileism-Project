@@ -552,6 +552,7 @@ async def get_tile_collections(
     room_suitability: Optional[str] = None,
     in_stock: Optional[str] = None,
     sale: Optional[str] = None,
+    clearance: Optional[str] = None,
     group: Optional[str] = None,
     search: Optional[str] = None,
     page: int = 1,
@@ -586,6 +587,7 @@ async def get_tile_collections(
         supplier=supplier, category=category, filter=filter, size=size,
         color=color, finish=finish, material=material,
         room_suitability=room_suitability, in_stock=in_stock, sale=sale,
+        clearance=clearance,
         group=group, search=search, page=page, limit=limit,
     )
     # Long-lived "last known good" backup — survives the short 60s
@@ -624,7 +626,8 @@ async def get_tile_collections(
     try:
         result = await _get_tile_collections_impl(
             request, supplier, category, filter, size, color, finish,
-            material, room_suitability, in_stock, sale, group, search, page, limit
+            material, room_suitability, in_stock, sale, group, search, page, limit,
+            clearance=clearance
         )
         # Only cache successful, NON-EMPTY responses. Empty results get
         # `no-store` headers so a transient blip can never poison the CDN
@@ -672,7 +675,8 @@ async def get_tile_collections(
 
 async def _get_tile_collections_impl(
     request, supplier, category, filter, size, color, finish,
-    material, room_suitability, in_stock, sale, group, search, page, limit
+    material, room_suitability, in_stock, sale, group, search, page, limit,
+    clearance=None
 ):
     try:
         import business_config.business_rules as br
@@ -869,6 +873,10 @@ async def _get_tile_collections_impl(
     # Standalone sale parameter (from SALE tab)
     if sale and sale.lower() == "true":
         match_query["labels"] = {"$in": ["SALE", "Sale", "sale"]}
+    
+    # Standalone clearance parameter (Clearance takeover page)
+    if clearance and clearance.lower() == "true":
+        match_query["labels"] = {"$regex": "^clearance$", "$options": "i"}
     
     # Get all products with minimal fields for grouping
     products = list(db.tiles.find(

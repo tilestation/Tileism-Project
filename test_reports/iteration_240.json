@@ -1,0 +1,44 @@
+{
+  "summary": "Full e2e test of the new Clearance Platform. Backend: 10/10 pytest cases pass (hub list, mark on/off incl. auto-publish of a draft-only SKU, poster/compact PDF generation + 400 on invalid layout, leaflet publish/config/current.pdf round-trip, collections ?clearance=true filter + full-catalogue regression). Frontend: storefront takeover at /shop/tiles?clearance=true (hero, WHILE STOCKS LAST ribbon, PDF <a> to /api/clearance/leaflet/current.pdf, 2 CLEARANCE badges, 'Clearance' results header, normal slideshow suppressed), /clearance -> /tiles?clearance=true redirect, plain /shop/tiles regression OK. Admin: /admin/clearance hub renders all builder controls + both product rows, layout toggles work, Publish to Website shows success toast and persists config; Clearance buttons present & enabled in /admin/tiles bulk bar and /admin/supplier-products selection bar (not clicked on real data). All TEST-CLR-* docs deleted from supplier_products/tiles/products and leaflet config restored to skus [LP-6683, LP-6690] layout poster (verified in Mongo).",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "POST /api/clearance/mark, PUT /api/clearance/leaflet/publish", "issue": "No authentication/authorisation dependency. Tests marked/unmarked products and published the site leaflet with a plain unauthenticated request. POST /mark also auto-publishes draft supplier products to the live storefront, so an anonymous caller can push products live and change site content.", "priority": "HIGH"}
+    ],
+    "minor": [
+      {"endpoint": "/api/clearance/* (all)", "issue": "get_db() creates a brand-new pymongo MongoClient on every request (connection/socket churn). Use a module-level client or the shared app DB handle."},
+      {"endpoint": "/api/clearance/* (all)", "issue": "os.environ.get('DB_NAME', 'tile_station') hardcodes a DB fallback; per env rules it should fail fast when DB_NAME is missing."},
+      {"endpoint": "POST /api/clearance/leaflet/generate, PUT /leaflet/publish", "issue": "Explicit skus are not validated against the Clearance label, so any SKU (including non-clearance) can be put on the public leaflet. Also no cap on product count and _fetch_image does a blocking requests.get (6s timeout) per unique image, so large selections can be very slow."},
+      {"endpoint": "POST /api/clearance/mark", "issue": "Dead code: 'marked': r1.modified_count if data.on else r1.modified_count (identical branches)."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Admin Clearance Hub (/admin/clearance)", "issues": ["Rows for LP-6683/LP-6690 show a struck-through WAS £23.99 next to NOW £30.00/m2 plus a '25%' OFF chip. Given the inverted source data the hub should hide WAS and the % chip when was_price <= price (the PDF already hides WAS) — as rendered it reads as a price increase."]},
+      {"screen": "Storefront /shop/tiles?clearance=true", "issues": ["Product card stacks three overlapping promos in the top-left/right (red 'Up to 20% Off' circle, yellow CLEARANCE badge, red 'Sale' ribbon) — crowded, the CLEARANCE badge nearly touches the discount circle.", "Hero marquee ('WHILE STOCKS LAST' / 'FINAL REDUCTIONS' scrolling text) runs directly behind the big CLEARANCE wordmark, reducing legibility of both; consider lowering marquee opacity or offsetting it."]},
+      {"screen": "Admin /admin/supplier-products", "issues": ["sp-mark-clearance-btn lives in the static 'N products selected' info bar (y~1000) rather than the sticky floating bulk bar that stays on screen while scrolling the product table — users may not find it. Present and enabled, so functional, but placement is inconsistent with the Managers' floating bar."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_clearance_platform.py", "/app/test_reports/pytest/clearance_240.xml"],
+  "action_items": [
+    "Add admin auth dependency to POST /api/clearance/mark and PUT /api/clearance/leaflet/publish (currently fully open).",
+    "Hide WAS price and % OFF chip in ClearanceHub rows (and storefront badge) when was_price <= price.",
+    "Reuse a single Mongo client in routes/clearance.py instead of MongoClient() per request; drop the 'tile_station' DB_NAME fallback.",
+    "Consider restricting leaflet skus to Clearance-labelled products and capping leaflet size.",
+    "Optional polish: move sp-mark-clearance-btn into the sticky bulk bar; de-clutter storefront card badges and hero marquee overlap."
+  ],
+  "critical_code_review_comments": [
+    "routes/clearance.py mark/publish endpoints are unauthenticated write endpoints that mutate live storefront content — highest priority fix.",
+    "MongoClient instantiated per request in get_db() will leak connections under load.",
+    "mark() 'marked' field ternary has identical branches — dead code."
+  ],
+  "updated_files": ["/app/backend/tests/test_clearance_platform.py"],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "seed_data_creation": "Temporary supplier_products draft TEST-CLR-1 created to exercise the auto-publish path; deleted from supplier_products, tiles and products afterwards (verified 0 docs remaining).",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "test_credentials": "admin@test.com / admin123 (worked at /admin/login)",
+  "context_for_next_testing_agent": "Regression suite: /app/backend/tests/test_clearance_platform.py (run with -p no:randomly). Collections clearance filter asserts exactly 1 collection (Dolomite Onyx, 2 products) — update if more products are put on clearance. Collections endpoint has a 60s cache; the test adds a _cb cache-buster param. Leaflet config must stay skus [LP-6683, LP-6690] / poster. All clearance frontend testids verified: clearance-hero, clearance-pdf-download, badge-clearance, clearance-hub-page, leaflet-builder-bar, leaflet-layout-poster/compact, leaflet-download-btn, leaflet-publish-btn, hub-row-LP-6683/6690, manager-bulk-bar, bar-mark-clearance, sp-mark-clearance-btn.",
+  "rca_of_the_issue": "No functional defects found. The auth gap is a missing dependency on the two write endpoints in routes/clearance.py (verified by calling both from an unauthenticated requests.Session and getting 200 + DB mutation). The Hub WAS/%OFF display issue stems from _hub_item returning was_price unconditionally while the PDF renderer guards with 'if was and float(was) > price'; the same guard is missing in the React row."
+}

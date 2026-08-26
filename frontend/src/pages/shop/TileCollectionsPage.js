@@ -20,7 +20,8 @@ import {
   ShoppingCart,
   Scissors,
   X,
-  Filter
+  Filter,
+  Download
 } from 'lucide-react';
 import { ShopHeader, ShopFooter } from './TileStationHome';
 import SeoHead from '../../components/seo/SeoHead';
@@ -484,12 +485,15 @@ export const CollectionCard = ({
   // Normalize labels to uppercase for matching
   const normalizedLabels = labels.map(l => l.toUpperCase());
   
-  // Build badges from labels and flags
+  // Build badges from labels and flags — CLEARANCE supersedes SALE (avoids badge pile-up)
   const badges = [];
-  if (is_sale && discountPct > 0) badges.push({ text: 'SALE', type: 'sale' });
-  else if (is_sale) badges.push({ text: 'SALE', type: 'sale' }); // No discount calculable, still show SALE badge
-  else if (isTrade && discountPct > 0) badges.push({ text: 'TRADE', type: 'trade' });
-  if (normalizedLabels.includes('CLEARANCE')) badges.push({ text: 'CLEARANCE', type: 'clearance' });
+  const isClearance = normalizedLabels.includes('CLEARANCE');
+  if (!isClearance) {
+    if (is_sale && discountPct > 0) badges.push({ text: 'SALE', type: 'sale' });
+    else if (is_sale) badges.push({ text: 'SALE', type: 'sale' }); // No discount calculable, still show SALE badge
+    else if (isTrade && discountPct > 0) badges.push({ text: 'TRADE', type: 'trade' });
+  }
+  if (isClearance) badges.push({ text: 'CLEARANCE', type: 'clearance' });
   if (is_new) badges.push({ text: 'NEW', type: 'new' });
   if (has_new_sizes) badges.push({ text: 'NEW SIZES', type: 'new' });
   if (normalizedLabels.includes('BEST SELLER') || normalizedLabels.includes('BESTSELLER') || review_count > 50) badges.push({ text: 'BEST SELLER', type: 'bestseller' });
@@ -515,13 +519,14 @@ export const CollectionCard = ({
       );
     }
     if (badge.type === 'clearance') {
-      // Orange/red clearance badge
+      // BIG yellow badge with bleeding red fire glow
       return (
-        <div key={idx} className="flex flex-col items-center justify-center px-3 py-1.5 rounded shadow-lg shadow-orange-500/30" 
-          style={{background: 'linear-gradient(135deg, #ea580c 0%, #c2410c 100%)', border: '1px solid #fb923c'}}
+        <div
+          key={idx}
+          className="clearance-badge flex items-center justify-center px-3.5 py-2 rounded-sm bg-[#e5d918] border-2 border-[#FF2A00] rotate-2"
           data-testid={`badge-${badge.type}`}
         >
-          <span className="text-[10px] font-black text-white leading-tight tracking-widest uppercase">Clearance</span>
+          <span className="clearance-fire-text text-sm font-black text-[#FF2A00] leading-none tracking-widest uppercase">Clearance</span>
         </div>
       );
     }
@@ -1161,6 +1166,7 @@ const TileCollectionsPage = () => {
     group: searchParams.get('group') || '',
     filter: searchParams.get('filter') || '',
     sale: searchParams.get('sale') || '',
+    clearance: searchParams.get('clearance') || '',
     collection: searchParams.get('collection') || '',
     search: searchParams.get('search') || '',
     style: searchParams.get('style') || '',
@@ -1295,6 +1301,7 @@ const TileCollectionsPage = () => {
             { id: '2', label: 'WALL TILES', link_url: '/tiles?category=wall-tiles', is_active: true },
             { id: '3', label: 'FLOOR TILES', link_url: '/tiles?category=floor-tiles', is_active: true },
             { id: '4', label: 'SALE', link_url: '/tiles?sale=true', is_active: true, highlight: true },
+            { id: '5', label: 'CLEARANCE', link_url: '/tiles?clearance=true', is_active: true, highlight: true },
           ]);
         }
       } catch (e) {
@@ -1309,7 +1316,7 @@ const TileCollectionsPage = () => {
   // would silently filter "Floor Tiles" and feel broken.
   useEffect(() => {
     setInPageQuery('');
-  }, [currentFilters.category, currentFilters.group, currentFilters.sale]);
+  }, [currentFilters.category, currentFilters.group, currentFilters.sale, currentFilters.clearance]);
 
   // Fetch collections — with auto-retry + graceful failure. We retry up
   // to 3 times with exponential backoff if the backend returns 503 or
@@ -1328,6 +1335,7 @@ const TileCollectionsPage = () => {
       params.append('group', currentFilters.group || 'tiles');
       if (effectiveSearch) params.append('search', effectiveSearch);
       if (currentFilters.sale) params.append('sale', currentFilters.sale);
+      if (currentFilters.clearance) params.append('clearance', currentFilters.clearance);
       params.append('page', currentFilters.page);
       params.append('limit', 24);
       Object.entries(activeFilters).forEach(([key, values]) => {
@@ -1504,8 +1512,8 @@ const TileCollectionsPage = () => {
         </section>
       )}
 
-      {/* Enhanced Hero Banner with Slideshow */}
-      {!currentFilters.search && heroSlides.length > 0 && (
+      {/* Enhanced Hero Banner with Slideshow — hidden in Clearance takeover mode */}
+      {!currentFilters.search && currentFilters.clearance !== 'true' && heroSlides.length > 0 && (
       <section className="relative h-[50vh] md:h-[70vh] overflow-hidden">
         {/* Background Images */}
         {heroSlides.map((slide, index) => (
@@ -1699,7 +1707,7 @@ const TileCollectionsPage = () => {
       </nav>
 
       {/* Sale Banner — only visible when SALE tab is active */}
-      {currentFilters.sale === 'true' && (
+      {currentFilters.sale === 'true' && currentFilters.clearance !== 'true' && (
         <div className="bg-gradient-to-r from-red-600 to-red-700 text-white py-2" data-testid="sale-banner">
           <div className="container mx-auto px-4 flex items-center justify-center gap-3">
             <span className="text-sm font-bold tracking-widest uppercase">Sale</span>
@@ -1707,6 +1715,50 @@ const TileCollectionsPage = () => {
             <span className="text-sm font-medium">Up to 70% Off Selected Lines</span>
           </div>
         </div>
+      )}
+
+      {/* CLEARANCE Hero Takeover — full-width, high-energy */}
+      {currentFilters.clearance === 'true' && (
+        <section data-testid="clearance-hero" className="relative overflow-hidden bg-[#0A0A0A] text-white">
+          <div className="absolute inset-0 flex flex-col justify-between py-4 opacity-[0.05] pointer-events-none select-none" aria-hidden="true">
+            <div className="clearance-marquee whitespace-nowrap font-black uppercase text-7xl tracking-tighter text-white">
+              {Array(8).fill('WHILE STOCKS LAST · ').join('')}
+            </div>
+            <div className="clearance-marquee-reverse whitespace-nowrap font-black uppercase text-7xl tracking-tighter text-[#FF2A00]">
+              {Array(8).fill('FINAL REDUCTIONS · ').join('')}
+            </div>
+          </div>
+          <div className="relative z-10 max-w-7xl mx-auto px-6 py-10 md:py-16 flex flex-col md:flex-row items-start md:items-center justify-between gap-8">
+            <div>
+              <div className="inline-flex items-center gap-2 bg-[#FF2A00] text-white text-xs md:text-sm font-black uppercase tracking-[0.3em] px-4 py-1.5 -rotate-1 mb-5" data-testid="clearance-hero-ribbon">
+                <Flame className="w-4 h-4" strokeWidth={3} />
+                While stocks last
+              </div>
+              <h1 className="text-6xl sm:text-7xl md:text-8xl font-black tracking-tighter uppercase leading-none">
+                <span className="text-[#e5d918] clearance-fire-text">Clearance</span>
+              </h1>
+              <p className="mt-4 text-xl sm:text-2xl font-bold text-[#e5d918]">
+                Massive reductions — once they're gone, they're gone.
+              </p>
+              <p className="mt-2 text-xs sm:text-sm text-gray-400 font-semibold uppercase tracking-[0.25em]">
+                Final reductions · No restocks · First come, first served
+              </p>
+            </div>
+            <div className="flex flex-col gap-3 shrink-0">
+              <a
+                href={`${API_URL}/api/clearance/leaflet/current.pdf`}
+                target="_blank"
+                rel="noopener noreferrer"
+                data-testid="clearance-pdf-download"
+                className="inline-flex items-center justify-center gap-2 px-8 py-5 bg-[#FF2A00] text-white font-black text-lg md:text-xl uppercase tracking-wider hover:bg-[#e5d918] hover:text-[#0A0A0A] transition-colors duration-300 shadow-[0_0_20px_rgba(255,42,0,0.5)] hover:shadow-[0_0_25px_rgba(229,217,24,0.6)]"
+              >
+                <Download className="w-6 h-6" strokeWidth={3} />
+                Clearance Leaflet (PDF)
+              </a>
+              <span className="text-center text-[11px] text-gray-500 uppercase tracking-widest">Print it · Share it · Beat the rush</span>
+            </div>
+          </div>
+        </section>
       )}
 
       {/* Main Content */}
@@ -1758,7 +1810,9 @@ const TileCollectionsPage = () => {
             <div className="mb-8 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
               <div className="flex-shrink-0">
                 <h2 className="text-2xl font-light text-gray-900 mb-1">
-                  {currentFilters.sale === 'true'
+                  {currentFilters.clearance === 'true'
+                    ? 'Clearance'
+                    : currentFilters.sale === 'true'
                     ? 'Sale'
                     : currentFilters.category 
                       ? currentFilters.category.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase())
@@ -1791,7 +1845,9 @@ const TileCollectionsPage = () => {
                     type="search"
                     value={inPageQuery}
                     onChange={(e) => setInPageQuery(e.target.value)}
-                    placeholder={`Search ${(currentFilters.sale === 'true'
+                    placeholder={`Search ${(currentFilters.clearance === 'true'
+                      ? 'Clearance'
+                      : currentFilters.sale === 'true'
                       ? 'Sale'
                       : currentFilters.category
                         ? currentFilters.category.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase())

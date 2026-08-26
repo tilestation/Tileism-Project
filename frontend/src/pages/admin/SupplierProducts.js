@@ -8563,6 +8563,40 @@ export default function SupplierProducts() {
               <div className="flex items-center gap-2">
                 <Button
                   size="sm"
+                  className="bg-[#e5d918] text-red-700 hover:bg-yellow-300 font-black uppercase"
+                  data-testid="sp-mark-clearance-btn"
+                  title="Mark selected as CLEARANCE — instantly live on the storefront Clearance page + Clearance Hub (auto-publishes drafts)"
+                  onClick={async () => {
+                    const ids = [...selectedProducts].map(k => {
+                      const [supplier, sku] = String(k).split('|||');
+                      return { sku, supplier };
+                    }).filter(x => x.sku);
+                    if (ids.length === 0) return;
+                    try {
+                      const res = await fetch(`${API_URL}/api/clearance/mark`, {
+                        method: 'POST',
+                        headers: {
+                          'Content-Type': 'application/json',
+                          ...(localStorage.getItem('token') ? { Authorization: `Bearer ${localStorage.getItem('token')}` } : {}),
+                        },
+                        body: JSON.stringify({ product_ids: ids, on: true }),
+                      });
+                      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                      const r = await res.json();
+                      toast.success(`${ids.length} product${ids.length !== 1 ? 's' : ''} marked CLEARANCE${r.auto_published ? ` · ${r.auto_published} auto-published` : ''}`, {
+                        description: 'Now live on the storefront Clearance page — manage in the Clearance tab',
+                      });
+                      fetchProducts(true);
+                    } catch (err) {
+                      toast.error(`Clearance failed: ${err.message}`);
+                    }
+                  }}
+                >
+                  <Zap className="w-3 h-3 mr-1" />
+                  Clearance
+                </Button>
+                <Button
+                  size="sm"
                   variant="outline"
                   className="text-blue-600 border-blue-300 hover:bg-blue-100"
                   onClick={() => setSelectedProducts(new Set(filteredProducts.map(p => getProductKey(p))))}

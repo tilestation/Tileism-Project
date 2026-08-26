@@ -1260,6 +1260,31 @@ const ManagerPageShell = ({
         onOpenAIDescriptions={() => setShowAIDescriptions(true)}
         onOpenBulkImages={() => setShowBulkImages(true)}
         onOpenSaleLabels={() => setShowBulkSaleLabels(true)}
+        onMarkClearance={async () => {
+          const list = bulk.getSelectedList();
+          if (list.length === 0) return;
+          try {
+            const res = await fetch(`${API_URL}/api/clearance/mark`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                ...(localStorage.getItem('token') ? { Authorization: `Bearer ${localStorage.getItem('token')}` } : {}),
+              },
+              body: JSON.stringify({
+                product_ids: list.map(p => ({ sku: p.sku || p.supplier_code, supplier: p.supplier })),
+                on: true,
+              }),
+            });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const r = await res.json();
+            toast.success(`${list.length} product${list.length !== 1 ? 's' : ''} marked CLEARANCE${r.auto_published ? ` · ${r.auto_published} auto-published` : ''}`, {
+              description: 'Now live on the storefront Clearance page — manage in the Clearance tab',
+            });
+            fetchProducts(true);
+          } catch (err) {
+            toast.error(`Clearance failed: ${err.message}`);
+          }
+        }}
         onOpenReassignCategory={bulk.bulkAssignCategory}
         onOpenShopTabs={() => setShowShopTabs(true)}
         onOpenPreview={() => setShowBulkPreview(true)}

@@ -104,6 +104,7 @@ const SupplierProducts = React.lazy(() => import('./pages/admin/SupplierProducts
 const ProductNameSanity = React.lazy(() => import('./pages/admin/ProductNameSanity'));
 const MaterialsManager = React.lazy(() => import('./pages/admin/MaterialsManager'));
 const TilesManager = React.lazy(() => import('./pages/admin/TilesManager'));
+const ClearanceHub = React.lazy(() => import('./pages/admin/ClearanceHub'));
 const FlooringManager = React.lazy(() => import('./pages/admin/FlooringManager'));
 const BathroomManager = React.lazy(() => import('./pages/admin/BathroomManager'));
 const UnderfloorHeatingManager = React.lazy(() => import('./pages/admin/UnderfloorHeatingManager'));
@@ -204,7 +205,7 @@ const OrderTracking = React.lazy(() => import('./pages/shop/OrderTracking').then
 import TileStationHome from './pages/shop/TileStationHome';
 const ContactPage = React.lazy(() => import('./pages/shop/ContactPage'));
 const InfoPage = React.lazy(() => import('./pages/shop/InfoPage'));
-const ClearancePage = React.lazy(() => import('./pages/shop/ClearancePage'));
+const ClearancePage = React.lazy(() => import('./pages/shop/ClearancePage')); // retired — /clearance now redirects to /tiles?clearance=true
 const NewCollectionPage = React.lazy(() => import('./pages/shop/NewCollectionPage'));
 const TileListingPage = React.lazy(() => import('./pages/shop/TileListingPage'));
 const TileCollectionsPage = React.lazy(() => import('./pages/shop/TileCollectionsPage'));
@@ -588,6 +589,7 @@ function App() {
             <Route path="product-name-sanity" element={<ProductNameSanity />} />
             <Route path="materials" element={<MaterialsManager />} />
             <Route path="tiles" element={<TilesManager />} />
+            <Route path="clearance" element={<ClearanceHub />} />
             <Route path="flooring" element={<FlooringManager />} />
             <Route path="bathroom" element={<BathroomManager />} />
             <Route path="underfloor-heating" element={<UnderfloorHeatingManager />} />
@@ -1041,17 +1043,7 @@ function App() {
             </TileCartProvider>
             </MaintenanceGuard>
           } />
-          <Route path="/clearance" element={
-            <MaintenanceGuard>
-            <TileCartProvider>
-              <WishlistProvider>
-                <SampleCartProvider>
-                  <ClearancePage />
-                </SampleCartProvider>
-              </WishlistProvider>
-            </TileCartProvider>
-            </MaintenanceGuard>
-          } />
+          <Route path="/clearance" element={<Navigate to="/tiles?clearance=true" replace />} />
           <Route path="/new-collection" element={
             <MaintenanceGuard>
             <TileCartProvider>

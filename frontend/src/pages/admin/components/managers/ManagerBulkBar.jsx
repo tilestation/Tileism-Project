@@ -9,7 +9,7 @@
 import React, { useState } from 'react';
 import { Button } from '../../../../components/ui/button';
 import {
-  X, CheckSquare, Trash2, Archive, Globe, Eye, EyeOff, Percent, Palette, Layers, Grid3X3, Package, PoundSterling, Sparkles, Image as ImageIcon, Tag, Sliders, LayoutGrid, Star, ChevronUp, ListFilter, GripVertical, ExternalLink, Truck,
+  X, CheckSquare, Trash2, Archive, Globe, Eye, EyeOff, Percent, Palette, Layers, Grid3X3, Package, PoundSterling, Sparkles, Image as ImageIcon, Tag, Sliders, LayoutGrid, Star, ChevronUp, ListFilter, GripVertical, ExternalLink, Truck, Flame,
 } from 'lucide-react';
 import { productDisplayName } from './useManagerBulk';
 
@@ -44,6 +44,7 @@ const ManagerBulkBar = ({
   onOpenShopTabs,
   onOpenPreview,
   onOpenSaleLabels,
+  onMarkClearance,
   saving = false,
   themeColor = 'orange',
   hideActions = [],
@@ -327,6 +328,19 @@ const ManagerBulkBar = ({
         >
           <Tag className="w-3.5 h-3.5" />
           Sale / Labels
+        </button>
+      )}
+      {!hidden.has('clearance') && onMarkClearance && (
+        <button
+          type="button"
+          onClick={onMarkClearance}
+          disabled={saving}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#e5d918] text-red-700 hover:bg-yellow-300 transition text-[13px] font-black uppercase tracking-wide"
+          data-testid="bar-mark-clearance"
+          title="Mark selected as CLEARANCE — instantly live on the storefront Clearance page + Clearance Hub (auto-publishes drafts)"
+        >
+          <Flame className="w-3.5 h-3.5" strokeWidth={3} />
+          Clearance
         </button>
       )}
       {/* Landing page preview — see it before publishing */}

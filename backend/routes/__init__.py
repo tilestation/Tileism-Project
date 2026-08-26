@@ -124,6 +124,7 @@ from .seo_recrawl import router as seo_recrawl_router
 from .indexnow import router as indexnow_router
 from .data_hygiene import router as data_hygiene_router
 from .group_cleanup import router as group_cleanup_router
+from .clearance import router as clearance_router
 from .invoice_bulk_pdf import router as invoice_bulk_pdf_router
 from .staff_photos import router as staff_photos_router
 from .staff_monthly_report import router as staff_monthly_report_router
@@ -245,6 +246,7 @@ api_router.include_router(seo_recrawl_router)
 api_router.include_router(indexnow_router)
 api_router.include_router(data_hygiene_router)
 api_router.include_router(group_cleanup_router)
+api_router.include_router(clearance_router)
 api_router.include_router(invoice_bulk_pdf_router)
 api_router.include_router(staff_photos_router)
 api_router.include_router(staff_monthly_report_router)

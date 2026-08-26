@@ -1,89 +1,82 @@
 {
-  "theme": "Light",
-  "archetype": "1 (Organic & Earthy)",
-  "brand": "Tile Station (UK Tile & Stone Retailer)",
-  "design_vision": "Tile Mountain inspired but elevated. Earthy, tactile, premium yet accessible. We move away from generic SaaS white cards and use a 'Textured Sand' background with crisp, 1px bordered containers. The Order Summary acts as a 'Modern Receipt' \u2013 slightly darker sand background to anchor the right side, giving it physical weight. Lively micro-interactions add delight to mundane tasks.",
-  "colors": {
-    "background_page": "bg-[#F9F8F6]",
-    "background_card": "bg-white",
-    "background_summary": "bg-[#F3F0EB]",
-    "background_upsell": "bg-[#FFF9E5]",
-    "brand_yellow": "bg-[#FFD100]",
-    "text_primary": "text-[#1C1917]",
-    "text_secondary": "text-[#78716C]",
-    "text_accent": "text-[#635BFF]",
-    "border_light": "border-[#E7E5E4]",
-    "border_dark": "border-[#1C1917]",
-    "cta_stripe": "bg-[#635BFF] hover:bg-[#5249E5] text-white shadow-md shadow-[#635BFF]/20",
-    "cta_secondary": "bg-[#1C1917] hover:bg-[#292524] text-white"
-  },
-  "typography": {
-    "headings": "font-outfit tracking-tight text-[#1C1917]",
-    "body": "font-dmsans text-[#44403C]",
-    "microcopy": "font-medium text-[11px] tracking-[0.05em] uppercase text-[#78716C]",
-    "metrics": "font-mono text-sm tracking-tight text-[#44403C]"
-  },
-  "layout_architecture": {
-    "container": "max-w-[1200px] mx-auto px-4 sm:px-6 lg:px-8 py-12 lg:py-20",
-    "grid": "grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-16 items-start",
-    "main_content": "lg:col-span-7 space-y-8",
-    "sidebar": "lg:col-span-5 sticky top-24"
-  },
-  "components_blueprint": {
-    "OrderSummary": {
-      "wrapper": "bg-[#F3F0EB] rounded-2xl p-6 lg:p-8 border border-[#E7E5E4] flex flex-col gap-6",
-      "header": "flex items-center justify-between border-b border-[#E7E5E4]/60 pb-4",
-      "item_row": "flex gap-4 py-4 group relative",
-      "item_image_wrapper": "h-20 w-20 rounded-xl bg-white border border-[#E7E5E4] overflow-hidden shrink-0 flex items-center justify-center",
-      "item_details": "flex-1 flex flex-col justify-between",
-      "item_title": "text-base font-semibold text-[#1C1917] leading-snug pr-8",
-      "item_metrics": "font-mono text-xs text-[#78716C] bg-white/60 px-2 py-1 rounded-md inline-flex w-fit mt-1 border border-[#E7E5E4]",
-      "item_price_row": "flex items-center justify-between mt-3",
-      "stepper_control": "flex items-center gap-3 bg-white border border-[#E7E5E4] rounded-lg px-2 py-1 shadow-sm",
-      "stepper_btn": "text-[#78716C] hover:text-[#1C1917] transition-colors active:scale-95",
-      "totals_section": "space-y-3 pt-6 border-t border-dashed border-[#D6D3D1]",
-      "total_row": "flex justify-between text-[#44403C] text-sm",
-      "grand_total_row": "flex justify-between items-end text-[#1C1917] font-bold text-2xl pt-2",
-      "trust_badges_container": "flex items-center justify-center gap-3 pt-4 opacity-70 grayscale",
-      "stripe_pay_btn": "w-full bg-[#635BFF] hover:bg-[#5249E5] text-white py-4 rounded-xl font-medium text-lg flex items-center justify-center gap-2 transition-all hover:shadow-lg hover:-translate-y-0.5"
+  "theme": {
+    "colors": {
+      "brand_yellow": "#e5d918",
+      "fire_red": "#FF2A00",
+      "fire_orange": "#FF8C00",
+      "void_black": "#0A0A0A",
+      "alert_bg": "#1A1A1A"
     },
-    "Progress_and_Upsells": {
-      "free_delivery_card": "bg-white border border-[#E7E5E4] rounded-2xl p-5 mb-6 shadow-sm",
-      "free_delivery_text": "text-sm font-medium text-[#1C1917] flex items-center justify-between mb-3",
-      "progress_track": "h-2 w-full bg-[#F3F0EB] rounded-full overflow-hidden",
-      "progress_fill": "h-full bg-[#16A34A] rounded-full relative",
-      "tier_upsell_pill": "w-full mt-4 bg-[#FFF9E5] border border-[#FFD100]/30 rounded-xl p-4 flex items-start gap-3 cursor-pointer hover:bg-[#FFF4CC] transition-colors"
-    },
-    "CheckoutSteps": {
-      "step_container": "bg-white border border-[#E7E5E4] rounded-2xl p-6 lg:p-8 shadow-sm transition-all duration-300",
-      "step_active": "ring-2 ring-[#1C1917] shadow-md",
-      "step_header": "flex items-center gap-4 mb-6",
-      "step_number": "w-8 h-8 rounded-full bg-[#F3F0EB] text-[#1C1917] flex items-center justify-center font-bold text-sm",
-      "step_number_done": "bg-[#1C1917] text-white",
-      "step_title": "text-xl font-bold text-[#1C1917]"
+    "typography": {
+      "hero_heading": "text-6xl sm:text-7xl md:text-8xl font-black tracking-tighter uppercase",
+      "hero_subheading": "text-xl sm:text-2xl font-bold tracking-tight text-brand-yellow",
+      "badge_text": "text-sm sm:text-base font-black tracking-widest uppercase",
+      "price_now": "text-4xl font-black text-fire-red tracking-tighter leading-none",
+      "price_was": "text-sm font-semibold text-gray-500 line-through decoration-fire-red decoration-2",
+      "font_family_recommendations": "Use a heavy geometric sans or condensed font for headings and numeric pricing (e.g., font-black). Avoid generic regular weights for any clearance elements."
     }
   },
-  "framer_motion_animations": {
-    "list_container": "variants={{ hidden: { opacity: 0 }, show: { opacity: 1, transition: { staggerChildren: 0.1 } } }}",
-    "list_item": "variants={{ hidden: { opacity: 0, y: 10 }, show: { opacity: 1, y: 0 }, exit: { opacity: 0, scale: 0.95, height: 0 } }} layout",
-    "success_checkmark": "initial={{ scale: 0, rotate: -45 }} animate={{ scale: 1, rotate: 0 }} transition={{ type: 'spring', damping: 12 }}"
+  "layouts": {
+    "clearance_hero": {
+      "type": "Full-width section with high contrast",
+      "background": "bg-void-black text-white relative overflow-hidden",
+      "structure": [
+        "Background: Subtle CSS-based infinite marquee reading 'WHILE STOCKS LAST' (opacity 10%, text-void-black text-stroke-1 text-stroke-white).",
+        "Content Wrapper: p-8 md:p-16 flex flex-col md:flex-row items-center justify-between gap-8 z-10 relative.",
+        "Left Column: Giant 'BIG CLEARANCE' title with brand-yellow text-shadow. Subtext emphasizing final sale.",
+        "Right Column: Prominent 'Download Clearance Leaflet (PDF)' button CTA."
+      ]
+    },
+    "product_card": {
+      "container": "relative bg-white border-2 border-gray-200 hover:border-fire-red transition-all duration-300 p-4 rounded-none group",
+      "badge_positioning": "absolute -top-4 -right-4 z-20",
+      "pricing_layout": "flex items-end justify-start gap-3 mt-4. WAS price aligned top or left, NOW price dominant and large.",
+      "stock_indicator": "w-full mt-4 bg-gray-100 rounded-full h-8 relative overflow-hidden border border-gray-300"
+    }
   },
-  "required_data_testids": [
-    "place-order-btn",
-    "cart-qty-context-feature-verification-7",
-    "tier-upsell-feature-verification-7",
-    "remove-item-feature-verification-7",
-    "klarna-express-btn"
-  ],
-  "instructions_to_main_agent": [
-    "1. Parse this JSON. Apply strictly to '/app/frontend/src/pages/shop/TileCheckoutPage.js' and '/app/frontend/src/pages/shop/TileCartPage.js'.",
-    "2. Stick strictly to the earthy sand (#F9F8F6, #F3F0EB) and charcoal (#1C1917) palette, alongside the #FFD100 yellow and #635BFF Stripe violet CTA.",
-    "3. Use a 12-column grid layout (7 col for main content, 5 col for sticky sidebar) for both pages.",
-    "4. VERY IMPORTANT: You must retain ALL 'data-testid' attributes in your generated JSX EXACTLY as listed above.",
-    "5. Use Framer Motion (`<motion.div>`) for: progress bar fill width, cart list items (layout transitions), hover scale on stepper +/- buttons.",
-    "6. Format tile metrics ('11.52 m² · 8 boxes') using the `item_metrics` classes provided above to make it look structural and technical.",
-    "7. Order Summary should be styled like a tactile receipt `bg-[#F3F0EB]` to contrast the page body `bg-[#F9F8F6]`.",
-    "8. Preserve the multi-step flow logic in Checkout (Details -> Delivery -> Payment) while upgrading the visual step headers.",
-    "9. Do not modify global nav, footer, or any routing logic. Only rewrite the components' internal structural JSX and Tailwind."
+  "components": {
+    "clearance_badge": {
+      "description": "Big Clearance label with yellow background and bleeding red fire illuminating text effect.",
+      "classes": "px-5 py-2 bg-[#e5d918] text-[#FF2A00] font-black rounded-sm animate-badgeglow uppercase transform rotate-2 inline-flex items-center gap-1 shadow-lg text-lg border-2 border-[#FF2A00]",
+      "text_classes": "animate-fireglow",
+      "custom_css_required": true
+    },
+    "pdf_download_button": {
+      "classes": "inline-flex items-center justify-center gap-2 px-8 py-5 bg-fire-red text-white font-black text-xl uppercase tracking-wider hover:bg-brand-yellow hover:text-void-black transition-all duration-300 shadow-[0_0_20px_rgba(255,42,0,0.5)] hover:shadow-[0_0_25px_rgba(229,217,24,0.6)] cursor-pointer",
+      "icon": "Download icon from lucide-react (size 24, strokeWidth 3)"
+    },
+    "stock_urgency_bar": {
+      "classes_fill": "bg-gradient-to-r from-fire-orange to-fire-red h-full animate-pulse",
+      "text": "absolute inset-0 flex items-center justify-center text-xs font-black text-void-black uppercase tracking-wider mix-blend-color-burn"
+    },
+    "percentage_off_burst": {
+      "classes": "bg-void-black text-white px-2 py-1 text-xs font-bold uppercase rounded-sm inline-block -rotate-2"
+    }
+  },
+  "motion": {
+    "instructions_to_main_agent": "Inject these custom keyframes into /app/frontend/src/index.css using pure CSS and map them in tailwind.config.js if necessary. Avoid heavy external animation libraries.",
+    "keyframes": {
+      "fireglow": {
+        "0%, 100%": "text-shadow: 0 0 4px #FF2A00, 0 0 8px #FF8C00;",
+        "50%": "text-shadow: 0 0 10px #FF2A00, 0 0 20px #FF8C00, 0 0 30px #e5d918;"
+      },
+      "badgeglow": {
+        "0%, 100%": "box-shadow: 0 0 10px rgba(255, 42, 0, 0.5), 0 0 20px rgba(229, 217, 24, 0.3);",
+        "50%": "box-shadow: 0 0 20px rgba(255, 42, 0, 0.8), 0 0 40px rgba(229, 217, 24, 0.7);"
+      }
+    }
+  },
+  "accessibility": {
+    "contrast": "Ensure the fire_red text on brand_yellow background meets contrast ratio standards. If strictly inaccessible, utilize text-shadow or a darker crimson outline for legibility.",
+    "motion": "Respect prefers-reduced-motion for the marquee and fire-glow pulse."
+  },
+  "GENERAL_UI_UX_DESIGN_GUIDELINES": [
+    "No generic centered layouts for the hero; utilize tension, asymmetry, and scale to guide the eye.",
+    "Implement glass-morphism cautiously; since this is e-commerce, readability is priority. Solid backgrounds for clearance elements work better.",
+    "Add 'data-testid' to ALL interactive elements (e.g., data-testid='clearance-pdf-download', data-testid='clearance-product-card', data-testid='clearance-badge').",
+    "Never use generic standard weight for prices. 'WAS/NOW' must feel punchy and large.",
+    "Do not use emojis in UI. Use lucide-react icons.",
+    "Do NOT use inline styles for the keyframes. Append them to index.css and integrate with Tailwind properly.",
+    "Buttons should feel heavy and substantial (e.g., sharp corners, strong hover shadows) to align with 'The Performance Pro' aesthetic."
   ]
 }
