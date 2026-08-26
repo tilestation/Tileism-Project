@@ -102,6 +102,19 @@ def suggest_group(doc: dict):
     return None, None
 
 
+def classify_supplier_product(sp: dict) -> Optional[str]:
+    """Publish-time guard: best-guess group for a supplier_products draft."""
+    doc = {
+        "name": sp.get("our_product_name") or sp.get("product_name") or sp.get("name") or "",
+        "display_name": sp.get("display_name") or "",
+        "material": sp.get("material"),
+        "materials": sp.get("materials") if isinstance(sp.get("materials"), list) else [],
+        "category": sp.get("category") or "",
+    }
+    grp, _ = suggest_group(doc)
+    return grp
+
+
 @router.get("/mismatches")
 async def get_group_mismatches():
     """Scan live products and return those whose name/category suggests a

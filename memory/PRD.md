@@ -9499,3 +9499,10 @@ See `/app/memory/test_credentials.md`
 - Mounted in ManagerPageShell.jsx (all Managers) + SupplierProducts.js top, both with onApplied → fetchProducts(true) silent refresh.
 - VERIFIED preview: scan found 501 genuine mismatches (241 engineered-wood in tiles→flooring, 104 polished tiles in materials→tiles, 74 heating mats/cables → UFH, 75 Opaco outdoor tiles in UFH→tiles, 5 decoupling mats→materials). Reassign round-trip on LP-1611 confirmed dual-collection writes + revert; invalid group → 400. UI screenshot: banner + dialog render on /admin/tiles.
 - NOT applied — admin reviews & applies the sweep themself. USER MUST REDEPLOY.
+
+## Aug 26, 2026 (later 5) — Auto Group Guard (publish-time classification, zero buttons)
+- Root cause of miscategorised synced products: BOTH publish paths hard-defaulted `product_group` to "tiles" when the draft had none — publish-to-website (supplier_sync.py ~L2640) and bulk-update-unified auto-publish (~L13215).
+- FIX: added classify_supplier_product(sp) to routes/group_cleanup.py (reuses suggest_group: material attr → flooring; name keywords → ufh/tools/materials/bathroom/flooring/tiles; category keywords fallback). Both publish paths now: resolved_group = draft group OR endpoint param OR classifier OR "tiles"; when classified, also fills blank main_category (Title form) and writes back to supplier_products with `auto_grouped: True` audit flag. Explicit admin groups NEVER overridden.
+- No UI, no buttons — pure publish-time hook. Group Cleanup banner remains the safety net for anything ambiguous.
+- VERIFIED preview via curl (TEST-GUARD-1..4, cleaned up after): "Engineered Wood Plank"→flooring, "Adhesive 20kg"→materials via publish-to-website; "Heating Cable 990W"→underfloor-heating via bulk-update-unified auto_publish; admin-set 'bathroom' preserved on republish; signal-less item defaults to tiles. Dual-collection writes confirmed.
+- USER MUST REDEPLOY.

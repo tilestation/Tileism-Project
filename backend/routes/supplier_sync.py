@@ -32,6 +32,7 @@ def require_admin_access(current_user: dict):
 import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from business_config.business_rules import is_non_tile_product, NON_TILE_EXCLUSION_RULES, construct_complete_name, calculate_list_price, PRICING_RULES
+from routes.group_cleanup import classify_supplier_product, MAIN_CAT as GROUP_MAIN_CAT
 
 # Import R2 uploader for automatic image upload
 try:
@@ -2624,6 +2625,19 @@ def publish_supplier_products_to_website(
                 # Create slug from name
                 slug = re.sub(r'[^a-z0-9]+', '-', name.lower()).strip('-')
                 
+                # Auto Group Guard — classify drafts that have no group so new
+                # synced products never land in the default "tiles" bucket
+                resolved_group = sp.get('product_group') or product_group
+                resolved_main_cat = sp.get('main_category', '')
+                if not resolved_group:
+                    resolved_group = classify_supplier_product(sp) or "tiles"
+                    if not resolved_main_cat:
+                        resolved_main_cat = GROUP_MAIN_CAT.get(resolved_group, '')
+                    db.supplier_products.update_one(
+                        {"$or": [{"sku": sku}, {"supplier_code": sku}]},
+                        {"$set": {"product_group": resolved_group, "main_category": resolved_main_cat, "auto_grouped": True}}
+                    )
+                
                 # Prepare tile document
                 tile_doc = {
                     "id": f"tile-{sku}",
@@ -2694,12 +2708,12 @@ def publish_supplier_products_to_website(
                     "is_manual": False,
                     "source": "supplier_sync",
                     "source_supplier": sp.get('supplier'),
-                    "product_group": sp.get('product_group') or product_group or "tiles",
+                    "product_group": resolved_group or "tiles",
                     "category": sp.get('category') or '',
                     "categories": sp.get('categories') or [],
                     "sub_category": sp.get('sub_category') or '',
                     "sub_categories": sp.get('sub_categories') or [],
-                    "main_category": sp.get('main_category', ''),
+                    "main_category": resolved_main_cat,
                     "website_categories": sp.get('website_categories', {}),
                     "show_on_website": True,
                     "stock_status": sp.get('stock_status'),
@@ -13214,6 +13228,18 @@ def bulk_update_unified(data: dict):
                         
                         slug = re.sub(r'[^a-z0-9]+', '-', name.lower()).strip('-')
                         
+                        # Auto Group Guard — classify group-less drafts at publish
+                        resolved_group = sp.get('product_group')
+                        resolved_main_cat = sp.get('main_category', '')
+                        if not resolved_group:
+                            resolved_group = classify_supplier_product(sp) or "tiles"
+                            if not resolved_main_cat:
+                                resolved_main_cat = GROUP_MAIN_CAT.get(resolved_group, '')
+                            db.supplier_products.update_one(
+                                {qf: sku_val},
+                                {"$set": {"product_group": resolved_group, "main_category": resolved_main_cat, "auto_grouped": True}}
+                            )
+                        
                         tile_doc = {
                             "id": f"tile-{sku}",
                             "name": name,
@@ -13273,7 +13299,7 @@ def bulk_update_unified(data: dict):
                             "is_manual": False,
                             "source": "supplier_sync",
                             "source_supplier": sp.get('supplier'),
-                            "product_group": sp.get('product_group') or "tiles",
+                            "product_group": resolved_group or "tiles",
                             "labels": sp.get('labels', []),
                             "tier_pricing_disabled": sp.get('tier_pricing_disabled', False),
                             "has_custom_tier_pricing": sp.get('has_custom_tier_pricing', False),
@@ -13285,7 +13311,7 @@ def bulk_update_unified(data: dict):
                             "was_price": sp.get('was_price'),
                             "discount_percentage": sp.get('discount_percentage'),
                             "sale_savings": sp.get('sale_savings'),
-                            "main_category": sp.get('main_category', ''),
+                            "main_category": resolved_main_cat,
                             "sub_categories": sp.get('sub_categories', []),
                             "website_categories": sp.get('website_categories', {}),
                             "show_on_website": True,
