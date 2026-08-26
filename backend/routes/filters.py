@@ -1419,21 +1419,81 @@ async def get_filters_for_page(
             }).sort("display_order", 1).to_list(100)
             
             if filter_types:
-                # Build virtual filter group with only values from products in this group
+                # Scope values STRICTLY to products in this group — no leaking
+                group_docs = await product_collection.find(
+                    product_query,
+                    {"_id": 0, "size": 1, "finish": 1, "color": 1, "material": 1,
+                     "attributes": 1, "colors": 1, "materials": 1, "styles": 1,
+                     "features": 1, "rooms": 1, "style": 1}
+                ).to_list(20000)
+
+                plural_map = {"color": "colors", "material": "materials", "style": "styles",
+                              "feature": "features", "features": "features", "room": "rooms"}
+
+                def _existing_group_values(field):
+                    field_us = field.replace("-", "_")
+                    plural = plural_map.get(field_us)
+                    vals = set()
+                    for p in group_docs:
+                        attrs = p.get("attributes") or {}
+                        candidates = [p.get(field), attrs.get(field)]
+                        if field_us != field:
+                            candidates += [p.get(field_us), attrs.get(field_us)]
+                        if plural:
+                            candidates.append(p.get(plural))
+                        for raw in candidates:
+                            if isinstance(raw, list):
+                                vals.update(str(x).strip() for x in raw if x and str(x).strip())
+                            elif raw and str(raw).strip():
+                                vals.add(str(raw).strip())
+                    return vals
+
                 virtual_filters = []
-                for ft in filter_types:
-                    ft_id = str(ft["_id"])
-                    ft_values = ft.get("values", [])
-                    active_values = [{"value": v.get("value",""), "label": v.get("label",""), "is_active": True} for v in ft_values if v.get("is_active", True)]
-                    if active_values:
-                        virtual_filters.append({
-                            "id": ft_id,
-                            "name": ft.get("name", ""),
-                            "slug": ft.get("slug", ""),
-                            "type": ft.get("type", "multi-select"),
-                            "values": active_values,
-                            "display_order": ft.get("display_order", 0)
-                        })
+                for ft in (filter_types if group_docs else []):
+                    input_type = ft.get("input_type", "checkbox")
+                    vf = {
+                        "id": str(ft["_id"]),
+                        "name": ft.get("name", ""),
+                        "slug": ft.get("slug", ""),
+                        "type": ft.get("type", "multi-select"),
+                        "input_type": input_type,
+                        "description": ft.get("description", ""),
+                        "auto_populate_field": ft.get("auto_populate_field"),
+                        "display_order": ft.get("display_order", 0)
+                    }
+                    if input_type in ("toggle", "range"):
+                        vf["values"] = [{"value": v.get("value", ""), "label": v.get("label", ""), "is_active": True}
+                                        for v in ft.get("values", []) if v.get("is_active", True)]
+                        virtual_filters.append(vf)
+                        continue
+
+                    field = ft.get("auto_populate_field") or ft.get("slug", "")
+                    existing = _existing_group_values(field)
+                    if not existing:
+                        continue
+
+                    is_size_filter = "size" in ft.get("name", "").lower() or field == "size"
+                    if is_size_filter:
+                        existing = set(deduplicate_sizes(list(existing)))
+                    existing_lower = {v.lower() for v in existing}
+
+                    values = [{"value": v.get("value", ""), "label": v.get("label", ""), "is_active": True}
+                              for v in ft.get("values", [])
+                              if v.get("is_active", True) and str(v.get("value", "")).lower() in existing_lower]
+                    seen = {str(v["value"]).lower() for v in values}
+                    excluded = {str(x).lower() for x in ft.get("excluded_values", [])}
+                    for val in sorted(existing):
+                        if val.lower() not in seen and val.lower() not in excluded:
+                            values.append({
+                                "value": val,
+                                "label": format_size_label(val) if is_size_filter else val,
+                                "is_active": True
+                            })
+                    if is_size_filter:
+                        values.sort(key=lambda v: get_size_sort_key(v.get("value", "")))
+                    if values:
+                        vf["values"] = values
+                        virtual_filters.append(vf)
                 
                 if virtual_filters:
                     group_name = group.replace("-", " ").title()

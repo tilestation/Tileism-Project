@@ -9482,3 +9482,10 @@ See `/app/memory/test_credentials.md`
 - Background loop in server.py startup: first run +3 min, then every 10 min. No admin buttons.
 - Verified in preview: injected '999x999mm' on a tile → sync added it (65 values); restored → sync removed it (64); no drift → {'changed': False}.
 - USER MUST REDEPLOY to activate on production.
+
+## Aug 26, 2026 (later 3) — Category filter leaking FIXED
+- BUG (confirmed via curl): /api/filters/for-page/{slug}?group=X — any group WITHOUT a dedicated db.filter_groups doc (flooring, materials, underfloor-heating, tools-accessories) fell into the "virtual filter group" builder which dumped ALL stored filter_type values with ZERO product scoping (materials showed all 64 tile sizes, 175 finishes etc.). Second bug: virtual filters omitted `input_type`, so FilterPanel.jsx rendered nothing (flooring sidebar empty).
+- FIX (filters.py virtual builder, ~line 1421): fetches the group's live products once (product_query on tiles/supplier_products), computes existing values per filter field (checks top-level + attributes.* + plural arrays colors/materials/styles/features/rooms + hyphen→underscore slugs like slip_rating), intersects stored values (keeps labels), appends new product values (respecting excluded_values), size filters normalized/deduped/sorted. `input_type` now included. Groups with 0 products return no filters at all (tools-accessories).
+- VERIFIED preview: tiles=62 sizes (unchanged, dedicated group), flooring=1 size/3 finishes/8mm only, materials=7 own sizes w/ live counts, UFH=8 own sizes, tools=empty. Screenshots confirm materials + flooring sidebars render scoped filters with counts.
+- NOTE (data, not code): some products are miscategorized at source — e.g. "Kingswood Oak Engineered Wood Herringbone" has product_group='tiles', several Alabaster/Opaco TILES sit in product_group='materials'/'underfloor-heating'. Filters now faithfully reflect product assignment; admin can re-assign product groups to clean remaining odd values.
+- USER MUST REDEPLOY.
