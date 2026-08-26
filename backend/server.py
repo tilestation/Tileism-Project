@@ -9713,6 +9713,20 @@ async def startup_scheduler():
             logger.exception("[series-repair] startup repair failed")
     asyncio.create_task(_repair_series_stamps())
 
+    # 26 Aug 2026 — one-shot size format migration: every product size becomes
+    # mm format ("30x60cm" → "300x600mm") so the storefront size filter is
+    # uniform. Guarded by a migration flag; backups in size_migration_backup.
+    async def _migrate_sizes_mm():
+        try:
+            from services.size_migration import run_size_migration_once
+            from routes.tiles import get_tile_db
+            res = await asyncio.to_thread(run_size_migration_once, get_tile_db())
+            if res:
+                print(f"[size-mm] migration ran: {res['collections']}", flush=True)
+        except Exception:
+            logger.exception("[size-mm] startup migration failed")
+    asyncio.create_task(_migrate_sizes_mm())
+
     # 5 Jun 2026 — purge stale noindex flags on safe-listed paths so
     # the homepage / new-collection / clearance etc. can never stay
     # stuck noindex'd between deploys. One-shot, idempotent, runs in

@@ -44,6 +44,15 @@ client = AsyncIOMotorClient(mongo_url)
 db = client[db_name]
 
 
+@router.post("/normalize-sizes-mm")
+async def normalize_sizes_mm(dry_run: bool = True):
+    """Convert every product size to mm format (dry_run=true to preview)."""
+    import asyncio as _aio
+    from services.size_migration import run_size_migration
+    from routes.tiles import get_tile_db
+    return await _aio.to_thread(run_size_migration, get_tile_db(), dry_run)
+
+
 def deep_merge(base: dict, override: dict) -> dict:
     """Recursively merge override into base, preserving nested keys."""
     result = dict(base)

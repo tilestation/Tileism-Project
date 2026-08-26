@@ -9456,3 +9456,12 @@ See `/app/memory/test_credentials.md`
 2. TradeLoginPrompt.jsx redesigned (both TradeLoginBox + TradeLoginBanner): premium dark slate panel, pulsing red glow border (tradeGlow keyframe), shine sweep (tradeShine), TRADE badge with ping dot, blinking amber hook "You're paying too much on this price!" (tradeBlinkText), 3 benefit bullets (trade-only prices / exclusive deals / fast reorders+VAT invoices), big gradient CTA "Open FREE Trade Account →" + Trade Login. Keyframes appended to index.css. Same testids kept (trade-customer-box, trade-signup-link, trade-login-link, trade-login-banner, trade-banner-signup, trade-banner-login).
 - VERIFIED in preview: collection PDP + individual tile page both render the new panel; animations active. Sale-modal selection retention verified partially in UI (bulk bar still showed "2 selected" after apply); code change is a safe 2-line removal.
 - USER MUST REDEPLOY.
+
+## Aug 26, 2026 — All product sizes standardised to mm
+- Complaint: size filter mixed cm/mm ("100x100cm" missing because Norwich uses 1000x1000mm) → filtration broken.
+- Built /app/backend/services/size_migration.py: normalize_size_to_mm() ("30x60cm"→"300x600mm", "60x60x2cm"→"600x600x20mm", unit-less <200 treated as cm ×10, mm values spacing-normalised, non-size values like "1L"/"5kg" untouched, complex flooring "125x300-1200x10/2mm" passthrough). Case-insensitive.
+- One-shot startup migration in server.py (flag sizes_mm_v1 in db.migration_flags; per-doc backups in db.size_migration_backup) covering supplier_products/tiles/products: size, attributes.size, sizes[].
+- Manual endpoint: POST /api/website-admin/normalize-sizes-mm?dry_run=true|false (ignores flag; usable to re-normalise future cm entries).
+- RAN in preview via startup: 1254+398+3 docs converted, 1655 backups. Verified: collections + /api/tiles/filters now 100% mm (0 cm, 0 unit-less). Unit tests on 20 formats pass.
+- PRODUCTION: migration AUTO-RUNS on next Railway deploy at backend startup (no manual step).
+- NOTE: product display NAMES still contain original cm text (deliberately untouched — slugs/SEO). Offer name rewrite separately if user asks.
