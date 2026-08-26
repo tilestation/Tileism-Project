@@ -41,6 +41,7 @@ import { getSeriesName, getSeriesNameFromString } from './lib/series';
 import ManagerTabsBar from './components/managers/ManagerTabsBar';
 import { bucketSelectionByManager } from './components/managers/classifyProductToManager';
 import CustomManagerBuilder from './components/managers/CustomManagerBuilder';
+import GroupCleanupBanner from '../../components/admin/GroupCleanupBanner';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
 
@@ -7989,6 +7990,7 @@ export default function SupplierProducts() {
 
   return (
     <div className="p-6 space-y-6" data-testid="supplier-products-page">
+      <GroupCleanupBanner onApplied={() => fetchProducts(true)} />
       {/* Workspace tabs — unified across Managers + legacy Bulk Editor */}
       <div className="-mx-6 -mt-6 mb-2">
         <ManagerTabsBar

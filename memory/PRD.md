@@ -9489,3 +9489,13 @@ See `/app/memory/test_credentials.md`
 - VERIFIED preview: tiles=62 sizes (unchanged, dedicated group), flooring=1 size/3 finishes/8mm only, materials=7 own sizes w/ live counts, UFH=8 own sizes, tools=empty. Screenshots confirm materials + flooring sidebars render scoped filters with counts.
 - NOTE (data, not code): some products are miscategorized at source — e.g. "Kingswood Oak Engineered Wood Herringbone" has product_group='tiles', several Alabaster/Opaco TILES sit in product_group='materials'/'underfloor-heating'. Filters now faithfully reflect product assignment; admin can re-assign product groups to clean remaining odd values.
 - USER MUST REDEPLOY.
+
+## Aug 26, 2026 (later 4) — Group Cleanup Sweep (zero extra buttons)
+- Request: admin view listing products whose name doesn't match their category group, one-sweep re-assign, NO extra buttons.
+- Backend NEW /app/backend/routes/group_cleanup.py (registered in routes/__init__.py):
+  - GET /api/group-cleanup/mismatches — scans live db.tiles (excl. samples), classifies via material-attribute (engineered wood/lvt/spc/laminate → flooring), name keywords (UFH incl. "mesh 100W" heating mats, tools, materials, bathroom, flooring, tiles) and category keywords ("Wall & Floor"/"Outdoor Tiles" → tiles). Returns items {sku,name,image,current_group,suggested_group,reason}, capped 1000.
+  - POST /api/group-cleanup/reassign {items:[{sku,target_group}]} — validates targets (tiles/flooring/materials/underfloor-heating/bathroom/tools-accessories), force-sets product_group (hyphenated, storefront-compatible) + main_category (Title) on BOTH tiles AND supplier_products.
+- Frontend NEW /app/frontend/src/components/admin/GroupCleanupBanner.jsx: auto-appearing amber banner (only when mismatches>0 — zero UI when clean), click → review dialog sectioned by target group, thumbnails + reason + current→suggested chips, all pre-checked, Select/Deselect all, single "Re-assign N products" apply. Testids: group-cleanup-banner/-review-btn/-dialog/-item-{sku}/-toggle-all/-apply-btn/-cancel-btn.
+- Mounted in ManagerPageShell.jsx (all Managers) + SupplierProducts.js top, both with onApplied → fetchProducts(true) silent refresh.
+- VERIFIED preview: scan found 501 genuine mismatches (241 engineered-wood in tiles→flooring, 104 polished tiles in materials→tiles, 74 heating mats/cables → UFH, 75 Opaco outdoor tiles in UFH→tiles, 5 decoupling mats→materials). Reassign round-trip on LP-1611 confirmed dual-collection writes + revert; invalid group → 400. UI screenshot: banner + dialog render on /admin/tiles.
+- NOT applied — admin reviews & applies the sweep themself. USER MUST REDEPLOY.

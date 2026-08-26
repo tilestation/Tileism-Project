@@ -57,6 +57,7 @@ import { fetchShopTabDestinations, buildDestinationMap } from '../lib/shopTabDes
 import AssignColoursModal, { computeCompleteness } from './managers/AssignColoursModal';
 import TierPricingModal from './supplier-products/TierPricingModal';
 import MarginGuardBanner, { computeMarginGuard } from './managers/MarginGuardBanner';
+import GroupCleanupBanner from '../../../components/admin/GroupCleanupBanner';
 import DeliveryChargeModal from './managers/DeliveryChargeModal';
 import BulkSaleModal from './supplier-products/BulkSaleModal';
 import { useManagerBulk, getProductKey, productDisplayName } from './managers/useManagerBulk';
@@ -815,6 +816,7 @@ const ManagerPageShell = ({
       {/* Body */}
       <div className="max-w-7xl mx-auto px-4 py-6 space-y-4">
         {topBanner}
+        <GroupCleanupBanner onApplied={() => fetchProducts(true)} />
         {marginFlagged.length > 0 && (
           <MarginGuardBanner
             flagged={marginFlagged}
