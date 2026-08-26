@@ -9476,3 +9476,9 @@ See `/app/memory/test_credentials.md`
 - Preview verified: 64 size values, all 64 count>0.
 - NOTE: size filter includes materials sizes (10kg/1l) — pre-existing trait, admin can exclude in Filters admin.
 - USER SHOULD REDEPLOY for the full self-heal + fixed normalize code.
+
+## Aug 26, 2026 (later 2) — Size filter Auto-Sync (zero buttons)
+- auto_sync_size_filter() in routes/filters.py: compares live tiles' distinct sizes (normalized/deduped, minus excluded_values) vs current Size filter values; when drifted, rebuilds the list carrying over per-value flags (is_active/images/order); new sizes appended active, dead sizes dropped; stamps last_auto_sync.
+- Background loop in server.py startup: first run +3 min, then every 10 min. No admin buttons.
+- Verified in preview: injected '999x999mm' on a tile → sync added it (65 values); restored → sync removed it (64); no drift → {'changed': False}.
+- USER MUST REDEPLOY to activate on production.

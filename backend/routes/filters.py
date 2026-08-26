@@ -902,6 +902,52 @@ async def update_filter_restrictions(filter_id: str, data: dict):
     return {"message": "Filter restrictions updated", "updated_fields": list(update_fields.keys())}
 
 
+async def auto_sync_size_filter():
+    """Keep the Size filter's options in step with live product sizes.
+    Runs automatically in the background — no admin buttons. Carries over
+    per-value flags (is_active, images, order) and respects excluded_values
+    (deleted options stay deleted). Values whose products disappeared are
+    dropped; new sizes appear automatically."""
+    from pymongo import MongoClient
+    import os
+    sync_db = MongoClient(os.environ.get('MONGO_URL'))[os.environ.get('DB_NAME', 'tile_station')]
+    filter_doc = await db.filter_types.find_one({"name": {"$regex": "^size$", "$options": "i"}})
+    if not filter_doc:
+        return None
+    field = filter_doc.get("auto_populate_field", "size")
+    tiles_field = f"attributes.{field}" if field in ["size", "finish", "color", "material"] else field
+    raw_values = sync_db.tiles.distinct(tiles_field)
+    clean = [str(v).strip() for v in raw_values if v and str(v).strip()]
+    normalized = deduplicate_sizes(clean)
+    excluded = {str(e).lower() for e in (filter_doc.get("excluded_values") or [])}
+    expected = [s for s in normalized if s.lower() not in excluded]
+
+    existing = filter_doc.get("values") or []
+    if {s.lower() for s in expected} == {str(v.get("value", "")).lower() for v in existing}:
+        return {"changed": False}
+
+    by_val = {str(v.get("value", "")).lower(): v for v in existing}
+    final = []
+    for size in sorted(expected, key=get_size_sort_key):
+        old = by_val.get(size.lower())
+        if old:
+            nv = dict(old)
+            nv["value"] = size
+            if not nv.get("label"):
+                nv["label"] = format_size_label(size)
+        else:
+            nv = {"value": size, "label": format_size_label(size), "is_active": True}
+        final.append(nv)
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    await db.filter_types.update_one(
+        {"_id": filter_doc["_id"]},
+        {"$set": {"values": final, "updated_at": now_iso, "last_auto_sync": now_iso}},
+    )
+    logger.info(f"[size-filter-autosync] refreshed Size filter: {len(final)} values")
+    return {"changed": True, "values": len(final)}
+
+
 @router.post("/rebuild-from-live-products")
 async def rebuild_filters_from_live_products(filter_name: str = "Size", preserve_manual: bool = True):
     """

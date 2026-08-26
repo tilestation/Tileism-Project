@@ -9745,6 +9745,21 @@ async def startup_scheduler():
             logger.exception("[size-mm] size filter rebuild failed")
     asyncio.create_task(_migrate_sizes_mm())
 
+    # Size filter auto-sync: whenever products are published/edited/synced,
+    # the sidebar size options follow automatically — no buttons to click.
+    async def _size_filter_autosync_loop():
+        await asyncio.sleep(180)
+        while True:
+            try:
+                from routes.filters import auto_sync_size_filter
+                res = await auto_sync_size_filter()
+                if res and res.get("changed"):
+                    print(f"[size-filter-autosync] refreshed: {res.get('values')} values", flush=True)
+            except Exception:
+                logger.exception("[size-filter-autosync] failed")
+            await asyncio.sleep(600)
+    asyncio.create_task(_size_filter_autosync_loop())
+
     # 5 Jun 2026 — purge stale noindex flags on safe-listed paths so
     # the homepage / new-collection / clearance etc. can never stay
     # stuck noindex'd between deploys. One-shot, idempotent, runs in
