@@ -127,8 +127,8 @@ class MarkRequest(BaseModel):
 
 @router.post("/mark")
 def mark_clearance(data: MarkRequest, current_user: dict = Depends(get_current_user)):
-    """One-click Clearance toggle. Marking ON also auto-publishes drafts that
-    aren't live yet, so clearance items always appear on the storefront."""
+    """One-click Clearance toggle on the label ONLY — nothing is published.
+    Admin reviews/edits drafts and publishes manually from the Clearance Hub."""
     require_admin_access(current_user)
     if not data.product_ids:
         raise HTTPException(status_code=400, detail="No products provided")
@@ -148,28 +148,59 @@ def mark_clearance(data: MarkRequest, current_user: dict = Depends(get_current_u
     db.products.update_many({"sku": {"$in": skus}}, update)
     r3 = db.tiles.update_many({"sku": {"$in": skus}}, update)
 
-    auto_published = 0
-    if data.on:
-        existing = {d["sku"] for d in db.tiles.find({"sku": {"$in": skus}}, {"sku": 1, "_id": 0})}
-        missing = [s for s in skus if s not in existing]
-        if missing:
-            try:
-                from routes.supplier_sync import publish_supplier_products_to_website
-                res = publish_supplier_products_to_website(with_price_only=False, skus=",".join(missing))
-                auto_published = (res or {}).get("published", 0)
-                # Publish copies labels from the draft (already marked above)
-                db.tiles.update_many({"sku": {"$in": missing}}, {"$addToSet": {"labels": "Clearance"}})
-            except Exception as e:
-                logger.error(f"Clearance auto-publish failed: {e}")
+    live = db.tiles.count_documents({"sku": {"$in": skus}})
+    drafts = len(skus) - live
 
     return {
         "success": True,
         "marked": r1.modified_count,
         "tiles_updated": r3.modified_count,
-        "auto_published": auto_published,
-        "message": f"{'Marked' if data.on else 'Removed'} {len(skus)} product(s)"
-                   + (f" · {auto_published} auto-published to the storefront" if auto_published else ""),
+        "live_count": live,
+        "draft_count": max(drafts, 0),
+        "message": (f"{'Marked' if data.on else 'Removed'} {len(skus)} product(s)"
+                    + (f" · {live} already live" if data.on and live else "")
+                    + (f" · {drafts} draft(s) — publish manually from the Clearance Hub when ready" if data.on and drafts > 0 else "")),
     }
+
+
+class SkusRequest(BaseModel):
+    skus: List[str]
+
+
+@router.post("/publish")
+def publish_clearance_products(data: SkusRequest, current_user: dict = Depends(get_current_user)):
+    """Manual publish — admin explicitly pushes reviewed clearance drafts live."""
+    require_admin_access(current_user)
+    if not data.skus:
+        raise HTTPException(status_code=400, detail="No SKUs provided")
+    db = get_db()
+    try:
+        from routes.supplier_sync import publish_supplier_products_to_website
+        res = publish_supplier_products_to_website(with_price_only=False, skus=",".join(data.skus))
+    except Exception as e:
+        logger.error(f"Clearance manual publish failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Publish failed: {e}")
+    db.tiles.update_many({"sku": {"$in": data.skus}}, {"$addToSet": {"labels": "Clearance"}})
+    published = (res or {}).get("published", 0) + (res or {}).get("updated", 0)
+    return {"success": True, "published": published,
+            "message": f"Published {published} product(s) to the storefront"}
+
+
+@router.post("/unpublish")
+def unpublish_clearance_products(data: SkusRequest, current_user: dict = Depends(get_current_user)):
+    """Take products OFF the live storefront (keeps the draft + Clearance label)."""
+    require_admin_access(current_user)
+    if not data.skus:
+        raise HTTPException(status_code=400, detail="No SKUs provided")
+    db = get_db()
+    r = db.tiles.delete_many({"$or": [{"sku": {"$in": data.skus}}, {"supplier_code": {"$in": data.skus}}]})
+    db.supplier_products.update_many(
+        {"$or": [{"sku": {"$in": data.skus}}, {"supplier_code": {"$in": data.skus}}]},
+        {"$set": {"published": False, "show_on_website": False}})
+    db.products.update_many({"sku": {"$in": data.skus}},
+                            {"$set": {"show_on_website": False, "visibility": "draft"}})
+    return {"success": True, "unpublished": r.deleted_count,
+            "message": f"Removed {r.deleted_count} product(s) from the storefront (drafts kept)"}
 
 
 # ============ PDF LEAFLET ============

@@ -22,6 +22,12 @@ import { normaliseImageUrl } from '../../utils/safeStr';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
 
+const ensureClearanceNav = (items) => {
+  const arr = Array.isArray(items) ? items : [];
+  if (arr.some(i => /clearance/i.test(i?.label || '') || /clearance=true/.test(i?.link_url || ''))) return arr;
+  return [...arr, { id: 'clearance-auto', label: 'CLEARANCE', link_url: '/tiles?clearance=true', is_active: true, highlight: true, highlight_color: '#FF2A00' }];
+};
+
 // Top Utility Bar - Dynamic from Admin
 const TopUtilityBar = () => {
   const [benefits, setBenefits] = useState([]);
@@ -125,15 +131,15 @@ const ShopHeader = ({ cartCount: propCartCount }) => {
           const data = await res.json();
           // Use data if it has items, otherwise use fallback
           if (data && data.length > 0) {
-            setNavItems(data);
+            setNavItems(ensureClearanceNav(data));
           } else {
-            setNavItems(fallbackNav);
+            setNavItems(ensureClearanceNav(fallbackNav));
           }
         } else {
-          setNavItems(fallbackNav);
+          setNavItems(ensureClearanceNav(fallbackNav));
         }
       } catch (e) {
-        setNavItems(fallbackNav);
+        setNavItems(ensureClearanceNav(fallbackNav));
       }
     };
     fetchNavigation();
@@ -767,6 +773,98 @@ const HeroBannerCarousel = () => {
       >
         <ChevronRight className="h-6 w-6 text-white" />
       </button>
+    </section>
+  );
+};
+
+// CLEARANCE strip — bold fire section, renders only when live clearance stock exists
+const ClearanceHomeSection = () => {
+  const [items, setItems] = useState([]);
+
+  useEffect(() => {
+    fetch(`${API_URL}/api/clearance/products`)
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => setItems((d?.items || []).filter(i => i.published).slice(0, 4)))
+      .catch(() => {});
+  }, []);
+
+  if (items.length === 0) return null;
+
+  return (
+    <section data-testid="home-clearance-section" className="relative overflow-hidden bg-[#0A0A0A] text-white">
+      <div className="absolute inset-0 flex flex-col justify-between py-3 opacity-[0.05] pointer-events-none select-none" aria-hidden="true">
+        <div className="clearance-marquee whitespace-nowrap font-black uppercase text-6xl tracking-tighter text-white">
+          {Array(8).fill('WHILE STOCKS LAST · ').join('')}
+        </div>
+        <div className="clearance-marquee-reverse whitespace-nowrap font-black uppercase text-6xl tracking-tighter text-[#FF2A00]">
+          {Array(8).fill('FINAL REDUCTIONS · ').join('')}
+        </div>
+      </div>
+      <div className="relative z-10 container mx-auto px-4 py-10 md:py-14">
+        <div className="flex flex-col lg:flex-row lg:items-center gap-8">
+          <div className="lg:w-1/3">
+            <div className="inline-flex items-center gap-2 bg-[#FF2A00] text-white text-[11px] md:text-xs font-black uppercase tracking-[0.3em] px-3.5 py-1.5 -rotate-1 mb-4">
+              While stocks last
+            </div>
+            <h2 className="text-5xl md:text-6xl font-black tracking-tighter uppercase leading-none">
+              <span className="text-[#e5d918] clearance-fire-text">Clearance</span>
+            </h2>
+            <p className="mt-3 text-base md:text-lg font-bold text-[#e5d918]">
+              Massive reductions — once they're gone, they're gone.
+            </p>
+            <div className="mt-6 flex flex-wrap gap-3">
+              <Link
+                to="/tiles?clearance=true"
+                data-testid="home-clearance-shop-btn"
+                className="inline-flex items-center gap-2 px-6 py-3.5 bg-[#FF2A00] text-white font-black text-sm md:text-base uppercase tracking-wider hover:bg-[#e5d918] hover:text-[#0A0A0A] transition-colors duration-300 shadow-[0_0_18px_rgba(255,42,0,0.5)]"
+              >
+                Shop Clearance
+                <ArrowRight className="w-5 h-5" strokeWidth={3} />
+              </Link>
+              <a
+                href={`${API_URL}/api/clearance/leaflet/current.pdf`}
+                target="_blank"
+                rel="noopener noreferrer"
+                data-testid="home-clearance-pdf-btn"
+                className="inline-flex items-center gap-2 px-6 py-3.5 border-2 border-[#e5d918] text-[#e5d918] font-black text-sm md:text-base uppercase tracking-wider hover:bg-[#e5d918] hover:text-[#0A0A0A] transition-colors duration-300"
+              >
+                Leaflet (PDF)
+              </a>
+            </div>
+          </div>
+          <div className="lg:w-2/3 grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
+            {items.map(i => (
+              <Link
+                key={i.sku}
+                to="/tiles?clearance=true"
+                className="group bg-white rounded-lg overflow-hidden text-gray-900"
+                data-testid={`home-clearance-card-${i.sku}`}
+              >
+                <div className="relative aspect-square bg-gray-100 overflow-hidden">
+                  {i.image && (
+                    <img src={i.image} alt={i.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" loading="lazy" />
+                  )}
+                  <div className="absolute top-2 left-2 clearance-badge px-2 py-1 bg-[#e5d918] border-2 border-[#FF2A00] rounded-sm rotate-2">
+                    <span className="text-[10px] font-black text-[#FF2A00] tracking-widest uppercase">Clearance</span>
+                  </div>
+                  {i.discount_percentage ? (
+                    <div className="absolute bottom-2 right-2 bg-[#0A0A0A] text-[#e5d918] text-[11px] font-black px-2 py-1">
+                      {i.discount_percentage}% OFF
+                    </div>
+                  ) : null}
+                </div>
+                <div className="p-2.5">
+                  <p className="text-xs font-semibold truncate">{i.name}</p>
+                  <p className="text-sm font-black text-[#FF2A00] mt-0.5">
+                    {i.was_price ? <span className="text-gray-400 line-through font-medium text-xs mr-1.5">£{Number(i.was_price).toFixed(2)}</span> : null}
+                    £{Number(i.price || 0).toFixed(2)}{i.pricing_unit === 'unit' ? '' : '/m²'}
+                  </p>
+                </div>
+              </Link>
+            ))}
+          </div>
+        </div>
+      </div>
     </section>
   );
 };
@@ -1414,6 +1512,9 @@ const TileStationHome = () => {
       
       {/* Hero Banner Carousel */}
       <HeroBannerCarousel />
+
+      {/* CLEARANCE strip — auto-hides when no live clearance stock */}
+      <ClearanceHomeSection />
 
       {/* Shop Categories */}
       <ShopCategories />

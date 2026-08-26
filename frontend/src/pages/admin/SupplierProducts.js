@@ -8565,7 +8565,7 @@ export default function SupplierProducts() {
                   size="sm"
                   className="bg-[#e5d918] text-red-700 hover:bg-yellow-300 font-black uppercase"
                   data-testid="sp-mark-clearance-btn"
-                  title="Mark selected as CLEARANCE — instantly live on the storefront Clearance page + Clearance Hub (auto-publishes drafts)"
+                  title="Mark selected as CLEARANCE — nothing goes live until you publish from the Clearance Hub"
                   onClick={async () => {
                     const ids = [...selectedProducts].map(k => {
                       const [supplier, sku] = String(k).split('|||');
@@ -8583,8 +8583,8 @@ export default function SupplierProducts() {
                       });
                       if (!res.ok) throw new Error(`HTTP ${res.status}`);
                       const r = await res.json();
-                      toast.success(`${ids.length} product${ids.length !== 1 ? 's' : ''} marked CLEARANCE${r.auto_published ? ` · ${r.auto_published} auto-published` : ''}`, {
-                        description: 'Now live on the storefront Clearance page — manage in the Clearance tab',
+                      toast.success(r.message || `${ids.length} marked CLEARANCE`, {
+                        description: 'Nothing goes live automatically — review & publish from the Clearance tab',
                       });
                       fetchProducts(true);
                     } catch (err) {

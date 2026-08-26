@@ -38,6 +38,12 @@ import { toast } from 'sonner';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
 
+const ensureClearanceNav = (items) => {
+  const arr = Array.isArray(items) ? items : [];
+  if (arr.some(i => /clearance/i.test(i?.label || '') || /clearance=true/.test(i?.link_url || ''))) return arr;
+  return [...arr, { id: 'clearance-auto', label: 'CLEARANCE', link_url: '/tiles?clearance=true', is_active: true, highlight: true, highlight_color: '#FF2A00' }];
+};
+
 // Hero Banner Slides with Shop by Room
 const HERO_SLIDES = [
   {
@@ -1290,10 +1296,10 @@ const TileCollectionsPage = () => {
           if (data.length === 0 && menuType !== 'shop') {
             const fallbackRes = await fetch(`${API_URL}/api/website-admin/public/navigation/shop`);
             if (fallbackRes.ok) {
-              setNavigationItems(await fallbackRes.json());
+              setNavigationItems(ensureClearanceNav(await fallbackRes.json()));
             }
           } else {
-            setNavigationItems(data);
+            setNavigationItems(ensureClearanceNav(data));
           }
         } else {
           setNavigationItems([

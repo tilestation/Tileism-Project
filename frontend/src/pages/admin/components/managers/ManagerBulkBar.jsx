@@ -337,7 +337,7 @@ const ManagerBulkBar = ({
           disabled={saving}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#e5d918] text-red-700 hover:bg-yellow-300 transition text-[13px] font-black uppercase tracking-wide"
           data-testid="bar-mark-clearance"
-          title="Mark selected as CLEARANCE — instantly live on the storefront Clearance page + Clearance Hub (auto-publishes drafts)"
+          title="Mark selected as CLEARANCE — nothing goes live until you publish from the Clearance Hub"
         >
           <Flame className="w-3.5 h-3.5" strokeWidth={3} />
           Clearance

@@ -8,7 +8,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
 import {
-  Flame, Download, Globe, Trash2, ExternalLink, RefreshCw, FileText, Info,
+  Flame, Download, Globe, Trash2, ExternalLink, RefreshCw, FileText, Info, EyeOff,
 } from 'lucide-react';
 import { Button } from '../../components/ui/button';
 import { Badge } from '../../components/ui/badge';
@@ -92,6 +92,46 @@ export default function ClearanceHub() {
     }
   };
 
+  const publishSkus = async (skus) => {
+    if (!skus.length) return;
+    setBusy(true);
+    try {
+      const res = await fetch(`${API_URL}/api/clearance/publish`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...tokenHdr() },
+        body: JSON.stringify({ skus }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const r = await res.json();
+      toast.success(r.message || 'Published');
+      await load();
+    } catch (e) {
+      toast.error(`Publish failed: ${e.message}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const unpublishSkus = async (skus) => {
+    if (!skus.length) return;
+    setBusy(true);
+    try {
+      const res = await fetch(`${API_URL}/api/clearance/unpublish`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...tokenHdr() },
+        body: JSON.stringify({ skus }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const r = await res.json();
+      toast.success(r.message || 'Taken off the storefront');
+      await load();
+    } catch (e) {
+      toast.error(`Unpublish failed: ${e.message}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const downloadLeaflet = async () => {
     if (!selectedSkus.length) { toast.error('Tick at least one product for the leaflet'); return; }
     setBusy(true);
@@ -150,7 +190,7 @@ export default function ClearanceHub() {
             </span>
           </h1>
           <p className="text-sm text-gray-500 mt-2">
-            {items.length} product{items.length !== 1 ? 's' : ''} on clearance · marked from any Manager or the Bulk Editor with the yellow <span className="font-bold text-red-600">Clearance</span> button
+            {items.length} product{items.length !== 1 ? 's' : ''} marked Clearance · marking never publishes anything — edit in the Managers, then hit <span className="font-bold text-emerald-700">Publish</span> here when YOU are ready
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -223,13 +263,23 @@ export default function ClearanceHub() {
         </div>
       )}
 
-      {/* Bulk remove */}
-      {selectedSkus.length > 0 && selectedSkus.length < items.length && (
-        <div className="flex items-center gap-2">
-          <Button size="sm" variant="outline" className="border-red-300 text-red-600 hover:bg-red-50"
-            disabled={busy} onClick={() => removeFromClearance(selectedSkus)} data-testid="hub-bulk-remove-btn">
-            <Trash2 className="w-3.5 h-3.5 mr-1" /> Remove {selectedSkus.length} from Clearance
-          </Button>
+      {/* Bulk actions on selection */}
+      {selectedSkus.length > 0 && (
+        <div className="flex items-center gap-2 flex-wrap">
+          {items.some(i => checked.has(i.sku) && !i.published) && (
+            <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700 text-white"
+              disabled={busy}
+              onClick={() => publishSkus(items.filter(i => checked.has(i.sku) && !i.published).map(i => i.sku))}
+              data-testid="hub-bulk-publish-btn">
+              <Globe className="w-3.5 h-3.5 mr-1" /> Publish {items.filter(i => checked.has(i.sku) && !i.published).length} draft{items.filter(i => checked.has(i.sku) && !i.published).length !== 1 ? 's' : ''}
+            </Button>
+          )}
+          {selectedSkus.length < items.length && (
+            <Button size="sm" variant="outline" className="border-red-300 text-red-600 hover:bg-red-50"
+              disabled={busy} onClick={() => removeFromClearance(selectedSkus)} data-testid="hub-bulk-remove-btn">
+              <Trash2 className="w-3.5 h-3.5 mr-1" /> Remove {selectedSkus.length} from Clearance
+            </Button>
+          )}
         </div>
       )}
 
@@ -245,8 +295,8 @@ export default function ClearanceHub() {
               Select products in any Manager (<Link to="/admin/tiles" className="underline">Tiles</Link>,{' '}
               <Link to="/admin/flooring" className="underline">Flooring</Link>…) or{' '}
               <Link to="/admin/supplier-products" className="underline">All Products</Link> and hit the yellow{' '}
-              <span className="font-bold text-red-600">Clearance</span> button — they'll appear here instantly,
-              auto-published to the storefront even if they weren't live before.
+              <span className="font-bold text-red-600">Clearance</span> button — they land here as drafts.
+              Edit them, then publish manually when YOU are ready.
             </p>
           </div>
         ) : (
@@ -310,6 +360,29 @@ export default function ClearanceHub() {
                       : <Badge className="bg-gray-100 text-gray-500 border-0">Draft</Badge>}
                   </td>
                   <td className="px-3 py-2 text-right whitespace-nowrap">
+                    {i.published ? (
+                      <button
+                        type="button"
+                        onClick={() => unpublishSkus([i.sku])}
+                        disabled={busy}
+                        className="inline-flex items-center gap-1 text-xs text-orange-600 hover:text-orange-800 mr-3"
+                        title="Take OFF the live storefront (keeps the draft + Clearance label)"
+                        data-testid={`hub-unpublish-${i.sku}`}
+                      >
+                        <EyeOff className="w-3 h-3" /> Unpublish
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => publishSkus([i.sku])}
+                        disabled={busy}
+                        className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-600 hover:text-emerald-800 mr-3"
+                        title="Publish this draft to the live storefront"
+                        data-testid={`hub-publish-${i.sku}`}
+                      >
+                        <Globe className="w-3 h-3" /> Publish
+                      </button>
+                    )}
                     <Link
                       to={GROUP_TO_PATH[i.product_group] || '/admin/supplier-products'}
                       className="inline-flex items-center gap-1 text-xs text-blue-600 hover:underline mr-3"

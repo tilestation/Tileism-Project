@@ -1277,8 +1277,8 @@ const ManagerPageShell = ({
             });
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
             const r = await res.json();
-            toast.success(`${list.length} product${list.length !== 1 ? 's' : ''} marked CLEARANCE${r.auto_published ? ` · ${r.auto_published} auto-published` : ''}`, {
-              description: 'Now live on the storefront Clearance page — manage in the Clearance tab',
+            toast.success(r.message || `${list.length} marked CLEARANCE`, {
+              description: 'Nothing goes live automatically — review & publish from the Clearance tab',
             });
             fetchProducts(true);
           } catch (err) {
