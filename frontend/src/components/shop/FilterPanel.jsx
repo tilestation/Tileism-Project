@@ -7,6 +7,7 @@ import { Badge } from '../../components/ui/badge';
 import { Slider } from '../../components/ui/slider';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '../../components/ui/sheet';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '../../components/ui/collapsible';
+import { formatSizeDual } from '../../utils/sizeFormat';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
 
@@ -151,7 +152,7 @@ const FilterPanel = ({
                     htmlFor={`${filter.slug}-${option.value}`}
                     className="text-sm cursor-pointer flex-1 flex items-center justify-between gap-2"
                   >
-                    <span>{option.label || option.value}</span>
+                    <span>{/^size/.test(filter.slug || '') || (filter.slug || '').includes('size') ? formatSizeDual(option.label || option.value) : (option.label || option.value)}</span>
                     {typeof option.count === 'number' && (
                       <span className="text-[11px] text-gray-400 tabular-nums" data-testid={`filter-count-${filter.slug}-${option.value}`}>
                         {option.count}

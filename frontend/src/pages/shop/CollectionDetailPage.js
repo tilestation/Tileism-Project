@@ -42,6 +42,7 @@ import {
 } from 'lucide-react';
 import { ShopHeader, ShopFooter } from './TileStationHome';
 import SeoHead from '../../components/seo/SeoHead';
+import { formatSizeDual, sizeToCm } from '../../utils/sizeFormat';
 import RenderProductDescription from '../../components/shop/RenderProductDescription';
 import { Button } from '../../components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../../components/ui/tooltip';
@@ -2941,7 +2942,7 @@ const CollectionDetailPage = () => {
               <div>
                 <label className="block text-base font-semibold text-gray-800 mb-2">
                   Size: <span className={`font-normal ${selectedSize ? 'text-gray-500' : 'text-amber-600'}`}>
-                    {selectedSize || 'Please select'}
+                    {selectedSize ? formatSizeDual(selectedSize) : 'Please select'}
                   </span>
                 </label>
                 <div className="flex flex-wrap items-center gap-2">
@@ -2976,6 +2977,11 @@ const CollectionDetailPage = () => {
                       <span className={tight ? 'text-xs leading-tight font-semibold' : proportional ? 'text-sm leading-tight font-semibold' : 'text-base'}>
                         {size}
                       </span>
+                      {!tight && sizeToCm(size) && (
+                        <span className={`${proportional ? 'text-[10px]' : 'text-xs'} ${isSelected ? 'text-amber-500' : 'text-gray-400'} leading-tight`}>
+                          ({sizeToCm(size)})
+                        </span>
+                      )}
                       {price !== null && (
                         <span className={`${tight ? 'text-[10px] mt-0.5' : proportional ? 'text-[11px] mt-0.5' : 'text-sm mt-0.5'} ${isSelected ? 'text-amber-600' : 'text-gray-400'}`}>
                           {'\u00A3'}{price.toFixed(2)}/{isSurfaceProduct ? 'm\u00B2' : 'each'}
@@ -3814,7 +3820,7 @@ const CollectionDetailPage = () => {
               {selectedProduct?.size && (
                 <div className="bg-gray-50 rounded-lg p-4">
                   <span className="text-xs text-gray-400 uppercase tracking-wider">{specLabel('size', 'Size')}</span>
-                  <p className="font-semibold text-gray-900 mt-1">{selectedProduct.size}</p>
+                  <p className="font-semibold text-gray-900 mt-1">{formatSizeDual(selectedProduct.size)}</p>
                 </div>
               )}
               {getProductFinishes(selectedProduct || {}).length > 0 && (
