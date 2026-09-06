@@ -9531,3 +9531,13 @@ See `/app/memory/test_credentials.md`
 - FIX 3 — homepage + nav: NEW ClearanceHomeSection in TileStationHome.js (black fire strip after HeroBannerCarousel: marquee, fire CLEARANCE, up to 4 published clearance cards w/ badge+%OFF+WAS/NOW, SHOP CLEARANCE + LEAFLET PDF buttons; auto-hides when no live clearance stock; testid home-clearance-section). ensureClearanceNav() helper injects CLEARANCE item (red, /tiles?clearance=true) into fetched nav on BOTH TileStationHome (main nav + mobile) and TileCollectionsPage (shop nav) when the DB nav lacks it.
 - VERIFIED preview: full lifecycle curl (mark→NOT in tiles; publish→in tiles w/ label; unpublish→gone, draft flags set, label kept; test docs cleaned). Homepage screenshot: nav CLEARANCE + fire section rendering with 2 Dolomite cards.
 - USER MUST REDEPLOY, then use Hub Unpublish to pull the wrongly-published broken products off the live site.
+
+## Sep 6, 2026 — FUTURE TASKS / AI STRATEGY BACKLOG (user asked to save as reminders)
+User requested these strategic suggestions be kept as future task reminders (from AI-in-retail advisory session):
+- (P1) LAUNCH ROOM VISUALIZER: polish + release the existing hidden /admin/visualizer to customers (PDP "See this tile in your room" + showroom kiosk mode). #1 conversion trend in tile retail (~25% conversion lift industry-reported).
+- (P1) AI TILE EXPERT ASSISTANT: storefront chat that answers project questions ("12m² bathroom, dog, UFH — what do I need?") and builds complete baskets (tiles + adhesive + grout + trim + UFH mat with quantities). Uses Emergent LLM key. Basket-size play; drives Materials/Tools sales.
+- (P1) AGENT-READY PRODUCT DATA: schema.org/Product structured data + clean feeds (live stock/pricing) so external AI shopping agents (ChatGPT/Gemini/Perplexity) can find & recommend Tile Station.
+- (P2) VISUAL SEARCH: "snap a tile, find a match" — photo upload → closest catalogue matches by colour/texture/format.
+- (P2) CLEARANCE/DEMAND INTELLIGENCE: AI on EPOS/invoice/stock data — flag slow movers as clearance candidates (feeds Clearance Hub), per-showroom reorder forecasting, WAS/NOW price optimisation.
+- (P2) AI MARKETING ENGINE: auto-generate reels/videos per new collection from product images, AI ad copy per audience (trade vs retail), auto-email clearance leaflet to segments. Ties into existing cross-post engine + Google Ads backlog items.
+- (P3) SHOWROOM AI PREP: when a customer books a showroom visit (mobile booking backlog), AI preps a personalised shortlist from their browsing/wishlist for staff before arrival.
