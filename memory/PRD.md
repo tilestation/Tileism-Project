@@ -17,6 +17,11 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Sep 7, 2026 — Forked session] 🟡 "Deployed but no change" — diagnosed + build stamp added
+- Production `www.tilestation.co.uk` is served by **Railway** (server: railway-hikari) from GitHub — NOT by Emergent's Deploy button. Fetched the live `asset-manifest.json`: `main.4bb165d2.js` + chunk `5464.c3e5db9f` still contain the OLD "cross-sell-label-" markup and none of the last 3 checkpoints (Page Map, Customers Also Liked, per-unit storefront fix, YMAN cards). The Per-Unit toggle (checkpoint d0ccbbf) IS live → pipeline works; the newest commits simply haven't been pushed/built yet (or Railway build still running/failed). Service worker caches nothing; index.html is no-cache — not a browser-cache issue.
+- Added a **build stamp**: `frontend/scripts/build-info.js` runs first in `yarn build` and writes `public/build-info.json` ({commit (RAILWAY_GIT_COMMIT_SHA or git), short, branch, built_at}). Admin sidebar shows "Build <sha> · <date time>" under Logout (`admin-build-stamp`). Check live at `https://www.tilestation.co.uk/build-info.json` (404 until the first build with this change ships).
+
+
 ### [Sep 7, 2026 — Forked session] 🟢 "You May Also Need" cards redesigned (no more overflow) — VERIFIED
 - Problem: the strip reused the tall `<CollectionCard>` (hero + swatch grid) in 288px boxes → clipped category pills, swatches spilling out of the card, giant cards.
 - Fix: new compact `CrossSellCard` in `CrossSellSections.jsx` — square image (packshots `object-contain` on light grey, tiles `object-cover`), category pill inside the image, optional Sale pill, 2-line clamped name, "N colours · N sizes" summary (falls back to the reason text), "From £X /each|/m²" (trade-aware), "View →". Rendered in a responsive grid (2/3/4/6 columns) instead of a horizontal scroller. Verified: every card's scrollWidth/Height == clientWidth/Height (nothing overflows). Used on collection pages and single product pages.

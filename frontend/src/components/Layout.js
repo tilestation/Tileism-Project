@@ -184,6 +184,15 @@ export const Layout = () => {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
+  // Which build is this browser running? (written by scripts/build-info.js at build time)
+  const [buildInfo, setBuildInfo] = useState(null);
+  useEffect(() => {
+    fetch('/build-info.json', { cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (d && d.built_at) setBuildInfo(d); })
+      .catch(() => {});
+  }, []);
+
   const handleLogout = () => {
     logout();
     navigate('/');
@@ -844,6 +853,11 @@ export const Layout = () => {
               <LogOut className="h-5 w-5" strokeWidth={1.5} />
               {!collapsed && <span className="ml-2">Logout</span>}
             </Button>
+            {!collapsed && buildInfo && (
+              <p className="mt-2 text-[10px] text-white/40 text-center" data-testid="admin-build-stamp" title={`Commit ${buildInfo.commit}`}>
+                Build {buildInfo.short || '—'} · {buildInfo.built_at ? new Date(buildInfo.built_at).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : ''}
+              </p>
+            )}
           </div>
         </div>
       </aside>

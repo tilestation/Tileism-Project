@@ -83,7 +83,7 @@
   "scripts": {
     "start": "craco start",
     "start:prod": "node server.js",
-    "build": "DISABLE_ESLINT_PLUGIN=true CI=false craco build",
+    "build": "node scripts/build-info.js && DISABLE_ESLINT_PLUGIN=true CI=false craco build",
     "test": "craco test"
   },
   "browserslist": {
