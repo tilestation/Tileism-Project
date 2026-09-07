@@ -1202,9 +1202,21 @@ const ManagerPageShell = ({
                               {p.parcel_delivery && <Package className="w-3.5 h-3.5 text-sky-500 flex-shrink-0" title={`Ships as parcel (non-palletised)${Number(p.parcel_fee || 0) > 0 ? ` — £${Number(p.parcel_fee).toFixed(2)} parcel rate` : ''}`} data-testid={`parcel-icon-${p.sku || p.supplier_code}`} />}
                               {name}
                             </div>
-                            <div className="text-xs text-gray-500">
-                              {p.supplier} · {p.sku || p.supplier_code}
-                              {p.published && <CheckCircle className="w-3 h-3 inline ml-1 text-green-500" />}
+                            <div className="text-xs text-gray-500 flex items-center gap-1.5 flex-wrap">
+                              <span>{p.supplier} · {p.sku || p.supplier_code}</span>
+                              {p.published && <CheckCircle className="w-3 h-3 inline text-green-500" />}
+                              {p.pallet_enabled && p.pallet_only && (
+                                <span
+                                  className="inline-flex items-center gap-0.5 px-1.5 py-[1px] rounded bg-amber-100 text-amber-800 border border-amber-300 text-[10px] font-bold uppercase tracking-wide"
+                                  title={`Sold by the pallet only — customers can't buy individual ${p.pallet_qty_unit === 'unit' ? 'units' : 'm²'}. Change in Pricing → Tier Discounts, Trade & Pallets`}
+                                  data-testid={`pallet-only-tag-${p.sku || p.supplier_code}`}
+                                >
+                                  <Layers className="w-3 h-3" /> Pallet only
+                                </span>
+                              )}
+                              {p.pricing_unit === 'unit' && (
+                                <span className="px-1.5 py-[1px] rounded bg-sky-50 text-sky-700 border border-sky-200 text-[10px] font-semibold" title="Priced and sold per unit (each), not per m²" data-testid={`per-unit-tag-${p.sku || p.supplier_code}`}>each</span>
+                              )}
                             </div>
                           </td>
                           {seriesQuickEdit && (

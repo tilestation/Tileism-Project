@@ -17,6 +17,12 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Sep 7, 2026 — Forked session] 🟢 Pallet-only row tag · flashing SALE / CLEARANCE stamps on /tiles cards — VERIFIED (screenshots)
+- Manager rows (`ManagerPageShell.jsx`): amber **PALLET ONLY** tag (`pallet-only-tag-{sku}`) next to supplier·SKU when `pallet_enabled && pallet_only`; small blue **each** tag (`per-unit-tag-{sku}`) for `pricing_unit === 'unit'`.
+- `/tiles` CollectionCard (`TileCollectionsPage.js`): CLEARANCE stamp now flashes (`clearance-flash`) and shows "Save up to X%"; the SALE badge is a matching red flashing stamp (`.sale-stamp` in index.css) with "Up to X% off"; the old red corner "Sale" ribbon was removed (stamps replace it; CLEARANCE still supersedes SALE).
+- Backend: `/api/tiles/collections?sale=true` now includes products with a live Was/Now price (`sale_active`) as well as those labelled Sale.
+
+
 ### [Sep 7, 2026 — Forked session] 🟢 Clearance ribbon · Pallet-only selling · One Pricing hub — VERIFIED (iteration_243, all pass)
 1. **CLEARANCE on the PDP** (`CollectionDetailPage.js`): `isClearanceProduct` (label "Clearance" or `clearance` flag) → big flashing yellow/red **CLEARANCE** ribbon (`clearance-ribbon`, CSS `.clearance-flash` in index.css) over the main image (replaces the red Sale ribbon, shows "Save X% · while stocks last" when Was/Now set); the price box turns dark/red with a **CLEARANCE PRICE · WHILE STOCKS LAST** header (`clearance-price-label`) instead of "Sale Price". Small label pills no longer duplicate Clearance.
 2. **Pallet-only selling**: new `pallet_only` flag. Admin: Tier Pricing → pallet block → "Pallet only — no individual m²/units" (`pallet-only-checkbox`), saved via `bulk-tier-update` (`BulkTierUpdateRequest.pallet_only`; forced false when pallets disabled). `serialize_tile_for_shop` exposes it (only when a pallet rate exists). Storefront: per-m² chip hidden, Full (or Half) pallet auto-selected, "Sold by the pallet only" notice, Volume Pricing table + "UP TO x% OFF" volume box hidden, min qty enforced. The Pricing hub pre-fills the pallet block (rates + pallet-only) when all selected products share the same setup.

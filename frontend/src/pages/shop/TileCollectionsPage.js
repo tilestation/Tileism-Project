@@ -507,11 +507,13 @@ export const CollectionCard = ({
   // Badge component - Right Tiles inspired overlay design
   const renderBadge = (badge, idx) => {
     if (badge.type === 'sale') {
+      // Flashing SALE stamp — same treatment as the CLEARANCE stamp, in red
       return (
-        <div key={idx} className="flex flex-col items-center justify-center w-[56px] h-[56px] rounded-full bg-red-600 shadow-lg shadow-red-600/30 border-2 border-red-500" data-testid={`badge-${badge.type}`}>
-          <span className="text-[8px] font-medium text-red-200 leading-none">{isTrade ? 'Trade' : (tierDisabledForBadge ? 'Save' : 'Up to')}</span>
-          <span className="text-base font-black text-white leading-none tracking-tight">{discountPct || ''}%</span>
-          <span className="text-[8px] font-medium text-red-200 leading-none">Off</span>
+        <div key={idx} className="sale-stamp flex flex-col items-center justify-center px-3.5 py-1.5 rounded-sm bg-red-600 border-2 border-white shadow-lg shadow-red-600/40" data-testid={`badge-${badge.type}`}>
+          <span className="text-sm font-black text-white leading-none tracking-widest uppercase">Sale</span>
+          {discountPct > 0 && (
+            <span className="text-[9px] font-bold text-red-100 leading-none mt-1 whitespace-nowrap">{isTrade ? 'Trade' : (tierDisabledForBadge ? 'Save' : 'Up to')} {discountPct}% off</span>
+          )}
         </div>
       );
     }
@@ -529,10 +531,13 @@ export const CollectionCard = ({
       return (
         <div
           key={idx}
-          className="clearance-badge flex items-center justify-center px-3.5 py-2 rounded-sm bg-[#e5d918] border-2 border-[#FF2A00] rotate-2"
+          className="clearance-badge clearance-flash flex flex-col items-center justify-center px-3.5 py-2 rounded-sm bg-[#e5d918] border-2 border-[#FF2A00]"
           data-testid={`badge-${badge.type}`}
         >
           <span className="clearance-fire-text text-sm font-black text-[#FF2A00] leading-none tracking-widest uppercase">Clearance</span>
+          {discountPct > 0 && (
+            <span className="text-[9px] font-black text-black/80 leading-none mt-1 whitespace-nowrap uppercase">Save {isTrade ? '' : 'up to '}{discountPct}%</span>
+          )}
         </div>
       );
     }
@@ -644,23 +649,12 @@ export const CollectionCard = ({
             </div>
           )}
 
-          {/* Prominent Sale Ribbon — Top Right (matches PDP) */}
-          {is_sale && (
-            <div className="absolute top-0 right-0 z-10" data-testid="sale-ribbon">
-              <div className="relative">
-                <Star className="absolute -top-1 left-1 w-4 h-4 fill-yellow-400 text-yellow-400 z-20" />
-                <div className="bg-red-600 text-white pl-6 pr-4 py-2 rounded-bl-lg shadow-xl">
-                  <span className="text-base font-bold italic tracking-wide drop-shadow-sm">Sale</span>
-                </div>
-                <div className="absolute -bottom-2 left-0 w-0 h-0 border-r-[8px] border-r-transparent border-t-[8px] border-t-red-800" />
-              </div>
-            </div>
-          )}
+          {/* The flashing SALE / CLEARANCE stamps (top-left) replaced the old corner "Sale" ribbon */}
 
-          {/* Wishlist Button - Top Right (offset down when sale ribbon present) */}
+          {/* Wishlist Button - Top Right */}
           <button
             onClick={handleLike}
-            className={`absolute ${is_sale ? 'top-14' : 'top-3'} right-3 p-2 rounded-full transition-all duration-300 z-10
+            className={`absolute top-3 right-3 p-2 rounded-full transition-all duration-300 z-10
               ${isLiked ? 'bg-red-500 text-white' : 'bg-white/90 text-gray-700 hover:bg-white'}
               ${isHovering ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-2'}`}
           >

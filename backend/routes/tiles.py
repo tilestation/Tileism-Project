@@ -891,7 +891,13 @@ async def _get_tile_collections_impl(
     
     # Standalone sale parameter (from SALE tab)
     if sale and sale.lower() == "true":
-        match_query["labels"] = {"$in": ["SALE", "Sale", "sale"]}
+        # Labelled "Sale" OR carrying a live Was/Now price
+        sale_clause = {"$or": [{"labels": {"$in": ["SALE", "Sale", "sale"]}}, {"sale_active": True}]}
+        if "$or" in match_query:
+            match_query.setdefault("$and", []).append({"$or": match_query.pop("$or")})
+            match_query["$and"].append(sale_clause)
+        else:
+            match_query["$or"] = sale_clause["$or"]
     
     # Standalone clearance parameter (Clearance takeover page)
     if clearance and clearance.lower() == "true":
