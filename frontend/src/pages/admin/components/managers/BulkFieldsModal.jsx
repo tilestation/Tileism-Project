@@ -258,7 +258,7 @@ const EditEachMode = ({ selectedList, edits, setEdits }) => {
 };
 
 // --------------- Main modal ---------------
-const BulkFieldsModal = ({ open, onOpenChange, selectedList = [], onSuccess, themeColor = 'orange' }) => {
+const BulkFieldsModal = ({ open, onOpenChange, selectedList = [], onSuccess, themeColor = 'orange', embedded = false }) => {
   const [mode, setMode] = useState('set');
   // Set mode state
   const [setValues, setSetValues] = useState({ price: '', cost: '', stock: '', sale: '' });
@@ -499,16 +499,10 @@ const BulkFieldsModal = ({ open, onOpenChange, selectedList = [], onSuccess, the
 
   const modeLabel = { set: 'Set all to same', adjust: 'Adjust each', edit: `Edit ${selectedList.length} rows` };
 
-  return (
-    <Dialog open={open} onOpenChange={(o) => { if (!saving) { onOpenChange(o); if (!o) resetState(); } }}>
-      <DialogContent className="max-w-4xl" data-testid="bulk-fields-modal">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <PoundSterling className="w-5 h-5 text-emerald-600" />
-            Bulk Set / Adjust / Edit — {selectedList.length} product(s)
-          </DialogTitle>
-        </DialogHeader>
+  const Footer = embedded ? (props) => <div className="flex items-center justify-end gap-2 pt-3 mt-2 border-t border-gray-200" {...props} /> : DialogFooter;
 
+  const inner = (
+    <>
         {/* Mode tabs */}
         <div className="flex gap-1 border-b border-gray-200 -mx-1">
           {[
@@ -549,7 +543,7 @@ const BulkFieldsModal = ({ open, onOpenChange, selectedList = [], onSuccess, the
           </span>
         </div>
 
-        <DialogFooter>
+        <Footer>
           <span className="text-[11px] text-gray-500 mr-auto inline-flex items-center gap-1">
             Mode: <b>{modeLabel[mode]}</b>
             {mode === 'edit' && changeCounts.rows > 0 && <> · <b>{changeCounts.rows}</b> row(s) to save</>}
@@ -565,7 +559,22 @@ const BulkFieldsModal = ({ open, onOpenChange, selectedList = [], onSuccess, the
             {mode === 'adjust' && `Adjust ${selectedList.length}`}
             {mode === 'edit'   && `Save ${changeCounts.rows || selectedList.length}`}
           </Button>
-        </DialogFooter>
+        </Footer>
+    </>
+  );
+
+  if (embedded) return <div data-testid="bulk-fields-panel">{inner}</div>;
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => { if (!saving) { onOpenChange(o); if (!o) resetState(); } }}>
+      <DialogContent className="max-w-4xl" data-testid="bulk-fields-modal">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <PoundSterling className="w-5 h-5 text-emerald-600" />
+            Bulk Set / Adjust / Edit — {selectedList.length} product(s)
+          </DialogTitle>
+        </DialogHeader>
+        {inner}
       </DialogContent>
     </Dialog>
   );

@@ -168,8 +168,13 @@ code {
 }
 .clearance-fire-text { animation: fireglow 1.6s ease-in-out infinite; }
 .clearance-badge { animation: badgeglow 1.6s ease-in-out infinite; }
+@keyframes clearanceFlash {
+  0%, 100% { transform: scale(1) rotate(3deg); filter: brightness(1); }
+  50% { transform: scale(1.07) rotate(3deg); filter: brightness(1.25); }
+}
+.clearance-flash { animation: badgeglow 1.6s ease-in-out infinite, clearanceFlash 1.2s ease-in-out infinite; }
 .clearance-marquee { animation: clearanceMarquee 30s linear infinite; }
 .clearance-marquee-reverse { animation: clearanceMarquee 38s linear infinite reverse; }
 @media (prefers-reduced-motion: reduce) {
-  .clearance-fire-text, .clearance-badge, .clearance-marquee, .clearance-marquee-reverse { animation: none; }
+  .clearance-fire-text, .clearance-badge, .clearance-flash, .clearance-marquee, .clearance-marquee-reverse { animation: none; }
 }

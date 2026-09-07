@@ -239,7 +239,8 @@ const ManagerBulkBar = ({
           Categories &amp; Filters
         </button>
       )}
-      {!hidden.has('tierPricing') && onOpenTierPricing && (
+      {/* Tier Pricing now lives inside the Pricing hub (second tab) */}
+      {!hidden.has('tierPricing') && onOpenTierPricing && !onOpenBulkFields && (
         <button
           type="button"
           onClick={onOpenTierPricing}
@@ -285,10 +286,10 @@ const ManagerBulkBar = ({
           disabled={saving}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/15 hover:bg-white/25 transition text-[13px] font-medium"
           data-testid="bar-bulk-fields"
-          title="Set list price / cost / stock / sale % on all selected"
+          title="Everything pricing in one place: Now / Was (sale & clearance) price, cost, stock, tier discounts, trade %, half / full pallets"
         >
           <PoundSterling className="w-3.5 h-3.5" />
-          Price / Cost / Stock
+          Pricing
         </button>
       )}
       {!hidden.has('aiDescriptions') && onOpenAIDescriptions && (

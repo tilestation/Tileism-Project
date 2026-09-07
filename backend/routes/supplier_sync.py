@@ -6494,6 +6494,7 @@ class BulkTierUpdateRequest(BaseModel):
     m2_per_pallet: Optional[float] = None       # Full pallet m² threshold
     m2_per_half_pallet: Optional[float] = None  # Half pallet m² threshold
     pallet_qty_unit: Optional[str] = None       # 'm2' | 'unit' — what the pallet quantities are measured in
+    pallet_only: Optional[bool] = None          # True = customers can ONLY buy Half / Full pallets (no per-m²/per-unit)
 
 
 @router.put("/products/bulk-tier-update")
@@ -6543,6 +6544,7 @@ def bulk_update_product_tier_pricing(data: BulkTierUpdateRequest):
             row_m2_per_pallet     = product.get('m2_per_pallet')     if 'm2_per_pallet'     in product else data.m2_per_pallet
             row_m2_per_half       = product.get('m2_per_half_pallet') if 'm2_per_half_pallet' in product else data.m2_per_half_pallet
             row_pallet_unit       = product.get('pallet_qty_unit')   if 'pallet_qty_unit'   in product else data.pallet_qty_unit
+            row_pallet_only       = product.get('pallet_only')       if 'pallet_only'       in product else data.pallet_only
 
             row_td_type = default_td_type
             if 'trade_discount_type' in product and product.get('trade_discount_type') is not None:
@@ -6607,6 +6609,10 @@ def bulk_update_product_tier_pricing(data: BulkTierUpdateRequest):
                 update_data["m2_per_half_pallet"] = row_m2_per_half
             if row_pallet_unit is not None:
                 update_data["pallet_qty_unit"] = "unit" if str(row_pallet_unit).lower() in ("unit", "units") else "m2"
+            if row_pallet_enabled is False:
+                update_data["pallet_only"] = False
+            elif row_pallet_only is not None:
+                update_data["pallet_only"] = bool(row_pallet_only)
 
             # Update supplier_products
             result = db.supplier_products.update_one(

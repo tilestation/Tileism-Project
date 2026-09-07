@@ -46,6 +46,7 @@ const TierPricingModal = ({
   productOverrides = null,          // { 'supplier|||sku': { trade_discount, credit_back_rate, disabled, ... } }
   setProductOverrides = null,       // (updater) => void
   selectedProductsList = null,      // full array of selected product objects (for the panel)
+  embedded = false,                 // render without the Dialog shell (used inside PricingHubModal)
 }) => {
   const filterLabel = getFilterDisplayLabel ? getFilterDisplayLabel(pricingSizeFilter) : pricingSizeFilter;
 
@@ -144,16 +145,10 @@ const TierPricingModal = ({
     ? 'On the storefront, customers see a Half Pallet / Full Pallet chip. Selecting one auto-sets the basket quantity to the matching unit count and applies the £/unit rate.'
     : 'On the storefront, customers see a Half Pallet / Full Pallet chip. Selecting one auto-sets the basket m² to the matching threshold and applies the £/m² rate.';
 
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <Percent className="w-5 h-5 text-amber-600" />
-            Set Tier Discounts
-          </DialogTitle>
-        </DialogHeader>
+  const Footer = embedded ? (props) => <div className="flex items-center justify-end gap-2 pt-3 mt-2 border-t border-gray-200" {...props} /> : DialogFooter;
 
+  const inner = (
+    <>
         {/* Status Banner */}
         {selectedProducts.size > 0 && (
           <div className={`p-3 rounded-lg ${isScoped ? 'bg-amber-100 border border-amber-300' : pricingSizeFilter !== 'all' ? 'bg-purple-100 border border-purple-300' : 'bg-amber-100 border border-amber-300'}`}>
@@ -455,6 +450,21 @@ const TierPricingModal = ({
                   <p className="text-[11px] text-green-600">
                     {palletStorefrontHint}
                   </p>
+                  <label className={`flex items-start gap-3 cursor-pointer rounded-lg border p-3 ${tierPricingConfig.pallet_only ? 'bg-amber-50 border-amber-300' : 'bg-white border-green-200'}`}>
+                    <input
+                      type="checkbox"
+                      checked={!!tierPricingConfig.pallet_only}
+                      onChange={(e) => setPalletField('pallet_only', e.target.checked)}
+                      className="w-5 h-5 mt-0.5 rounded border-amber-300 text-amber-600 focus:ring-amber-500"
+                      data-testid="pallet-only-checkbox"
+                    />
+                    <div className="flex-1">
+                      <span className="font-semibold text-amber-900">Pallet only — no individual {palletIsUnit ? 'units' : 'm²'}</span>
+                      <p className="text-xs text-amber-800 mt-0.5">
+                        Hides the per-{palletIsUnit ? 'unit' : 'm²'} option on the website so customers can ONLY buy Half or Full pallets at the rates above. Ideal for clearance stock you want shifted in bulk. Untick to allow individual sales again.
+                      </p>
+                    </div>
+                  </label>
                 </div>
               )}
             </div>
@@ -651,7 +661,7 @@ const TierPricingModal = ({
           )}
         </div>
 
-        <DialogFooter>
+        <Footer>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
@@ -669,7 +679,22 @@ const TierPricingModal = ({
               return tierPricingConfig.disabled ? `${base} — tiers off` : base;
             })()}
           </Button>
-        </DialogFooter>
+        </Footer>
+    </>
+  );
+
+  if (embedded) return <div data-testid="tier-pricing-panel">{inner}</div>;
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Percent className="w-5 h-5 text-amber-600" />
+            Set Tier Discounts
+          </DialogTitle>
+        </DialogHeader>
+        {inner}
       </DialogContent>
     </Dialog>
   );

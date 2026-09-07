@@ -38,6 +38,7 @@ import ManagerTabsBar from './managers/ManagerTabsBar';
 import { bucketSelectionByManager } from './managers/classifyProductToManager';
 import ManagerFiltersPanel, { applyManagerFilters } from './managers/ManagerFiltersPanel';
 import CustomManagerBuilder from './managers/CustomManagerBuilder';
+import PricingHubModal from './managers/PricingHubModal';
 import BulkFieldsModal from './managers/BulkFieldsModal';
 import QuickEditProductDrawer from './managers/QuickEditProductDrawer';
 import BulkAIDescriptionsModal from './managers/BulkAIDescriptionsModal';
@@ -376,7 +377,7 @@ const ManagerPageShell = ({
     trade_discount_default: 5,
     trade_discount_type: 'percent',
     credit_back_default: 2,
-    pallet_enabled: false,
+    pallet_enabled: false, pallet_only: false,
     pallet_price: null, half_pallet_price: null,
     m2_per_pallet: null, m2_per_half_pallet: null,
     ...tierPricingDefaults,
@@ -414,6 +415,36 @@ const ManagerPageShell = ({
 
   useEffect(() => { fetchProducts(); }, [fetchProducts]);
   const bulk = useManagerBulk({ products, onRefresh: fetchProducts, storageKey: categoryKey });
+
+  // Pre-fill the pallet block from the selection when the Pricing hub opens, so
+  // existing rates / "pallet only" are visible and can be fine-tuned instead of
+  // re-typed. Only when every selected product shares the same pallet setup;
+  // mixed selections start blank. Stays non-destructive (pallet_touched false).
+  const pricingHubOpen = showBulkFields || showTierPricing;
+  useEffect(() => {
+    if (!pricingHubOpen) return;
+    const list = bulk.getSelectedList();
+    if (list.length === 0) return;
+    const PALLET_KEYS = ['pallet_enabled', 'pallet_price', 'half_pallet_price', 'm2_per_pallet', 'm2_per_half_pallet', 'pallet_only', 'pallet_qty_unit'];
+    const pick = (p) => PALLET_KEYS.map(k => p[k] ?? null);
+    const first = JSON.stringify(pick(list[0]));
+    if (!list.every(p => JSON.stringify(pick(p)) === first)) return;
+    const src = list[0];
+    if (!src.pallet_enabled && !src.pallet_price && !src.half_pallet_price) return;
+    setTierPricingConfig(prev => ({
+      ...prev,
+      pallet_enabled: !!src.pallet_enabled,
+      pallet_price: src.pallet_price ?? null,
+      half_pallet_price: src.half_pallet_price ?? null,
+      m2_per_pallet: src.m2_per_pallet ?? null,
+      m2_per_half_pallet: src.m2_per_half_pallet ?? null,
+      pallet_only: !!src.pallet_only,
+      pallet_qty_unit: src.pallet_qty_unit || prev.pallet_qty_unit,
+      pallet_touched: false,
+    }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pricingHubOpen]);
+
   const selectedKeySet = bulk.selectedProducts;
   const selectedList = useMemo(() => bulk.getSelectedList(), [bulk]);
   const selectionByCategory = useMemo(
@@ -1340,7 +1371,6 @@ const ManagerPageShell = ({
       <StaleValueSweepModal open={showStaleSweep} onOpenChange={setShowStaleSweep} onSuccess={() => fetchProducts()} />
       <LargeFormatSweepModal open={showLfSweep} onOpenChange={setShowLfSweep} products={products} onSuccess={() => fetchProducts()} />
       <FeaturedOrderModal open={showFeaturedOrder} onOpenChange={setShowFeaturedOrder} />
-      <BulkFieldsModal open={showBulkFields} onOpenChange={setShowBulkFields} selectedList={bulk.getSelectedList()} themeColor={theme} onSuccess={() => { bulk.clearAll(); fetchProducts(); }} />
 
       <BulkAIDescriptionsModal open={showAIDescriptions} onOpenChange={setShowAIDescriptions} selectedList={bulk.getSelectedList()} themeColor={theme} onSuccess={() => fetchProducts()} />
       <BulkImageUploadModal open={showBulkImages} onOpenChange={setShowBulkImages} selectedList={bulk.getSelectedList()} themeColor={theme} onSuccess={() => { bulk.clearAll(); fetchProducts(); }} />
@@ -1529,11 +1559,36 @@ const ManagerPageShell = ({
         </div>
       )}
 
+      {/* Pricing hub — prices / cost / stock / sale AND tier discounts / trade / pallets in ONE modal */}
+      <PricingHubModal
+        open={showBulkFields || showTierPricing}
+        initialTab={showTierPricing && !showBulkFields ? 'tiers' : 'prices'}
+        count={bulk.getSelectedList().length}
+        onOpenChange={(o) => {
+          if (o) return;
+          setShowBulkFields(false);
+          setShowTierPricing(false);
+          setTierProductOverrides({});
+          setTierPricingConfig(prev => ({ ...prev, pallet_touched: false }));
+        }}
+        pricesPanel={
+          <BulkFieldsModal
+            embedded
+            open={showBulkFields || showTierPricing}
+            onOpenChange={(o) => { if (!o) { setShowBulkFields(false); setShowTierPricing(false); } }}
+            selectedList={bulk.getSelectedList()}
+            themeColor={theme}
+            onSuccess={() => { bulk.clearAll(); fetchProducts(); }}
+          />
+        }
+        tierPanel={
       <TierPricingModal
-        open={showTierPricing}
+        embedded
+        open={showBulkFields || showTierPricing}
         onOpenChange={(next) => {
-          setShowTierPricing(next);
           if (!next) {
+            setShowTierPricing(false);
+            setShowBulkFields(false);
             setTierProductOverrides({});  // reset overrides when the modal closes
             setTierPricingConfig(prev => ({ ...prev, pallet_touched: false }));
           }
@@ -1599,6 +1654,7 @@ const ManagerPageShell = ({
                   half_pallet_price: tierPricingConfig.half_pallet_price,
                   m2_per_pallet: tierPricingConfig.m2_per_pallet,
                   m2_per_half_pallet: tierPricingConfig.m2_per_half_pallet,
+                  pallet_only: !!tierPricingConfig.pallet_enabled && !!tierPricingConfig.pallet_only,
                 } : {}),
               }),
             });
@@ -1607,6 +1663,7 @@ const ManagerPageShell = ({
             const overrideNote = overrideCount > 0 ? ` (${overrideCount} customised)` : '';
             toast.success(`Tier pricing saved: ${data.updated_count || selectedList.length}${overrideNote}`);
             setShowTierPricing(false);
+            setShowBulkFields(false);
             setTierProductOverrides({});
             setTierPricingConfig(prev => ({ ...prev, pallet_touched: false }));
             fetchProducts();
@@ -1632,6 +1689,8 @@ const ManagerPageShell = ({
         overrideCostPrice={null}
         tierProductScope={new Set()}
         selectedPricingUnit={tierPricingDefaults.default_unit || 'unit'}
+      />
+        }
       />
     </div>
   );

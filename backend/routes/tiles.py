@@ -188,6 +188,8 @@ def serialize_tile_for_shop(tile: dict) -> dict:
         "m2_per_pallet": m2_per_pallet,
         "m2_per_half_pallet": m2_per_half_pallet,
         "pallet_qty_unit": tile.get("pallet_qty_unit"),
+        # Pallet-only: storefront hides per-m²/per-unit buying, only Half/Full pallet chips
+        "pallet_only": bool(tile.get("pallet_only")) and bool(pallet_price or half_pallet_price),
         "delivery_charge_required": bool(tile.get("delivery_charge_required")),
         "delivery_charge": tile.get("delivery_charge"),
         "parcel_delivery": bool(tile.get("parcel_delivery")),

@@ -1326,6 +1326,9 @@ const CollectionDetailPage = () => {
     selectedProduct?.was_price > 0 &&
     selectedProduct?.was_price > regularSellingPrice;
   const isOnSale = hasExplicitSale || hasSaleLabel;
+  // Marked CLEARANCE → big flashing CLEARANCE branding everywhere SALE would show
+  const isClearanceProduct = !!selectedProduct?.clearance
+    || (selectedProduct?.labels || []).some(l => /clearance/i.test(String(l)));
 
   // The stored `price` IS the current (sale) selling price — the backend
   // updates it when a sale is applied. NEVER recompute from
@@ -1497,6 +1500,15 @@ const CollectionDetailPage = () => {
   // steppers, but never below the minimum.
   // Switching BACK to per-unit/m² resets qty to 1 so the pallet quantity
   // (e.g. 27) doesn't linger at the per-unit price.
+  // Pallet-only products (admin flag): no per-m²/per-unit buying — Half / Full pallet only
+  const palletOnly = !!selectedProduct?.pallet_only && (palletInfo.fullPalletAvailable || palletInfo.halfPalletAvailable);
+  useEffect(() => {
+    if (palletOnly && pricingTier === 'm2') {
+      setPricingTier(palletInfo.fullPalletAvailable ? 'full_pallet' : 'half_pallet');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [palletOnly, pricingTier, selectedProduct?.sku]);
+
   const prevPricingTierRef = useRef('m2');
   useEffect(() => {
     if (pricingTier === 'full_pallet' && palletInfo.fullM2 > 0) {
@@ -1552,7 +1564,7 @@ const CollectionDetailPage = () => {
     const saleRate = (hasExplicitSale && selectedProduct?.was_price > 0 && currentSellingPrice < selectedProduct.was_price)
       ? Math.round(((selectedProduct.was_price - currentSellingPrice) / selectedProduct.was_price) * 1000) / 10
       : 0;
-    const volumeRate = currentTierDiscount || 0;
+    const volumeRate = palletOnly ? 0 : (currentTierDiscount || 0);
     const tradeRate = getEffTradePct();
 
     const empty = {
@@ -2150,8 +2162,20 @@ const CollectionDetailPage = () => {
                     />
                   )}
                   
+                  {/* CLEARANCE ribbon — big, flashing, replaces the Sale ribbon */}
+                  {isClearanceProduct && (
+                    <div className="absolute top-3 right-3 z-20 pointer-events-none" data-testid="clearance-ribbon">
+                      <div className="clearance-badge clearance-flash flex flex-col items-center px-5 py-2.5 rounded-md bg-[#e5d918] border-[3px] border-[#FF2A00] shadow-2xl">
+                        <span className="clearance-fire-text text-2xl sm:text-3xl font-black text-[#FF2A00] leading-none tracking-[0.2em] uppercase">Clearance</span>
+                        {hasExplicitSale && discountBreakdown?.total > 0 && (
+                          <span className="mt-1 text-xs font-black text-black/80 uppercase tracking-wider">Save {discountBreakdown.total}% · while stocks last</span>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
                   {/* Sale Badge - Large prominent ribbon style like Tile Mountain */}
-                  {isOnSale && (
+                  {isOnSale && !isClearanceProduct && (
                     <div className="absolute top-0 right-0 z-10">
                       <div className="relative">
                         <Star className="absolute -top-1 left-1 w-5 h-5 fill-yellow-400 text-yellow-400 z-20" />
@@ -2164,10 +2188,10 @@ const CollectionDetailPage = () => {
                   )}
                   
                   {/* Other Labels */}
-                  {selectedProduct?.labels?.filter(label => label.toLowerCase() !== 'sale').length > 0 && (
-                    <div className={`absolute top-4 ${isOnSale ? 'left-4' : 'right-4'} flex flex-col gap-1`}>
+                  {selectedProduct?.labels?.filter(label => !['sale', 'clearance'].includes(label.toLowerCase())).length > 0 && (
+                    <div className={`absolute top-4 ${isOnSale || isClearanceProduct ? 'left-4' : 'right-4'} flex flex-col gap-1`}>
                       {selectedProduct.labels
-                        .filter(label => label.toLowerCase() !== 'sale')
+                        .filter(label => !['sale', 'clearance'].includes(label.toLowerCase()))
                         .map((label, idx) => (
                           <span key={idx} className="bg-amber-500 text-white px-2 py-1 rounded text-xs font-medium">
                             {label}
@@ -2540,11 +2564,20 @@ const CollectionDetailPage = () => {
                 if (totalSavings <= 0) return null;
 
                 return (
-                  <div data-testid="sale-price-ribbon">
-                    <div className="rounded-2xl overflow-hidden" style={{ background: 'linear-gradient(135deg, #ef4444 0%, #dc2626 50%, #b91c1c 100%)' }}>
+                  <div data-testid="sale-price-ribbon" data-clearance={isClearanceProduct ? 'true' : undefined}>
+                    <div className="rounded-2xl overflow-hidden" style={{ background: isClearanceProduct ? 'linear-gradient(135deg, #111827 0%, #1f2937 55%, #7f1d1d 100%)' : 'linear-gradient(135deg, #ef4444 0%, #dc2626 50%, #b91c1c 100%)' }}>
                       <div className="px-4 sm:px-6 py-4 sm:py-5 flex flex-wrap items-center justify-between gap-3">
                         <div className="min-w-0">
-                          <div className="text-red-200 text-xs font-bold uppercase tracking-widest mb-1">Sale Price</div>
+                          {isClearanceProduct ? (
+                            <div className="flex flex-wrap items-center gap-2 mb-1.5" data-testid="clearance-price-label">
+                              <span className="clearance-badge inline-flex items-center px-2.5 py-1 rounded-sm bg-[#e5d918] border-2 border-[#FF2A00]">
+                                <span className="clearance-fire-text text-sm font-black text-[#FF2A00] leading-none tracking-widest uppercase">Clearance</span>
+                              </span>
+                              <span className="text-yellow-200 text-xs font-bold uppercase tracking-widest">Clearance Price · while stocks last</span>
+                            </div>
+                          ) : (
+                            <div className="text-red-200 text-xs font-bold uppercase tracking-widest mb-1">Sale Price</div>
+                          )}
                           <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
                             <span className="text-white/60 text-base line-through">WAS £{safeToFixed(wasPrice, 2)}{priceUnit}</span>
                             <span className="text-white text-2xl sm:text-3xl font-black tracking-tight">NOW £{safeToFixed(nowPrice, 2)}{priceUnit}</span>
@@ -2630,14 +2663,24 @@ const CollectionDetailPage = () => {
               // CASE 2: Label-only sale (no was_price) — show sale banner with current price + volume savings info
               if (hasSaleLabel) {
                 const nowPrice = displayPrice;
-                const maxTierDiscount = tierPricing && tierPricing.length > 0 ? (tierPricing[tierPricing.length - 1]?.discount_percent || 0) : 0;
+                // Pallet-only lines can't use per-m² volume tiers, so don't advertise them
+                const maxTierDiscount = !palletOnly && tierPricing && tierPricing.length > 0 ? (tierPricing[tierPricing.length - 1]?.discount_percent || 0) : 0;
 
                 return (
-                  <div data-testid="sale-price-ribbon">
-                    <div className="rounded-2xl overflow-hidden" style={{ background: 'linear-gradient(135deg, #ef4444 0%, #dc2626 50%, #b91c1c 100%)' }}>
+                  <div data-testid="sale-price-ribbon" data-clearance={isClearanceProduct ? 'true' : undefined}>
+                    <div className="rounded-2xl overflow-hidden" style={{ background: isClearanceProduct ? 'linear-gradient(135deg, #111827 0%, #1f2937 55%, #7f1d1d 100%)' : 'linear-gradient(135deg, #ef4444 0%, #dc2626 50%, #b91c1c 100%)' }}>
                       <div className="px-4 sm:px-6 py-4 sm:py-5 flex flex-wrap items-center justify-between gap-3">
                         <div className="min-w-0">
-                          <div className="text-red-200 text-xs font-bold uppercase tracking-widest mb-1">Sale Price</div>
+                          {isClearanceProduct ? (
+                            <div className="flex flex-wrap items-center gap-2 mb-1.5" data-testid="clearance-price-label">
+                              <span className="clearance-badge inline-flex items-center px-2.5 py-1 rounded-sm bg-[#e5d918] border-2 border-[#FF2A00]">
+                                <span className="clearance-fire-text text-sm font-black text-[#FF2A00] leading-none tracking-widest uppercase">Clearance</span>
+                              </span>
+                              <span className="text-yellow-200 text-xs font-bold uppercase tracking-widest">Clearance Price · while stocks last</span>
+                            </div>
+                          ) : (
+                            <div className="text-red-200 text-xs font-bold uppercase tracking-widest mb-1">Sale Price</div>
+                          )}
                           <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
                             <span className="text-white text-2xl sm:text-3xl font-black tracking-tight">£{safeToFixed(nowPrice, 2)}{priceUnit}</span>
                             {isTrade && <span className="text-white/50 text-xs">ex. VAT</span>}
@@ -3173,7 +3216,8 @@ const CollectionDetailPage = () => {
               );
             })()}
 
-            {/* Tier Pricing Table */}
+            {/* Tier Pricing Table — hidden for pallet-only lines (no per-m² buying) */}
+            {!palletOnly && (
             <VolumePricingTable
               tierPricing={tierPricing}
               isSurfaceProduct={sellsPerM2}
@@ -3182,6 +3226,7 @@ const CollectionDetailPage = () => {
               selectedProduct={selectedProduct}
               getEffectiveSqmQuantity={getEffectiveSqmQuantity}
             />
+            )}
 
             {/* Price Display - removed "From" section as it was confusing */}
             {/* Price will be shown in the quantity/total section below */}
@@ -3199,10 +3244,16 @@ const CollectionDetailPage = () => {
                 <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 pt-5" data-testid="pallet-tier-selector">
                   <div className="flex items-center gap-2 mb-3">
                     <Truck className="w-5 h-5 text-emerald-700" />
-                    <span className="text-base font-semibold text-emerald-900">Bulk pricing options</span>
+                    <span className="text-base font-semibold text-emerald-900">{palletOnly ? 'Sold by the pallet only' : 'Bulk pricing options'}</span>
                     {isTrade && <span className="text-xs font-semibold text-emerald-700">ex VAT</span>}
                   </div>
-                  <div className={`grid gap-2 pt-1 ${palletInfo.halfPalletAvailable && palletInfo.fullPalletAvailable ? 'grid-cols-3' : 'grid-cols-2'}`}>
+                  {palletOnly && (
+                    <p className="text-xs text-emerald-800 -mt-2 mb-3" data-testid="pallet-only-notice">
+                      This clearance line is available in {palletInfo.halfPalletAvailable && palletInfo.fullPalletAvailable ? 'half or full' : palletInfo.fullPalletAvailable ? 'full' : 'half'} pallets only — no individual {palletInfo.isUnit ? 'units' : 'm²'}.
+                    </p>
+                  )}
+                  <div className={`grid gap-2 pt-1 ${[!palletOnly, palletInfo.halfPalletAvailable, palletInfo.fullPalletAvailable].filter(Boolean).length === 3 ? 'grid-cols-3' : [!palletOnly, palletInfo.halfPalletAvailable, palletInfo.fullPalletAvailable].filter(Boolean).length === 2 ? 'grid-cols-2' : 'grid-cols-1'}`}>
+                    {!palletOnly && (
                     <button
                       type="button"
                       data-testid="pallet-tier-m2"
@@ -3221,6 +3272,7 @@ const CollectionDetailPage = () => {
                         })()}{palletInfo.isUnit ? ' each' : 'm²'}
                       </span>
                     </button>
+                    )}
                     {palletInfo.halfPalletAvailable && (
                       <button
                         type="button"
