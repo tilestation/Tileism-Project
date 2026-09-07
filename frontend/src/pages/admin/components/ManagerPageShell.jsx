@@ -51,9 +51,10 @@ import LargeFormatSweepModal from './managers/LargeFormatSweepModal';
 import { isLargeFormat } from './managers/ShopTabsAssignModal';
 import ManagerConfigModal from './managers/ManagerConfigModal';
 import StorefrontPanel from './managers/StorefrontPanel';
+import StorefrontPageMap from './managers/StorefrontPageMap';
 import ShopTabsAssignModal from './managers/ShopTabsAssignModal';
 import BulkPreviewModal from './managers/BulkPreviewModal';
-import { fetchShopTabDestinations, buildDestinationMap } from '../lib/shopTabDestinations';
+import { fetchShopTabDestinations, buildDestinationMap, MANAGER_TO_SHOP_GROUP } from '../lib/shopTabDestinations';
 import AssignColoursModal, { computeCompleteness } from './managers/AssignColoursModal';
 import TierPricingModal from './supplier-products/TierPricingModal';
 import MarginGuardBanner, { computeMarginGuard } from './managers/MarginGuardBanner';
@@ -243,8 +244,9 @@ const ManagerPageShell = ({
   const [showShopTabs, setShowShopTabs] = useState(false);
   // Destination chips column — map of lowercased category name -> tab info
   const [destMap, setDestMap] = useState(null);
+  const [shopPages, setShopPages] = useState(null);
   useEffect(() => {
-    fetchShopTabDestinations().then(pages => setDestMap(buildDestinationMap(pages)));
+    fetchShopTabDestinations().then(pages => { setShopPages(pages); setDestMap(buildDestinationMap(pages)); });
   }, []);
 
   // Gap filter — show only products not assigned to any shop tab
@@ -973,6 +975,17 @@ const ManagerPageShell = ({
           </div>
         )}
 
+        {MANAGER_TO_SHOP_GROUP[categoryKey] && !loading && (
+          <StorefrontPageMap
+            managerSlug={categoryKey}
+            managerTitle={title}
+            products={products}
+            pages={shopPages}
+            themeCls={themeCls}
+            onShowGaps={() => { setGapOnly(true); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+          />
+        )}
+
         {loading ? (
           <div className="bg-white rounded-lg border border-gray-200 p-12 text-center">
             <RefreshCw className="w-6 h-6 animate-spin mx-auto text-gray-400" />
@@ -1442,7 +1455,7 @@ const ManagerPageShell = ({
         onOpenChange={(o) => {
           setShowShopTabs(o);
           // Re-read tab definitions on close — picks up tabs created via "+ New tab"
-          if (!o) fetchShopTabDestinations().then(pages => setDestMap(buildDestinationMap(pages)));
+          if (!o) fetchShopTabDestinations().then(pages => { setShopPages(pages); setDestMap(buildDestinationMap(pages)); });
         }}
         selectedProducts={bulk.getSelectedList()}
         managerSlug={categoryKey}

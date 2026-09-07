@@ -1,0 +1,33 @@
+{
+  "summary": "Full backend + frontend testing for (A) Storefront Page Map on /admin/tiles, /admin/flooring, /admin/materials, and (B) 'Customers Also Liked' related-series carousel on /shop/collection/<Series>. All spec requirements verified successfully. 3/3 backend pytest tests pass. All admin page-map data-testids present with correct summaries, tab chips, notab/live counts, shop links, step-3/4 content, localStorage persistence, and show-gaps filter behavior. Storefront renders 8 related-series cards for Opaco, all with images and £ prices, right chevron arrow visible.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": ["/app/backend/tests/test_related_tiles.py"],
+  "action_items": [],
+  "critical_code_review_comments": ["Minor: AdminDashboard emits a React 'unique key' warning in console (pre-existing, not related to new features)."],
+  "updated_files": ["/app/backend/tests/test_related_tiles.py"],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "admin@test.com / admin123 (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "none",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend endpoint /api/tiles/related/{series}?limit=8 is cached via bulletproof_endpoint. Preview DB has enough tiles: Opaco and Dolomite%20Onyx both return 8 items with images and prices > 0. Unknown series returns 200 with empty related_series. Admin page-map testids follow pattern {tiles|flooring|materials}-page-map-* with children -toggle, -summary, -body, -shop-link, -tab-*, -notab-count, -live-count, -show-gaps, and (flooring only) -sample-series. localStorage key tsm_pagemap_open_{category} controls expanded state. On /admin/tiles the notab count was 17 which matched the visible product count after clicking Show gaps. Managers take ~5–8s to load — wait for the page-map card testid before asserting.",
+  "verification_details": {
+    "backend": {
+      "GET /api/tiles/related/Opaco?limit=8": "200, 8 items, no self, images & prices valid, matching_criteria has all 6 keys",
+      "GET /api/tiles/related/Dolomite%20Onyx?limit=8": "200, 8 items, no self, all fields valid",
+      "GET /api/tiles/related/NoSuchSeriesXYZ?limit=8": "200 with empty related_series list"
+    },
+    "storefront_opaco": {
+      "cards_rendered": 8,
+      "cards_with_image_and_price": 8,
+      "first_4_images": "all from images.tilestation.co.uk (real, not placeholders)",
+      "right_arrow_visible": true,
+      "excludes_current_series": true
+    },
+    "admin_tiles": {"summary": "Tiles page · 4 tabs · 201 of 1059 live", "notab": 17, "shop_link": "/tiles target=_blank", "persist_reload": true, "show_gaps_visible": "17 (matches notab)"},
+    "admin_flooring": {"summary": "Flooring page · 2 tabs · 3 of 3 live", "shop_link": "/tiles?group=flooring", "sample_series_present": true},
+    "admin_materials": {"summary": "Materials page · 1 tab · 135 of 138 live", "shop_link": "/tiles?group=materials"},
+    "regression": {"edit_modal_opens": true, "admin_clearance_loads": true}
+  }
+}

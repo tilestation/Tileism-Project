@@ -17,6 +17,12 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Sep 7, 2026 — Forked session] 🟢 Storefront Page Map + smarter "Customers Also Liked" — VERIFIED (iteration_242, 100%)
+
+1. **Storefront Page Map** (`managers/StorefrontPageMap.jsx`, rendered by `ManagerPageShell` for every manager in `MANAGER_TO_SHOP_GROUP`): collapsible card "Where these products appear on the website" (state persisted per manager in localStorage). 4 plain-English stops with REAL counts from the loaded products + `/api/supplier-sync/shop-tab-destinations`: ① the manager's shop page + its tabs (count per tab, "N have no tab → Show them" hooks the existing gap filter), ② Series → one card/one page at `/shop/collection/<Series>` (series count + live example), ③ Also appears in: Homepage Featured (count), Clearance page (count + Hub link), Sale filter (count), search/Recently Viewed, ④ Drafts invisible — X of Y live. Testids `{slug}-page-map-*`.
+2. **Customers Also Liked** (`GET /api/tiles/related/{series}` in `tiles.py`): rewrote the auto-match. Builds a profile of the current series (material, finish, sizes, colours, effect, categories, product group, avg price), scores every candidate tile (material 3, finish 2, size 2, colour 2, effect/category/price-band 1 each), groups by the REAL series key (same as the collections grouping — not "first word"), keeps one best product per series, requires image + price>0 + same surface/unit kind, hides `is_hidden` collections, uses the admin hero image when set, shuffles within score bands and fills with random close matches up to `limit`. Sibling series like "Opaco Mist" are no longer mistaken for the current series. Admin pins still come first.
+
+
 ### [Sep 7, 2026 — Forked session] 🟢 Per-Unit toggle · Clearance Hub single status pill · Homepage Recently Viewed — VERIFIED (iteration_241, 100%)
 
 1. **Per-Unit Toggle (Quick Edit drawer)** — `QuickEditModal.jsx` shows a `Per m² / Per Unit` switch next to List Price (label flips to `£/m²` / `£ each`). Both consumers (Tiles/Materials/… Manager drawer `QuickEditProductDrawer.jsx` and `/admin/supplier-products` `SupplierProducts.js`) send `pricing_unit` to `PUT /api/supplier-sync/products/quick-update`. Backend (`QuickUpdateRequest.pricing_unit`) validates `m2|unit` (400 otherwise) and writes to `supplier_products`, `products`, and `tiles` (if published). `null` = leave unchanged, so untouched products keep the group default (materials→unit at publish).

@@ -2074,9 +2074,10 @@ async def get_related_products(
         "$or": [
             {"display_name": {"$regex": f"^{re.escape(series_name)}", "$options": "i"}},
             {"name": {"$regex": f"^{re.escape(series_name)}", "$options": "i"}},
-            {"series": {"$regex": f"^{re.escape(series_name)}", "$options": "i"}}
+            {"series": {"$regex": f"^{re.escape(series_name)}$", "$options": "i"}},
+            {"original_series": {"$regex": f"^{re.escape(series_name)}$", "$options": "i"}}
         ]
-    }).limit(10))
+    }).limit(40))
     
     # Admin-pinned related products (Quick Edit → Related Products) — gathered
     # from supplier_products across every SKU in this series.
@@ -2132,132 +2133,162 @@ async def get_related_products(
             "current_series": series_name,
         }
     
-    # Collect attributes from current products
-    materials = set()
-    finishes = set()
-    effects = set()
-    categories = set()
+    # ---- Attribute profile of the current series ----
+    import random
+
+    def _lc(v):
+        return str(v).strip().lower() if v else ""
+
+    def _sz(p):
+        raw = p.get("size") or (p.get("attributes") or {}).get("size") or ""
+        m = re.search(r'(\d+(?:\.\d+)?)\s*[xX]\s*(\d+(?:\.\d+)?)', str(raw))
+        return f"{m.group(1)}x{m.group(2)}" if m else ""
+
+    def _colors(p):
+        arr = p.get("colors") if isinstance(p.get("colors"), list) else []
+        single = p.get("color") or (p.get("attributes") or {}).get("color")
+        return {_lc(c) for c in arr + ([single] if single else []) if _lc(c)}
+
+    def _cats(p):
+        cats = p.get("categories") or p.get("sub_categories") or []
+        return {_lc(c) for c in cats if _lc(c)} if isinstance(cats, list) else set()
+
+    def _series_key(p):
+        return str(p.get("series") or p.get("original_series")
+                   or extract_series_name_shared(p.get("display_name") or p.get("name") or "") or "").strip()
+
+    # Prefix regex above also catches sibling series ("Opaco Mist" for "Opaco") —
+    # keep only true members when we can tell them apart.
+    exact = [p for p in current_products if _lc(_series_key(p)) == _lc(series_name)]
+    if exact:
+        current_products = exact
+    current_is_surface = any(_sz(p) for p in current_products)
+
+    profile = {"materials": set(), "finishes": set(), "effects": set(), "sizes": set(),
+               "colors": set(), "categories": set(), "groups": set()}
     prices = []
-    
     for p in current_products:
-        material = p.get('material') or p.get('attributes', {}).get('material', '')
-        finish = p.get('finish') or p.get('attributes', {}).get('finish', '')
-        effect = p.get('effect') or p.get('attributes', {}).get('effect', '')
-        cats = p.get('categories', [])
-        price = p.get('room_lot_price') or p.get('price', 0)
-        
-        if material:
-            materials.add(material)
-        if finish:
-            finishes.add(finish)
-        if effect:
-            effects.add(effect)
-        if isinstance(cats, list):
-            categories.update(cats)
+        attrs = p.get("attributes") or {}
+        for key, field in (("materials", "material"), ("finishes", "finish"), ("effects", "effect")):
+            v = _lc(p.get(field) or attrs.get(field))
+            if v:
+                profile[key].add(v)
+        sz = _sz(p)
+        if sz:
+            profile["sizes"].add(sz)
+        profile["colors"] |= _colors(p)
+        profile["categories"] |= _cats(p)
+        g = _lc(p.get("product_group"))
+        if g:
+            profile["groups"].add(g)
+        price = p.get("room_lot_price") or p.get("price") or 0
         if price:
-            prices.append(price)
-    
-    # Build query for related products (excluding current series)
-    exclude_query = {
-        "$and": [
-            {"display_name": {"$not": {"$regex": f"^{re.escape(series_name)}", "$options": "i"}}},
-            {"name": {"$not": {"$regex": f"^{re.escape(series_name)}", "$options": "i"}}}
-        ]
-    }
-    
-    # Find products with similar attributes
-    match_conditions = []
-    
-    if materials:
-        match_conditions.append({
-            "$or": [
-                {"material": {"$in": list(materials)}},
-                {"attributes.material": {"$in": list(materials)}}
-            ]
-        })
-    
-    if finishes:
-        match_conditions.append({
-            "$or": [
-                {"finish": {"$in": list(finishes)}},
-                {"attributes.finish": {"$in": list(finishes)}}
-            ]
-        })
-    
-    if effects:
-        match_conditions.append({
-            "$or": [
-                {"effect": {"$in": list(effects)}},
-                {"attributes.effect": {"$in": list(effects)}},
-                {"display_name": {"$regex": "|".join(effects), "$options": "i"}}
-            ]
-        })
-    
-    if categories:
-        match_conditions.append({"categories": {"$in": list(categories)}})
-    
-    # Price range (within 30% of current prices)
-    if prices:
-        avg_price = sum(prices) / len(prices)
-        min_price = avg_price * 0.7
-        max_price = avg_price * 1.3
-        match_conditions.append({
-            "$or": [
-                {"room_lot_price": {"$gte": min_price, "$lte": max_price}},
-                {"price": {"$gte": min_price, "$lte": max_price}}
-            ]
-        })
-    
-    # Combine conditions - products matching ANY of the criteria
-    if match_conditions:
-        related_query = {
-            "$and": [
-                exclude_query,
-                {"$or": match_conditions}
-            ]
-        }
-    else:
-        related_query = exclude_query
-    
-    # Get related products
-    related_products = list(db.tiles.find(related_query).limit(limit * 3))
-    
-    # Group by series and get unique series
+            prices.append(float(price))
+    avg_price = sum(prices) / len(prices) if prices else 0
+    exclude_keys = {_lc(series_name)} | {_lc(_series_key(p)) for p in current_products}
+    need = max(0, limit - len(pinned_also_liked))
+
+    def _score(p):
+        attrs = p.get("attributes") or {}
+        sc = 0
+        if _lc(p.get("material") or attrs.get("material")) in profile["materials"]:
+            sc += 3
+        if _lc(p.get("finish") or attrs.get("finish")) in profile["finishes"]:
+            sc += 2
+        if _sz(p) in profile["sizes"]:
+            sc += 2
+        if _colors(p) & profile["colors"]:
+            sc += 2
+        if _lc(p.get("effect") or attrs.get("effect")) in profile["effects"]:
+            sc += 1
+        if _cats(p) & profile["categories"]:
+            sc += 1
+        price = float(p.get("room_lot_price") or p.get("price") or 0)
+        if avg_price and price and 0.7 * avg_price <= price <= 1.3 * avg_price:
+            sc += 1
+        return sc
+
+    # Only sellable-looking cards: a photo, a price, and the same kind of product
+    # (tiles/flooring with sizes vs. unit items) as the series being viewed.
+    def _usable(p):
+        img = (p.get("images") or [None])[0] or p.get("image")
+        price = float(p.get("room_lot_price") or p.get("price") or 0)
+        return bool(img) and price > 0 and (bool(_sz(p)) == current_is_surface)
+
+    # One entry per series — keep its best-matching product as the card
     series_map = {}
-    for p in related_products:
-        product_name = p.get('display_name') or p.get('name', '')
-        if not product_name:
-            continue
-        
-        # Extract series name (first word)
-        product_series = product_name.split()[0] if product_name.split() else ''
-        if not product_series or product_series.lower() == series_name.lower():
-            continue
-        
-        if product_series not in series_map:
-            series_map[product_series] = {
-                "series_name": product_series,
-                "sample_product": serialize_tile_for_shop(p),
-                "image": (p.get('images') or [None])[0] if (p.get('images') or [None]) else None,
-                "price": p.get('room_lot_price') or p.get('price', 0),
-                "finish": p.get('finish') or p.get('attributes', {}).get('finish', ''),
-                "material": p.get('material') or p.get('attributes', {}).get('material', '')
-            }
-    
-    # Return limited unique series — admin pins first, auto-matches fill the rest.
+
+    def _collect(query):
+        for p in db.tiles.find(query, {"_id": 0}):
+            key = _series_key(p)
+            if not key or _lc(key) in exclude_keys or not _usable(p):
+                continue
+            sc = _score(p)
+            img = (p.get("images") or [None])[0] or p.get("image")
+            price = float(p.get("room_lot_price") or p.get("price") or 0)
+            entry = series_map.get(key)
+            if entry is None:
+                series_map[key] = {"series_name": key, "score": sc, "best": p, "image": img, "price": price}
+                continue
+            if sc > entry["score"]:
+                entry.update(score=sc, best=p, image=img)
+            if price and (not entry["price"] or price < entry["price"]):
+                entry["price"] = price
+
+    # Same product group first; widen to the whole catalogue if that's too thin
+    groups = list(profile["groups"])
+    if groups:
+        _collect({"product_group": {"$in": groups}})
+    if len(series_map) < need:
+        _collect({"product_group": {"$nin": groups}} if groups else {})
+
+    # Hidden collections never surface; admin hero images win over product photos
+    try:
+        settings = {d["series_name"]: d for d in db.collection_settings.find(
+            {"series_name": {"$in": list(series_map.keys())}},
+            {"_id": 0, "series_name": 1, "custom_hero_image": 1, "is_hidden": 1})}
+    except Exception:
+        settings = {}
+    ranked = [e for e in series_map.values() if not settings.get(e["series_name"], {}).get("is_hidden")]
+    random.shuffle(ranked)                       # ties (and the filler) vary between visits
+    ranked.sort(key=lambda e: -e["score"])       # stable sort keeps the shuffle inside each score band
+    close = [e for e in ranked if e["score"] >= 2]
+    filler = [e for e in ranked if e["score"] < 2]
+    chosen = (close + filler)[:need]
+
+    auto_series = []
     pinned_names = {c["series_name"].lower() for c in pinned_also_liked}
-    auto_series = [s for s in series_map.values() if s["series_name"].lower() not in pinned_names]
-    related_series = (pinned_also_liked + auto_series)[:max(limit, len(pinned_also_liked))]
-    
+    for e in chosen:
+        if e["series_name"].lower() in pinned_names:
+            continue
+        best = e["best"]
+        attrs = best.get("attributes") or {}
+        hero = (settings.get(e["series_name"]) or {}).get("custom_hero_image")
+        if isinstance(hero, dict):
+            hero = hero.get("url")
+        auto_series.append({
+            "series_name": e["series_name"],
+            "sample_product": serialize_tile_for_shop(best),
+            "image": hero or e["image"],
+            "price": e["price"],
+            "finish": best.get("finish") or attrs.get("finish", ""),
+            "material": best.get("material") or attrs.get("material", ""),
+            "match_score": e["score"],
+        })
+
+    related_series = pinned_also_liked + auto_series
+
     return {
         "related_series": related_series,
         "pinned_you_may_need": pinned_you_may_need,
         "current_series": series_name,
         "matching_criteria": {
-            "materials": list(materials),
-            "finishes": list(finishes),
-            "effects": list(effects),
-            "categories": list(categories)
+            "materials": sorted(profile["materials"]),
+            "finishes": sorted(profile["finishes"]),
+            "effects": sorted(profile["effects"]),
+            "sizes": sorted(profile["sizes"]),
+            "colors": sorted(profile["colors"]),
+            "categories": sorted(profile["categories"]),
         }
     }
 
