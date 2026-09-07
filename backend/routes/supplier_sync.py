@@ -97,6 +97,8 @@ def download_verona_extension():
     """
     # Check multiple possible locations - latest version first
     possible_paths = [
+        "/app/backend/static/extensions/verona-sync-extension-v6.1.zip",
+        "/app/frontend/public/verona-sync-extension-v6.1.zip",
         "/app/backend/static/extensions/verona-sync-extension-v6.0.zip",
         "/app/frontend/public/verona-sync-extension-v6.0.zip",
         "/app/backend/static/extensions/verona-sync-extension-v5.1.zip",
@@ -155,7 +157,73 @@ def get_verona_last_receive():
         "last_data": _fmt(last_data),
         "last_ping": _fmt(last_ping),
         "staged_count": db.sync_staging.count_documents({"supplier": "Verona"}),
+        "last_report": _summarize_extension_report(db.extension_reports.find_one({}, sort=[("received_at", -1)])),
     }
+
+
+# ---------------- Extension self-check reports (v6.1+) ----------------
+
+def _summarize_extension_report(doc):
+    if not doc:
+        return None
+    rep = doc.get("report") or {}
+    page = rep.get("page") or {}
+    job = rep.get("job") or {}
+    ts = doc.get("received_at")
+    return {
+        "id": doc.get("ref"),
+        "at": ts.isoformat() if hasattr(ts, "isoformat") else ts,
+        "version": doc.get("version"),
+        "worker_ok": str(rep.get("worker", "")).startswith("ok"),
+        "server_ok": bool((rep.get("server") or {}).get("url")),
+        "page_url": (rep.get("tab") or {}).get("url"),
+        "page_products": page.get("urlCount"),
+        "page_cloudflare": bool(page.get("cloudflare")),
+        "page_not_verona": bool(page.get("notVerona")),
+        "job_status": job.get("status"),
+        "job_last_status": job.get("lastStatus"),
+        "job_synced": job.get("synced"),
+        "job_failed": job.get("failed"),
+        "error_count": len(rep.get("errors") or []),
+        "last_error": ((rep.get("errors") or [])[-1] if rep.get("errors") else None),
+    }
+
+
+class ExtensionReportIn(BaseModel):
+    version: Optional[str] = None
+    report: dict = {}
+
+
+@router.post("/verona/extension-report")
+def receive_extension_report(data: ExtensionReportIn):
+    """Diagnostics posted by the Verona extension's 'Send report' button."""
+    import secrets
+    db = get_db()
+    ref = secrets.token_hex(3).upper()
+    db.extension_reports.insert_one({
+        "ref": ref,
+        "version": data.version,
+        "report": data.report,
+        "received_at": datetime.now(timezone.utc),
+    })
+    # keep the collection small — last 50 reports
+    stale = list(db.extension_reports.find({}, {"_id": 1}, sort=[("received_at", -1)]).skip(50))
+    if stale:
+        db.extension_reports.delete_many({"_id": {"$in": [s["_id"] for s in stale]}})
+    logger.info(f"Verona extension report {ref} received (v{data.version})")
+    return {"success": True, "id": ref}
+
+
+@router.get("/verona/extension-reports")
+def list_extension_reports(limit: int = 5, full: bool = False):
+    db = get_db()
+    docs = list(db.extension_reports.find({}, {"_id": 0}, sort=[("received_at", -1)]).limit(max(1, min(limit, 50))))
+    if full:
+        for d in docs:
+            ts = d.get("received_at")
+            d["received_at"] = ts.isoformat() if hasattr(ts, "isoformat") else ts
+        return {"reports": docs}
+    return {"reports": [_summarize_extension_report(d) for d in docs]}
 
 
 @router.get("/search")

@@ -1,87 +1,53 @@
-# Tile Station - Verona Sync Extension v2.3
+# Tile Station - Verona Sync Extension v6.1
 
-Chrome extension to sync product data from Verona Group trade portal to Tile Station.
+Chrome / Edge extension that reads product data from the Verona Group trade
+portal (veronagroup.co.uk) while YOU are logged in, and stages it in Tile
+Station → Sync Hub → Verona for review.
 
-## What's Fixed in v2.3
+## What's new in v6.1 — it tells you WHY when something fails
 
-1. **Finds ALL products on page** - Now correctly detects all 12 products per page (previously only found 4-6)
-2. **Stock m² parsing** - Correctly captures both units AND square meters separately
-   - Example: "In stock: 382 (34m²)" → stock_quantity=382, stock_m2=34
-3. **Better data extraction** - Improved selectors for code, price, and stock
-4. **Debug logging** - Console shows exactly what's being found and extracted
+Open the popup and the **Self-check** runs by itself:
 
-## Installation (IMPORTANT: Clean Install!)
+| Line | Green means | Red means / what to do |
+|---|---|---|
+| Extension engine | background worker is alive | open `chrome://extensions`, click ↻ on Tile Station, reopen popup |
+| Tile Station server | connected (shows which server) | no internet / wrong API URL — check "API Settings" |
+| This Verona page | "N products found on this page" | not a Tiles listing, Cloudflare check showing, or 0 products (scroll once, Re-check) |
+| Sync engine state | idle / running / last run summary | PAUSED — read the reason, fix it, press **Resume** |
 
-1. **REMOVE OLD EXTENSION FIRST**
-   - Go to `chrome://extensions/`
-   - Find "Tile Station - Verona Sync" and click **Remove**
-   
-2. **Download and extract**
-   - Unzip this file to a folder on your computer
-   
-3. **Enable Developer Mode**
-   - Go to `chrome://extensions/`
-   - Toggle "Developer mode" in top right
-   
-4. **Load the new extension**
-   - Click "Load unpacked"
-   - Select the `browser-extension` folder
-   
-5. **Verify version**
-   - Click the extension icon
-   - Popup should show **"Verona Stock Sync v2.3"**
+* **Send report to Tile Station** posts the self-check + last 30 problems to the
+  server (Sync Hub → Verona shows the latest report) so support can see exactly
+  what went wrong. **Copy** puts the same text on your clipboard.
+* **Recent problems** — every failed product / rejected request with the reason.
+* **Cloudflare aware** — if Verona shows a security check mid-sync the sync
+  PAUSES (no more "300 failed"). Complete the check in the Verona tab → Resume.
+* **Server aware** — 3 rejected products in a row pauses with the HTTP status.
+* **Resume** continues from the exact product it stopped at.
 
-## How to Use
+v6.0 engine kept: the job lives in extension storage and a 30-second watchdog
+alarm revives it whenever Chrome kills the background worker — minimise the
+browser, keep working, it carries on.
 
-1. **Login to Verona** - Go to https://veronagroup.co.uk and login to your trade account
-2. **Navigate to Tiles** - Go to the Tiles category (should show "Showing 1-12 of XXX items")
-3. **Click extension icon** - Opens the sync popup
-4. **Click "Sync This Page (With stock & prices)"** - This will:
-   - Find ALL product URLs on the page (should be 12)
-   - Visit each product page
-   - Extract: code, price per m², stock units, stock m²
-   - Send data to Tile Station
-5. **Wait for completion** - Watch progress: "Syncing 1/12... 2/12..." etc
-6. **Go to next page** - Click "Next" on Verona website, then sync again
+## Install / upgrade (2 minutes)
 
-## Troubleshooting
+1. `chrome://extensions` → find **Tile Station - Verona Sync** → **Remove**
+2. Unzip this download to a folder you will keep (e.g. `Documents\TileStation-Verona`)
+3. `chrome://extensions` → **Developer mode** ON (top right)
+4. **Load unpacked** → choose the unzipped folder
+5. Click the puzzle icon → pin **Tile Station - Verona Sync**
+6. Header must say **Verona Sync v6.1**
 
-### Only finding 4-6 products instead of 12?
-- Make sure you're on a **listing page** (shows multiple products)
-- The page should say "Showing 1-12 of XXX items"
-- Try scrolling down the page before clicking sync
+## Daily use
 
-### Products have missing data (code/price/stock)?
-1. Open Chrome DevTools (Press F12)
-2. Click the **Console** tab
-3. Sync a page
-4. Look for lines starting with "=== Tile Station v2.3"
-5. These logs show what the extension found
+1. Log in to veronagroup.co.uk → **Tiles** → set "Show 500 per page" (or any listing)
+2. Click the extension → wait for the Self-check to go green
+3. Pick **⚡ Light** (stock & price, fast) or **📦 Full** (all details + images)
+4. **Sync This Page** → the tab walks through each product; already-synced products are skipped
+5. When it says Complete → next page → repeat. Review in Tile Station → Sync Hub → Verona.
 
-### Extension not working at all?
-- Make sure you're logged into Verona
-- Try refreshing the Verona page
-- Check you installed v2.3 (not an older version)
+**Clear History** forces every product on the page to be synced again (use after a
+price change on Verona's side, or if Sync Hub shows nothing new).
 
-## What Data is Captured
-
-For each product:
-- **Name** - Product title
-- **Code/SKU** - e.g., D11197
-- **Price** - Per m² price (e.g., £32.77)
-- **Stock Quantity** - Number of units (e.g., 382)
-- **Stock m²** - Square meters available (e.g., 34)
-- **In Stock** - Yes/No status
-- **Image** - Product photo URL
-
-## Version History
-
-- **v2.3** - Fixed product detection (finds all 12 products), improved data extraction
-- **v2.2** - Fixed stock m² parsing
-- **v2.1** - Added debug logging
-- **v2.0** - Simplified to page-by-page sync
-- **v1.x** - Initial versions with various issues
-
-## Support
-
-Contact Tile Station IT for support.
+## If it still won't sync
+Press **Send report to Tile Station** (or **Copy**) and send the reference /
+text to support — the report contains the page scan, server test and the error log.

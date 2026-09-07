@@ -4,354 +4,157 @@
   <meta charset="UTF-8">
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    
-    body {
-      width: 340px;
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      background: #f8f9fa;
-    }
-    
-    .header {
-      background: #333333;
-      color: #F7EA1C;
-      padding: 16px;
-      text-align: center;
-    }
-    
-    .header h1 { font-size: 18px; font-weight: 700; margin-bottom: 4px; }
+    body { width: 360px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f8f9fa; }
+    .header { background: #333333; color: #F7EA1C; padding: 14px 16px; text-align: center; }
+    .header h1 { font-size: 18px; font-weight: 700; margin-bottom: 2px; }
     .header p { font-size: 12px; color: #ccc; }
-    
-    .content { padding: 16px; }
-    
-    .status-box {
-      background: white;
-      border-radius: 8px;
-      padding: 12px;
-      margin-bottom: 12px;
-      border: 1px solid #e0e0e0;
-    }
-    
+    .content { padding: 14px 16px; }
+
+    .status-box { background: white; border-radius: 8px; padding: 12px; margin-bottom: 12px; border: 1px solid #e0e0e0; }
     .status-box.success { border-color: #22c55e; background: #f0fdf4; }
     .status-box.error { border-color: #ef4444; background: #fef2f2; }
     .status-box.warning { border-color: #f59e0b; background: #fffbeb; }
-    
-    .status-label {
-      font-size: 11px;
-      text-transform: uppercase;
-      font-weight: 600;
-      color: #666;
-      margin-bottom: 4px;
-    }
-    
+    .status-label { font-size: 11px; text-transform: uppercase; font-weight: 600; color: #666; margin-bottom: 4px; }
     .status-value { font-size: 14px; font-weight: 500; color: #333; line-height: 1.4; }
-    
-    .btn {
-      width: 100%;
-      padding: 14px 20px;
-      border: none;
-      border-radius: 8px;
-      font-size: 14px;
-      font-weight: 600;
-      cursor: pointer;
-      transition: all 0.2s;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 8px;
-    }
-    
+
+    .btn { width: 100%; padding: 13px 18px; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; justify-content: center; gap: 8px; }
     .btn-primary { background: #333333; color: #F7EA1C; }
     .btn-primary:hover { background: #444444; }
     .btn-primary:disabled { background: #999; cursor: not-allowed; }
-    
-    .btn-secondary {
-      background: white;
-      color: #333;
-      border: 1px solid #ddd;
-      margin-top: 8px;
-    }
+    .btn-secondary { background: white; color: #333; border: 1px solid #ddd; margin-top: 8px; }
     .btn-secondary:hover { background: #f5f5f5; }
-    
-    .btn-danger {
-      background: white;
-      color: #ef4444;
-      border: 1px solid #fca5a5;
-      margin-top: 8px;
-      font-size: 12px;
-      padding: 10px;
-    }
+    .btn-resume { background: #f59e0b; color: #1f2937; margin-top: 8px; }
+    .btn-resume:hover { background: #d97706; }
+    .btn-danger { background: white; color: #ef4444; border: 1px solid #fca5a5; margin-top: 8px; font-size: 12px; padding: 10px; }
     .btn-danger:hover { background: #fef2f2; }
-    
-    .spinner {
-      display: inline-block;
-      width: 14px;
-      height: 14px;
-      border: 2px solid currentColor;
-      border-top-color: transparent;
-      border-radius: 50%;
-      animation: spin 0.8s linear infinite;
-      vertical-align: middle;
-      margin-right: 6px;
-    }
-    
+    .btn-mini { width: auto; padding: 6px 10px; margin: 0; font-size: 11px; border-radius: 6px; border: 1px solid #ddd; background: white; color: #333; cursor: pointer; }
+    .btn-mini:hover { background: #f5f5f5; }
+    .btn-mini.send { border-color: #333; background: #333; color: #F7EA1C; font-weight: 600; }
+    .btn-mini:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid currentColor; border-top-color: transparent; border-radius: 50%; animation: spin 0.8s linear infinite; vertical-align: middle; margin-right: 6px; }
     @keyframes spin { to { transform: rotate(360deg); } }
-    
-    .stats {
-      display: grid;
-      grid-template-columns: 1fr 1fr 1fr;
-      gap: 8px;
-      margin-top: 12px;
-    }
-    
-    .stat-box {
-      background: white;
-      padding: 10px;
-      border-radius: 6px;
-      text-align: center;
-      border: 1px solid #e0e0e0;
-    }
-    
+
+    .stats { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-top: 12px; }
+    .stat-box { background: white; padding: 10px; border-radius: 6px; text-align: center; border: 1px solid #e0e0e0; }
     .stat-box.skipped { border-color: #22c55e; background: #f0fdf4; }
-    
     .stat-number { font-size: 18px; font-weight: 700; color: #333; }
     .stat-number.green { color: #22c55e; }
     .stat-label { font-size: 10px; color: #666; }
-    
-    .footer {
-      padding: 12px 16px;
-      border-top: 1px solid #e0e0e0;
-      font-size: 11px;
-      color: #888;
-      text-align: center;
-    }
-    
-    .progress-bar {
-      height: 4px;
-      background: #e0e0e0;
-      border-radius: 2px;
-      margin-top: 8px;
-      overflow: hidden;
-    }
-    
-    .progress-fill {
-      height: 100%;
-      background: #F7EA1C;
-      transition: width 0.3s;
-    }
-    
+
+    .footer { padding: 10px 16px; border-top: 1px solid #e0e0e0; font-size: 11px; color: #888; text-align: center; }
+    .progress-bar { height: 4px; background: #e0e0e0; border-radius: 2px; margin-top: 8px; overflow: hidden; }
+    .progress-fill { height: 100%; background: #F7EA1C; transition: width 0.3s; }
     .hidden { display: none; }
-    
-    .settings-link {
-      display: block;
-      text-align: center;
-      margin-top: 12px;
-      color: #666;
-      font-size: 12px;
-      text-decoration: none;
-    }
+    .settings-link { display: block; text-align: center; margin-top: 12px; color: #666; font-size: 12px; text-decoration: none; }
     .settings-link:hover { color: #333; }
-    
-    #api-config {
-      margin-top: 12px;
-      padding: 12px;
-      background: white;
-      border-radius: 8px;
-      border: 1px solid #e0e0e0;
-    }
-    
-    #api-config label {
-      display: block;
-      font-size: 12px;
-      font-weight: 500;
-      margin-bottom: 4px;
-      color: #333;
-    }
-    
-    #api-config input {
-      width: 100%;
-      padding: 8px;
-      border: 1px solid #ddd;
-      border-radius: 4px;
-      font-size: 13px;
-      margin-bottom: 8px;
-    }
-    
+    #api-config { margin-top: 12px; padding: 12px; background: white; border-radius: 8px; border: 1px solid #e0e0e0; }
+    #api-config label { display: block; font-size: 12px; font-weight: 500; margin-bottom: 4px; color: #333; }
+    #api-config input { width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; font-size: 13px; margin-bottom: 8px; }
     #api-config input:focus { outline: none; border-color: #F7EA1C; }
-    
-    .instructions {
-      background: #f0f9ff;
-      border: 1px solid #0ea5e9;
-      border-radius: 8px;
-      padding: 10px;
-      margin-bottom: 12px;
-      font-size: 12px;
-      color: #0369a1;
-    }
-    
-    .instructions strong { display: block; margin-bottom: 4px; }
-    
-    .background-notice {
-      background: #dcfce7;
-      border: 1px solid #22c55e;
-      border-radius: 6px;
-      padding: 8px 10px;
-      margin-top: 10px;
-      font-size: 11px;
-      color: #166534;
-      text-align: center;
-    }
-    
-    .background-notice strong {
-      display: block;
-      margin-bottom: 2px;
-    }
-    
-    .history-info {
-      background: #f3f4f6;
-      border-radius: 6px;
-      padding: 8px 12px;
-      margin-top: 10px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      font-size: 12px;
-    }
-    
+
+    .history-info { background: #f3f4f6; border-radius: 6px; padding: 8px 12px; margin-top: 10px; display: flex; align-items: center; justify-content: space-between; font-size: 12px; }
     .history-info span { color: #666; }
     .history-count { font-weight: 700; color: #333; }
-    
-    .sync-mode-toggle {
-      background: white;
-      border-radius: 8px;
-      padding: 12px;
-      margin-bottom: 12px;
-      border: 1px solid #e0e0e0;
-    }
-    
-    .mode-label {
-      font-size: 12px;
-      font-weight: 600;
-      color: #333;
-      display: block;
-      margin-bottom: 8px;
-    }
-    
-    .toggle-buttons {
-      display: flex;
-      gap: 8px;
-    }
-    
-    .mode-btn {
-      flex: 1;
-      padding: 10px 12px;
-      border: 2px solid #e0e0e0;
-      border-radius: 6px;
-      background: white;
-      font-size: 12px;
-      font-weight: 500;
-      cursor: pointer;
-      transition: all 0.2s;
-      color: #666;
-    }
-    
-    .mode-btn:hover {
-      border-color: #ccc;
-      background: #f9f9f9;
-    }
-    
-    .mode-btn.active {
-      border-color: #22c55e;
-      background: #f0fdf4;
-      color: #166534;
-    }
-    
-    .mode-btn.active:first-child {
-      border-color: #f59e0b;
-      background: #fffbeb;
-      color: #92400e;
-    }
+
+    .sync-mode-toggle { background: white; border-radius: 8px; padding: 10px 12px; margin-bottom: 12px; border: 1px solid #e0e0e0; }
+    .mode-label { font-size: 12px; font-weight: 600; color: #333; display: block; margin-bottom: 8px; }
+    .toggle-buttons { display: flex; gap: 8px; }
+    .mode-btn { flex: 1; padding: 9px 10px; border: 2px solid #e0e0e0; border-radius: 6px; background: white; font-size: 12px; font-weight: 500; cursor: pointer; transition: all 0.2s; color: #666; }
+    .mode-btn:hover { border-color: #ccc; background: #f9f9f9; }
+    .mode-btn.active { border-color: #22c55e; background: #f0fdf4; color: #166534; }
+    .mode-btn.active:first-child { border-color: #f59e0b; background: #fffbeb; color: #92400e; }
+
+    /* Self-check */
+    .selfcheck { background: white; border: 1px solid #e0e0e0; border-radius: 8px; padding: 10px 12px; margin-bottom: 12px; }
+    .selfcheck-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+    .selfcheck-head strong { font-size: 12px; text-transform: uppercase; color: #666; letter-spacing: 0.3px; }
+    .check-line { display: flex; gap: 8px; align-items: flex-start; font-size: 12px; padding: 4px 0; border-top: 1px solid #f1f1f1; color: #333; line-height: 1.35; }
+    .check-line:first-of-type { border-top: none; }
+    .check-icon { width: 16px; flex-shrink: 0; text-align: center; font-weight: 700; }
+    .check-line.ok .check-icon { color: #16a34a; }
+    .check-line.bad .check-icon { color: #dc2626; }
+    .check-line.wait .check-icon { color: #9ca3af; }
+    .check-line.bad { color: #991b1b; }
+    .check-hint { display: block; font-size: 11px; color: #6b7280; margin-top: 1px; }
+    .check-line.bad .check-hint { color: #b91c1c; }
+    .selfcheck-actions { display: flex; gap: 6px; justify-content: flex-end; margin-top: 8px; }
+    .report-note { font-size: 11px; color: #166534; margin-top: 6px; text-align: right; }
+
+    .errors { margin-top: 10px; }
+    .errors summary { font-size: 12px; color: #666; cursor: pointer; }
+    .errors ul { list-style: none; margin-top: 6px; max-height: 140px; overflow: auto; background: white; border: 1px solid #e0e0e0; border-radius: 6px; padding: 6px 8px; }
+    .errors li { font-size: 11px; color: #7f1d1d; padding: 3px 0; border-bottom: 1px solid #f3f4f6; word-break: break-word; }
+    .errors li small { color: #9ca3af; }
   </style>
 </head>
 <body>
   <div class="header">
     <h1>Tile Station</h1>
-    <p>Verona Sync v6.0</p>
+    <p>Verona Sync v6.1</p>
   </div>
-  
+
   <div class="content">
-    <div class="instructions">
-      <strong>How to use:</strong>
-      1. Log into Verona trade portal<br>
-      2. Go to a Tiles listing page (with 12 products)<br>
-      3. Choose sync mode below, then click <b>"Sync Current Page"</b><br>
-      4. Wait for sync to complete<br>
-      5. Click Next → on Verona, then sync again<br>
-      <strong style="color: #22c55e; margin-top: 4px;">✓ Already synced products are skipped automatically!</strong>
+    <!-- SELF-CHECK: answers "why isn't it working?" before you press anything -->
+    <div class="selfcheck" id="selfcheck">
+      <div class="selfcheck-head">
+        <strong>Self-check</strong>
+        <button id="recheck-btn" class="btn-mini" title="Run the checks again">↻ Re-check</button>
+      </div>
+      <div class="check-line wait" id="check-worker"><span class="check-icon">…</span><span>Extension engine<span class="check-hint">checking…</span></span></div>
+      <div class="check-line wait" id="check-server"><span class="check-icon">…</span><span>Tile Station server<span class="check-hint">checking…</span></span></div>
+      <div class="check-line wait" id="check-page"><span class="check-icon">…</span><span>This Verona page<span class="check-hint">checking…</span></span></div>
+      <div class="check-line wait" id="check-job"><span class="check-icon">…</span><span>Sync engine state<span class="check-hint">checking…</span></span></div>
+      <div class="selfcheck-actions">
+        <button id="copy-report-btn" class="btn-mini" title="Copy the diagnostics to your clipboard">Copy</button>
+        <button id="send-report-btn" class="btn-mini send" title="Send these results to Tile Station so support can see exactly what's wrong">Send report to Tile Station</button>
+      </div>
+      <div id="report-note" class="report-note hidden"></div>
     </div>
-    
+
     <div class="sync-mode-toggle">
       <label class="mode-label">Sync Mode:</label>
       <div class="toggle-buttons">
-        <button id="mode-light" class="mode-btn active" title="Only sync stock levels and prices - FASTER!">
-          ⚡ Light (Stock & Price)
-        </button>
-        <button id="mode-full" class="mode-btn" title="Sync all details including images - SLOWER">
-          📦 Full (All Details)
-        </button>
+        <button id="mode-light" class="mode-btn active" title="Only sync stock levels and prices - FASTER!">⚡ Light (Stock &amp; Price)</button>
+        <button id="mode-full" class="mode-btn" title="Sync all details including images - SLOWER">📦 Full (All Details)</button>
       </div>
     </div>
-    
+
     <div id="status-box" class="status-box">
       <div class="status-label">Status</div>
       <div id="status-value" class="status-value">Checking...</div>
     </div>
-    
-    <button id="crawl-btn" class="btn btn-primary">
-      Sync Current Page
-    </button>
-    
+
+    <button id="crawl-btn" class="btn btn-primary">Sync Current Page</button>
+    <button id="resume-btn" class="btn btn-resume hidden">▶ Resume sync</button>
+
     <!-- Hidden elements for JS compatibility -->
     <button id="sync-btn" class="hidden" style="display:none;">
       <span id="btn-text"></span>
       <div id="btn-spinner" class="spinner hidden"></div>
     </button>
-    
-    <div class="background-notice">
-      <strong>✅ Smart Sync Enabled</strong>
-      Already synced products are automatically skipped!
-    </div>
-    
+
     <div id="progress-container" class="hidden">
-      <div class="progress-bar">
-        <div id="progress-fill" class="progress-fill" style="width: 0%"></div>
-      </div>
-      <div id="progress-text" style="font-size: 11px; color: #666; margin-top: 4px; text-align: center;">
-        Processing...
-      </div>
+      <div class="progress-bar"><div id="progress-fill" class="progress-fill" style="width: 0%"></div></div>
+      <div id="progress-text" style="font-size: 11px; color: #666; margin-top: 4px; text-align: center;">Processing...</div>
     </div>
-    
+
     <div id="stats-container" class="stats hidden">
-      <div class="stat-box">
-        <div id="products-count" class="stat-number">0</div>
-        <div class="stat-label">Total Found</div>
-      </div>
-      <div class="stat-box skipped">
-        <div id="skipped-count" class="stat-number green">0</div>
-        <div class="stat-label">Skipped</div>
-      </div>
-      <div class="stat-box">
-        <div id="synced-count" class="stat-number">0</div>
-        <div class="stat-label">Synced</div>
-      </div>
+      <div class="stat-box"><div id="products-count" class="stat-number">0</div><div class="stat-label">Total Found</div></div>
+      <div class="stat-box skipped"><div id="skipped-count" class="stat-number green">0</div><div class="stat-label">Skipped</div></div>
+      <div class="stat-box"><div id="synced-count" class="stat-number">0</div><div class="stat-label">Synced</div></div>
     </div>
-    
+
     <div class="history-info">
       <span>Products in sync history: <span id="sync-history-count" class="history-count">0</span></span>
-      <button id="clear-history-btn" class="btn-danger" style="width: auto; padding: 6px 10px; margin: 0; font-size: 11px;">
-        Clear History
-      </button>
+      <button id="clear-history-btn" class="btn-danger" style="width: auto; padding: 6px 10px; margin: 0; font-size: 11px;">Clear History</button>
     </div>
-    
+
+    <details class="errors" id="errors-box">
+      <summary>Recent problems (<span id="errors-count">0</span>) <button id="clear-errors-btn" class="btn-mini" style="margin-left:6px;">clear</button></summary>
+      <ul id="errors-list"></ul>
+    </details>
+
     <a href="#" id="settings-toggle" class="settings-link">API Settings</a>
     <div id="api-config" class="hidden">
       <label>API URL</label>
@@ -359,11 +162,9 @@
       <button id="save-settings" class="btn btn-secondary">Save Settings</button>
     </div>
   </div>
-  
-  <div class="footer">
-    No auto-injection - Your session stays safe
-  </div>
-  
+
+  <div class="footer">Already-synced products are skipped · your Verona login is never touched</div>
+
   <script src="popup.js"></script>
 </body>
 </html>

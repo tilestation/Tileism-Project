@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Tile Station - Verona Sync",
-  "version": "6.0.0",
-  "description": "Sync product data from Verona Group - Quick sync for names, Full sync for stock & prices",
+  "version": "6.1.0",
+  "description": "Sync product data from Verona Group - Light sync for stock & prices, Full sync for all details. v6.1: built-in self-check + diagnostics report.",
   "permissions": [
     "activeTab",
     "storage",
@@ -14,7 +14,6 @@
     "https://www.tilestation.co.uk/*",
     "https://*.railway.app/*",
     "https://*.emergentagent.com/*",
-    "https://sync-hub-rebuild.preview.emergentagent.com/*",
     "<all_urls>"
   ],
   "background": {

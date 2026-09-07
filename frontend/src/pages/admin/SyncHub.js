@@ -12,6 +12,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/ca
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../../components/ui/dialog';
 import { Input } from '../../components/ui/input';
 import SyncReviewMode from './components/SyncReviewMode';
+import VeronaExtensionStatus from './components/VeronaExtensionStatus';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import * as XLSX from 'xlsx';
@@ -1696,7 +1697,7 @@ export default function SyncHub() {
                 <div>
                   <h3 className="font-semibold text-blue-900">Browser Extension Sync</h3>
                   <p className="text-sm text-blue-700">
-                    Verona syncs via the Chrome extension — browse veronagroup.co, click the extension icon and it stages products here for review
+                    Verona syncs via the Chrome extension — log in to veronagroup.co.uk, open a Tiles listing, click the extension icon. v6.1 runs a self-check and can send a report here if anything fails
                   </p>
                 </div>
               </div>
@@ -1706,9 +1707,10 @@ export default function SyncHub() {
                 data-testid="download-verona-extension-btn"
               >
                 <Download className="w-4 h-4 mr-2" />
-                Download Extension v5.0
+                Download Extension v6.1
               </Button>
             </div>
+            <VeronaExtensionStatus />
           </CardContent>
         </Card>
       )}
