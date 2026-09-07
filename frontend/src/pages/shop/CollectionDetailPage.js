@@ -686,6 +686,11 @@ const CollectionDetailPage = () => {
     });
   }, [products]);
 
+  // Admin pricing-unit override: a product saved as "Per Unit" in the Manager is
+  // priced and sold each — even when it has a tile size (e.g. 30x30 decor mosaics).
+  const sellsPerM2 = isSurfaceProduct && selectedProduct?.pricing_unit !== 'unit';
+  const priceUnit = sellsPerM2 ? 'm²' : ' each';
+
   // Detect material-type collections where products are distinct items (not color/size variants)
   // These use the "Category - Product Name" naming pattern
   const materialProductOptions = useMemo(() => {
@@ -1093,6 +1098,19 @@ const CollectionDetailPage = () => {
     return isTrade ? Math.round((adjusted * tradeAdj / 1.20) * 100) / 100 : Math.round(adjusted * 100) / 100;
   }, [products, selectedColor, selectedFinish, hasColors, hasMultipleFinishes, normalizeSize, isTrade, productTradeDiscount, selectedProduct, tierPricing, volumeDiscountPercent]);
 
+  // Variant behind a size button (same colour/finish/style filters as getPriceForSize)
+  const getProductForSize = useCallback((size) => {
+    const normalizedTarget = normalizeSize(size);
+    const bySize = (p) => normalizeSize(p.size || (p.attributes && p.attributes.size) || '') === normalizedTarget;
+    let filtered = [...products];
+    if (selectedColor) filtered = filtered.filter(p => matchesSelectedVariant(p, selectedColor));
+    if (hasMultipleFinishes && selectedFinish) filtered = filtered.filter(p => productHasFinish(p, selectedFinish));
+    if (selectedStyle && styleOptions.length > 0) filtered = filtered.filter(p => matchesStyle(p, selectedStyle));
+    return filtered.find(bySize)
+      || products.filter(p => !selectedColor || matchesSelectedVariant(p, selectedColor)).find(bySize)
+      || null;
+  }, [products, selectedColor, selectedFinish, hasMultipleFinishes, selectedStyle, styleOptions, normalizeSize]);
+
   // Clear size selection if it becomes unavailable (e.g., after changing color/finish)
   // Then re-select the cheapest available size
   useEffect(() => {
@@ -1285,7 +1303,7 @@ const CollectionDetailPage = () => {
   // Calculate effective m² quantity based on unit selection
   // When ordering by m², we round up to full boxes, so actual coverage may be higher
   const getEffectiveSqmQuantity = () => {
-    if (!selectedProduct) return quantity;
+    if (!selectedProduct || !sellsPerM2) return quantity;
     const sqmPerBox = getSqmPerBox();
     if (quantityUnit === 'box' && sqmPerBox) {
       // Box mode: quantity is boxes, multiply by sqm per box
@@ -1455,7 +1473,7 @@ const CollectionDetailPage = () => {
       : 0;
     // Unit-priced products (adhesives, tools sold per bag/each) count pallet
     // quantities in units rather than m² — labels follow suit.
-    const isUnit = sp.pallet_qty_unit === 'unit' || !isSurfaceProduct;
+    const isUnit = sp.pallet_qty_unit === 'unit' || sp.pricing_unit === 'unit' || !isSurfaceProduct;
     return {
       fullPalletAvailable: fullRate > 0 && fullM2 > 0,
       halfPalletAvailable: halfRate > 0 && halfM2 > 0,
@@ -1482,10 +1500,10 @@ const CollectionDetailPage = () => {
   const prevPricingTierRef = useRef('m2');
   useEffect(() => {
     if (pricingTier === 'full_pallet' && palletInfo.fullM2 > 0) {
-      if (isSurfaceProduct) setQuantityUnit('sqm');
+      if (sellsPerM2) setQuantityUnit('sqm');
       setQuantity(palletInfo.fullM2);
     } else if (pricingTier === 'half_pallet' && palletInfo.halfM2 > 0) {
-      if (isSurfaceProduct) setQuantityUnit('sqm');
+      if (sellsPerM2) setQuantityUnit('sqm');
       setQuantity(palletInfo.halfM2);
     } else if (pricingTier === 'm2' && prevPricingTierRef.current !== 'm2') {
       setQuantity(1);
@@ -1608,7 +1626,7 @@ const CollectionDetailPage = () => {
   // Calculate boxes needed (for display)
   const boxesNeeded = () => {
     const sqmPerBox = getSqmPerBox();
-    if (!sqmPerBox) return null;
+    if (!sqmPerBox || !sellsPerM2) return null;
     if (quantityUnit === 'box') return quantity;
     return Math.ceil(quantity / sqmPerBox);
   };
@@ -2528,13 +2546,13 @@ const CollectionDetailPage = () => {
                         <div className="min-w-0">
                           <div className="text-red-200 text-xs font-bold uppercase tracking-widest mb-1">Sale Price</div>
                           <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-                            <span className="text-white/60 text-base line-through">WAS £{safeToFixed(wasPrice, 2)}{isSurfaceProduct ? 'm²' : ' each'}</span>
-                            <span className="text-white text-2xl sm:text-3xl font-black tracking-tight">NOW £{safeToFixed(nowPrice, 2)}{isSurfaceProduct ? 'm²' : ' each'}</span>
+                            <span className="text-white/60 text-base line-through">WAS £{safeToFixed(wasPrice, 2)}{priceUnit}</span>
+                            <span className="text-white text-2xl sm:text-3xl font-black tracking-tight">NOW £{safeToFixed(nowPrice, 2)}{priceUnit}</span>
                             {isTrade && <span className="text-white/50 text-xs">ex. VAT</span>}
                           </div>
                         </div>
                         <div className="bg-white rounded-xl px-4 py-3 text-center shadow-lg min-w-[90px] flex-shrink-0">
-                          <div className="text-red-600 text-lg font-black leading-tight">SAVE £{totalSavings.toFixed(2)}{isSurfaceProduct ? 'm²' : ' each'}</div>
+                          <div className="text-red-600 text-lg font-black leading-tight">SAVE £{totalSavings.toFixed(2)}{priceUnit}</div>
                           <div className="text-gray-500 text-xs font-bold mt-0.5">{displayTotalOff}% OFF</div>
                         </div>
                       </div>
@@ -2621,7 +2639,7 @@ const CollectionDetailPage = () => {
                         <div className="min-w-0">
                           <div className="text-red-200 text-xs font-bold uppercase tracking-widest mb-1">Sale Price</div>
                           <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-                            <span className="text-white text-2xl sm:text-3xl font-black tracking-tight">£{safeToFixed(nowPrice, 2)}{isSurfaceProduct ? 'm²' : ' each'}</span>
+                            <span className="text-white text-2xl sm:text-3xl font-black tracking-tight">£{safeToFixed(nowPrice, 2)}{priceUnit}</span>
                             {isTrade && <span className="text-white/50 text-xs">ex. VAT</span>}
                           </div>
                         </div>
@@ -2973,6 +2991,7 @@ const CollectionDetailPage = () => {
                     // Hide ALL sizes not available in the current color+finish selection
                     if (!inCurrentFinish) return null;
                     const price = getPriceForSize(size);
+                    const sizeUnit = getProductForSize(size)?.pricing_unit === 'unit' || !isSurfaceProduct ? 'each' : 'm\u00B2';
                     const dim = dimMap.get(size);
                     const isSelected = selectedSize === size;
                     // Proportional sizing — falls back to default fixed pill if size doesn't parse
@@ -2987,7 +3006,7 @@ const CollectionDetailPage = () => {
                         setSelectedSize(size);
                       }}
                       style={style}
-                      title={`${size}${price !== null ? ` — \u00A3${price.toFixed(2)}/${isSurfaceProduct ? 'm\u00B2' : 'each'}` : ''}`}
+                      title={`${size}${price !== null ? ` — \u00A3${price.toFixed(2)}/${sizeUnit}` : ''}`}
                       className={`flex flex-col items-center justify-center rounded-lg border font-medium transition flex-shrink-0 ${
                         proportional ? 'px-1 py-1' : 'px-5 py-3 min-w-[110px]'
                       } ${
@@ -3006,7 +3025,7 @@ const CollectionDetailPage = () => {
                       )}
                       {price !== null && (
                         <span className={`${tight ? 'text-[10px] mt-0.5' : proportional ? 'text-[11px] mt-0.5' : 'text-sm mt-0.5'} ${isSelected ? 'text-amber-600' : 'text-gray-400'}`}>
-                          {'\u00A3'}{price.toFixed(2)}/{isSurfaceProduct ? 'm\u00B2' : 'each'}
+                          {'\u00A3'}{price.toFixed(2)}/{sizeUnit}
                         </span>
                       )}
                     </button>
@@ -3157,7 +3176,7 @@ const CollectionDetailPage = () => {
             {/* Tier Pricing Table */}
             <VolumePricingTable
               tierPricing={tierPricing}
-              isSurfaceProduct={isSurfaceProduct}
+              isSurfaceProduct={sellsPerM2}
               isTrade={isTrade}
               tradeDiscount={getEffTradePct()}
               selectedProduct={selectedProduct}
@@ -3266,7 +3285,7 @@ const CollectionDetailPage = () => {
               )}
 
               {/* Dual Quantity Inputs - m² and Box side by side, always visible */}
-              {isSurfaceProduct && sqmPerBox ? (
+              {sellsPerM2 && sqmPerBox ? (
                 <div className="space-y-3">
                   {/* m² input */}
                   <div className="flex items-center gap-4 flex-wrap">
@@ -3418,7 +3437,7 @@ const CollectionDetailPage = () => {
                     <div className="flex items-center justify-end gap-3 flex-wrap">
                       <span className={`text-3xl font-extrabold tracking-tight ${isOnSale ? 'text-red-600' : 'text-gray-900'}`}>
                         £{safeToFixed(displayPrice, 2)}
-                        <span className="text-lg font-semibold text-gray-500">{isSurfaceProduct ? 'm²' : ' each'}</span>
+                        <span className="text-lg font-semibold text-gray-500">{priceUnit}</span>
                       </span>
                       {isTrade && <span className="text-[10px] text-gray-400 font-normal">ex. VAT</span>}
                       {/* Sale badge with animation */}
@@ -3431,7 +3450,7 @@ const CollectionDetailPage = () => {
                     {/* WAS price for sale items */}
                     {isOnSale && displayOriginalPrice > displayPrice && (
                       <div className="text-base text-gray-400 line-through mt-1">
-                        Was £{safeToFixed(displayOriginalPrice, 2)}{isSurfaceProduct ? 'm²' : ' each'}
+                        Was £{safeToFixed(displayOriginalPrice, 2)}{priceUnit}
                       </div>
                     )}
                     {/* Trade credit-back badge */}
@@ -3440,8 +3459,8 @@ const CollectionDetailPage = () => {
                         +{Number(selectedProduct?.credit_back_rate ?? creditBackRate)}% credit back on this item
                       </div>
                     )}
-                    {/* Box price - smaller, secondary - only for surface products */}
-                    {isSurfaceProduct && (
+                    {/* Box price - smaller, secondary - only for per-m² surface products */}
+                    {sellsPerM2 && (
                     <div className="text-sm text-gray-500 mt-1">
                       {boxesNeeded()} box{boxesNeeded() > 1 ? 'es' : ''} @ £{(sqmPerBox ? displayPrice * sqmPerBox : displayPrice).toFixed(2)}/box
                     </div>
@@ -3480,8 +3499,8 @@ const CollectionDetailPage = () => {
                 )}
               </div>
 
-              {/* Coverage Info - only for surface products */}
-              {isSurfaceProduct && sqmPerBox && (
+              {/* Coverage Info - only for per-m² surface products */}
+              {sellsPerM2 && sqmPerBox && (
                 <div className="text-sm text-gray-600 bg-gray-50 p-3 rounded-lg">
                   {quantityUnit === 'box' ? (
                     <span>
@@ -4001,7 +4020,7 @@ const CollectionDetailPage = () => {
                   )}
                 </div>
                 <p className="font-medium text-sm text-gray-900 line-clamp-2">{selectedProduct?.display_name || decodedSeriesName}</p>
-                <p className="text-amber-600 font-bold mt-1">£{safeToFixed(displayPrice, 2)}{isSurfaceProduct ? 'm²' : ' each'}{isTrade && <span className="text-[10px] text-gray-400 font-normal ml-1">ex. VAT</span>}</p>
+                <p className="text-amber-600 font-bold mt-1">£{safeToFixed(displayPrice, 2)}{priceUnit}{isTrade && <span className="text-[10px] text-gray-400 font-normal ml-1">ex. VAT</span>}</p>
                 <span className="inline-block mt-2 text-xs bg-amber-100 text-amber-700 px-2 py-1 rounded-full">Selected</span>
               </div>
 
@@ -4072,7 +4091,7 @@ const CollectionDetailPage = () => {
                     <p className="text-sm text-gray-600">Bundle Total{extras.length > 0 ? ` (${extras.length + 1} item${extras.length === 0 ? '' : 's'})` : ''}:</p>
                     <p className="text-2xl font-bold text-gray-900" data-testid="fbt-bundle-total">
                       £{bundleTotal.toFixed(2)}
-                      <span className="text-sm font-normal text-gray-500 ml-1">{isSurfaceProduct ? 'per m²' : ''}</span>
+                      <span className="text-sm font-normal text-gray-500 ml-1">{sellsPerM2 ? 'per m²' : ''}</span>
                     </p>
                     {extras.length > 0 && <p className="text-sm text-green-600 font-medium">Add all in one click</p>}
                   </div>
@@ -4203,7 +4222,7 @@ const CollectionDetailPage = () => {
                         )}
                         {item.price > 0 && (
                           <p className="text-amber-600 font-semibold">
-                            £{(isTrade ? getTradePrice(item.price) : item.price).toFixed(2)}{isSurfaceProduct ? 'm²' : ' each'}
+                            £{(isTrade ? getTradePrice(item.price) : item.price).toFixed(2)}{item.sample_product?.pricing_unit === 'unit' || !isSurfaceProduct ? ' each' : 'm²'}
                             {isTrade && <span className="text-[10px] text-gray-400 font-normal ml-1">ex. VAT</span>}
                           </p>
                         )}
@@ -4398,12 +4417,12 @@ const CollectionDetailPage = () => {
             <div className="flex-1">
               <div className="flex items-baseline gap-2">
                 <span className={`text-xl font-bold ${isOnSale ? 'text-red-600' : 'text-gray-900'}`}>
-                  £{safeToFixed(displayPrice, 2)}<span className="text-sm font-medium text-gray-500">{isSurfaceProduct ? 'm²' : ' each'}</span>
+                  £{safeToFixed(displayPrice, 2)}<span className="text-sm font-medium text-gray-500">{priceUnit}</span>
                 </span>
                 {isTrade && <span className="text-[10px] text-gray-400">ex. VAT</span>}
                 {isOnSale && displayOriginalPrice > displayPrice && (
                   <span className="text-xs text-gray-400 line-through">
-                    £{safeToFixed(displayOriginalPrice, 2)}{isSurfaceProduct ? 'm²' : ' each'}
+                    £{safeToFixed(displayOriginalPrice, 2)}{priceUnit}
                   </span>
                 )}
               </div>

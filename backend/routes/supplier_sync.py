@@ -5949,6 +5949,9 @@ def quick_update_supplier_product(data: QuickUpdateRequest):
                     {"sku": data.sku},
                     {"$set": tiles_update}
                 )
+        elif data.pricing_unit is not None:
+            # Live tile may exist even when the draft flag is stale — keep the unit in sync
+            db.tiles.update_many({"sku": data.sku}, {"$set": {"pricing_unit": data.pricing_unit}})
         
         logger.info(f"Quick update for {data.supplier}/{data.sku}: {list(update_fields.keys())}")
         

@@ -17,6 +17,13 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Sep 7, 2026 — Forked session] 🟢 Bug fix: "Per Unit" product still showed £/m² on the storefront — VERIFIED
+- **Root cause**: `CollectionDetailPage.js` derived every "m² / each" label, the m²+box quantity inputs, box maths and pallet unit purely from `isSurfaceProduct` (does the product have a WxH size?) — the saved `pricing_unit` was ignored, so a 30x30 mosaic saved "Per Unit" still read "£23.99m²".
+- **Fix**: new `sellsPerM2 = isSurfaceProduct && selectedProduct.pricing_unit !== 'unit'` + `priceUnit`. All price suffixes (sale ribbon, main price, was-price, sticky bar, FBT bundle, cards), size-button prices (per variant via `getProductForSize`), VolumePricingTable header, dual m²/box inputs, box-price line, coverage box, pallet `isUnit`, and `getEffectiveSqmQuantity/boxesNeeded` now honour the per-unit override (quantity = plain count, total = qty × price). Tile-feature panels (calculator/installation/specs) still follow `isSurfaceProduct`.
+- Backend hardening: quick-update now syncs `pricing_unit` to the live `tiles` doc even when the draft's `show_on_website` flag is stale.
+- Verified in preview: LP-1132 set to unit → PDP shows "£30.00 each", size button "£30.00/each" while sibling sizes stay "/m²"; Opaco (m²) unchanged. Live site needs a deploy to pick this up.
+
+
 ### [Sep 7, 2026 — Forked session] 🟢 Storefront Page Map + smarter "Customers Also Liked" — VERIFIED (iteration_242, 100%)
 
 1. **Storefront Page Map** (`managers/StorefrontPageMap.jsx`, rendered by `ManagerPageShell` for every manager in `MANAGER_TO_SHOP_GROUP`): collapsible card "Where these products appear on the website" (state persisted per manager in localStorage). 4 plain-English stops with REAL counts from the loaded products + `/api/supplier-sync/shop-tab-destinations`: ① the manager's shop page + its tabs (count per tab, "N have no tab → Show them" hooks the existing gap filter), ② Series → one card/one page at `/shop/collection/<Series>` (series count + live example), ③ Also appears in: Homepage Featured (count), Clearance page (count + Hub link), Sale filter (count), search/Recently Viewed, ④ Drafts invisible — X of Y live. Testids `{slug}-page-map-*`.
