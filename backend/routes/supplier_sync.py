@@ -6558,7 +6558,7 @@ def bulk_update_product_tier_pricing(data: BulkTierUpdateRequest):
             if row_disabled:
                 update_data["tier_pricing_disabled"] = True
                 update_data["has_custom_tier_pricing"] = False
-            else:
+            elif row_disabled is False or row_thresholds is not None or row_discounts is not None:
                 # Enabling tier pricing with custom settings
                 update_data["tier_pricing_disabled"] = False
                 if row_thresholds is not None:
@@ -6566,6 +6566,7 @@ def bulk_update_product_tier_pricing(data: BulkTierUpdateRequest):
                 if row_discounts is not None:
                     update_data["tier_discounts"] = row_discounts
                 update_data["has_custom_tier_pricing"] = True
+            # else: pallet-only request (no tier fields sent) — leave tier flags untouched
 
             # Add trade discount if provided (per-product or top-level)
             if row_trade_discount is not None:
@@ -6721,12 +6722,30 @@ def bulk_update_product_quote_settings(data: BulkQuoteSettingsRequest):
 # ============================================================
 
 class BulkDeliverySettingsRequest(BaseModel):
-    products: List[dict]  # List of {supplier, sku}
+    products: List[dict]  # List of {supplier, sku} — each may carry its own delivery_* overrides
     delivery_charge_required: Optional[bool] = None  # Always charge delivery for this product
     delivery_charge: Optional[float] = None          # £ charged once per order (highest single charge wins)
     parcel_delivery: Optional[bool] = None           # Ships as a parcel (non-palletised)
     parcel_fee: Optional[float] = None               # £ parcel rate when the whole order is parcel-only
     clear: Optional[bool] = False                    # Remove all delivery settings from these products
+
+
+_DELIVERY_ROW_KEYS = ("delivery_charge_required", "delivery_charge", "parcel_delivery", "parcel_fee")
+
+
+def _apply_delivery_fields(target: dict, required, charge, parcel, fee) -> None:
+    if required is not None:
+        target["delivery_charge_required"] = bool(required)
+        if not required:
+            target["delivery_charge"] = None
+    if charge is not None and required is not False:
+        target["delivery_charge"] = float(charge)
+    if parcel is not None:
+        target["parcel_delivery"] = bool(parcel)
+        if not parcel:
+            target["parcel_fee"] = None
+    if fee is not None and parcel is not False:
+        target["parcel_fee"] = float(fee)
 
 
 @router.put("/products/bulk-delivery-settings")
@@ -6738,33 +6757,26 @@ def bulk_update_product_delivery_settings(data: BulkDeliverySettingsRequest):
       NON-marked items in the order alone cross the threshold).
     - parcel_delivery + parcel_fee: small non-palletised items; when an order
       contains ONLY parcel items the parcel rate replaces the pallet delivery fee.
+    Per-row overrides: any product entry may carry its own delivery_charge_required /
+    delivery_charge / parcel_delivery / parcel_fee — these win over the top-level values
+    for that product, so one request can set different rules on different items.
     Updates supplier_products and mirrors to tiles (matched by sku).
     """
     try:
         db = get_db()
         updated_count = 0
 
-        update_data = {"updated_at": datetime.now(timezone.utc)}
+        base_update = {"updated_at": datetime.now(timezone.utc)}
         if data.clear:
-            update_data.update({
+            base_update.update({
                 "delivery_charge_required": False,
                 "delivery_charge": None,
                 "parcel_delivery": False,
                 "parcel_fee": None,
             })
         else:
-            if data.delivery_charge_required is not None:
-                update_data["delivery_charge_required"] = bool(data.delivery_charge_required)
-                if not data.delivery_charge_required:
-                    update_data["delivery_charge"] = None
-            if data.delivery_charge is not None:
-                update_data["delivery_charge"] = float(data.delivery_charge)
-            if data.parcel_delivery is not None:
-                update_data["parcel_delivery"] = bool(data.parcel_delivery)
-                if not data.parcel_delivery:
-                    update_data["parcel_fee"] = None
-            if data.parcel_fee is not None:
-                update_data["parcel_fee"] = float(data.parcel_fee)
+            _apply_delivery_fields(base_update, data.delivery_charge_required, data.delivery_charge,
+                                   data.parcel_delivery, data.parcel_fee)
 
         for product in data.products:
             supplier = product.get('supplier')
@@ -6773,6 +6785,11 @@ def bulk_update_product_delivery_settings(data: BulkDeliverySettingsRequest):
             query = build_product_query(supplier, sku)
             if not query:
                 continue
+
+            update_data = dict(base_update)
+            if not data.clear and any(k in product for k in _DELIVERY_ROW_KEYS):
+                _apply_delivery_fields(update_data, product.get("delivery_charge_required"), product.get("delivery_charge"),
+                                       product.get("parcel_delivery"), product.get("parcel_fee"))
 
             result = db.supplier_products.update_one(query, {"$set": update_data})
             if result.modified_count > 0:

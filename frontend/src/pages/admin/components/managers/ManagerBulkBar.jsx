@@ -9,7 +9,7 @@
 import React, { useState } from 'react';
 import { Button } from '../../../../components/ui/button';
 import {
-  X, CheckSquare, Trash2, Archive, Globe, Eye, EyeOff, Percent, Palette, Layers, Grid3X3, Package, PoundSterling, Sparkles, Image as ImageIcon, Tag, Sliders, LayoutGrid, Star, ChevronUp, ListFilter, GripVertical, ExternalLink, Truck, Flame,
+  X, CheckSquare, Trash2, Archive, Globe, Eye, EyeOff, Percent, Palette, Layers, Grid3X3, Package, PoundSterling, Sparkles, Image as ImageIcon, Tag, Sliders, LayoutGrid, Star, ChevronUp, ListFilter, GripVertical, ExternalLink, Flame,
 } from 'lucide-react';
 import { productDisplayName } from './useManagerBulk';
 
@@ -32,7 +32,6 @@ const ManagerBulkBar = ({
   onOpenFeaturedOrder,
   onJumpToProduct,
   onOpenTierPricing,
-  onOpenDelivery,
   onOpenSeriesMove,
   onOpenAssignColours,
   onOpenBulkCategory,
@@ -253,19 +252,6 @@ const ManagerBulkBar = ({
           Tier Pricing
         </button>
       )}
-      {!hidden.has('delivery') && onOpenDelivery && (
-        <button
-          type="button"
-          onClick={onOpenDelivery}
-          disabled={saving}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/15 hover:bg-white/25 transition text-[13px] font-medium"
-          data-testid="bar-delivery-charge"
-          title="Mandatory delivery charges + parcel (non-palletised) shipping"
-        >
-          <Truck className="w-3.5 h-3.5" />
-          Delivery
-        </button>
-      )}
       {!hidden.has('seriesMove') && onOpenSeriesMove && (
         <button
           type="button"
@@ -286,7 +272,7 @@ const ManagerBulkBar = ({
           disabled={saving}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/15 hover:bg-white/25 transition text-[13px] font-medium"
           data-testid="bar-bulk-fields"
-          title="Everything pricing in one place: Now / Was (sale & clearance) price, cost, stock, tier discounts, trade %, half / full pallets"
+          title="Everything pricing in one place: Now / Was (sale & clearance) price, cost, stock · pallets, pallet-only & delivery charges per item · tier discounts, trade %"
         >
           <PoundSterling className="w-3.5 h-3.5" />
           Pricing

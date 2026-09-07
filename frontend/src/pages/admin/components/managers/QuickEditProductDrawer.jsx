@@ -19,8 +19,10 @@
  */
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { toast } from 'sonner';
-import { ChevronDown, ChevronRight, Sliders, Tag, ExternalLink, Percent, FileText, Eye, Layers, Palette, Ruler, Sparkles, Link2, PenLine, X as XIcon, Pin, Search, Heart, PackagePlus, LayoutGrid, Check } from 'lucide-react';
+import { ChevronDown, ChevronRight, Sliders, Tag, ExternalLink, Percent, FileText, Eye, Layers, Palette, Ruler, Sparkles, Link2, PenLine, X as XIcon, Pin, Search, Heart, PackagePlus, LayoutGrid, Check, Truck } from 'lucide-react';
 import QuickEditModal from '../supplier-products/QuickEditModal';
+import SellingRulesCard from './SellingRulesCard';
+import { rowFromProduct, rulesChanged, validateRules, palletPayload, deliveryPayload, saveSellingRules } from './sellingRules';
 import { getSeriesName } from '../../lib/series';
 import { fetchShopTabDestinations, filterShopTabPagesForManager } from '../../lib/shopTabDestinations';
 
@@ -94,6 +96,10 @@ const QuickEditProductDrawer = ({ open, onOpenChange, product, onSaved, previewI
   const [shopTabPages, setShopTabPages] = useState(null);
   const [tabsChecked, setTabsChecked] = useState({}); // category_name -> bool (staged)
   const [tabsBaseline, setTabsBaseline] = useState(new Set());
+  // Pallets & Delivery rules for THIS product (pallet rates, pallet-only,
+  // mandatory delivery £, parcel). Seeded from the doc; saved only when changed.
+  const [rules, setRules] = useState(null);
+  const rulesSeedRef = useRef(null);
   const debounceRef = useRef(null);
 
   // Preview images fallback if the caller didn't supply one
@@ -163,6 +169,9 @@ const QuickEditProductDrawer = ({ open, onOpenChange, product, onSaved, previewI
     setShopTabsOpen(false);
     setTabsChecked({});
     setTabsBaseline(new Set((Array.isArray(product.sub_categories) ? product.sub_categories : []).map(c => String(c).toLowerCase())));
+    const seededRules = rowFromProduct(product, (product.pricing_unit === 'unit' || product.product_group === 'materials') ? 'unit' : 'm2');
+    rulesSeedRef.current = seededRules;
+    setRules(seededRules);
     fetchCategorySuggestions();
   }, [open, product]);
 
@@ -202,6 +211,11 @@ const QuickEditProductDrawer = ({ open, onOpenChange, product, onSaved, previewI
 
   const onSave = async () => {
     if (!product) return;
+    const rulesNeedSave = rules && rulesSeedRef.current && rulesChanged(rules, rulesSeedRef.current);
+    if (rulesNeedSave) {
+      const err = validateRules(rules, 'Pallets & Delivery');
+      if (err) { toast.error(err); return; }
+    }
     setLoading(true);
     try {
       const updateData = {
@@ -281,6 +295,18 @@ const QuickEditProductDrawer = ({ open, onOpenChange, product, onSaved, previewI
         }
       }
       const extraCount = Object.keys(moreSpecsUpdates).length;
+      // Pallets & Delivery rules — per-item pallet rates / pallet-only and
+      // mandatory delivery / parcel. Mirrored to the live tile by the endpoints.
+      if (rulesNeedSave) {
+        try {
+          await saveSellingRules({
+            palletProducts: [palletPayload(product, rules)],
+            deliveryProducts: [deliveryPayload(product, rules)],
+          });
+        } catch (err) {
+          toast.error(`Pallets & delivery save failed: ${err.message}`);
+        }
+      }
       // Apply staged Shop Tabs changes (idempotent add/remove on sub_categories).
       const tabAdds = Object.entries(tabsChecked).filter(([, v]) => v).map(([k]) => k);
       const tabRemoves = Object.entries(tabsChecked).filter(([, v]) => !v).map(([k]) => k);
@@ -512,6 +538,30 @@ const QuickEditProductDrawer = ({ open, onOpenChange, product, onSaved, previewI
       </div>
     </div>
   );
+
+  // Pallets & Delivery card — this product only. Header shows the live status
+  // pills; body is the shared SellingRulesCard (same controls as the bulk hub).
+  const rulesDirty = !!(rules && rulesSeedRef.current && rulesChanged(rules, rulesSeedRef.current));
+  const sellingRulesPanel = rules ? (
+    <div className="border border-emerald-100 rounded-lg overflow-hidden" data-testid="quick-edit-selling-rules-panel">
+      <div className="px-3 py-2 bg-emerald-50 border-b border-emerald-100 flex items-center gap-2 text-sm font-medium text-emerald-900">
+        <Truck className="w-4 h-4" />
+        <span>Pallets &amp; Delivery</span>
+        <span className="ml-1 text-[10px] uppercase tracking-wider text-emerald-600">This product only</span>
+        <div className="ml-auto flex items-center gap-1.5 text-[10px] font-bold">
+          {rules.pallet_enabled && rules.pallet_only && <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-300 uppercase" data-testid="quick-edit-tag-pallet-only">Pallet only</span>}
+          {rules.pallet_enabled && !rules.pallet_only && <span className="px-1.5 py-0.5 rounded bg-green-100 text-green-800 border border-green-300" data-testid="quick-edit-tag-pallet">Pallets on</span>}
+          {rules.delivery_charge_required && Number(rules.delivery_charge) > 0 && <span className="px-1.5 py-0.5 rounded bg-rose-50 text-rose-700 border border-rose-200" data-testid="quick-edit-tag-delivery">£{Number(rules.delivery_charge).toFixed(2)} delivery</span>}
+          {rules.parcel_delivery && <span className="px-1.5 py-0.5 rounded bg-sky-50 text-sky-700 border border-sky-200" data-testid="quick-edit-tag-parcel">Parcel</span>}
+          {rulesDirty && <span className="text-amber-700 font-semibold">· unsaved</span>}
+        </div>
+      </div>
+      <div className="p-3 bg-white">
+        <SellingRulesCard value={rules} onChange={setRules} testPrefix="quick-edit-rules" />
+        <p className="text-[10px] text-gray-400 mt-2">Saved with the product when you hit Save Changes. Bulk-editing many items? Select them in the list and use Pricing → Pallets &amp; Delivery.</p>
+      </div>
+    </div>
+  ) : null;
 
   // Landing-page preview button — opens the customer landing page in a new
   // tab on THIS environment's storefront (admin + shop share the same
@@ -1434,6 +1484,7 @@ const QuickEditProductDrawer = ({ open, onOpenChange, product, onSaved, previewI
       setPreviewImages={effectiveSetPreviewImages}
       moreSpecsSlot={moreSpecsPanel}
       saleAndDescriptionSlot={saleAndDescriptionPanel}
+      sellingRulesSlot={sellingRulesPanel}
       previewSlot={previewPanel}
       variantsSlot={variantsPanel}
       relatedSlot={relatedPanel}

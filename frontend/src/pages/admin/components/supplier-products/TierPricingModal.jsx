@@ -47,6 +47,7 @@ const TierPricingModal = ({
   setProductOverrides = null,       // (updater) => void
   selectedProductsList = null,      // full array of selected product objects (for the panel)
   embedded = false,                 // render without the Dialog shell (used inside PricingHubModal)
+  hidePallets = false,              // Pricing hub: pallets live in their own "Pallets & Delivery" tab
 }) => {
   const filterLabel = getFilterDisplayLabel ? getFilterDisplayLabel(pricingSizeFilter) : pricingSizeFilter;
 
@@ -189,7 +190,7 @@ const TierPricingModal = ({
                 />
                 <div>
                   <span className="font-medium text-red-800">Disable Tier Discounts</span>
-                  <p className="text-xs text-red-600">Selected products will use list price only (no quantity discounts). Trade discount, credit back and Half + Full Pallet pricing still apply.</p>
+                  <p className="text-xs text-red-600">Selected products will use list price only (no quantity discounts). Trade discount, credit back{hidePallets ? '' : ' and Half + Full Pallet pricing'} still apply.</p>
                 </div>
               </label>
             </div>
@@ -366,7 +367,13 @@ const TierPricingModal = ({
           </div>
 
           {/* Half + Full Pallet Pricing (independent of tier-disabled) */}
-          {selectedProducts.size > 0 && (
+          {selectedProducts.size > 0 && hidePallets && (
+            <div className="text-[11px] text-green-800 bg-green-50 border border-green-100 rounded-lg px-3 py-2 flex items-center gap-2" data-testid="pallets-moved-note">
+              <Truck className="w-3.5 h-3.5 flex-shrink-0" />
+              Half / Full pallet rates and <b>Pallet only</b> are set per item in the <b>Pallets &amp; Delivery</b> tab.
+            </div>
+          )}
+          {selectedProducts.size > 0 && !hidePallets && (
             <div className="bg-green-50 border border-green-200 rounded-lg p-4" data-testid="pallet-pricing-block">
               <label className="flex items-start gap-3 cursor-pointer">
                 <input
@@ -645,7 +652,7 @@ const TierPricingModal = ({
               <XCircle className="w-12 h-12 text-gray-400 mx-auto mb-3" />
               <p className="text-gray-600 font-medium">Tier Quantity Discounts Disabled</p>
               <p className="text-sm text-gray-500 mt-1">Selected products will show list price only — no quantity-based tier discounts.</p>
-              <p className="text-sm text-green-600 mt-1">Trade discount, credit back and Half + Full Pallet settings above still apply.</p>
+              <p className="text-sm text-green-600 mt-1">Trade discount{hidePallets ? ' and credit back' : ', credit back and Half + Full Pallet settings above'} still apply.</p>
             </div>
           )}
 
@@ -657,6 +664,7 @@ const TierPricingModal = ({
               setOverrides={setProductOverrides}
               globalCreditBack={tierPricingConfig.credit_back_default ?? 2}
               pricingUnit={selectedPricingUnit}
+              hidePallets={hidePallets}
             />
           )}
         </div>

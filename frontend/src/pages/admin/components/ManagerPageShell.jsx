@@ -60,7 +60,7 @@ import AssignColoursModal, { computeCompleteness } from './managers/AssignColour
 import TierPricingModal from './supplier-products/TierPricingModal';
 import MarginGuardBanner, { computeMarginGuard } from './managers/MarginGuardBanner';
 import GroupCleanupBanner from '../../../components/admin/GroupCleanupBanner';
-import DeliveryChargeModal from './managers/DeliveryChargeModal';
+import PalletsDeliveryPanel from './managers/PalletsDeliveryPanel';
 import BulkSaleModal from './supplier-products/BulkSaleModal';
 import { useManagerBulk, getProductKey, productDisplayName } from './managers/useManagerBulk';
 import FeaturedOrderModal from './managers/FeaturedOrderModal';
@@ -283,8 +283,6 @@ const ManagerPageShell = ({
   const [showLfSweep, setShowLfSweep] = useState(false);
   // Margin Guard — show only loss-making products
   const [marginGuardOnly, setMarginGuardOnly] = useState(false);
-  // Delivery rules modal (mandatory charge + parcel shipping)
-  const [showDeliveryCharge, setShowDeliveryCharge] = useState(false);
   const [showSeriesMove, setShowSeriesMove] = useState(false);
   const [bulkSeriesValue, setBulkSeriesValue] = useState('');
   const [bulkSeriesSaving, setBulkSeriesSaving] = useState(false);
@@ -416,34 +414,13 @@ const ManagerPageShell = ({
   useEffect(() => { fetchProducts(); }, [fetchProducts]);
   const bulk = useManagerBulk({ products, onRefresh: fetchProducts, storageKey: categoryKey });
 
-  // Pre-fill the pallet block from the selection when the Pricing hub opens, so
-  // existing rates / "pallet only" are visible and can be fine-tuned instead of
-  // re-typed. Only when every selected product shares the same pallet setup;
-  // mixed selections start blank. Stays non-destructive (pallet_touched false).
+  // Pricing hub — one modal for prices / sale, pallets & delivery (per item) and tier / trade discounts
   const pricingHubOpen = showBulkFields || showTierPricing;
-  useEffect(() => {
-    if (!pricingHubOpen) return;
-    const list = bulk.getSelectedList();
-    if (list.length === 0) return;
-    const PALLET_KEYS = ['pallet_enabled', 'pallet_price', 'half_pallet_price', 'm2_per_pallet', 'm2_per_half_pallet', 'pallet_only', 'pallet_qty_unit'];
-    const pick = (p) => PALLET_KEYS.map(k => p[k] ?? null);
-    const first = JSON.stringify(pick(list[0]));
-    if (!list.every(p => JSON.stringify(pick(p)) === first)) return;
-    const src = list[0];
-    if (!src.pallet_enabled && !src.pallet_price && !src.half_pallet_price) return;
-    setTierPricingConfig(prev => ({
-      ...prev,
-      pallet_enabled: !!src.pallet_enabled,
-      pallet_price: src.pallet_price ?? null,
-      half_pallet_price: src.half_pallet_price ?? null,
-      m2_per_pallet: src.m2_per_pallet ?? null,
-      m2_per_half_pallet: src.m2_per_half_pallet ?? null,
-      pallet_only: !!src.pallet_only,
-      pallet_qty_unit: src.pallet_qty_unit || prev.pallet_qty_unit,
-      pallet_touched: false,
-    }));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pricingHubOpen]);
+  const closePricingHub = () => {
+    setShowBulkFields(false);
+    setShowTierPricing(false);
+    setTierProductOverrides({});
+  };
 
   const selectedKeySet = bulk.selectedProducts;
   const selectedList = useMemo(() => bulk.getSelectedList(), [bulk]);
@@ -1198,8 +1175,6 @@ const ManagerPageShell = ({
                             <div className="font-medium text-gray-900 line-clamp-1 flex items-center gap-1">
                               {p.is_featured && <Star className="w-3.5 h-3.5 text-amber-500 fill-amber-400 flex-shrink-0" title="Featured on the website front page" />}
                               {p.samples_hidden && <FlaskConical className="w-3.5 h-3.5 text-rose-400 flex-shrink-0" title="Sample requests disabled for this product" data-testid={`no-samples-icon-${p.sku || p.supplier_code}`} />}
-                              {p.delivery_charge_required && <Truck className="w-3.5 h-3.5 text-amber-500 flex-shrink-0" title={`Mandatory delivery charge £${Number(p.delivery_charge || 0).toFixed(2)} — applies even over the free-delivery threshold`} data-testid={`delivery-charge-icon-${p.sku || p.supplier_code}`} />}
-                              {p.parcel_delivery && <Package className="w-3.5 h-3.5 text-sky-500 flex-shrink-0" title={`Ships as parcel (non-palletised)${Number(p.parcel_fee || 0) > 0 ? ` — £${Number(p.parcel_fee).toFixed(2)} parcel rate` : ''}`} data-testid={`parcel-icon-${p.sku || p.supplier_code}`} />}
                               {name}
                             </div>
                             <div className="text-xs text-gray-500 flex items-center gap-1.5 flex-wrap">
@@ -1208,10 +1183,28 @@ const ManagerPageShell = ({
                               {p.pallet_enabled && p.pallet_only && (
                                 <span
                                   className="inline-flex items-center gap-0.5 px-1.5 py-[1px] rounded bg-amber-100 text-amber-800 border border-amber-300 text-[10px] font-bold uppercase tracking-wide"
-                                  title={`Sold by the pallet only — customers can't buy individual ${p.pallet_qty_unit === 'unit' ? 'units' : 'm²'}. Change in Pricing → Tier Discounts, Trade & Pallets`}
+                                  title={`Sold by the pallet only — customers can't buy individual ${p.pallet_qty_unit === 'unit' ? 'units' : 'm²'}. Change in Pricing → Pallets & Delivery`}
                                   data-testid={`pallet-only-tag-${p.sku || p.supplier_code}`}
                                 >
                                   <Layers className="w-3 h-3" /> Pallet only
+                                </span>
+                              )}
+                              {p.delivery_charge_required && Number(p.delivery_charge) > 0 && (
+                                <span
+                                  className="inline-flex items-center gap-0.5 px-1.5 py-[1px] rounded bg-rose-50 text-rose-700 border border-rose-200 text-[10px] font-bold"
+                                  title="Mandatory delivery charge — charged even over the free-delivery threshold. Change in Pricing → Pallets & Delivery"
+                                  data-testid={`delivery-tag-${p.sku || p.supplier_code}`}
+                                >
+                                  <Truck className="w-3 h-3" /> £{Number(p.delivery_charge).toFixed(2)} delivery
+                                </span>
+                              )}
+                              {p.parcel_delivery && (
+                                <span
+                                  className="inline-flex items-center gap-0.5 px-1.5 py-[1px] rounded bg-sky-50 text-sky-700 border border-sky-200 text-[10px] font-semibold"
+                                  title={`Ships as a parcel (non-palletised)${Number(p.parcel_fee || 0) > 0 ? ` — £${Number(p.parcel_fee).toFixed(2)} parcel rate` : ''}. Change in Pricing → Pallets & Delivery`}
+                                  data-testid={`parcel-tag-${p.sku || p.supplier_code}`}
+                                >
+                                  <Package className="w-3 h-3" /> parcel{Number(p.parcel_fee || 0) > 0 ? ` £${Number(p.parcel_fee).toFixed(2)}` : ''}
                                 </span>
                               )}
                               {p.pricing_unit === 'unit' && (
@@ -1323,7 +1316,6 @@ const ManagerPageShell = ({
         onOpenFeaturedOrder={() => setShowFeaturedOrder(true)}
         onOpenAssignColours={() => setShowAssignColours(true)}
         onOpenTierPricing={() => setShowTierPricing(true)}
-        onOpenDelivery={() => setShowDeliveryCharge(true)}
         onOpenSeriesMove={seriesQuickEdit ? () => { setBulkSeriesValue(''); setShowSeriesMove(true); } : undefined}
         onOpenBulkFields={() => setShowBulkFields(true)}
         onOpenAIDescriptions={() => setShowAIDescriptions(true)}
@@ -1504,13 +1496,6 @@ const ManagerPageShell = ({
         onSaved={fetchProducts}
       />
 
-      <DeliveryChargeModal
-        open={showDeliveryCharge}
-        onOpenChange={setShowDeliveryCharge}
-        selectedProducts={bulk.getSelectedList()}
-        onSaved={fetchProducts}
-      />
-
       {/* Bulk Series Move — regroup all selected products under one series */}
       {seriesQuickEdit && showSeriesMove && (
         <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={() => !bulkSeriesSaving && setShowSeriesMove(false)}>
@@ -1571,40 +1556,36 @@ const ManagerPageShell = ({
         </div>
       )}
 
-      {/* Pricing hub — prices / cost / stock / sale AND tier discounts / trade / pallets in ONE modal */}
+      {/* Pricing hub — prices / sale, pallets & delivery (per item), tier & trade discounts in ONE modal */}
       <PricingHubModal
-        open={showBulkFields || showTierPricing}
+        open={pricingHubOpen}
         initialTab={showTierPricing && !showBulkFields ? 'tiers' : 'prices'}
         count={bulk.getSelectedList().length}
-        onOpenChange={(o) => {
-          if (o) return;
-          setShowBulkFields(false);
-          setShowTierPricing(false);
-          setTierProductOverrides({});
-          setTierPricingConfig(prev => ({ ...prev, pallet_touched: false }));
-        }}
+        onOpenChange={(o) => { if (!o) closePricingHub(); }}
         pricesPanel={
           <BulkFieldsModal
             embedded
-            open={showBulkFields || showTierPricing}
-            onOpenChange={(o) => { if (!o) { setShowBulkFields(false); setShowTierPricing(false); } }}
+            open={pricingHubOpen}
+            onOpenChange={(o) => { if (!o) closePricingHub(); }}
             selectedList={bulk.getSelectedList()}
             themeColor={theme}
             onSuccess={() => { bulk.clearAll(); fetchProducts(); }}
           />
         }
+        palletsPanel={
+          <PalletsDeliveryPanel
+            selectedList={bulk.getSelectedList()}
+            defaultUnit={tierPricingDefaults.default_unit === 'unit' ? 'unit' : 'm2'}
+            onClose={closePricingHub}
+            onSuccess={fetchProducts}
+          />
+        }
         tierPanel={
       <TierPricingModal
         embedded
-        open={showBulkFields || showTierPricing}
-        onOpenChange={(next) => {
-          if (!next) {
-            setShowTierPricing(false);
-            setShowBulkFields(false);
-            setTierProductOverrides({});  // reset overrides when the modal closes
-            setTierPricingConfig(prev => ({ ...prev, pallet_touched: false }));
-          }
-        }}
+        hidePallets
+        open={pricingHubOpen}
+        onOpenChange={(next) => { if (!next) closePricingHub(); }}
         selectedProducts={new Set([...bulk.selectedProducts])}
         selectedProductsList={bulk.getSelectedList()}
         productOverrides={tierProductOverrides}
@@ -1656,28 +1637,14 @@ const ManagerPageShell = ({
                 trade_discount_type: tierPricingConfig.trade_discount_type || 'percent',
                 credit_back_rate: (tierPricingConfig.credit_back_default === '' || tierPricingConfig.credit_back_default == null) ? 2 : Number(tierPricingConfig.credit_back_default),
                 disabled: tierPricingConfig.disabled || false,
-                // Only send pallet config when the admin actually touched the pallet
-                // block this session — otherwise an untouched save would wipe the
-                // per-product pallet data previously saved (backend treats an
-                // explicit pallet_enabled:false as "disable + clear rates").
-                ...(tierPricingConfig.pallet_touched ? {
-                  pallet_enabled: !!tierPricingConfig.pallet_enabled,
-                  pallet_price: tierPricingConfig.pallet_price,
-                  half_pallet_price: tierPricingConfig.half_pallet_price,
-                  m2_per_pallet: tierPricingConfig.m2_per_pallet,
-                  m2_per_half_pallet: tierPricingConfig.m2_per_half_pallet,
-                  pallet_only: !!tierPricingConfig.pallet_enabled && !!tierPricingConfig.pallet_only,
-                } : {}),
+                // Pallet rates / pallet-only are saved per item from the Pallets & Delivery tab.
               }),
             });
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
             const data = await res.json();
             const overrideNote = overrideCount > 0 ? ` (${overrideCount} customised)` : '';
             toast.success(`Tier pricing saved: ${data.updated_count || selectedList.length}${overrideNote}`);
-            setShowTierPricing(false);
-            setShowBulkFields(false);
-            setTierProductOverrides({});
-            setTierPricingConfig(prev => ({ ...prev, pallet_touched: false }));
+            closePricingHub();
             fetchProducts();
           } catch (err) { toast.error(`Save failed: ${err.message}`); }
         }}

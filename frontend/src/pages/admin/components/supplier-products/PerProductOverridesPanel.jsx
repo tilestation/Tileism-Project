@@ -36,7 +36,7 @@ const palletProfit = (rate, qty, cost, cbRate) => {
   return { profit: perUnit * qty, margin: (perUnit / exRate) * 100, total: rate * qty };
 };
 
-const PerProductOverridesPanel = ({ products, overrides, setOverrides, globalCreditBack = 2, pricingUnit = 'm2' }) => {
+const PerProductOverridesPanel = ({ products, overrides, setOverrides, globalCreditBack = 2, pricingUnit = 'm2', hidePallets = false }) => {
   const [open, setOpen] = useState(false);
   const [expandedPallets, setExpandedPallets] = useState(() => new Set());
 
@@ -146,7 +146,7 @@ const PerProductOverridesPanel = ({ products, overrides, setOverrides, globalCre
                   <th className="px-2 py-2 font-medium text-right w-32" title="The FINAL price a trade customer pays per unit/m² — the £ discount off list is computed automatically">Trade £ (final)</th>
                   <th className="px-2 py-2 font-medium text-right w-32" title="Profit = ex-VAT trade price (÷1.2) − cost (ex-VAT) − credit back (% of ex-VAT). Margin % = profit ÷ ex-VAT price">Profit / Margin</th>
                   <th className="px-2 py-2 font-medium text-right w-24">Credit %</th>
-                  <th className="px-2 py-2 font-medium text-center w-24" title="Half + Full pallet quantities, rates and profit — click to expand">Pallet</th>
+                  {!hidePallets && <th className="px-2 py-2 font-medium text-center w-24" title="Half + Full pallet quantities, rates and profit — click to expand">Pallet</th>}
                   <th className="px-2 py-2 font-medium text-center w-16">Disable Tier</th>
                   <th className="px-2 py-2 font-medium text-center w-12">Reset</th>
                 </tr>
@@ -262,6 +262,7 @@ const PerProductOverridesPanel = ({ products, overrides, setOverrides, globalCre
                             <span className="text-xs text-gray-500">%</span>
                           </div>
                         </td>
+                        {!hidePallets && (
                         <td className="px-2 py-2 text-center">
                           <button
                             type="button"
@@ -275,6 +276,7 @@ const PerProductOverridesPanel = ({ products, overrides, setOverrides, globalCre
                             {palletExpanded ? <ChevronUp className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
                           </button>
                         </td>
+                        )}
                         <td className="px-2 py-2 text-center">
                           <input
                             type="checkbox"

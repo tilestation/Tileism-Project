@@ -17,6 +17,16 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Sep 7, 2026 — Forked session] 🟢 ONE Pricing hub: Prices & Sale · Pallets & Delivery (per item) · Volume & Trade — VERIFIED (iteration_244 100%, + self-test)
+Owner: "pallet & tier pricing in 2 tabs is extremely confusing… pallet-only only in bulk… put pricing and Delivery together… mandatory delivery on individual items."
+- **Hub** (`managers/PricingHubModal.jsx`, max-w-6xl) now has 3 tabs: **Prices & Sale** (BulkFieldsModal), **Pallets & Delivery** (NEW `managers/PalletsDeliveryPanel.jsx`), **Volume & Trade Discounts** (TierPricingModal `hidePallets` — pallet block + Per-Product-Overrides pallet column removed; `pallets-moved-note`). Bulk-bar **Delivery** button removed (`DeliveryChargeModal.jsx` deleted; its storefront "free-delivery small print" editor moved into the Pallets & Delivery tab as a collapsible).
+- **Pallets & Delivery tab**: one row per selected product, each independently editable — Pallet on · Full qty×£ (+ m²/units) · Half qty×£ · **Pallet only** · **Mandatory delivery £** · Parcel fee. "Fill all rows at once" (shared `SellingRulesCard.jsx`) copies one set of values to every row, then untick the odd one. Only changed rows are saved (`Save N changed`), per-row validation toasts, per-row reset, 15s Undo. Testids `rules-*-{sku}`, `rules-fill-*`, `rules-save`.
+- **Quick Edit drawer**: new "Pallets & Delivery — this product only" card (`quick-edit-selling-rules-panel`, `quick-edit-rules-*`) with status pills; saved with Save Changes (validated first).
+- **Manager rows**: rose `£X.XX delivery` tag (`delivery-tag-{sku}`) and sky `parcel` tag (`parcel-tag-{sku}`) beside the amber `Pallet only` tag (replaced the tiny truck/parcel icons).
+- **Backend** (`supplier_sync.py`): `bulk-delivery-settings` accepts per-row `delivery_charge_required/delivery_charge/parcel_delivery/parcel_fee` overrides (top-level still works, `clear:true` wipes); `bulk-tier-update` no longer flips `tier_pricing_disabled/has_custom_tier_pricing` when a request carries only pallet fields. Shared FE helpers in `managers/sellingRules.js` (rowFromProduct, validateRules, palletPayload, deliveryPayload, saveSellingRules).
+- Tests: `/app/backend/tests/test_pricing_hub_per_row.py` (5/5). All test products restored.
+
+
 ### [Sep 7, 2026 — Forked session] 🟢 Pallet-only row tag · flashing SALE / CLEARANCE stamps on /tiles cards — VERIFIED (screenshots)
 - Manager rows (`ManagerPageShell.jsx`): amber **PALLET ONLY** tag (`pallet-only-tag-{sku}`) next to supplier·SKU when `pallet_enabled && pallet_only`; small blue **each** tag (`per-unit-tag-{sku}`) for `pricing_unit === 'unit'`.
 - `/tiles` CollectionCard (`TileCollectionsPage.js`): CLEARANCE stamp now flashes (`clearance-flash`) and shows "Save up to X%"; the SALE badge is a matching red flashing stamp (`.sale-stamp` in index.css) with "Up to X% off"; the old red corner "Sale" ribbon was removed (stamps replace it; CLEARANCE still supersedes SALE).

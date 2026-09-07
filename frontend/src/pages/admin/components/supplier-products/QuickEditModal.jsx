@@ -56,6 +56,7 @@ const QuickEditModal = ({
   setPreviewImages,
   moreSpecsSlot,
   saleAndDescriptionSlot,
+  sellingRulesSlot,
   previewSlot,
   variantsSlot,
   relatedSlot,
@@ -504,6 +505,14 @@ const QuickEditModal = ({
           {saleAndDescriptionSlot && (
             <div className="pt-2 border-t">
               {saleAndDescriptionSlot}
+            </div>
+          )}
+
+          {/* Optional Pallets & Delivery slot — per-product pallet rates,
+              pallet-only and mandatory delivery / parcel rules. */}
+          {sellingRulesSlot && (
+            <div className="pt-2 border-t">
+              {sellingRulesSlot}
             </div>
           )}
 

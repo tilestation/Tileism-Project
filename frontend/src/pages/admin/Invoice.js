@@ -826,7 +826,7 @@ export const Invoice = () => {
       if (editMode && invoiceData.lineItems) {
         const updatedLineItems = invoiceData.lineItems.map(item => {
           if (item.productId) {
-            const product = allProducts.find(p => p.id === item.productId);
+            const product = mainProducts.find(p => p.id === item.productId);
             if (product) {
               // Add back the quantity that was deducted for this invoice
               return { ...item, stock: product.stock + parseInt(item.qty || 0) };
