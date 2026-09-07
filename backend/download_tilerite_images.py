@@ -65,7 +65,7 @@ class TileRiteImageDownloader:
             try:
                 with open(PROGRESS_FILE, 'r') as f:
                     return json.load(f)
-            except:
+            except Exception:
                 pass
         return {
             'completed_skus': [],

@@ -407,9 +407,9 @@ def cleanup_test_options():
                         if 'test_' in opt_id.lower() or 'e2e_' in opt_id.lower() or 'torename_' in opt_id.lower() or 'todelete_' in opt_id.lower():
                             try:
                                 requests.delete(f"{API_URL}/website-category-options/{category}/{opt_id}")
-                            except:
+                            except Exception:
                                 pass
-    except:
+    except Exception:
         pass
 
 

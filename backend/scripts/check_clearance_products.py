@@ -119,7 +119,7 @@ async def check_clearance_status(page, url: str) -> dict:
                         result['is_clearance'] = True
                         result['evidence'].append(f'Found clearance element: {selector}')
                         break
-            except:
+            except Exception:
                 pass
         
         # Check 5: Look for specific badge images or icons
@@ -137,7 +137,7 @@ async def check_clearance_status(page, url: str) -> dict:
                 if 'clearance' in breadcrumb_text.lower():
                     result['is_clearance'] = True
                     result['evidence'].append('Product is in Clearance category (breadcrumb)')
-        except:
+        except Exception:
             pass
         
         if not result['evidence']:

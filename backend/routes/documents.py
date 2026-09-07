@@ -8,25 +8,87 @@ Document/Media Storage System
 """
 
 from fastapi import APIRouter, HTTPException, Depends, UploadFile, File, Form, Query
-from fastapi.responses import StreamingResponse, FileResponse
+from fastapi.responses import StreamingResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from starlette.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 from typing import Optional, List, Dict
 from datetime import datetime, timezone
 from pathlib import Path
+from bson import Binary
 import os
 import uuid
-import shutil
 import hashlib
+import logging
 import mimetypes
 import bcrypt
 import jwt
 
-router = APIRouter(prefix="/documents", tags=["documents"])
+from services.storage.r2_uploader import R2ImageUploader
 
-# Document storage directory
+router = APIRouter(prefix="/documents", tags=["documents"])
+logger = logging.getLogger(__name__)
+
+# Legacy on-disk location (read-only fallback for documents uploaded before cloud storage)
 DOCUMENTS_DIR = Path("/app/backend/uploads/documents")
-DOCUMENTS_DIR.mkdir(parents=True, exist_ok=True)
+R2_DOC_PREFIX = "documents"
+
+
+def _r2_client():
+    client = R2ImageUploader.get_client()
+    if not client:
+        raise HTTPException(status_code=503, detail="Cloud document storage is unavailable. Please try again shortly.")
+    return client
+
+
+async def store_document_bytes(relative_path: str, data: bytes, content_type: str) -> str:
+    """Persist a document in R2 object storage and return its storage key."""
+    key = f"{R2_DOC_PREFIX}/{relative_path}"
+    client = _r2_client()
+    try:
+        await run_in_threadpool(
+            client.put_object,
+            Bucket=R2ImageUploader.get_bucket_name(),
+            Key=key,
+            Body=data,
+            ContentType=content_type,
+        )
+    except Exception as e:
+        logger.error(f"Document upload to R2 failed for {key}: {e}")
+        raise HTTPException(status_code=503, detail="Cloud document storage is unavailable. Please try again shortly.")
+    return key
+
+
+async def read_document_bytes(record: dict) -> Optional[bytes]:
+    """Fetch document bytes from R2 (or the legacy local folder for old uploads)."""
+    key = record.get("storage_key")
+    if key:
+        client = _r2_client()
+        try:
+            obj = await run_in_threadpool(client.get_object, Bucket=R2ImageUploader.get_bucket_name(), Key=key)
+            return await run_in_threadpool(obj["Body"].read)
+        except Exception as e:
+            logger.error(f"Document fetch from R2 failed for {key}: {e}")
+            return None
+    legacy_path = DOCUMENTS_DIR / (record.get("file_path") or "")
+    if record.get("file_path") and legacy_path.is_file():
+        return legacy_path.read_bytes()
+    return None
+
+
+async def remove_document_file(record: dict):
+    key = record.get("storage_key")
+    if key:
+        try:
+            client = R2ImageUploader.get_client()
+            if client:
+                await run_in_threadpool(client.delete_object, Bucket=R2ImageUploader.get_bucket_name(), Key=key)
+        except Exception as e:
+            logger.warning(f"Document delete from R2 failed for {key}: {e}")
+        return
+    legacy_path = DOCUMENTS_DIR / (record.get("file_path") or "")
+    if record.get("file_path") and legacy_path.is_file():
+        legacy_path.unlink()
 
 # Max file size: 100MB
 MAX_FILE_SIZE = 100 * 1024 * 1024
@@ -107,13 +169,9 @@ def verify_folder_password(password: str, hashed: str) -> bool:
     """Verify folder password"""
     return bcrypt.checkpw(password.encode('utf-8'), hashed.encode('utf-8'))
 
-def get_file_hash(file_path: Path) -> str:
-    """Calculate MD5 hash of file for versioning"""
-    hash_md5 = hashlib.md5()
-    with open(file_path, "rb") as f:
-        for chunk in iter(lambda: f.read(4096), b""):
-            hash_md5.update(chunk)
-    return hash_md5.hexdigest()
+def get_file_hash(contents: bytes) -> str:
+    """Calculate MD5 hash of file contents for versioning"""
+    return hashlib.md5(contents).hexdigest()
 
 def get_db():
     """Get database connection"""
@@ -276,18 +334,14 @@ async def delete_folder(
     # Get all documents in folder
     documents = await db.documents.find({"folder_id": folder_id}).to_list(None)
     
-    # Delete physical files
+    # Delete stored files
     for doc in documents:
-        file_path = DOCUMENTS_DIR / doc.get("file_path", "")
-        if file_path.exists():
-            file_path.unlink()
+        await remove_document_file(doc)
         
         # Delete versions
         versions = await db.document_versions.find({"document_id": doc["id"]}).to_list(None)
         for version in versions:
-            version_path = DOCUMENTS_DIR / version.get("file_path", "")
-            if version_path.exists():
-                version_path.unlink()
+            await remove_document_file(version)
     
     # Delete documents from DB
     await db.documents.delete_many({"folder_id": folder_id})
@@ -373,23 +427,17 @@ async def upload_document(
     # Generate unique filename
     doc_id = str(uuid.uuid4())
     safe_filename = f"{doc_id}{ext}"
-    
-    # Create date-based subdirectory
     date_path = datetime.now().strftime("%Y/%m")
-    save_dir = DOCUMENTS_DIR / date_path
-    save_dir.mkdir(parents=True, exist_ok=True)
-    
-    file_path = save_dir / safe_filename
-    
-    # Save file
-    with open(file_path, "wb") as f:
-        f.write(contents)
-    
-    # Get file hash for versioning
-    file_hash = get_file_hash(file_path)
+    relative_path = f"{date_path}/{safe_filename}"
     
     # Get mime type
     mime_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
+    
+    # Save file to cloud storage
+    storage_key = await store_document_bytes(relative_path, contents, mime_type)
+    
+    # Get file hash for versioning
+    file_hash = get_file_hash(contents)
     
     # Parse tags
     tag_list = [t.strip() for t in tags.split(",")] if tags else []
@@ -400,7 +448,9 @@ async def upload_document(
         "name": filename,
         "description": description,
         "folder_id": folder_id,
-        "file_path": f"{date_path}/{safe_filename}",
+        "file_path": relative_path,
+        "storage_key": storage_key,
+        "storage": "r2",
         "file_size": file_size,
         "file_type": get_file_type_category(ext),
         "extension": ext,
@@ -442,54 +492,43 @@ async def upload_chunk(
     """Upload file in chunks for large files (100MB support)"""
     db = get_db()
     
-    # Create temp directory for chunks
-    chunk_dir = DOCUMENTS_DIR / "chunks" / upload_id
-    chunk_dir.mkdir(parents=True, exist_ok=True)
-    
-    # Save chunk
-    chunk_path = chunk_dir / f"chunk_{chunk_index}"
+    # Stage chunk in the database (pod-independent) until every part has arrived
     contents = await chunk.read()
-    with open(chunk_path, "wb") as f:
-        f.write(contents)
+    await db.document_upload_chunks.update_one(
+        {"upload_id": upload_id, "chunk_index": chunk_index},
+        {"$set": {"data": Binary(contents), "created_at": datetime.now(timezone.utc).isoformat()}},
+        upsert=True,
+    )
     
     # Check if all chunks uploaded
-    uploaded_chunks = list(chunk_dir.glob("chunk_*"))
-    if len(uploaded_chunks) == total_chunks:
-        # Merge chunks
+    uploaded = await db.document_upload_chunks.count_documents({"upload_id": upload_id})
+    if uploaded == total_chunks:
+        chunk_docs = await db.document_upload_chunks.find(
+            {"upload_id": upload_id}, {"_id": 0, "chunk_index": 1, "data": 1}
+        ).sort("chunk_index", 1).to_list(None)
+        await db.document_upload_chunks.delete_many({"upload_id": upload_id})
+        
         ext = Path(filename).suffix.lower()
         if ext not in ALLOWED_EXTENSIONS:
-            shutil.rmtree(chunk_dir)
             raise HTTPException(status_code=400, detail=f"File type {ext} not allowed")
+        
+        merged = b"".join(bytes(c["data"]) for c in chunk_docs)
+        
+        # Verify file size
+        file_size = len(merged)
+        if file_size > MAX_FILE_SIZE:
+            raise HTTPException(status_code=400, detail=f"File too large. Maximum size is {MAX_FILE_SIZE // (1024*1024)}MB")
         
         doc_id = str(uuid.uuid4())
         safe_filename = f"{doc_id}{ext}"
         date_path = datetime.now().strftime("%Y/%m")
-        save_dir = DOCUMENTS_DIR / date_path
-        save_dir.mkdir(parents=True, exist_ok=True)
-        
-        final_path = save_dir / safe_filename
-        
-        # Merge in order
-        with open(final_path, "wb") as outfile:
-            for i in range(total_chunks):
-                chunk_file = chunk_dir / f"chunk_{i}"
-                with open(chunk_file, "rb") as infile:
-                    outfile.write(infile.read())
-        
-        # Cleanup chunks
-        shutil.rmtree(chunk_dir)
-        
-        # Verify file size
-        file_size = final_path.stat().st_size
-        if file_size > MAX_FILE_SIZE:
-            final_path.unlink()
-            raise HTTPException(status_code=400, detail=f"File too large. Maximum size is {MAX_FILE_SIZE // (1024*1024)}MB")
-        
-        # Get file hash
-        file_hash = get_file_hash(final_path)
+        relative_path = f"{date_path}/{safe_filename}"
         
         # Get mime type
         mime_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
+        
+        storage_key = await store_document_bytes(relative_path, merged, mime_type)
+        file_hash = get_file_hash(merged)
         
         # Parse tags
         tag_list = [t.strip() for t in tags.split(",")] if tags else []
@@ -500,7 +539,9 @@ async def upload_chunk(
             "name": filename,
             "description": description,
             "folder_id": folder_id,
-            "file_path": f"{date_path}/{safe_filename}",
+            "file_path": relative_path,
+            "storage_key": storage_key,
+            "storage": "r2",
             "file_size": file_size,
             "file_type": get_file_type_category(ext),
             "extension": ext,
@@ -692,6 +733,7 @@ async def upload_new_version(
         "document_id": document_id,
         "version": document.get("version", 1),
         "file_path": document.get("file_path"),
+        "storage_key": document.get("storage_key"),
         "file_size": document.get("file_size"),
         "file_hash": document.get("file_hash"),
         "uploaded_by": document.get("uploaded_by"),
@@ -704,21 +746,21 @@ async def upload_new_version(
     new_version = document.get("version", 1) + 1
     safe_filename = f"{document_id}_v{new_version}{ext}"
     date_path = datetime.now().strftime("%Y/%m")
-    save_dir = DOCUMENTS_DIR / date_path
-    save_dir.mkdir(parents=True, exist_ok=True)
+    relative_path = f"{date_path}/{safe_filename}"
+    mime_type = mimetypes.guess_type(filename)[0] or document.get("mime_type") or "application/octet-stream"
     
-    file_path = save_dir / safe_filename
-    with open(file_path, "wb") as f:
-        f.write(contents)
-    
-    file_hash = get_file_hash(file_path)
+    storage_key = await store_document_bytes(relative_path, contents, mime_type)
+    file_hash = get_file_hash(contents)
     
     # Update document
     size_diff = file_size - document.get("file_size", 0)
     await db.documents.update_one(
         {"id": document_id},
         {"$set": {
-            "file_path": f"{date_path}/{safe_filename}",
+            "file_path": relative_path,
+            "storage_key": storage_key,
+            "storage": "r2",
+            "mime_type": mime_type,
             "file_size": file_size,
             "file_hash": file_hash,
             "version": new_version,
@@ -751,7 +793,7 @@ async def download_document(
     if not document:
         raise HTTPException(status_code=404, detail="Document not found")
     
-    file_path = document.get("file_path")
+    record = document
     filename = document.get("name")
     
     # If requesting specific version
@@ -761,12 +803,12 @@ async def download_document(
             "version": version
         })
         if version_doc:
-            file_path = version_doc.get("file_path")
+            record = version_doc
             filename = f"v{version}_{filename}"
     
-    full_path = DOCUMENTS_DIR / file_path
-    if not full_path.exists():
-        raise HTTPException(status_code=404, detail="File not found on server")
+    data = await read_document_bytes(record)
+    if data is None:
+        raise HTTPException(status_code=404, detail="File not found in storage")
     
     # Increment download count
     await db.documents.update_one(
@@ -774,10 +816,14 @@ async def download_document(
         {"$inc": {"download_count": 1}}
     )
     
-    return FileResponse(
-        path=full_path,
-        filename=filename,
-        media_type=document.get("mime_type", "application/octet-stream")
+    safe_name = (filename or "download").replace('"', "")
+    return StreamingResponse(
+        iter([data]),
+        media_type=document.get("mime_type", "application/octet-stream"),
+        headers={
+            "Content-Disposition": f'attachment; filename="{safe_name}"',
+            "Content-Length": str(len(data)),
+        },
     )
 
 @router.get("/{document_id}/preview")
@@ -825,17 +871,13 @@ async def delete_document(
     if not is_super_admin and not is_uploader:
         raise HTTPException(status_code=403, detail="You don't have permission to delete this document")
     
-    # Delete physical file
-    file_path = DOCUMENTS_DIR / document.get("file_path", "")
-    if file_path.exists():
-        file_path.unlink()
+    # Delete stored file
+    await remove_document_file(document)
     
     # Delete versions
     versions = await db.document_versions.find({"document_id": document_id}).to_list(None)
     for version in versions:
-        version_path = DOCUMENTS_DIR / version.get("file_path", "")
-        if version_path.exists():
-            version_path.unlink()
+        await remove_document_file(version)
     
     await db.document_versions.delete_many({"document_id": document_id})
     

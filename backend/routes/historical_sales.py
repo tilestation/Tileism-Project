@@ -465,7 +465,7 @@ async def get_daily_records(showroom_id: str, month: Optional[int] = None, year:
                         d, m, y = int(parts[0]), int(parts[1]), int(parts[2])
                         if m == month and y == year:
                             filtered.append(r)
-                except:
+                except Exception:
                     continue
             return filtered
         

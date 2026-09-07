@@ -41,14 +41,14 @@ class StockFlowAPITester:
                 print(f"✅ Passed - Status: {response.status_code}")
                 try:
                     return success, response.json()
-                except:
+                except Exception:
                     return success, {}
             else:
                 print(f"❌ Failed - Expected {expected_status}, got {response.status_code}")
                 try:
                     error_detail = response.json()
                     print(f"   Error: {error_detail}")
-                except:
+                except Exception:
                     print(f"   Response text: {response.text}")
                 return False, {}
 

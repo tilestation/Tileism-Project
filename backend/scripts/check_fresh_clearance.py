@@ -40,7 +40,7 @@ async def check_clearance_badge(page, url: str) -> bool:
         await asyncio.sleep(1)
         page_content = await page.content()
         return 'Wholesale_Clearance' in page_content
-    except:
+    except Exception:
         return False
 
 async def run_clearance_check():

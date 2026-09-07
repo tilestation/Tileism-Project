@@ -82,7 +82,7 @@ async def check_clearance_badge(page, url: str) -> dict:
             if badge_img:
                 result['is_clearance'] = True
                 result['has_badge'] = True
-        except:
+        except Exception:
             pass
         
     except asyncio.TimeoutError:

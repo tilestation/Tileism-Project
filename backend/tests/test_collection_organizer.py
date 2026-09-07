@@ -366,5 +366,5 @@ def cleanup_test_assignments():
                 f"{BASE_URL}/api/website-admin/collection-organizer/unassign",
                 json={"supplier": "Plus39", "series": series_name, "main_category": "Tiles"}
             )
-        except:
+        except Exception:
             pass

@@ -17,6 +17,28 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Sep 7, 2026 — Forked session] 🟢 "Recently Viewed" strip now shows the REAL collection cards — VERIFIED
+
+**Owner report**: Images at the bottom of collection pages (Recently Viewed strip) did not match the actual collection images. Owner asked to keep the strip but show the actual collection images exactly as on the collections page.
+
+**Root cause**: `RecentlyViewedSection` (CrossSellSections.jsx) fetched `/api/tiles/collection/{name}` which returns products only — no `hero_image` / `color_swatches` / framing — so `<CollectionCard>` fell back to random Unsplash "lifestyle" stock photos.
+
+**Delivered**:
+1. Backend: `GET /api/tiles/collections` accepts repeatable `series=` params (exact series names). Narrows the product scan, post-filters grouped collections by exact name, returns them in the requested order with all card data (hero image + admin framing + swatches + prices). Cache key includes `series`.
+2. Frontend: `RecentlyViewedSection` now does ONE call `/api/tiles/collections?series=A&series=B...` and renders the same `<CollectionCard>` as the /tiles page. Unknown/stale names are dropped. Applies everywhere the strip appears (collection pages, product pages, /tiles listing).
+3. `TileDetailPage` now tracks the product's **series** (not the product name) so its history entries resolve to real collection cards.
+
+**Verified**: curl (exact order, unknown names dropped, full list unaffected) + browser screenshot on `/shop/collection/Opaco` showing the real Dolomite Onyx card image (identical to /tiles).
+
+### [Sep 7, 2026 — Forked session] 🟢 Lint-gate cleanup (125 blocking errors → 0)
+- Deleted dead files: `server.backup.py`, `routes/quick_update_patch.py`, `routes/supplier_sync_original.py`, `services/business_rules.py` (stale duplicate of business_config).
+- Route shadowing fixed by moving literal routes above parameterised ones: products.py `/products/stats`, supplier_sync.py `/products/cleanup-invalid`, tiles_info.py + trade_list.py `/bulk`, server.py `/customer-pricing/template` and `/emails/inbox/bulk`.
+- ObjectId leaks: insert copies (`{**dict}`) in notification settings, campaigns, task notes, sms logs; cash session `find_one` projection `{"_id": 0}`.
+- **Uploads**: image endpoints (server.py, supplier_sync.py, website_admin.py ×4) no longer fall back to pod-local disk — they return HTTP 503 if R2 is unavailable. **Document Storage (`routes/documents.py`) migrated to R2**: uploads, chunked uploads (chunks staged in Mongo `document_upload_chunks`), new versions, download (streamed from R2), delete. Legacy on-disk documents remain readable. Verified via curl (single + chunked upload, download, delete).
+- Ruff: bare `except:` → `except Exception:` (81), duplicate dict keys (`$ne` → `$nin`, SPLENDOUR name map earlier duplicates removed, `deleted_at`), undefined names (`logger` in tiles.py, `db` in shop.py/sync_staging.py, `sync_db`, `supplier`), redefinitions (`status` import, `health_check` → `root_health_check`, `fix_supplier_product_names_by_supplier`, duplicated block in single_product_sync.py).
+- service-worker.js: `clients` → `self.clients`.
+
+
 ### [Sep 7, 2026 — Forked session] 🟢 BUG FIX: Tiles Manager "Show selected" browser hang — VERIFIED
 
 **Owner report**: `/admin/tiles` could freeze with the browser "page isn't responding" dialog after products were carried over into Tiles Manager and the bulk-bar action **Show selected** was clicked.

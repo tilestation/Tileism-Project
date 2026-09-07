@@ -12,7 +12,7 @@
  *
  * What this file does:
  *   1. Installs cleanly and replaces any previously active SW on first
- *      load after a deploy (skipWaiting + clients.claim).
+ *      load after a deploy (skipWaiting + self.clients.claim).
  *   2. Purges any caches left over from the old network-first build
  *      so users don't keep serving stale chunks from their browser
  *      cache.
@@ -106,7 +106,7 @@ self.addEventListener('notificationclick', (event) => {
   event.notification.close();
   const target = (event.notification.data && event.notification.data.url) || '/';
   event.waitUntil(
-    clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
       for (const c of clientList) {
         try {
           const u = new URL(c.url);
@@ -116,7 +116,7 @@ self.addEventListener('notificationclick', (event) => {
           }
         } catch (_) { /* ignore */ }
       }
-      if (clients.openWindow) return clients.openWindow(target);
+      if (self.clients.openWindow) return self.clients.openWindow(target);
       return null;
     }),
   );

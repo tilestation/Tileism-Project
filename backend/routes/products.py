@@ -341,6 +341,33 @@ async def epos_product_search(
     }
 
 
+@router.get("/products/stats")
+async def get_products_stats(current_user: dict = Depends(get_current_user)):
+    """
+    Get product statistics for backup/export page.
+    """
+    db = get_db()
+    
+    total = await db.products.count_documents({})
+    with_images = await db.products.count_documents({"images": {"$exists": True, "$ne": []}})
+    without_images = total - with_images
+    
+    # Get supplier breakdown
+    pipeline = [
+        {"$group": {"_id": "$supplier_name", "count": {"$sum": 1}}},
+        {"$sort": {"count": -1}},
+        {"$limit": 10}
+    ]
+    supplier_stats = await db.products.aggregate(pipeline).to_list(10)
+    
+    return {
+        "total_products": total,
+        "with_images": with_images,
+        "without_images": without_images,
+        "by_supplier": [{"supplier": s["_id"] or "Unknown", "count": s["count"]} for s in supplier_stats]
+    }
+
+
 @router.get("/products/{product_id}")
 async def get_product(product_id: str, current_user: dict = Depends(get_current_user)):
     """Get a single product"""
@@ -634,33 +661,6 @@ async def export_products_json(current_user: dict = Depends(get_current_user)):
         media_type="application/json",
         headers={"Content-Disposition": f"attachment; filename={filename}"}
     )
-
-
-@router.get("/products/stats")
-async def get_products_stats(current_user: dict = Depends(get_current_user)):
-    """
-    Get product statistics for backup/export page.
-    """
-    db = get_db()
-    
-    total = await db.products.count_documents({})
-    with_images = await db.products.count_documents({"images": {"$exists": True, "$ne": []}})
-    without_images = total - with_images
-    
-    # Get supplier breakdown
-    pipeline = [
-        {"$group": {"_id": "$supplier_name", "count": {"$sum": 1}}},
-        {"$sort": {"count": -1}},
-        {"$limit": 10}
-    ]
-    supplier_stats = await db.products.aggregate(pipeline).to_list(10)
-    
-    return {
-        "total_products": total,
-        "with_images": with_images,
-        "without_images": without_images,
-        "by_supplier": [{"supplier": s["_id"] or "Unknown", "count": s["count"]} for s in supplier_stats]
-    }
 
 
 @router.post("/products/cleanup/duplicate-dimensions")

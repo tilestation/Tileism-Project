@@ -77,7 +77,6 @@ async def get_tiles_info(
 ):
     """Get all tiles info entries with optional filters"""
     from server import db, get_current_user, security
-    from fastapi import Depends
     
     query = {}
     
@@ -214,6 +213,15 @@ async def bulk_update_tiles_info(data: TileInfoBulkUpdate):
     return {"updated": updated_count}
 
 
+@router.delete("/bulk")
+async def bulk_delete_tiles_info(ids: List[str]):
+    """Bulk delete tile info entries"""
+    from server import db
+    
+    result = await db.tiles_info.delete_many({"id": {"$in": ids}})
+    return {"deleted": result.deleted_count}
+
+
 @router.delete("/{entry_id}")
 async def delete_tile_info(entry_id: str):
     """Delete a tile info entry"""
@@ -224,15 +232,6 @@ async def delete_tile_info(entry_id: str):
         raise HTTPException(status_code=404, detail="Entry not found")
     
     return {"message": "Entry deleted"}
-
-
-@router.delete("/bulk")
-async def bulk_delete_tiles_info(ids: List[str]):
-    """Bulk delete tile info entries"""
-    from server import db
-    
-    result = await db.tiles_info.delete_many({"id": {"$in": ids}})
-    return {"deleted": result.deleted_count}
 
 
 @router.get("/suppliers")

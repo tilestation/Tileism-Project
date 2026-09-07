@@ -105,7 +105,7 @@ async def search_product(page, sku: str) -> dict:
                             if breadcrumb:
                                 bc_text = await breadcrumb.inner_text()
                                 result['category'] = bc_text.strip()
-                        except:
+                        except Exception:
                             pass
         else:
             # Maybe the search redirected directly to the product page

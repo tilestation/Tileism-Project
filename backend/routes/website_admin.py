@@ -1206,22 +1206,9 @@ async def upload_image(
                     "message": "Image uploaded successfully to cloud storage"
                 }
     except Exception as e:
-        logger.warning(f"R2 upload failed, falling back to local: {e}")
+        logger.error(f"R2 upload failed: {e}")
     
-    # Fallback to local storage
-    upload_dir = f"/app/frontend/public/uploads/{folder}"
-    os.makedirs(upload_dir, exist_ok=True)
-    
-    file_path = f"/app/frontend/public/uploads/{filename}"
-    with open(file_path, "wb") as f:
-        f.write(content)
-    
-    return {
-        "url": f"/uploads/{filename}",
-        "filename": filename,
-        "storage": "local",
-        "message": "Image uploaded locally"
-    }
+    raise HTTPException(status_code=503, detail="Cloud image storage is unavailable. Please try again shortly.")
 
 
 # ============ BULK OPERATIONS ============
@@ -1769,15 +1756,8 @@ async def upload_banner_image(file: UploadFile = File(...)):
             except Exception as r2_err:
                 logger.warning(f"R2 upload failed, falling back to local storage: {r2_err}")
         
-        # Fallback to local storage if R2 not available or failed
         if not image_url:
-            upload_dir = "/app/frontend/public/uploads/banners"
-            os.makedirs(upload_dir, exist_ok=True)
-            filepath = os.path.join(upload_dir, unique_filename)
-            with open(filepath, "wb") as f:
-                f.write(image_data)
-            image_url = f"/uploads/banners/{unique_filename}"
-            logger.info(f"Banner image saved locally: {image_url}")
+            raise HTTPException(status_code=503, detail="Cloud image storage is unavailable. Please try again shortly.")
         
         return {
             "success": True,
@@ -2458,15 +2438,8 @@ async def upload_collection_image(file: UploadFile = File(...), series_name: str
             except Exception as r2_err:
                 logger.warning(f"R2 upload failed, falling back to local storage: {r2_err}")
         
-        # Fallback to local storage if R2 not available or failed
         if not image_url:
-            upload_dir = "/app/frontend/public/uploads/collections"
-            os.makedirs(upload_dir, exist_ok=True)
-            filepath = os.path.join(upload_dir, unique_filename)
-            with open(filepath, "wb") as f:
-                f.write(image_data)
-            image_url = f"/uploads/collections/{unique_filename}"
-            logger.info(f"Collection image saved locally: {image_url}")
+            raise HTTPException(status_code=503, detail="Cloud image storage is unavailable. Please try again shortly.")
         
         # Update collection settings with new image
         await db.collection_settings.update_one(
@@ -5277,14 +5250,8 @@ async def upload_showroom_image(file: UploadFile = File(...)):
             except Exception as e:
                 logger.warning(f"R2 upload failed: {e}")
         
-        # Fallback to local
         if not image_url:
-            upload_dir = "/app/frontend/public/uploads/showrooms"
-            os.makedirs(upload_dir, exist_ok=True)
-            filepath = os.path.join(upload_dir, unique_filename)
-            with open(filepath, "wb") as f:
-                f.write(image_data)
-            image_url = f"/uploads/showrooms/{unique_filename}"
+            raise HTTPException(status_code=503, detail="Cloud image storage is unavailable. Please try again shortly.")
         
         return {"success": True, "url": image_url}
     except HTTPException:
@@ -5880,7 +5847,7 @@ async def get_product_collections(product_id: str):
                         "name": col.get("name"),
                         "is_manual": next((m["is_manual"] for m in mappings if m["collection_id"] == cid), False)
                     })
-            except:
+            except Exception:
                 pass
         
         return {"collections": collections, "product_id": product_id}

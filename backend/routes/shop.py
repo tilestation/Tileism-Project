@@ -6408,7 +6408,7 @@ async def calculate_pricing(
         customer = await get_shop_customer(request)
         is_trade = customer.get("is_trade", False)
         trade_discount = customer.get("trade_discount", 0)
-    except:
+    except Exception:
         pass  # Guest customer
     
     # Calculate volume discount
@@ -8020,6 +8020,7 @@ async def admin_resend_sample_confirmation(
 @router.get("/content/{page_key}")
 async def get_page_content(page_key: str):
     """Get editable content for a specific page"""
+    db = get_db()
     content = await db.page_content.find_one({"page_key": page_key}, {"_id": 0})
     if content:
         return content.get("content", {})
@@ -8029,6 +8030,7 @@ async def get_page_content(page_key: str):
 @router.put("/content/{page_key}")
 async def update_page_content(page_key: str, content: dict):
     """Update editable content for a specific page (admin only)"""
+    db = get_db()
     result = await db.page_content.update_one(
         {"page_key": page_key},
         {"$set": {"page_key": page_key, "content": content, "updated_at": datetime.utcnow()}},

@@ -1,4 +1,4 @@
-from fastapi import FastAPI, APIRouter, HTTPException, Depends, status, UploadFile, File, Body, Request, BackgroundTasks, Query
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, UploadFile, File, Body, Request, BackgroundTasks, Query
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.responses import StreamingResponse, FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
@@ -1229,7 +1229,7 @@ async def get_version():
             cwd="/app", 
             stderr=subprocess.DEVNULL
         ).decode().strip()
-    except:
+    except Exception:
         commit_hash = "unknown"
     
     try:
@@ -1238,7 +1238,7 @@ async def get_version():
             cwd="/app", 
             stderr=subprocess.DEVNULL
         ).decode().strip()
-    except:
+    except Exception:
         commit_date = "unknown"
     
     return {
@@ -1447,15 +1447,13 @@ async def cleanup_old_deleted_documents(current_user: dict = Depends(get_current
         collection = db[collection_name]
         # Find documents deleted more than 30 days ago
         old_deleted = await collection.find({
-            "deleted_at": {"$exists": True},
-            "deleted_at": {"$lt": cutoff_date.isoformat()}
+            "deleted_at": {"$exists": True, "$lt": cutoff_date.isoformat()}
         }).to_list(None)
         
         # Permanently delete them
         if old_deleted:
             result = await collection.delete_many({
-                "deleted_at": {"$exists": True},
-                "deleted_at": {"$lt": cutoff_date.isoformat()}
+                "deleted_at": {"$exists": True, "$lt": cutoff_date.isoformat()}
             })
             deleted_counts[collection_name] = result.deleted_count
         else:
@@ -2114,21 +2112,9 @@ async def upload_image(file: UploadFile = File(...), current_user: dict = Depend
                 logger.info(f"Image uploaded to R2: {r2_url}")
                 return {"url": r2_url, "filename": unique_filename, "storage": "r2"}
     except Exception as e:
-        logger.warning(f"R2 upload failed, falling back to local: {e}")
+        logger.error(f"R2 upload failed: {e}")
     
-    # Fallback to local storage
-    file_path = UPLOAD_DIR / unique_filename
-    with open(file_path, "wb") as f:
-        f.write(contents)
-    
-    # Return URL - use environment variable for base URL
-    base_url = os.environ.get("BACKEND_URL", "")
-    if not base_url:
-        base_url = os.environ.get("REACT_APP_BACKEND_URL", "")
-    
-    image_url = f"{base_url}/api/uploads/{unique_filename}" if base_url else f"/api/uploads/{unique_filename}"
-    
-    return {"url": image_url, "filename": unique_filename, "storage": "local"}
+    raise HTTPException(status_code=503, detail="Cloud image storage is unavailable. Please try again shortly.")
 
 @api_router.post("/products", response_model=Product)
 async def create_product(input: ProductCreate, current_user: dict = Depends(get_current_user)):
@@ -2293,7 +2279,7 @@ async def get_product_seo(product_id: str):
     product = None
     try:
         product = await db.products.find_one({"_id": ObjectId(product_id)}, {"_id": 0})
-    except:
+    except Exception:
         pass
     
     # Fallback to finding by 'id' field
@@ -2353,7 +2339,7 @@ async def regenerate_product_seo(product_id: str, current_user: dict = Depends(g
         product = await db.products.find_one({"_id": ObjectId(product_id)})
         if product:
             query_field = {"_id": ObjectId(product_id)}
-    except:
+    except Exception:
         pass
     
     if not product:
@@ -2572,7 +2558,7 @@ async def get_product(product_id: str, current_user: dict = Depends(get_current_
         product = await db.products.find_one({"_id": ObjectId(product_id)})
         if product:
             product["id"] = str(product.pop("_id"))
-    except:
+    except Exception:
         pass
     
     # Fallback to finding by 'id' field (UUID format)
@@ -4218,7 +4204,7 @@ async def update_product(product_id: str, input: ProductUpdate, current_user: di
                 lookup_field = "_id"
                 product_id = ObjectId(product_id)  # Use ObjectId for updates
                 product.pop("_id", None)  # Remove _id from product dict
-        except:
+        except Exception:
             pass
     
     # Also try by SKU as last resort
@@ -5306,7 +5292,7 @@ async def get_showroom_analytics(
         try:
             start = datetime.fromisoformat(start_date.replace("Z", "+00:00"))
             end = datetime.fromisoformat(end_date.replace("Z", "+00:00"))
-        except:
+        except Exception:
             start = now - timedelta(days=30)
             end = now
     else:
@@ -5599,6 +5585,21 @@ async def create_customer_pricing(input: CustomerPricingCreate, current_user: di
     
     return CustomerPricing(**pricing)
 
+@api_router.get("/customer-pricing/template")
+async def get_pricing_template(current_user: dict = Depends(get_current_user)):
+    """Get list of products for CSV template"""
+    if not is_admin_user(current_user):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    products = await db.products.find({}, {"_id": 0, "id": 1, "name": 1, "sku": 1, "price": 1}).to_list(100000)
+    
+    return {
+        "products": products,
+        "csv_headers": ["customer_email", "product_id", "custom_price"],
+        "example_row": ["customer@example.com", products[0]["id"] if products else "product-id-here", "19.99"]
+    }
+
+
 @api_router.get("/customer-pricing/{customer_email}", response_model=List[CustomerPricing])
 async def get_customer_pricing(customer_email: str, current_user: dict = Depends(get_current_user)):
     if not is_admin_user(current_user):
@@ -5713,20 +5714,6 @@ async def bulk_import_customer_pricing(input: BulkPricingImport, current_user: d
         failed=failed,
         errors=errors[:20]  # Limit errors to first 20
     )
-
-@api_router.get("/customer-pricing/template")
-async def get_pricing_template(current_user: dict = Depends(get_current_user)):
-    """Get list of products for CSV template"""
-    if not is_admin_user(current_user):
-        raise HTTPException(status_code=403, detail="Admin access required")
-    
-    products = await db.products.find({}, {"_id": 0, "id": 1, "name": 1, "sku": 1, "price": 1}).to_list(100000)
-    
-    return {
-        "products": products,
-        "csv_headers": ["customer_email", "product_id", "custom_price"],
-        "example_row": ["customer@example.com", products[0]["id"] if products else "product-id-here", "19.99"]
-    }
 
 @api_router.get("/products-with-custom-pricing", response_model=List[Product])
 async def get_products_with_custom_pricing(current_user: dict = Depends(get_current_user)):
@@ -6132,7 +6119,7 @@ async def export_orders_csv(current_user: dict = Depends(get_current_user)):
         if isinstance(created_at, str):
             try:
                 created_at = datetime.fromisoformat(created_at).strftime('%d/%m/%Y %H:%M')
-            except:
+            except Exception:
                 pass
         
         writer.writerow([
@@ -6224,7 +6211,7 @@ async def export_orders_pdf(current_user: dict = Depends(get_current_user)):
         if isinstance(created_at, str):
             try:
                 created_at = datetime.fromisoformat(created_at).strftime('%d/%m/%Y')
-            except:
+            except Exception:
                 created_at = ''
         elif hasattr(created_at, 'strftime'):
             created_at = created_at.strftime('%d/%m/%Y')
@@ -6484,7 +6471,7 @@ async def get_notification_settings(current_user: dict = Depends(get_current_use
         settings = get_default_settings()
         settings["type"] = "global"
         settings["id"] = str(uuid.uuid4())
-        await db.notification_settings.insert_one(settings)
+        await db.notification_settings.insert_one({**settings})
     
     return {
         "settings": settings,
@@ -6795,6 +6782,36 @@ async def get_inbox_email(
     return email
 
 
+@api_router.patch("/emails/inbox/bulk")
+async def bulk_update_inbox(
+    email_ids: List[str] = Body(...),
+    is_read: Optional[bool] = None,
+    is_starred: Optional[bool] = None,
+    is_archived: Optional[bool] = None,
+    current_user: dict = Depends(get_current_user)
+):
+    """Bulk update multiple inbox emails"""
+    if not is_admin_user(current_user):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    update_data = {}
+    if is_read is not None:
+        update_data["is_read"] = is_read
+    if is_starred is not None:
+        update_data["is_starred"] = is_starred
+    if is_archived is not None:
+        update_data["is_archived"] = is_archived
+    
+    if update_data:
+        result = await db.email_inbox.update_many(
+            {"id": {"$in": email_ids}},
+            {"$set": update_data}
+        )
+        return {"message": f"Updated {result.modified_count} emails"}
+    
+    return {"message": "No updates provided"}
+
+
 @api_router.patch("/emails/inbox/{email_id}")
 async def update_inbox_email(
     email_id: str,
@@ -6827,36 +6844,6 @@ async def update_inbox_email(
         await db.email_inbox.update_one({"id": email_id}, {"$set": update_data})
     
     return {"message": "Email updated", "email_id": email_id}
-
-
-@api_router.patch("/emails/inbox/bulk")
-async def bulk_update_inbox(
-    email_ids: List[str] = Body(...),
-    is_read: Optional[bool] = None,
-    is_starred: Optional[bool] = None,
-    is_archived: Optional[bool] = None,
-    current_user: dict = Depends(get_current_user)
-):
-    """Bulk update multiple inbox emails"""
-    if not is_admin_user(current_user):
-        raise HTTPException(status_code=403, detail="Admin access required")
-    
-    update_data = {}
-    if is_read is not None:
-        update_data["is_read"] = is_read
-    if is_starred is not None:
-        update_data["is_starred"] = is_starred
-    if is_archived is not None:
-        update_data["is_archived"] = is_archived
-    
-    if update_data:
-        result = await db.email_inbox.update_many(
-            {"id": {"$in": email_ids}},
-            {"$set": update_data}
-        )
-        return {"message": f"Updated {result.modified_count} emails"}
-    
-    return {"message": "No updates provided"}
 
 
 @api_router.delete("/emails/inbox/{email_id}")
@@ -7018,7 +7005,7 @@ async def create_campaign(input: MarketingCampaignCreate, current_user: dict = D
         "sent_at": None
     }
     
-    await db.marketing_campaigns.insert_one(campaign_dict)
+    await db.marketing_campaigns.insert_one({**campaign_dict})
     return campaign_dict
 
 @api_router.post("/marketing/campaigns/{campaign_id}/send")
@@ -8822,7 +8809,7 @@ async def export_profit_report_csv(
         try:
             start = datetime.fromisoformat(start_date.replace("Z", "+00:00"))
             end = datetime.fromisoformat(end_date.replace("Z", "+00:00"))
-        except:
+        except Exception:
             start = now - timedelta(days=30)
             end = now
     else:
@@ -8963,7 +8950,7 @@ async def export_profit_report_csv(
 
 # Health check endpoint for Kubernetes
 @app.get("/health")
-async def health_check():
+async def root_health_check():
     try:
         # Test MongoDB connection
         await client.admin.command('ping')
@@ -10583,7 +10570,7 @@ async def create_database_indexes():
     def safe_index(coll, keys):
         try:
             coll.create_index(keys, background=True)
-        except:
+        except Exception:
             pass
     
     # Critical indexes for sync operations
@@ -10640,7 +10627,7 @@ async def create_database_indexes():
                 }}
             )
             logger.info(f"Fixed cash quotation invoice {inv.get('invoice_no')} - removed VAT")
-    except:
+    except Exception:
         pass
     
     sync_client.close()

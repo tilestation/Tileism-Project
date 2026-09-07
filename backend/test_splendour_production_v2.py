@@ -36,7 +36,7 @@ async def get_product_details(page, url):
             name_el = await page.query_selector('h1')
             if name_el:
                 product['name'] = (await name_el.inner_text()).strip()
-        except:
+        except Exception:
             pass
         
         if not product.get('name'):

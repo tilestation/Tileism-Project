@@ -57,7 +57,7 @@ async def extract_from_product_page(page):
         h1 = await page.query_selector('h1')
         if h1:
             product['name'] = (await h1.inner_text()).strip()
-    except:
+    except Exception:
         pass
     
     if not product.get('name') or 'sorry' in product.get('name', '').lower():

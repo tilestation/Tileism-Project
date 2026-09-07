@@ -97,7 +97,7 @@ class SplendourScraper(BaseScraper):
                     self.is_authenticated = True
                     logger.info("Successfully logged in to Splendour (popup confirmed)")
                     return True
-            except:
+            except Exception:
                 pass
             
             # Alternative check - if redirected away from login page
@@ -301,7 +301,7 @@ class SplendourScraper(BaseScraper):
                         clicks += 1
                     else:
                         break
-                except:
+                except Exception:
                     break
             else:
                 break

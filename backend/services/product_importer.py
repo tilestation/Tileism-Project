@@ -353,12 +353,12 @@ class SplendourTilesImporter(SupplierImporter):
                         if field in ['weight_kg', 'thickness_mm', 'tiles_per_sqm']:
                             try:
                                 details[field] = float(re.search(r'[\d.]+', value_text).group())
-                            except:
+                            except Exception:
                                 details[field] = value_text
                         elif field in ['tiles_per_box', 'boxes_per_pallet', 'pcs_per_pallet', 'grade']:
                             try:
                                 details[field] = int(re.search(r'\d+', value_text).group())
-                            except:
+                            except Exception:
                                 details[field] = value_text
                         elif field in ['underfloor_heating', 'rectified']:
                             details[field] = value_text.lower() in ['yes', 'true', '1']
@@ -611,14 +611,14 @@ class TileStationWixImporter(SupplierImporter):
             if regular_match:
                 try:
                     regular_price = float(regular_match.group(1).replace(',', ''))
-                except:
+                except Exception:
                     pass
             
             sale_match = re.search(r'Sale Price[^\d]*£?([\d,]+\.?\d*)', text_content)
             if sale_match:
                 try:
                     sale_price = float(sale_match.group(1).replace(',', ''))
-                except:
+                except Exception:
                     pass
             
             # If no regular/sale price found, look for simple price
@@ -627,7 +627,7 @@ class TileStationWixImporter(SupplierImporter):
                 if price_match:
                     try:
                         regular_price = float(price_match.group(1).replace(',', ''))
-                    except:
+                    except Exception:
                         pass
             
             # Extract images

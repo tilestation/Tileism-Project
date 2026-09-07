@@ -126,7 +126,7 @@ class UltraTileDownloader:
             try:
                 with open(PROGRESS_FILE, 'r') as f:
                     return json.load(f)
-            except:
+            except Exception:
                 pass
         return {'completed_skus': [], 'failed_skus': [], 'stats': {'uploaded': 0, 'failed': 0}}
     
@@ -140,7 +140,7 @@ class UltraTileDownloader:
             async with session.get(url, timeout=aiohttp.ClientTimeout(total=30), headers=headers) as response:
                 if response.status == 200:
                     return await response.read()
-        except:
+        except Exception:
             pass
         return None
     
@@ -152,7 +152,7 @@ class UltraTileDownloader:
             output = BytesIO()
             img.save(output, format='JPEG', quality=85, optimize=True)
             return output.getvalue()
-        except:
+        except Exception:
             return image_data
     
     def _upload_to_r2(self, image_data, key):

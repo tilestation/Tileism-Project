@@ -320,9 +320,20 @@ const TileDetailPage = () => {
             console.log('Reviews not available');
           }
           
-          // Track product view for recently viewed
+          // Track product view for recently viewed (as its collection so the
+          // strip shows the real collection card, not a stock photo)
           trackProductView(data.id);
-          trackRecentView(data);
+          const seriesName = data.series || data.original_series || data.series_name;
+          if (seriesName) {
+            trackRecentView({
+              slug: encodeURIComponent(seriesName),
+              display_name: seriesName,
+              image: data.images?.[0],
+              price: data.room_lot_price || data.price,
+              product_group: data.product_group || 'tiles',
+              is_surface_product: data.is_surface_product,
+            });
+          }
         }
       } catch (e) {
         console.error('Error:', e);

@@ -55,7 +55,7 @@ class TestAutoPublishCategories:
         try:
             # Delete from tiles
             self.session.delete(f"{BASE_URL}/api/supplier-sync/unpublish-from-website?skus={self.test_sku}")
-        except:
+        except Exception:
             pass
     
     def test_api_health(self):
@@ -334,7 +334,7 @@ class TestAutoPublishCategories:
         # Cleanup
         try:
             self.session.delete(f"{BASE_URL}/api/supplier-sync/unpublish-from-website?skus={test_sku}")
-        except:
+        except Exception:
             pass
     
     def test_auto_published_products_appear_in_category_query(self):
@@ -398,7 +398,7 @@ class TestAutoPublishCategories:
         # Cleanup
         try:
             self.session.delete(f"{BASE_URL}/api/supplier-sync/unpublish-from-website?skus={test_sku}")
-        except:
+        except Exception:
             pass
 
 

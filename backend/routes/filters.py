@@ -1210,7 +1210,7 @@ async def get_filter_group(group_id: str):
                 if f:
                     f["id"] = str(f.pop("_id"))
                     filters.append(f)
-            except:
+            except Exception:
                 pass
         group["filters"] = filters
     
@@ -1553,7 +1553,7 @@ async def get_filters_for_page(
                         pipeline = [
                             {"$match": product_query},
                             {"$group": {"_id": f"${actual_field}"}},
-                            {"$match": {"_id": {"$ne": None, "$ne": ""}}}
+                            {"$match": {"_id": {"$nin": [None, ""]}}}
                         ]
                         results = await product_collection.aggregate(pipeline).to_list(5000)
                         existing_in_group = {str(r["_id"]).lower() for r in results if r["_id"]}
@@ -1608,7 +1608,7 @@ async def get_filters_for_page(
                             pipeline = [
                                 {"$match": query},
                                 {"$group": {"_id": f"${actual_field}"}},
-                                {"$match": {"_id": {"$ne": None, "$ne": ""}}}
+                                {"$match": {"_id": {"$nin": [None, ""]}}}
                             ]
                             results = await product_collection.aggregate(pipeline).to_list(5000)
                             values = [r["_id"] for r in results if r["_id"]]
@@ -1814,7 +1814,7 @@ async def sync_filter_values_from_products():
             pipeline = [
                 {"$match": query},
                 {"$group": {"_id": f"${field}"}},
-                {"$match": {"_id": {"$ne": None, "$ne": ""}}}
+                {"$match": {"_id": {"$nin": [None, ""]}}}
             ]
             results = await db.supplier_products.aggregate(pipeline).to_list(5000)
             product_values = [r["_id"] for r in results if r["_id"]]

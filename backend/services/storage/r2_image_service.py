@@ -118,7 +118,7 @@ class R2StorageService:
         try:
             self.client.head_object(Bucket=self.bucket, Key=key)
             return True
-        except:
+        except Exception:
             return False
 
 
@@ -134,7 +134,7 @@ class ImageDownloadProgress:
             try:
                 with open(self.progress_file, 'r') as f:
                     return json.load(f)
-            except:
+            except Exception:
                 pass
         return {
             "session_id": None,

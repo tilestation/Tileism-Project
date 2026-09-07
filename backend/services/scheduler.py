@@ -526,7 +526,7 @@ async def run_scheduled_import(schedule_id: str):
                     "last_run_error": str(e)
                 }}
             )
-        except:
+        except Exception:
             pass
 
 
@@ -534,7 +534,7 @@ def calculate_next_run(frequency: str, time_str: str) -> Optional[datetime]:
     """Calculate the next run time based on frequency"""
     try:
         hour, minute = map(int, time_str.split(":"))
-    except:
+    except Exception:
         hour, minute = 3, 0  # Default to 3 AM
     
     now = datetime.now(timezone.utc)
@@ -570,7 +570,7 @@ def get_cron_trigger(frequency: str, time_str: str) -> CronTrigger:
     """Create a CronTrigger based on frequency and time"""
     try:
         hour, minute = map(int, time_str.split(":"))
-    except:
+    except Exception:
         hour, minute = 3, 0
     
     if frequency == "daily":
@@ -596,7 +596,7 @@ async def add_scheduled_job(schedule_id: str, frequency: str, time_str: str):
     # Remove existing job if any
     try:
         sched.remove_job(f"import_{schedule_id}")
-    except:
+    except Exception:
         pass
     
     # Add the new job

@@ -83,9 +83,10 @@ export const trackRecentView = (product) => {
 
 
 // --- RecentlyViewedSection ---
-// Renders cards in the same rich format as the "Trending Now" carousel by
-// reusing <CollectionCard>. Fetches the full collection objects on mount
-// from /api/tiles/collection/{series_name} so prices/sale flags stay fresh.
+// Renders cards in the same rich format as the collections page by reusing
+// <CollectionCard>. Fetches the real collection card data (hero image,
+// framing, swatches, prices) from /api/tiles/collections?series=... so the
+// pictures match exactly what the customer sees on the collection pages.
 export const RecentlyViewedSection = ({
   currentProductSlug,
   maxItems = 6,
@@ -94,29 +95,28 @@ export const RecentlyViewedSection = ({
 
   useEffect(() => {
     let cancelled = false;
-    const all = getRecentlyViewed()
+    const names = [];
+    getRecentlyViewed()
       .filter((p) => (p.slug || p.id) !== currentProductSlug)
-      .slice(0, maxItems);
-    if (all.length === 0) {
+      .forEach((p) => {
+        const n = (p.display_name || p.series_name || '').trim();
+        if (n && !names.some((x) => x.toLowerCase() === n.toLowerCase())) names.push(n);
+      });
+    const wanted = names.slice(0, maxItems);
+    if (wanted.length === 0) {
       setCollections([]);
       return;
     }
     (async () => {
-      const fetched = await Promise.all(all.map(async (item) => {
-        const seriesName = item.display_name || item.series_name;
-        if (!seriesName) return null;
-        try {
-          const res = await fetch(`${API_URL}/api/tiles/collection/${encodeURIComponent(seriesName)}`);
-          if (!res.ok) return null;
-          const data = await res.json();
-          // Backend returns { collection: {...}, products: [...] } OR the flat shape;
-          // handle both safely.
-          return data.collection || data;
-        } catch {
-          return null;
-        }
-      }));
-      if (!cancelled) setCollections(fetched.filter(Boolean));
+      try {
+        const qs = wanted.map((n) => `series=${encodeURIComponent(n)}`).join('&');
+        const res = await fetch(`${API_URL}/api/tiles/collections?${qs}&limit=${maxItems}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!cancelled) setCollections((data.collections || []).filter((c) => c && c.series_name));
+      } catch {
+        if (!cancelled) setCollections([]);
+      }
     })();
     return () => { cancelled = true; };
   }, [currentProductSlug, maxItems]);

@@ -5,8 +5,11 @@ Routes for tile products from tiles collection (published products) for the publ
 from datetime import datetime, timezone
 from typing import Optional, List
 from fastapi import APIRouter, HTTPException, Query, Request
+import logging
 from pydantic import BaseModel
 import re
+
+logger = logging.getLogger(__name__)
 
 from utils.bulletproof import bulletproof_endpoint
 from routes.series_utils import (
@@ -555,6 +558,7 @@ async def get_tile_collections(
     clearance: Optional[str] = None,
     group: Optional[str] = None,
     search: Optional[str] = None,
+    series: Optional[List[str]] = Query(None),
     page: int = 1,
     limit: int = 24
 ):
@@ -588,7 +592,7 @@ async def get_tile_collections(
         color=color, finish=finish, material=material,
         room_suitability=room_suitability, in_stock=in_stock, sale=sale,
         clearance=clearance,
-        group=group, search=search, page=page, limit=limit,
+        group=group, search=search, series=series, page=page, limit=limit,
     )
     # Long-lived "last known good" backup — survives the short 60s
     # cache window so that even if the impl crashes for hours we keep
@@ -627,7 +631,7 @@ async def get_tile_collections(
         result = await _get_tile_collections_impl(
             request, supplier, category, filter, size, color, finish,
             material, room_suitability, in_stock, sale, group, search, page, limit,
-            clearance=clearance
+            clearance=clearance, series=series
         )
         # Only cache successful, NON-EMPTY responses. Empty results get
         # `no-store` headers so a transient blip can never poison the CDN
@@ -676,7 +680,7 @@ async def get_tile_collections(
 async def _get_tile_collections_impl(
     request, supplier, category, filter, size, color, finish,
     material, room_suitability, in_stock, sale, group, search, page, limit,
-    clearance=None
+    clearance=None, series=None
 ):
     try:
         import business_config.business_rules as br
@@ -689,6 +693,19 @@ async def _get_tile_collections_impl(
     
     # Build match query
     match_query = {}
+    
+    # Exact series lookup (Recently Viewed / pinned cards) — narrow the scan to
+    # products that can belong to the requested collections.
+    series_wanted = [str(x).strip() for x in (series or []) if str(x).strip()]
+    if series_wanted:
+        first_words = {x.split()[0] for x in series_wanted if x.split()}
+        name_regex = {"$regex": r"\b(" + "|".join(re.escape(w) for w in first_words) + r")\b", "$options": "i"}
+        match_query["$or"] = [
+            {"series": {"$in": series_wanted}},
+            {"original_series": {"$in": series_wanted}},
+            {"name": name_regex},
+            {"display_name": name_regex},
+        ]
     
     # Text search filter
     if search:
@@ -1502,6 +1519,11 @@ async def _get_tile_collections_impl(
     # Sort by featured status, display_order, then product count (descending)
     collections_list.sort(key=lambda x: (-x.get("is_featured", False), x.get("display_order", 0), -x["product_count"], x["series_name"]))
     
+    if series_wanted:
+        order = {x.lower(): i for i, x in enumerate(series_wanted)}
+        collections_list = [c for c in collections_list if (c.get("series_name") or "").lower() in order]
+        collections_list.sort(key=lambda c: order[(c.get("series_name") or "").lower()])
+    
     # Calculate total products across all collections
     total_products = sum(c["product_count"] for c in collections_list)
     
@@ -1718,7 +1740,7 @@ async def _get_collection_products_impl(
                         {"original_series": series_name},
                         {"series": series_name}
                     ],
-                    "description": {"$exists": True, "$ne": "", "$ne": None}
+                    "description": {"$exists": True, "$nin": ["", None]}
                 },
                 {"description": 1, "_id": 0}
             )
@@ -2698,7 +2720,7 @@ async def calculate_tier_price(
         try:
             from business_config.business_rules import get_quantity_tier_pricing
             return get_quantity_tier_pricing(base_price=base_price, quantity=quantity, is_trade=is_trade, trade_discount=trade_discount, trade_discount_type=trade_discount_type or "percent")
-        except:
+        except Exception:
             return {"tiers": [], "trade_tiers": [], "base_price": base_price, "current_price_per_m2": base_price}
 
 
@@ -2913,7 +2935,7 @@ async def get_product_tier_pricing(
             bp = (base.get("room_lot_price") or base.get("price") or 0) if base else 0
             if bp > 0:
                 return get_quantity_tier_pricing(base_price=bp, quantity=quantity, is_trade=is_trade, trade_discount=trade_discount, trade_discount_type=trade_discount_type or "percent")
-        except:
+        except Exception:
             pass
         return {"tiers": [], "trade_tiers": [], "base_price": 0}
 

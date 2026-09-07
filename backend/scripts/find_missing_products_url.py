@@ -147,7 +147,7 @@ async def check_url_and_extract(page, url: str, sku: str, name: str) -> dict:
                         if breadcrumb:
                             bc_text = await breadcrumb.inner_text()
                             product['category'] = bc_text.strip()
-                    except:
+                    except Exception:
                         pass
                     
                     result['extracted_data'] = product

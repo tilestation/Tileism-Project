@@ -66,7 +66,7 @@ class SupplierImageDownloader:
             try:
                 with open(PROGRESS_FILE, 'r') as f:
                     return json.load(f)
-            except:
+            except Exception:
                 pass
         return {
             'completed_skus': [],
@@ -155,7 +155,7 @@ class SupplierImageDownloader:
             output = BytesIO()
             img.save(output, format='JPEG', quality=85, optimize=True)
             return output.getvalue()
-        except:
+        except Exception:
             return image_data
     
     def _upload_to_r2(self, image_data, key):

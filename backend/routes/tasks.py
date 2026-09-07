@@ -287,7 +287,7 @@ async def add_note(task_id: str, input: NoteCreate, current_user: dict = Depends
         "created_at": datetime.now(timezone.utc).isoformat()
     }
     
-    await db.task_notes.insert_one(note_dict)
+    await db.task_notes.insert_one({**note_dict})
     
     # Update task's updated_at
     await db.tasks.update_one(

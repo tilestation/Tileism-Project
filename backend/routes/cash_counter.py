@@ -68,7 +68,7 @@ async def get_active_session(db, showroom_id: str):
     session = await db.cash_sessions.find_one({
         "showroom_id": showroom_id,
         "status": "open"
-    })
+    }, {"_id": 0})
     return session
 
 async def calculate_expected_cash(db, showroom_id: str, session_id: str):

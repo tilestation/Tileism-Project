@@ -68,7 +68,7 @@ def import_products():
                 if product.get(date_field) and isinstance(product[date_field], str):
                     try:
                         product[date_field] = datetime.fromisoformat(product[date_field].replace('Z', '+00:00'))
-                    except:
+                    except Exception:
                         pass
             
             # Upsert the product

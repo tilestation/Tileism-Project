@@ -4325,7 +4325,6 @@ def get_all_supplier_products(
                 "credit_back_rate": p.get("credit_back_rate"),
                 # Half + Full pallet pricing (surfaced for bulk editor pre-population)
                 "pallet_enabled": p.get("pallet_enabled", False),
-                "pallet_price": p.get("pallet_price"),
                 "half_pallet_price": p.get("half_pallet_price"),
                 "m2_per_pallet": p.get("m2_per_pallet"),
                 "m2_per_half_pallet": p.get("m2_per_half_pallet"),
@@ -4496,7 +4495,7 @@ def get_series_options(supplier: Optional[str] = None):
                 "_id": "$series",
                 "count": {"$sum": 1}
             }},
-            {"$match": {"_id": {"$ne": None, "$ne": ""}}},
+            {"$match": {"_id": {"$nin": [None, ""]}}},
             {"$sort": {"count": -1}},
             {"$project": {
                 "_id": 0,
@@ -8364,6 +8363,34 @@ def merge_categories(data: dict):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.delete("/products/cleanup-invalid")
+def cleanup_invalid_products():
+    """
+    Delete products with null/empty SKU - these are invalid entries
+    """
+    try:
+        db = get_db()
+        
+        # Find and delete products with null/empty SKU
+        result = db.supplier_products.delete_many({
+            "$or": [
+                {"sku": None},
+                {"sku": ""},
+                {"sku": {"$exists": False}}
+            ]
+        })
+        
+        return {
+            "success": True,
+            "deleted": result.deleted_count,
+            "message": f"Deleted {result.deleted_count} invalid products (null/empty SKU)"
+        }
+        
+    except Exception as e:
+        logger.error(f"Cleanup invalid products error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.delete("/products/{sku}")
 def delete_supplier_product(sku: str, supplier: str = "Verona"):
     """
@@ -8664,7 +8691,7 @@ async def import_excel_generic(file: UploadFile = File(...), supplier: str = "Ge
                     pass  # Headers found
                 else:
                     df = pd.read_excel(tmp_path, header=None)
-            except:
+            except Exception:
                 df = pd.read_excel(tmp_path, header=None)
         
         os.unlink(tmp_path)  # Clean up temp file
@@ -8733,14 +8760,14 @@ async def import_excel_generic(file: UploadFile = File(...), supplier: str = "Ge
                 try:
                     price_val = str(row.iloc[price_col]).replace('£', '').replace(',', '').strip()
                     product['price'] = float(price_val)
-                except:
+                except Exception:
                     pass
             
             if stock_col is not None and pd.notna(row.iloc[stock_col]):
                 try:
                     product['stock_quantity'] = int(float(row.iloc[stock_col]))
                     product['in_stock'] = product['stock_quantity'] > 0
-                except:
+                except Exception:
                     pass
             
             products.append(product)
@@ -9382,7 +9409,7 @@ def update_product_stock_status(data: dict):
         # Try to convert to ObjectId
         try:
             obj_id = ObjectId(product_id)
-        except:
+        except Exception:
             raise HTTPException(status_code=400, detail="Invalid product ID format")
         
         # Update the product
@@ -9952,7 +9979,7 @@ def add_supplier_product_to_database(data: dict):
                 try:
                     width = int(parts[0].strip())
                     height = int(parts[1].strip())
-                except:
+                except Exception:
                     pass
         
         # Use product_name (unique internal name) as the display name
@@ -11064,7 +11091,7 @@ def fix_all_product_names(
         db = get_db()
         
         # Build query
-        query = {"product_name": {"$exists": True, "$ne": None, "$ne": ""}}
+        query = {"product_name": {"$exists": True, "$nin": [None, ""]}}
         supplier = normalise_filter_value(supplier)
         if supplier:
             query["supplier"] = supplier
@@ -11342,7 +11369,7 @@ def fix_products_collection_names(
             
             # Find matching supplier product
             supplier_product = db.supplier_products.find_one(
-                {"sku": sku, "product_name": {"$exists": True, "$ne": None, "$ne": ""}},
+                {"sku": sku, "product_name": {"$exists": True, "$nin": [None, ""]}},
                 {"_id": 0}
             )
             
@@ -11494,56 +11521,56 @@ def populate_data_from_supplier_files(
                         if pd.notna(row.get(thickness_col)) and not product.get('thickness'):
                             try:
                                 update_fields['thickness'] = float(row[thickness_col])
-                            except: pass
+                            except Exception: pass
                         
                         # Length/Width
                         if pd.notna(row.get('length_(mm)')) and not product.get('length_mm'):
                             try:
                                 update_fields['length_mm'] = float(row['length_(mm)'])
-                            except: pass
+                            except Exception: pass
                         
                         if pd.notna(row.get('width_(mm)')) and not product.get('width_mm'):
                             try:
                                 update_fields['width_mm'] = float(row['width_(mm)'])
-                            except: pass
+                            except Exception: pass
                         
                         # Box quantity
                         if pd.notna(row.get('box_quantity')) and not product.get('tiles_per_box'):
                             try:
                                 update_fields['tiles_per_box'] = int(float(row['box_quantity']))
-                            except: pass
+                            except Exception: pass
                         
                         # M2 per box
                         if pd.notna(row.get('m2_per_box')) and not product.get('sqm_per_box'):
                             try:
                                 update_fields['sqm_per_box'] = float(row['m2_per_box'])
-                            except: pass
+                            except Exception: pass
                         
                         # M2 per pallet
                         if pd.notna(row.get('m2_per_pallet')) and not product.get('sqm_per_pallet'):
                             try:
                                 update_fields['sqm_per_pallet'] = float(row['m2_per_pallet'])
-                            except: pass
+                            except Exception: pass
                         
                         # Pallet quantity
                         if pd.notna(row.get('pallet_quantity')) and not product.get('boxes_per_pallet'):
                             try:
                                 update_fields['boxes_per_pallet'] = int(float(row['pallet_quantity']))
-                            except: pass
+                            except Exception: pass
                         
                         # Trade price (under 1 pallet)
                         price_col = 'under_1_pallet_price_per_m2'
                         if pd.notna(row.get(price_col)) and not product.get('trade_price'):
                             try:
                                 update_fields['trade_price'] = float(row[price_col])
-                            except: pass
+                            except Exception: pass
                         
                         # Pallet price
                         pallet_col = '1_pallet+_price_per_m2'
                         if pd.notna(row.get(pallet_col)) and not product.get('pallet_price'):
                             try:
                                 update_fields['pallet_price'] = float(row[pallet_col])
-                            except: pass
+                            except Exception: pass
                         
                         if update_fields:
                             updated += 1
@@ -11638,31 +11665,31 @@ def populate_data_from_supplier_files(
                         if pd.notna(row.get('pieces_per_m2')) and not product.get('pieces_per_m2'):
                             try:
                                 update_fields['pieces_per_m2'] = float(row['pieces_per_m2'])
-                            except: pass
+                            except Exception: pass
                         
                         # Pieces per pack
                         if pd.notna(row.get('pieces_per_pack')) and not product.get('tiles_per_box'):
                             try:
                                 update_fields['tiles_per_box'] = int(float(row['pieces_per_pack']))
-                            except: pass
+                            except Exception: pass
                         
                         # Pieces per pallet
                         if pd.notna(row.get('pieces_per_pallet')) and not product.get('pieces_per_pallet'):
                             try:
                                 update_fields['pieces_per_pallet'] = int(float(row['pieces_per_pallet']))
-                            except: pass
+                            except Exception: pass
                         
                         # Trade price (room lot)
                         if pd.notna(row.get('room_lot_per_m2_ex_vat')) and not product.get('trade_price'):
                             try:
                                 update_fields['trade_price'] = float(row['room_lot_per_m2_ex_vat'])
-                            except: pass
+                            except Exception: pass
                         
                         # Pallet price
                         if pd.notna(row.get('pallet_price_per_m2_ex_vat')) and not product.get('pallet_price'):
                             try:
                                 update_fields['pallet_price'] = float(row['pallet_price_per_m2_ex_vat'])
-                            except: pass
+                            except Exception: pass
                         
                         if update_fields:
                             updated += 1
@@ -11944,7 +11971,7 @@ def rebuild_full_names_v3(
         db = get_db()
         
         # Build query
-        query = {"product_name": {"$exists": True, "$ne": None, "$ne": ""}}
+        query = {"product_name": {"$exists": True, "$nin": [None, ""]}}
         supplier = normalise_filter_value(supplier)
         if supplier:
             query["supplier"] = supplier
@@ -12184,7 +12211,7 @@ def sync_all_products_and_remove_duplicates(dry_run: bool = True):
                         try:
                             width = int(parts[0].strip())
                             height = int(parts[1].strip())
-                        except:
+                        except Exception:
                             pass
                 
                 unique_name = sp.get("our_product_name") or sp.get("product_name") or sp.get("name")
@@ -12622,35 +12649,6 @@ def cleanup_all_none_patterns(dry_run: bool = False):
     except Exception as e:
         logger.error(f"Cleanup all None patterns error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.delete("/products/cleanup-invalid")
-def cleanup_invalid_products():
-    """
-    Delete products with null/empty SKU - these are invalid entries
-    """
-    try:
-        db = get_db()
-        
-        # Find and delete products with null/empty SKU
-        result = db.supplier_products.delete_many({
-            "$or": [
-                {"sku": None},
-                {"sku": ""},
-                {"sku": {"$exists": False}}
-            ]
-        })
-        
-        return {
-            "success": True,
-            "deleted": result.deleted_count,
-            "message": f"Deleted {result.deleted_count} invalid products (null/empty SKU)"
-        }
-        
-    except Exception as e:
-        logger.error(f"Cleanup invalid products error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
 
 
 @router.post("/products/clear-new-tags")
@@ -13427,7 +13425,7 @@ def bulk_update_unified(data: dict):
             try:
                 new_list = float(set_fields["price"])
                 for pid in product_ids:
-                    query = {id_field: pid, "supplier": supplier} if supplier else {id_field: pid}
+                    query = {id_field: pid, "supplier": data.get("supplier")} if data.get("supplier") else {id_field: pid}
                     existing = db.supplier_products.find_one(
                         query,
                         {"was_markup_percent": 1, "sale_active": 1, "_id": 0}
@@ -14382,7 +14380,7 @@ def update_website_category_option(category_type: str, option_id: str, data: dic
 
 
 @router.post("/fix-supplier-names/{supplier}")
-def fix_supplier_product_names(supplier: str):
+def fix_supplier_product_names_by_supplier(supplier: str):
     """
     Fix product names for any supplier by applying the unique naming transformation.
     Supported suppliers: Splendour, Wallcano, Verona, Plus39, LEPORCE
@@ -15239,20 +15237,8 @@ async def upload_product_image(
                 import traceback
                 logger.warning(f"R2 error traceback: {traceback.format_exc()}")
         
-        # Fallback to local storage if R2 not available or failed
         if not image_url:
-            upload_dir = "/app/backend/uploads/products"
-            os.makedirs(upload_dir, exist_ok=True)
-            filepath = os.path.join(upload_dir, unique_filename)
-            with open(filepath, "wb") as f:
-                f.write(image_data)
-            
-            # Return URL - uploads are mounted at /api/uploads to route through ingress
-            backend_url = os.environ.get("REACT_APP_BACKEND_URL", "")
-            if not backend_url:
-                backend_url = "https://feature-verification-7.preview.emergentagent.com"
-            image_url = f"{backend_url}/api/uploads/products/{unique_filename}"
-            logger.info(f"Image saved locally: {image_url}")
+            raise HTTPException(status_code=503, detail="Cloud image storage is unavailable. Please try again shortly.")
         
         # Try to convert to ObjectId
         try:
@@ -15310,7 +15296,7 @@ def delete_product_image(data: dict):
         # Try to convert to ObjectId
         try:
             obj_id = ObjectId(product_id)
-        except:
+        except Exception:
             raise HTTPException(status_code=400, detail="Invalid product ID format")
         
         # Remove the image from the product's images array
@@ -15365,7 +15351,7 @@ def reorder_product_images(data: dict):
         # Try to convert to ObjectId
         try:
             obj_id = ObjectId(product_id)
-        except:
+        except Exception:
             raise HTTPException(status_code=400, detail="Invalid product ID format")
         
         # Update the images array with new order
@@ -15828,6 +15814,7 @@ def hard_reset_website():
     1. Drops ALL documents from tiles collection
     2. Resets ALL supplier_products flags to unpublished state
     """
+    sync_db = get_db()
     # Step 1: Wipe tiles collection completely
     tiles_result = sync_db.tiles.delete_many({})
     

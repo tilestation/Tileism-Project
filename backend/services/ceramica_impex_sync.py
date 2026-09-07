@@ -447,7 +447,7 @@ async def extract_product_full(page) -> Optional[Dict]:
                 
                 if images:
                     break  # Found images with this selector
-            except:
+            except Exception:
                 continue
         
         # Fallback: try any large product-related images
@@ -465,7 +465,7 @@ async def extract_product_full(page) -> Optional[Dict]:
                         # Skip small images (likely logos) - product images should be at least 200x200
                         if dims.get('w', 0) < 200 or dims.get('h', 0) < 200:
                             continue
-                    except:
+                    except Exception:
                         pass
                     
                     # Convert relative to absolute
@@ -481,7 +481,7 @@ async def extract_product_full(page) -> Optional[Dict]:
                     
                     if src not in images:
                         images.append(src)
-            except:
+            except Exception:
                 pass
         
         if images:
@@ -510,7 +510,7 @@ async def extract_product_light(page) -> Optional[Dict]:
         # Also get raw HTML for price elements that might be hidden/dynamic
         try:
             html_content = await page.content()
-        except:
+        except Exception:
             html_content = ""
         
         # Log page content for debugging (first 500 chars)
@@ -701,7 +701,7 @@ async def perform_login(page) -> bool:
                     await asyncio.sleep(1)
                     logger.info("Closed cookie consent")
                     break
-        except:
+        except Exception:
             pass
         
         # Fill login form - GOb2b ASP.NET form
@@ -747,7 +747,7 @@ async def perform_login(page) -> bool:
                 }''')
                 login_clicked = True
                 logger.info("Clicked ActualLoginBtn via JavaScript")
-            except:
+            except Exception:
                 pass
         
         # Method 3: Press Enter on password field
@@ -885,7 +885,7 @@ async def get_products_from_category(page, category_url: str) -> List[str]:
                         await asyncio.sleep(2)
                         next_found = True
                         break
-            except:
+            except Exception:
                 pass
             
             if not next_found:
@@ -904,7 +904,7 @@ async def get_products_from_category(page, category_url: str) -> List[str]:
                             await asyncio.sleep(2)
                             next_found = True
                             break
-                    except:
+                    except Exception:
                         continue
             
             if not next_found:
@@ -928,7 +928,7 @@ async def get_products_from_category(page, category_url: str) -> List[str]:
                             next_found = True
                             logger.info(f"Clicked load more button: {selector}")
                             break
-                    except:
+                    except Exception:
                         continue
             
             if not next_found:
@@ -1257,7 +1257,7 @@ async def run_deep_sync(db, categories: List[str] = None, resume: bool = True):
                     # Wait for price elements to load (Ceramica Impex loads prices dynamically)
                     try:
                         await page.wait_for_selector('.Price, .PriceBreak, .ProductPrice, [data-item-property*="Price"]', timeout=5000)
-                    except:
+                    except Exception:
                         pass  # Continue even if price selector times out
                     
                     product = await extract_product_full(page)
@@ -1543,7 +1543,7 @@ async def run_light_sync(db):
                     # Try multiple selectors with longer timeout
                     try:
                         await page.wait_for_selector('.Price, .PriceBreak, .ProductPrice, [data-item-property*="Price"], td:has-text("£")', timeout=8000)
-                    except:
+                    except Exception:
                         # Give extra time for JS to load prices
                         await asyncio.sleep(2)
                     

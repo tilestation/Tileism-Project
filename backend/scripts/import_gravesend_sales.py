@@ -76,7 +76,7 @@ def parse_excel_data():
                             parsed = pd.to_datetime(date_val)
                             date_str = parsed.strftime("%d/%m/%Y")
                             day_of_week = parsed.strftime("%A")
-                        except:
+                        except Exception:
                             continue
                     else:
                         continue

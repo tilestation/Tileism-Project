@@ -60,7 +60,7 @@ def parse_document_date(date_str: str) -> datetime:
             return datetime(year, month, day, 0, 0, 0, tzinfo=timezone.utc)
         # Try ISO format as fallback
         return datetime.fromisoformat(date_str.replace("Z", "+00:00"))
-    except:
+    except Exception:
         return None
 
 
@@ -76,7 +76,7 @@ def get_document_date_str(date_str: str) -> str:
             day, month, year = parts[0].zfill(2), parts[1].zfill(2), parts[2]
             return f"{year}-{month}-{day}"
         return date_str
-    except:
+    except Exception:
         return ""
 
 
@@ -606,7 +606,7 @@ async def get_showroom_analytics(
         try:
             start = datetime.fromisoformat(start_date.replace("Z", "+00:00"))
             end = datetime.fromisoformat(end_date.replace("Z", "+00:00"))
-        except:
+        except Exception:
             start = now - timedelta(days=30)
             end = now
     else:
@@ -2057,7 +2057,7 @@ def parse_device_info(user_agent_string: str) -> dict:
                 "os": f"{ua.os.family}",
                 "is_bot": base_is_bot,
             }
-        except:
+        except Exception:
             pass
     
     # Fallback parsing
@@ -2288,7 +2288,7 @@ async def broadcast_live_update(db):
         for connection in _active_ws_connections[:]:
             try:
                 await connection.send_text(message)
-            except:
+            except Exception:
                 if connection in _active_ws_connections:
                     _active_ws_connections.remove(connection)
     except Exception as e:

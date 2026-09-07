@@ -67,7 +67,7 @@ class TileRiteImageDownloaderV2:
             try:
                 with open(PROGRESS_FILE, 'r') as f:
                     return json.load(f)
-            except:
+            except Exception:
                 pass
         return {
             'completed_skus': [],
@@ -87,7 +87,7 @@ class TileRiteImageDownloaderV2:
                 async with session.get(url, timeout=aiohttp.ClientTimeout(total=30), allow_redirects=False) as response:
                     if response.status == 200:
                         return await response.read(), url
-            except:
+            except Exception:
                 pass
         return None, None
     

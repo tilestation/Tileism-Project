@@ -60,7 +60,7 @@ class TestBulkUpdateUnifiedAllFields:
         for sku in [self.test_sku_1, self.test_sku_2]:
             try:
                 self.session.delete(f"{BASE_URL}/api/supplier-sync/products/{sku}")
-            except:
+            except Exception:
                 pass
     
     def test_bulk_update_spec_fields(self):
@@ -363,7 +363,7 @@ class TestTilesCollectionSync:
         # Cleanup
         try:
             self.session.delete(f"{BASE_URL}/api/supplier-sync/products/{self.test_sku}")
-        except:
+        except Exception:
             pass
     
     def test_tiles_collection_updated_on_bulk_update(self):

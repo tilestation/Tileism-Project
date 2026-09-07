@@ -138,7 +138,7 @@ async def send_sms(phone: str, message: str, db, order_id: str = None) -> dict:
         logging.info(f"[SMS SIMULATION] To: {formatted_phone}, Message: {message[:50]}...")
     
     # Log SMS to database
-    await db.sms_logs.insert_one(result)
+    await db.sms_logs.insert_one({**result})
     
     return result
 

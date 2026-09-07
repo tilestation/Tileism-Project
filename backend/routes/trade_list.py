@@ -207,6 +207,15 @@ async def bulk_update_trade_accounts(data: TradeAccountBulkUpdate):
     return {"updated": updated_count}
 
 
+@router.delete("/bulk")
+async def bulk_delete_trade_accounts(ids: List[str]):
+    """Bulk delete trade accounts"""
+    from server import db
+    
+    result = await db.trade_accounts.delete_many({"id": {"$in": ids}})
+    return {"deleted": result.deleted_count}
+
+
 @router.delete("/{account_id}")
 async def delete_trade_account(account_id: str):
     """Delete a trade account"""
@@ -217,15 +226,6 @@ async def delete_trade_account(account_id: str):
         raise HTTPException(status_code=404, detail="Trade account not found")
     
     return {"message": "Trade account deleted"}
-
-
-@router.delete("/bulk")
-async def bulk_delete_trade_accounts(ids: List[str]):
-    """Bulk delete trade accounts"""
-    from server import db
-    
-    result = await db.trade_accounts.delete_many({"id": {"$in": ids}})
-    return {"deleted": result.deleted_count}
 
 
 @router.post("/import")

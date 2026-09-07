@@ -139,7 +139,7 @@ async def run():
             ok_btn = await page.query_selector('button:has-text("Ok")')
             if ok_btn and await ok_btn.is_visible():
                 await ok_btn.click()
-        except:
+        except Exception:
             pass
         
         logger.info("Login successful!")

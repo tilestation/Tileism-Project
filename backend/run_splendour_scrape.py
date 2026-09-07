@@ -247,7 +247,7 @@ async def run_scraper():
             if ok_btn and await ok_btn.is_visible():
                 await ok_btn.click()
                 await asyncio.sleep(1)
-        except:
+        except Exception:
             pass
         
         logger.info("Login successful!")
@@ -419,7 +419,7 @@ async def click_load_more_until_done(page: Page):
                 await asyncio.sleep(2)
             else:
                 break
-        except:
+        except Exception:
             break
 
 

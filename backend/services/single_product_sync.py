@@ -150,111 +150,6 @@ def ensure_supplier_exists(db, supplier_name: str, url: str) -> Dict:
     }
 
 
-# Pricing formula: List Price = ceil((Cost × 1.90) × 1.20) - 0.01
-def calculate_list_price(cost: float) -> float:
-    if cost and cost > 0:
-        raw_price = cost * 1.90 * 1.20
-        return math.ceil(raw_price) - 0.01
-    return 0
-
-
-# Naming logic for Ceramica Impex (Italian-themed)
-CERAMICA_NAMING = {
-    "SUPER WHITE": "Bianco",
-    "GLOSSY WHITE": "Cristallo",
-    "GLOSS WHITE": "Avorio",
-    "OPAQUE WHITE": "Perla",
-    "FLAT GLOSS WHITE": "Gelo",
-    "RELIEF SUPER WHITE": "Neve",
-    "GRAPHITE": "Ardesia",
-    "GREY": "Cenere",
-    "GRAY": "Cenere",
-    "ALASKA": "Dolomiti",
-    "MARBLE": "Pietrasanta",
-    "TRAVERTINE": "Toscano",
-    "LIMESTONE": "Umbria",
-    "STONE": "Pietra",
-    "WOOD": "Rovere",
-    "TIMBER": "Acero",
-    "POLISHED": "Specchio",
-    "RUSTIC": "Rustico",
-    "ANTIQUE": "Antico",
-    "VINTAGE": "Classico",
-    "AMALFI": "Positano",
-    "GOLDEN": "Dorato",
-}
-
-
-def generate_unique_name(raw_name: str, supplier: str) -> str:
-    """Generate unique product name based on supplier naming rules"""
-    if not raw_name:
-        return raw_name
-    
-    if supplier == "Ceramica Impex":
-        # Apply Italian naming for Ceramica Impex
-        name_upper = raw_name.upper()
-        
-        # Extract size
-        size_match = re.search(r'(\d+)\s*[xX]\s*(\d+)', raw_name)
-        size = f"{size_match.group(1)}x{size_match.group(2)}" if size_match else ""
-        
-        # Determine finish
-        finish = ""
-        if "POLISH" in name_upper:
-            finish = "Polished"
-        elif "GLOSS" in name_upper:
-            finish = "Gloss"
-        elif "MATT" in name_upper:
-            finish = "Matt"
-        elif "RELIEF" in name_upper:
-            finish = "Relief"
-        elif "RUSTIC" in name_upper:
-            finish = "Rustic"
-        
-        # Determine color
-        color = ""
-        if "WHITE" in name_upper:
-            color = "White"
-        elif "GREY" in name_upper or "GRAY" in name_upper:
-            color = "Grey"
-        elif "GRAPHITE" in name_upper:
-            color = "Graphite"
-        elif "BLACK" in name_upper:
-            color = "Black"
-        elif "BEIGE" in name_upper:
-            color = "Beige"
-        
-        # Find matching series name
-        series_name = None
-        for pattern, name in CERAMICA_NAMING.items():
-            if pattern in name_upper:
-                series_name = name
-                break
-        
-        if not series_name:
-            words = raw_name.split()
-            for word in words:
-                if not re.match(r'^[\d\-]+$', word) and len(word) > 2:
-                    series_name = word.title()
-                    break
-        
-        if not series_name:
-            series_name = "Ceramica"
-        
-        parts = [series_name]
-        if color:
-            parts.append(color)
-        if size:
-            parts.append(size)
-        if finish:
-            parts.append(finish)
-        
-        return " ".join(parts)
-    
-    # For other suppliers, return cleaned name
-    return raw_name.strip().title()
-
-
 async def extract_generic_product(page, url: str) -> Optional[Dict]:
     """
     Generic product extraction that works with any website.
@@ -286,7 +181,7 @@ async def extract_generic_product(page, url: str) -> Optional[Dict]:
                     if text and 'not found' not in text.lower() and 'error' not in text.lower() and len(text) > 3:
                         product['name'] = text
                         break
-            except:
+            except Exception:
                 continue
         
         if not product.get('name'):
@@ -304,7 +199,7 @@ async def extract_generic_product(page, url: str) -> Optional[Dict]:
         try:
             page_text = await page.inner_text('body')
             normalized = re.sub(r'\s+', ' ', page_text)
-        except:
+        except Exception:
             normalized = ""
         
         # ===== SKU / PRODUCT CODE =====
@@ -346,7 +241,7 @@ async def extract_generic_product(page, url: str) -> Optional[Dict]:
                     product['cost_price'] = float(price_str)
                     product['price'] = calculate_list_price(product['cost_price'])
                     break
-                except:
+                except Exception:
                     continue
         
         # ===== STOCK =====
@@ -380,7 +275,7 @@ async def extract_generic_product(page, url: str) -> Optional[Dict]:
                         product['stock_m2'] = float(match.group(1))
                         product['in_stock'] = product['stock_m2'] > 0
                         break
-                    except:
+                    except Exception:
                         continue
             
             # Default to in stock if no indicators found
@@ -407,7 +302,7 @@ async def extract_generic_product(page, url: str) -> Optional[Dict]:
                 try:
                     product['width'] = int(w)
                     product['height'] = int(h)
-                except:
+                except Exception:
                     pass
                 break
         
@@ -531,7 +426,7 @@ async def extract_generic_product(page, url: str) -> Optional[Dict]:
                 
                 if images:
                     break
-            except:
+            except Exception:
                 continue
         
         if images:
@@ -543,25 +438,6 @@ async def extract_generic_product(page, url: str) -> Optional[Dict]:
         logger.error(f"Error extracting product: {e}")
         return None
 
-
-async def extract_splendour_product(page) -> Optional[Dict]:
-    """Extract product details from Splendour product page"""
-    return await extract_generic_product(page, page.url)
-
-
-async def extract_ceramica_product(page) -> Optional[Dict]:
-    """Extract product details from Ceramica Impex product page"""
-    return await extract_generic_product(page, page.url)
-
-
-async def extract_wallcano_product(page) -> Optional[Dict]:
-    """Extract product details from Wallcano product page"""
-    return await extract_generic_product(page, page.url)
-
-
-async def extract_verona_product(page) -> Optional[Dict]:
-    """Extract product details from Verona product page"""
-    return await extract_generic_product(page, page.url)
 
 
 async def sync_single_product(url: str, supplier: str = None) -> Dict[str, Any]:

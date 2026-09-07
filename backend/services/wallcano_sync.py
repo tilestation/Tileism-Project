@@ -352,7 +352,7 @@ async def get_products_from_category(page, category_name: str) -> List[Dict]:
                 await page.click(f'text="{category_name}"')
                 category_clicked = True
                 logger.info(f"Clicked category using text selector: {category_name}")
-            except:
+            except Exception:
                 logger.warning(f"Could not find category: {category_name}")
                 return products
         
@@ -468,7 +468,7 @@ async def get_products_from_category(page, category_name: str) -> List[Dict]:
                             break
                         else:
                             next_button = None
-                except:
+                except Exception:
                     continue
             
             if next_button:
@@ -479,7 +479,7 @@ async def get_products_from_category(page, category_name: str) -> List[Dict]:
                 try:
                     parent = await next_button.evaluate('el => el.parentElement?.className')
                     parent_classes = parent or ""
-                except:
+                except Exception:
                     pass
                 
                 if is_disabled or 'disabled' in classes or 'disabled' in parent_classes:
@@ -633,7 +633,7 @@ async def search_products(page, search_term: str) -> List[Dict]:
                     if next_button and await next_button.is_visible():
                         break
                     next_button = None
-                except:
+                except Exception:
                     continue
             
             if not next_button:
@@ -674,10 +674,10 @@ async def search_products(page, search_term: str) -> List[Dict]:
                                     'finish': parse_finish_from_name(name),
                                     'search_term': search_term
                                 })
-                            except:
+                            except Exception:
                                 continue
                         break
-            except:
+            except Exception:
                 break
         
     except Exception as e:

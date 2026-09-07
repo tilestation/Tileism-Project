@@ -243,7 +243,7 @@ def process_pdf_v2(input_path, output_path):
                                     formatted = f"£{new_price:.2f}"
                                 
                                 new_text = new_text.replace(f"£{price_str}", formatted)
-                            except:
+                            except Exception:
                                 pass
                         
                         if new_text != text:

@@ -215,7 +215,7 @@ async def get_orders_for_calendar(
                         event_date = datetime.strptime(event_date, "%d/%m/%Y").replace(tzinfo=timezone.utc)
                     else:
                         event_date = datetime.strptime(event_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
-                except:
+                except Exception:
                     event_date = datetime.now(timezone.utc)
             
             # Filter by date range in Python (since date formats vary)
@@ -245,7 +245,7 @@ async def get_orders_for_calendar(
                             delivery = delivery.replace(tzinfo=timezone.utc)
                         if delivery < now:
                             is_overdue = True
-                    except:
+                    except Exception:
                         pass
             
             # Get items summary
@@ -652,7 +652,7 @@ def generate_note_pdf(data: dict, note_type: str = "collection") -> io.BytesIO:
     if isinstance(date_str, str) and "T" in date_str:
         try:
             date_str = datetime.fromisoformat(date_str.replace("Z", "+00:00")).strftime("%d/%m/%Y")
-        except:
+        except Exception:
             pass
     
     ref_data = [
@@ -701,7 +701,7 @@ def generate_note_pdf(data: dict, note_type: str = "collection") -> io.BytesIO:
             try:
                 dt = datetime.fromisoformat(delivery_date.replace("Z", "+00:00"))
                 delivery_date = dt.strftime("%d/%m/%Y at %H:%M")
-            except:
+            except Exception:
                 pass
         date_label = "Collection Date:" if note_type == "collection" else "Delivery Date:"
         elements.append(Paragraph(f"<b>{date_label}</b> {delivery_date}", styles['NoteBodyText']))

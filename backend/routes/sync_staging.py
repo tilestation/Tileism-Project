@@ -615,7 +615,7 @@ def get_all_staged_products():
             # Filter out dismissed warnings
             dismissed_codes = set()
             try:
-                dismissed_docs = list(db.dismissed_warnings.find({"supplier": supplier}, {"code": 1}))
+                dismissed_docs = list(get_sync_db().dismissed_warnings.find({"supplier": supplier}, {"code": 1}))
                 dismissed_codes = set(d["code"] for d in dismissed_docs if d.get("code"))
             except Exception:
                 pass
@@ -1062,7 +1062,7 @@ def update_staged_product_stock(staging_id: str, data: dict):
         # Validate staging_id
         try:
             obj_id = ObjectId(staging_id)
-        except:
+        except Exception:
             raise HTTPException(status_code=400, detail="Invalid staging ID")
         
         # Find the staged product

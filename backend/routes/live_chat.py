@@ -674,7 +674,7 @@ async def send_instant_email_notification(session_id: str, visitor_name: str, me
                 last_time = datetime.fromisoformat(last_notified.replace('Z', '+00:00'))
                 if (datetime.now(timezone.utc) - last_time).total_seconds() < 60:
                     return
-            except:
+            except Exception:
                 pass
         
         # Mark as notified
