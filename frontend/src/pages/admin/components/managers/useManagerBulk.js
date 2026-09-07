@@ -105,22 +105,36 @@ export function useManagerBulk({ products = [], onRefresh, storageKey = null }) 
 
   const isSelected = useCallback((product) => selectedProducts.has(getProductKey(product)), [selectedProducts]);
 
+  const selectedList = React.useMemo(
+    () => products.filter(p => selectedProducts.has(getProductKey(p))),
+    [products, selectedProducts]
+  );
+
   const getSelectedList = useCallback(() => {
-    return products.filter(p => selectedProducts.has(getProductKey(p)));
-  }, [products, selectedProducts]);
+    return selectedList;
+  }, [selectedList]);
+
+  const loadedKeySet = React.useMemo(
+    () => new Set(products.map(p => getProductKey(p))),
+    [products]
+  );
+
+  const missingSelected = React.useMemo(
+    () => [...selectedProducts]
+      .filter(k => !loadedKeySet.has(k))
+      .map(k => {
+        const [supplier, sku] = String(k).split('|||');
+        return { key: k, supplier: supplier || 'unknown', sku: sku || k };
+      }),
+    [loadedKeySet, selectedProducts]
+  );
 
   // Selected keys whose product is NOT in this Manager's loaded list (e.g.
   // ticked on the Supplier Products page in a different category). Parsed from
   // the key format `supplier|||sku` so the Selected panel can still show them.
   const getMissingSelected = useCallback(() => {
-    const loaded = new Set(products.map(p => getProductKey(p)));
-    return [...selectedProducts]
-      .filter(k => !loaded.has(k))
-      .map(k => {
-        const [supplier, sku] = String(k).split('|||');
-        return { key: k, supplier: supplier || 'unknown', sku: sku || k };
-      });
-  }, [products, selectedProducts]);
+    return missingSelected;
+  }, [missingSelected]);
 
   // Untick by raw key (used by the Selected panel for not-loaded entries)
   const unselectKey = useCallback((key) => {
@@ -337,7 +351,7 @@ export function useManagerBulk({ products = [], onRefresh, storageKey = null }) 
     }
   }, [selectedProducts.size, getSelectedList, splitByIdField, onRefresh]);
 
-  return {
+  return React.useMemo(() => ({
     // Selection state
     selectedProducts,
     setSelectedProducts,
@@ -362,7 +376,29 @@ export function useManagerBulk({ products = [], onRefresh, storageKey = null }) 
     setLastBulkResult,
     showBulkResult,
     setShowBulkResult,
-  };
+  }), [
+    selectedProducts,
+    setSelectedProducts,
+    toggleProduct,
+    selectAll,
+    clearAll,
+    isSelected,
+    getSelectedList,
+    getMissingSelected,
+    unselectKey,
+    bulkUpdate,
+    bulkPublish,
+    bulkUnpublish,
+    bulkArchive,
+    bulkDelete,
+    bulkAssignCategory,
+    bulkFeature,
+    bulkSaving,
+    lastBulkResult,
+    setLastBulkResult,
+    showBulkResult,
+    setShowBulkResult,
+  ]);
 }
 
 export default useManagerBulk;

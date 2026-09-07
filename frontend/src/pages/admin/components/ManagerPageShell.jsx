@@ -412,6 +412,14 @@ const ManagerPageShell = ({
 
   useEffect(() => { fetchProducts(); }, [fetchProducts]);
   const bulk = useManagerBulk({ products, onRefresh: fetchProducts, storageKey: categoryKey });
+  const selectedKeySet = bulk.selectedProducts;
+  const selectedList = useMemo(() => bulk.getSelectedList(), [bulk]);
+  const selectionByCategory = useMemo(
+    () => (selectedKeySet && selectedKeySet.size > 0
+      ? bucketSelectionByManager(products, selectedKeySet, getProductKey)
+      : null),
+    [products, selectedKeySet]
+  );
 
   // Margin Guard — products whose current trade price sells at a loss
   // (trade price − cost − credit back < 0), using stored per-product values
@@ -535,10 +543,10 @@ const ManagerPageShell = ({
     }
     // Show selected only — just the ticked rows
     if (showSelectedOnly) {
-      list = list.filter(p => bulk.isSelected(p));
+      list = list.filter(p => selectedKeySet.has(getProductKey(p)));
     }
     return list;
-  }, [products, subTab, filters, search, effectiveSubTabs, effectiveFilterFacets, facetCategory, gapOnly, destMap, hasShopTab, noImagesOnly, showSelectedOnly, bulk, marginGuardOnly, marginFlaggedKeys, filterDeliveryCharge, filterParcel]);
+  }, [products, subTab, filters, search, effectiveSubTabs, effectiveFilterFacets, facetCategory, gapOnly, destMap, hasShopTab, noImagesOnly, showSelectedOnly, selectedKeySet, marginGuardOnly, marginFlaggedKeys, filterDeliveryCharge, filterParcel]);
 
   const noImagesCount = useMemo(
     () => products.filter(p => !((Array.isArray(p.images) ? p.images : []).filter(Boolean).length > 0 || p.image)).length,
@@ -725,6 +733,11 @@ const ManagerPageShell = ({
     });
   }, [bulk, allIndex]);
 
+  const allVisibleSelected = useMemo(
+    () => filteredProducts.length > 0 && filteredProducts.every(p => selectedKeySet.has(getProductKey(p))),
+    [filteredProducts, selectedKeySet]
+  );
+
   const jumpToProduct = useCallback((m) => {
     const target = m.path ? `${m.path}?highlight=${encodeURIComponent(m.sku)}` : `/admin/supplier-products?search=${encodeURIComponent(m.sku)}`;
     navigate(target);
@@ -735,10 +748,8 @@ const ManagerPageShell = ({
       <ManagerTabsBar
         active={tabsBarActive || categoryKey}
         onNewCustom={() => setBuilderOpen(true)}
-        selectionKeys={bulk.selectedProducts && bulk.selectedProducts.size > 0 ? [...bulk.selectedProducts] : null}
-        selectionByCategory={bulk.selectedProducts && bulk.selectedProducts.size > 0
-          ? bucketSelectionByManager(products, bulk.selectedProducts, (p) => `${p.supplier || 'unknown'}|||${p.sku || p.supplier_code || p._id}`)
-          : null}
+        selectionKeys={selectedKeySet && selectedKeySet.size > 0 ? [...selectedKeySet] : null}
+        selectionByCategory={selectionByCategory}
       />
 
       {/* Header */}
@@ -1035,7 +1046,7 @@ const ManagerPageShell = ({
                   <th className="px-3 py-2 text-center w-8">
                     <input
                       type="checkbox"
-                      checked={filteredProducts.length > 0 && filteredProducts.every(p => bulk.isSelected(p))}
+                      checked={allVisibleSelected}
                       onChange={(e) => { if (e.target.checked) bulk.selectAll(filteredProducts); else bulk.clearAll(); }}
                       className="w-4 h-4"
                       data-testid={`${categoryKey}-select-all`}
@@ -1067,14 +1078,15 @@ const ManagerPageShell = ({
                         <td className="px-3 py-2 text-center">
                           <input
                             type="checkbox"
-                            checked={group.products.every(p => bulk.isSelected(p))}
+                            checked={group.products.every(p => selectedKeySet.has(getProductKey(p)))}
                             onChange={(e) => {
                               const shouldSelect = e.target.checked;
                               if (shouldSelect) {
-                                const notYet = group.products.filter(p => !bulk.isSelected(p));
-                                if (notYet.length > 0) bulk.selectAll([...bulk.getSelectedList(), ...notYet]);
+                                const notYet = group.products.filter(p => !selectedKeySet.has(getProductKey(p)));
+                                if (notYet.length > 0) bulk.selectAll([...selectedList, ...notYet]);
                               } else {
-                                const staying = bulk.getSelectedList().filter(p => !group.products.find(g => (g.sku || g.supplier_code) === (p.sku || p.supplier_code)));
+                                const groupKeySet = new Set(group.products.map(g => g.sku || g.supplier_code || g._id));
+                                const staying = selectedList.filter(p => !groupKeySet.has(p.sku || p.supplier_code || p._id));
                                 bulk.selectAll(staying);
                               }
                             }}
@@ -1109,9 +1121,9 @@ const ManagerPageShell = ({
                                 </Badge>
                               );
                             })()}
-                            {group.products.some(p => bulk.isSelected(p)) && (
+                            {group.products.some(p => selectedKeySet.has(getProductKey(p))) && (
                               <Badge className="ml-1 text-[10px] font-normal bg-emerald-100 text-emerald-800 border-0">
-                                {group.products.filter(p => bulk.isSelected(p)).length} selected
+                                {group.products.filter(p => selectedKeySet.has(getProductKey(p))).length} selected
                               </Badge>
                             )}
                           </div>
@@ -1129,11 +1141,11 @@ const ManagerPageShell = ({
                       const key = `${p.supplier || 'unk'}|||${p.sku || p.supplier_code || p._id}`;
                       const name = productDisplayName(p);
                       return (
-                        <tr key={key} className={`border-b border-gray-100 hover:bg-gray-50 ${bulk.isSelected(p) ? themeCls.rowHi : ''}`} data-testid={`${categoryKey}-row-${p.sku || p.supplier_code}`}>
+                        <tr key={key} className={`border-b border-gray-100 hover:bg-gray-50 ${selectedKeySet.has(getProductKey(p)) ? themeCls.rowHi : ''}`} data-testid={`${categoryKey}-row-${p.sku || p.supplier_code}`}>
                           <td className="px-3 py-2 text-center">
                             <input
                               type="checkbox"
-                              checked={bulk.isSelected(p)}
+                              checked={selectedKeySet.has(getProductKey(p))}
                               onChange={() => bulk.toggleProduct(p)}
                               className="w-4 h-4"
                             />
@@ -1235,8 +1247,8 @@ const ManagerPageShell = ({
 
       {/* Bulk bar */}
       <ManagerBulkBar
-        selectedCount={bulk.selectedProducts.size}
-        selectedList={bulk.getSelectedList()}
+        selectedCount={selectedKeySet.size}
+        selectedList={selectedList}
         missingSelected={missingSelectedEnriched}
         onUnselectProduct={(p) => bulk.toggleProduct(p)}
         onUnselectKey={bulk.unselectKey}

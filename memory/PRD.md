@@ -17,6 +17,26 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Sep 7, 2026 — Forked session] 🟢 BUG FIX: Tiles Manager "Show selected" browser hang — VERIFIED
+
+**Owner report**: `/admin/tiles` could freeze with the browser "page isn't responding" dialog after products were carried over into Tiles Manager and the bulk-bar action **Show selected** was clicked.
+
+**Delivered**:
+1. **Selection performance hardening** in `ManagerPageShell.jsx`:
+   - memoised selected key set / selected list usage
+   - removed repeated `bulk.isSelected()` hot-path checks from the main filter + row rendering
+   - reused precomputed selected rows when series/group checkboxes update the selection
+2. **Bulk hook stabilised** in `useManagerBulk.js`:
+   - memoised `selectedList` and missing-selected calculations
+   - returned a memoised bulk API object so the manager page stops redoing expensive work on every render
+3. **Carry-over path preserved**: selection coming from workspace tabs (`?ids=...&mode=bulk`) still lands in Tiles Manager correctly and the selected-only filter now stays responsive.
+
+**Verified**:
+- Local admin smoke test: login → `/admin/tiles` → select rows → click **Show selected** → page stayed responsive.
+- Cross-page carry-over smoke test: preloaded 12 tile keys via the manager carry-over route → bulk bar appeared → **Show selected** filtered successfully without any hang.
+- `auto_frontend_testing_agent` PASS: direct selection flow, toggle back, rapid toggling stress test, and carry-over workflow all passed with no browser stall.
+
+
 ### [Aug 22, 2026 — Forked session, part 2] 🟢 Series Rename in the DRAWER + Auto-fix all DELETED — VERIFIED
 
 **Owner feedback** (screenshot of live tilestation.co.uk Name Sanity drawer): "I don't see any difference… what is that auto-fix all, if it's crap then delete that shit and tell me where you made the changes."
