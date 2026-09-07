@@ -1239,6 +1239,7 @@ const ManagerPageShell = ({
         onOpenChange={(o) => !o && closeEdit()}
         product={editingProduct}
         onSaved={() => { closeEdit(); fetchProducts(); }}
+        managerSlug={categoryKey}
         moreSpecsConfig={config}
       />
 
@@ -1309,6 +1310,7 @@ const ManagerPageShell = ({
         open={showAssignColours}
         onOpenChange={setShowAssignColours}
         selectedList={bulk.getSelectedList()}
+        managerSlug={categoryKey}
         attributeOptions={studioAttributeOptions}
         subTabs={effectiveSubTabs}
         onCreateSubTab={async (label) => {
@@ -1441,6 +1443,7 @@ const ManagerPageShell = ({
           if (!o) fetchShopTabDestinations().then(pages => setDestMap(buildDestinationMap(pages)));
         }}
         selectedProducts={bulk.getSelectedList()}
+        managerSlug={categoryKey}
         onSaved={fetchProducts}
       />
 

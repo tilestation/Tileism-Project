@@ -22,7 +22,7 @@ import { toast } from 'sonner';
 import { ChevronDown, ChevronRight, Sliders, Tag, ExternalLink, Percent, FileText, Eye, Layers, Palette, Ruler, Sparkles, Link2, PenLine, X as XIcon, Pin, Search, Heart, PackagePlus, LayoutGrid, Check } from 'lucide-react';
 import QuickEditModal from '../supplier-products/QuickEditModal';
 import { getSeriesName } from '../../lib/series';
-import { fetchShopTabDestinations } from '../../lib/shopTabDestinations';
+import { fetchShopTabDestinations, filterShopTabPagesForManager } from '../../lib/shopTabDestinations';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
 
@@ -54,7 +54,7 @@ const emptyForm = () => ({
   description: '',
 });
 
-const QuickEditProductDrawer = ({ open, onOpenChange, product, onSaved, previewImages, setPreviewImages, moreSpecsConfig }) => {
+const QuickEditProductDrawer = ({ open, onOpenChange, product, onSaved, previewImages, setPreviewImages, moreSpecsConfig, managerSlug = null }) => {
   const [form, setForm] = useState(emptyForm());
   const [loading, setLoading] = useState(false);
   const [imageUploading, setImageUploading] = useState(false);
@@ -1318,7 +1318,9 @@ const QuickEditProductDrawer = ({ open, onOpenChange, product, onSaved, previewI
   // === Shop Tabs panel (single-product destinations) =====================
   const toggleShopTabsPanel = () => {
     setShopTabsOpen(v => !v);
-    if (!shopTabPages) fetchShopTabDestinations().then(setShopTabPages);
+    if (!shopTabPages) {
+      fetchShopTabDestinations().then(pages => setShopTabPages(filterShopTabPagesForManager(pages, managerSlug)));
+    }
   };
 
   const tabIsChecked = (catName) => {
@@ -1356,10 +1358,15 @@ const QuickEditProductDrawer = ({ open, onOpenChange, product, onSaved, previewI
             Tick every shop tab this product should appear under — multiple tabs are fine.
             Changes apply when you hit <b>Save Changes</b> below.
           </div>
+          {shopTabPages && shopTabPages.length > 0 && (
+            <div className="text-[10px] text-sky-700 bg-white border border-sky-100 rounded px-2 py-1.5" data-testid="qe-shop-tabs-scope-note">
+              Showing storefront destinations for the <b>{shopTabPages[0]?.group_name}</b> page only, so this stays focused on where the product appears on the website.
+            </div>
+          )}
           {!shopTabPages ? (
             <div className="text-[11px] text-gray-400 py-2 text-center">Loading shop pages…</div>
           ) : shopTabPages.length === 0 ? (
-            <div className="text-[11px] text-gray-400 py-2 text-center">No shop tabs found — add some via the Storefront button.</div>
+            <div className="text-[11px] text-gray-400 py-2 text-center">No storefront tabs are configured for this manager yet — add them via the Storefront button.</div>
           ) : (
             shopTabPages.map(page => {
               const assignable = page.tabs.filter(t => t.assignable && t.category_name);

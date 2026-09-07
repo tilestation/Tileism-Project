@@ -26,6 +26,7 @@ import { SubCategoriesTab } from './SubCategoriesTab';
 import { CustomSpecsTab } from './CustomSpecsTab';
 import { SamplesTab } from './SamplesTab';
 import { ShopTabsPanel } from './ShopTabsAssignModal';
+import { fetchShopTabDestinations, filterShopTabPagesForManager } from '../../lib/shopTabDestinations';
 import { PerBoxAutoFill } from './PerBoxAutoFill';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
@@ -74,14 +75,27 @@ export const computeCompleteness = (products, attributes) => {
   return { rows, pct: total ? Math.round((done / total) * 100) : 0 };
 };
 
-const AssignColoursModal = ({ open, onOpenChange, selectedList = [], onSuccess, attributeOptions = [], subTabs = [], onCreateSubTab }) => {
+const AssignColoursModal = ({ open, onOpenChange, selectedList = [], onSuccess, attributeOptions = [], subTabs = [], onCreateSubTab, managerSlug = null }) => {
   // The attribute being bucketed — Colour by default, switchable to any
   // Configure-defined filter/spec field (Finish, Size, Material, Thickness…)
   const [attr, setAttr] = useState(COLOUR_ATTR);
+  const [shopTabPages, setShopTabPages] = useState(null);
+  useEffect(() => {
+    if (!open) return;
+    fetchShopTabDestinations()
+      .then((pages) => setShopTabPages(filterShopTabPagesForManager(pages, managerSlug)))
+      .catch(() => setShopTabPages([]));
+  }, [open, managerSlug]);
+
+  const hasScopedShopTabs = useMemo(
+    () => (shopTabPages || []).some(page => (page.tabs || []).some(tab => tab.assignable && tab.category_name)),
+    [shopTabPages]
+  );
+
   const allAttributes = useMemo(() => {
     const extras = (attributeOptions || []).filter(a => a.key && !['color', 'special_order_note', 'category'].includes(a.key));
-    return [COLOUR_ATTR, ...extras, SUBCAT_BUCKET_ATTR, SPECIAL_ORDER_ATTR];
-  }, [attributeOptions]);
+    return [COLOUR_ATTR, ...extras, ...(hasScopedShopTabs ? [] : [SUBCAT_BUCKET_ATTR]), SPECIAL_ORDER_ATTR];
+  }, [attributeOptions, hasScopedShopTabs]);
 
   // Buckets: { colourName: Set<productKey> }
   const [buckets, setBuckets] = useState([]);      // [{name: 'Grey', skus: Set<sku>}, ...]
@@ -435,9 +449,14 @@ const AssignColoursModal = ({ open, onOpenChange, selectedList = [], onSuccess, 
 
   // Completeness meter — how many of the selection have each attribute filled
   // (Special Order is optional, so it never counts against completeness)
+  const completenessAttributes = useMemo(() => {
+    const base = allAttributes.filter(a => a.key !== 'special_order_note');
+    return hasScopedShopTabs ? [...base, { key: '__shoptabs', label: 'Shop Tabs', arrayField: 'sub_categories' }] : base;
+  }, [allAttributes, hasScopedShopTabs]);
+
   const completeness = useMemo(
-    () => computeCompleteness(selectedList, allAttributes.filter(a => a.key !== 'special_order_note')),
-    [selectedList, allAttributes]
+    () => computeCompleteness(selectedList, completenessAttributes),
+    [selectedList, completenessAttributes]
   );
 
   const productName = (p) => (p.product_name || p.display_name || p.our_product_name || p.name || p.sku || p.supplier_code);
@@ -498,9 +517,9 @@ const AssignColoursModal = ({ open, onOpenChange, selectedList = [], onSuccess, 
           </DialogTitle>
           <p className="text-xs text-gray-500">
             {attr.key === '__subcats'
-              ? 'Add or remove sub-category tags across the whole selection — with 100% verification and Undo.'
+              ? 'Add or remove internal sub-category tags across the whole selection — with 100% verification and Undo.'
               : attr.key === '__shoptabs'
-                ? 'Tick every website tab these products should appear under — multiple tabs are fine. Amber − means only some of the selection is there now.'
+                ? 'Tick every website tab these products should appear under — multiple tabs are fine. This is the storefront placement control. Amber − means only some of the selection is there now.'
                 : attr.key === '__custom'
                 ? 'Add your own spec fields (saved for reuse) and rename field labels across the selection.'
                 : attr.key === '__samples'
@@ -528,7 +547,7 @@ const AssignColoursModal = ({ open, onOpenChange, selectedList = [], onSuccess, 
                 {a.label}
               </button>
             ))}
-            {taggableSubTabs.length > 0 && (
+            {!hasScopedShopTabs && taggableSubTabs.length > 0 && (
               <button
                 type="button"
                 onClick={() => switchAttribute({ key: '__subcats', label: 'Sub-Categories' })}
@@ -616,6 +635,12 @@ const AssignColoursModal = ({ open, onOpenChange, selectedList = [], onSuccess, 
           </div>
         )}
 
+        {hasScopedShopTabs && (
+          <div className="rounded-lg border border-sky-200 bg-sky-50/70 px-3 py-2 text-xs text-sky-900" data-testid="studio-shop-tabs-guidance">
+            <b>Storefront placement is handled from Shop Tabs only.</b> I’ve hidden the overlapping sub-category assignment tools here so there’s one clear place to decide which website page a product lands on.
+          </div>
+        )}
+
         {attr.key === '__subcats' && (
           <SubCategoriesTab
             selectedList={selectedList}
@@ -629,7 +654,7 @@ const AssignColoursModal = ({ open, onOpenChange, selectedList = [], onSuccess, 
           <SamplesTab selectedList={selectedList} onSuccess={onSuccess} />
         )}
         {attr.key === '__shoptabs' && (
-          <ShopTabsPanel selectedProducts={selectedList} onSaved={onSuccess} embedded />
+          <ShopTabsPanel selectedProducts={selectedList} onSaved={onSuccess} embedded managerSlug={managerSlug} />
         )}
         {attr.key === '__custom' && (
           <CustomSpecsTab selectedList={selectedList} attributeOptions={allAttributes} onSuccess={onSuccess} />

@@ -3,6 +3,15 @@
 // and the Manager table's destination chips column.
 const API_URL = process.env.REACT_APP_BACKEND_URL;
 
+export const MANAGER_TO_SHOP_GROUP = {
+  tiles: 'tiles',
+  flooring: 'flooring',
+  materials: 'materials',
+  bathroom: 'bathroom',
+  tools: 'tools-accessories',
+  underfloor_heating: 'underfloor-heating',
+};
+
 let cache = null;
 
 export const fetchShopTabDestinations = async (force = false) => {
@@ -17,6 +26,18 @@ export const fetchShopTabDestinations = async (force = false) => {
 };
 
 export const clearShopTabDestinationsCache = () => { cache = null; };
+
+export const resolveShopGroupSlug = (managerSlug) => {
+  const raw = String(managerSlug || '').trim();
+  if (!raw) return null;
+  return MANAGER_TO_SHOP_GROUP[raw] || raw;
+};
+
+export const filterShopTabPagesForManager = (pages = [], managerSlug = null) => {
+  const target = resolveShopGroupSlug(managerSlug);
+  if (!target) return Array.isArray(pages) ? pages : [];
+  return (Array.isArray(pages) ? pages : []).filter(page => page.group_slug === target);
+};
 
 // Map of lowercased category_name -> { label, groupSlug, name } for quick chip lookups.
 export const buildDestinationMap = (pages) => {

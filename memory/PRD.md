@@ -37,6 +37,32 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - `auto_frontend_testing_agent` PASS: direct selection flow, toggle back, rapid toggling stress test, and carry-over workflow all passed with no browser stall.
 
 
+### [Sep 7, 2026 — Forked session] 🟢 Storefront-targeting cleanup in Tiles Manager — VERIFIED
+
+**Owner report**: Attribute Studio exposed multiple overlapping controls — **Sub-Category**, **Sub-Categories**, and **Shop Tabs** — making it unclear which one actually decides where products land on the storefront.
+
+**Audit findings**:
+1. The customer-facing storefront category filter (`/tiles?category=...`) resolves primarily from `tiles.sub_categories`.
+2. `POST /api/supplier-sync/products/assign-shop-tabs` writes the selected website category names into `sub_categories` on both `supplier_products` and `tiles`.
+3. The old **Sub-Category** bucket mode and **Sub-Categories** bulk-tag mode also wrote to the same `sub_categories` field, so the UI exposed multiple ways to target the same storefront destination.
+4. The Shop Tabs UI was also showing irrelevant page groups (for example Flooring tabs while editing tile products), which amplified the confusion.
+
+**Delivered**:
+1. Added shared storefront scoping helpers in `shopTabDestinations.js` to map each manager to its correct storefront page group.
+2. Scoped **Shop Tabs** to the active manager only:
+   - Tiles Manager now shows only the **Tiles page** destinations.
+   - Quick Edit Shop Tabs panel uses the same scoped destination list.
+3. Simplified Attribute Studio for managers that have real storefront tabs:
+   - hidden the overlapping **Sub-Category** / **Sub-Categories** targeting entries
+   - kept **Shop Tabs** as the single clear storefront-placement control
+   - added guidance text explaining that Shop Tabs is now the place to decide which website page a product appears on
+
+**Verified**:
+- Browser smoke test: `/admin/tiles` → bulk select → Attribute Studio → only **Shop Tabs** shown for storefront placement; irrelevant duplicate targeting entries hidden.
+- Browser smoke test: `/admin/tiles` → Quick Edit → Shop Tabs panel → only the **Tiles page** destinations shown.
+- `auto_frontend_testing_agent` PASS: bulk Attribute Studio and Quick Edit both scoped correctly, with no blank screens or modal errors.
+
+
 ### [Aug 22, 2026 — Forked session, part 2] 🟢 Series Rename in the DRAWER + Auto-fix all DELETED — VERIFIED
 
 **Owner feedback** (screenshot of live tilestation.co.uk Name Sanity drawer): "I don't see any difference… what is that auto-fix all, if it's crap then delete that shit and tell me where you made the changes."

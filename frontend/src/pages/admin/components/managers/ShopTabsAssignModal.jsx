@@ -14,7 +14,11 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
 } from '../../../../components/ui/dialog';
 import { Button } from '../../../../components/ui/button';
-import { fetchShopTabDestinations, clearShopTabDestinationsCache } from '../../lib/shopTabDestinations';
+import {
+  fetchShopTabDestinations,
+  clearShopTabDestinationsCache,
+  filterShopTabPagesForManager,
+} from '../../lib/shopTabDestinations';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
 
@@ -40,7 +44,7 @@ const parseSizesCm = (p) => {
 // short side is at least 10cm (filters out trims/strips like 2440x12mm).
 export const isLargeFormat = (p) => parseSizesCm(p).some(d => Math.max(d.w, d.h) > 60 && Math.min(d.w, d.h) >= 10);
 
-export const ShopTabsPanel = ({ selectedProducts = [], onSaved, onDone, embedded = false }) => {
+export const ShopTabsPanel = ({ selectedProducts = [], onSaved, onDone, embedded = false, managerSlug = null }) => {
   const [pages, setPages] = useState([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -59,20 +63,30 @@ export const ShopTabsPanel = ({ selectedProducts = [], onSaved, onDone, embedded
       .finally(() => setLoading(false));
   }, []);
 
+  const scopedPages = useMemo(() => {
+    const scoped = filterShopTabPagesForManager(pages, managerSlug);
+    return scoped.length > 0 ? scoped : [];
+  }, [pages, managerSlug]);
+
+  const scopeLabel = useMemo(() => {
+    if (scopedPages.length !== 1) return scopedPages[0]?.group_name || null;
+    return scopedPages[0]?.group_name || null;
+  }, [scopedPages]);
+
   // category_name -> 'all' | 'some' | 'none' based on the current selection
   const initialState = useMemo(() => {
     const state = {};
     const lists = selectedProducts.map(p =>
       (Array.isArray(p.sub_categories) ? p.sub_categories : []).map(c => String(c).toLowerCase())
     );
-    pages.forEach(page => page.tabs.forEach(tab => {
+    scopedPages.forEach(page => page.tabs.forEach(tab => {
       if (!tab.assignable || !tab.category_name) return;
       const needle = tab.category_name.toLowerCase();
       const count = lists.filter(l => l.includes(needle)).length;
       state[tab.category_name] = count === 0 ? 'none' : (count === lists.length ? 'all' : 'some');
     }));
     return state;
-  }, [pages, selectedProducts]);
+  }, [scopedPages, selectedProducts]);
 
   const displayState = (catName) => {
     if (catName in desired) return desired[catName] ? 'all' : 'none';
@@ -125,7 +139,7 @@ export const ShopTabsPanel = ({ selectedProducts = [], onSaved, onDone, embedded
   // Finds the "Large Format" tab, detects which selected products are above
   // 60x60, and assigns ONLY those (plus un-assigns wrongly-tagged small ones).
   const largeFormatTab = useMemo(() => {
-    for (const page of pages) {
+    for (const page of scopedPages) {
       for (const tab of page.tabs || []) {
         if (!tab.assignable || !tab.category_name) continue;
         const label = `${tab.label || ''} ${tab.category_slug || ''}`.toLowerCase();
@@ -133,7 +147,7 @@ export const ShopTabsPanel = ({ selectedProducts = [], onSaved, onDone, embedded
       }
     }
     return null;
-  }, [pages]);
+  }, [scopedPages]);
 
   const lfSplit = useMemo(() => {
     if (!largeFormatTab) return null;
@@ -214,6 +228,12 @@ export const ShopTabsPanel = ({ selectedProducts = [], onSaved, onDone, embedded
         <p className="text-sm text-gray-400 py-8 text-center">Loading shop pages…</p>
       ) : (
         <div className="space-y-4 py-1">
+          {scopeLabel && (
+            <div className="rounded-lg border border-sky-200 bg-sky-50/70 px-3 py-2 text-xs text-sky-900" data-testid="shop-tabs-scope-note">
+              Showing storefront destinations for the <b>{scopeLabel}</b> page only.
+              This is the main control for deciding where these products land on the website.
+            </div>
+          )}
           {/* Large Format smart assign — detects sizes above 60x60 in the selection */}
           {largeFormatTab && lfSplit && (lfSplit.large.length > 0 || lfSplit.toRemove.length > 0) && (
             <div className="rounded-lg border border-indigo-200 bg-indigo-50/60 px-3 py-2.5 flex items-center gap-2.5" data-testid="large-format-banner">
@@ -239,7 +259,7 @@ export const ShopTabsPanel = ({ selectedProducts = [], onSaved, onDone, embedded
               )}
             </div>
           )}
-          {pages.map(page => (
+          {scopedPages.map(page => (
             <div key={page.group_slug} className="border border-gray-200 rounded-lg overflow-hidden" data-testid={`shop-tabs-page-${page.group_slug}`}>
               <div className="px-3 py-2 bg-gray-50 border-b border-gray-200 flex items-center gap-2">
                 <Store className="w-3.5 h-3.5 text-gray-500" />
@@ -293,7 +313,7 @@ export const ShopTabsPanel = ({ selectedProducts = [], onSaved, onDone, embedded
               </div>
             </div>
           ))}
-          {pages.length === 0 && <p className="text-sm text-gray-400 py-6 text-center">No shop tabs found — add some via the Storefront button first.</p>}
+          {scopedPages.length === 0 && <p className="text-sm text-gray-400 py-6 text-center">No storefront tabs are configured for this manager yet — add them via the Storefront button first.</p>}
         </div>
       )}
 
@@ -317,7 +337,7 @@ export const ShopTabsPanel = ({ selectedProducts = [], onSaved, onDone, embedded
   );
 };
 
-const ShopTabsAssignModal = ({ open, onOpenChange, selectedProducts = [], onSaved }) => (
+const ShopTabsAssignModal = ({ open, onOpenChange, selectedProducts = [], onSaved, managerSlug = null }) => (
   <Dialog open={open} onOpenChange={onOpenChange}>
     <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto" data-testid="shop-tabs-assign-modal">
       <DialogHeader>
@@ -335,6 +355,7 @@ const ShopTabsAssignModal = ({ open, onOpenChange, selectedProducts = [], onSave
           selectedProducts={selectedProducts}
           onSaved={onSaved}
           onDone={() => onOpenChange(false)}
+          managerSlug={managerSlug}
         />
       )}
     </DialogContent>
