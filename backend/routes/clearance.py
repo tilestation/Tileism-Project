@@ -36,8 +36,38 @@ def get_db():
 def _clearance_query():
     return {"$or": [
         {"labels": {"$in": CLEARANCE_VARIANTS}},
+        {"labels": {"$regex": r"^\s*clearance\s*$", "$options": "i"}},
         {"custom_labels": {"$in": CLEARANCE_VARIANTS}},
+        {"custom_labels": {"$regex": r"^\s*clearance\s*$", "$options": "i"}},
     ]}
+
+
+def _doc_key(doc: dict) -> str:
+    return str(doc.get("sku") or doc.get("supplier_code") or "").strip()
+
+
+def _skus_query(skus: List[str]):
+    values = [str(s or "").strip() for s in (skus or []) if str(s or "").strip()]
+    if not values:
+        return {"_id": {"$exists": False}}
+    return {"$or": [{"sku": {"$in": values}}, {"supplier_code": {"$in": values}}]}
+
+
+def _product_refs_query(refs: List["ProductRef"]):
+    clauses = []
+    for ref in refs or []:
+        raw = str((ref.sku if ref else "") or "").strip()
+        if not raw:
+            continue
+        supplier = str((ref.supplier if ref else "") or "").strip()
+        clauses.append({"sku": raw})
+        clauses.append({"supplier_code": raw})
+        if supplier:
+            clauses.append({"supplier": supplier, "supplier_code": raw})
+            clauses.append({"supplier_name": supplier, "supplier_code": raw})
+            clauses.append({"supplier": supplier, "sku": raw})
+            clauses.append({"supplier_name": supplier, "sku": raw})
+    return {"$or": clauses} if clauses else {"_id": {"$exists": False}}
 
 
 def _first_image(doc):
@@ -55,13 +85,14 @@ def get_clearance_products():
     db = get_db()
     tiles_by_sku = {}
     for t in db.tiles.find(_clearance_query(), {
-        "_id": 0, "sku": 1, "name": 1, "display_name": 1, "images": 1, "image": 1,
+        "_id": 0, "sku": 1, "supplier_code": 1, "name": 1, "display_name": 1, "images": 1, "image": 1,
         "price": 1, "was_price": 1, "discount_percentage": 1, "sale_active": 1,
         "stock_m2": 1, "stock": 1, "product_group": 1, "pricing_unit": 1,
         "supplier_name": 1, "attributes.size": 1, "size": 1,
     }):
-        if t.get("sku"):
-            tiles_by_sku[t["sku"]] = t
+        key = _doc_key(t)
+        if key:
+            tiles_by_sku[key] = t
 
     items, seen = [], set()
     for sp in db.supplier_products.find(_clearance_query(), {
@@ -70,7 +101,7 @@ def get_clearance_products():
         "was_price": 1, "discount_percentage": 1, "size": 1, "product_group": 1,
         "stock_m2": 1, "stock_quantity": 1, "pricing_unit": 1,
     }):
-        sku = sp.get("sku") or sp.get("supplier_code")
+        sku = _doc_key(sp)
         if not sku or sku in seen:
             continue
         seen.add(sku)
@@ -133,7 +164,9 @@ def mark_clearance(data: MarkRequest, current_user: dict = Depends(get_current_u
     if not data.product_ids:
         raise HTTPException(status_code=400, detail="No products provided")
     db = get_db()
-    skus = [p.sku for p in data.product_ids if p.sku]
+    refs = [p for p in data.product_ids if p and p.sku]
+    skus = [str(p.sku).strip() for p in refs if str(p.sku).strip()]
+    ref_q = _product_refs_query(refs)
 
     if data.on:
         update = {"$addToSet": {"labels": "Clearance"},
@@ -143,13 +176,18 @@ def mark_clearance(data: MarkRequest, current_user: dict = Depends(get_current_u
                             "custom_labels": {"$in": CLEARANCE_VARIANTS}},
                   "$set": {"last_updated": datetime.now(timezone.utc)}}
 
-    sku_q = {"$or": [{"sku": {"$in": skus}}, {"supplier_code": {"$in": skus}}]}
-    r1 = db.supplier_products.update_many(sku_q, update)
-    db.products.update_many({"sku": {"$in": skus}}, update)
-    r3 = db.tiles.update_many({"sku": {"$in": skus}}, update)
+    r1 = db.supplier_products.update_many(ref_q, update)
+    db.products.update_many(ref_q, update)
+    r3 = db.tiles.update_many(ref_q, update)
 
-    live = db.tiles.count_documents({"sku": {"$in": skus}})
-    drafts = len(skus) - live
+    live_keys = {
+        _doc_key(doc)
+        for doc in db.tiles.find(ref_q, {"_id": 0, "sku": 1, "supplier_code": 1})
+        if _doc_key(doc)
+    }
+    requested_keys = set(skus)
+    live = len(requested_keys & live_keys)
+    drafts = len(requested_keys - live_keys)
 
     return {
         "success": True,
@@ -180,7 +218,7 @@ def publish_clearance_products(data: SkusRequest, current_user: dict = Depends(g
     except Exception as e:
         logger.error(f"Clearance manual publish failed: {e}")
         raise HTTPException(status_code=500, detail=f"Publish failed: {e}")
-    db.tiles.update_many({"sku": {"$in": data.skus}}, {"$addToSet": {"labels": "Clearance"}})
+    db.tiles.update_many(_skus_query(data.skus), {"$addToSet": {"labels": "Clearance"}})
     published = (res or {}).get("published", 0) + (res or {}).get("updated", 0)
     return {"success": True, "published": published,
             "message": f"Published {published} product(s) to the storefront"}
@@ -193,11 +231,12 @@ def unpublish_clearance_products(data: SkusRequest, current_user: dict = Depends
     if not data.skus:
         raise HTTPException(status_code=400, detail="No SKUs provided")
     db = get_db()
-    r = db.tiles.delete_many({"$or": [{"sku": {"$in": data.skus}}, {"supplier_code": {"$in": data.skus}}]})
+    q = _skus_query(data.skus)
+    r = db.tiles.delete_many(q)
     db.supplier_products.update_many(
-        {"$or": [{"sku": {"$in": data.skus}}, {"supplier_code": {"$in": data.skus}}]},
+        q,
         {"$set": {"published": False, "show_on_website": False}})
-    db.products.update_many({"sku": {"$in": data.skus}},
+    db.products.update_many(q,
                             {"$set": {"show_on_website": False, "visibility": "draft"}})
     return {"success": True, "unpublished": r.deleted_count,
             "message": f"Removed {r.deleted_count} product(s) from the storefront (drafts kept)"}
@@ -211,19 +250,33 @@ class LeafletRequest(BaseModel):
 
 
 def _leaflet_products(db, skus):
-    if skus:
-        skus = skus[:60]  # hard cap — leaflets stay printable & fast
-        q = {"sku": {"$in": skus}, **_clearance_query()}  # clearance-only, always
-    else:
-        q = _clearance_query()
-    docs = list(db.tiles.find(q, {
-        "_id": 0, "sku": 1, "name": 1, "display_name": 1, "images": 1, "image": 1,
+    requested = [str(s or "").strip() for s in (skus or []) if str(s or "").strip()][:60]
+    q = {**_clearance_query(), **(_skus_query(requested) if requested else {})}
+
+    tiles_docs = list(db.tiles.find(q, {
+        "_id": 0, "sku": 1, "supplier_code": 1, "name": 1, "display_name": 1, "images": 1, "image": 1,
         "price": 1, "was_price": 1, "discount_percentage": 1,
         "stock_m2": 1, "stock": 1, "pricing_unit": 1, "attributes.size": 1, "size": 1,
+        "supplier_name": 1, "product_group": 1,
     }))
-    if skus:  # keep requested order
-        by_sku = {d.get("sku"): d for d in docs}
-        docs = [by_sku[s] for s in skus if s in by_sku]
+    supplier_docs = list(db.supplier_products.find(q, {
+        "_id": 0, "sku": 1, "supplier_code": 1, "supplier": 1, "product_name": 1,
+        "our_product_name": 1, "name": 1, "images": 1, "image": 1, "list_price": 1, "price": 1,
+        "was_price": 1, "discount_percentage": 1, "size": 1, "product_group": 1,
+        "stock_m2": 1, "stock_quantity": 1, "pricing_unit": 1,
+    }))
+
+    tiles_by_key = { _doc_key(doc): doc for doc in tiles_docs if _doc_key(doc) }
+    supplier_by_key = { _doc_key(doc): doc for doc in supplier_docs if _doc_key(doc) }
+
+    keys = requested or sorted(set(tiles_by_key) | set(supplier_by_key))
+    docs = []
+    for key in keys:
+        sp = supplier_by_key.get(key)
+        t = tiles_by_key.get(key)
+        if not sp and not t:
+            continue
+        docs.append(_hub_item(key, sp or {}, t))
     return docs
 
 

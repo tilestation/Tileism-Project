@@ -1291,7 +1291,9 @@ const ManagerPageShell = ({
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
             const r = await res.json();
             toast.success(r.message || `${list.length} marked CLEARANCE`, {
-              description: 'Nothing goes live automatically — review & publish from the Clearance tab',
+              description: r.draft_count > 0
+                ? `${r.draft_count} draft item${r.draft_count !== 1 ? 's' : ''} will not appear on the website Clearance page until you publish ${r.draft_count !== 1 ? 'them' : 'it'} from the Clearance Hub.`
+                : 'Live clearance products should now be available in the Clearance Hub, leaflet builder, and website clearance feed.',
             });
             fetchProducts(true);
           } catch (err) {

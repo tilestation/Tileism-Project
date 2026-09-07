@@ -83,6 +83,29 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - Reverse navigation test: `Alabaster` → `Opaco` also passed.
 - `auto_frontend_testing_agent` PASS: collection-to-collection route switching no longer leaves stale product names/specs behind.
 
+### [Sep 7, 2026 — Forked session] 🟢 Clearance list / leaflet matching hardening — VERIFIED
+
+**Owner report**: Products marked **CLEARANCE** were not reliably appearing in the clearance feed / leaflet flow.
+
+**Audit findings**:
+1. The public storefront clearance collections endpoint is intentionally **live-only** (reads `tiles`), so draft-only products will not appear there until published from the Clearance Hub.
+2. The admin clearance leaflet generator had a real gap: it only loaded products from `tiles`, so draft-only clearance items could be missing from the generated PDF even when clearly marked.
+3. Clearance matching was also stricter than ideal and some flows only matched by `sku`, which risked misses when products were referenced by `supplier_code`.
+
+**Delivered**:
+1. Hardened clearance matching in `routes/clearance.py`:
+   - tolerant of case / spacing variants of `Clearance`
+   - matches product refs by `sku` **or** `supplier_code`, with supplier-aware fallbacks
+2. Updated publish / unpublish flows to use the same robust identifier matching.
+3. Fixed leaflet generation to merge clearance products from **both** `tiles` and `supplier_products`, so draft-labelled items are now included in generated PDFs too.
+4. Improved admin feedback in Manager / All Products screens so when marked items are still drafts, the toast explicitly says they will not appear on the public Clearance page until published from the Clearance Hub.
+
+**Verified**:
+- Self-test: marking one live SKU + one draft SKU returned correct `live_count` / `draft_count`.
+- Self-test: `/api/clearance/products` returned both live and draft items.
+- Self-test: generated PDF contained both a live item and a draft-only item after the fix.
+- `deep_testing_backend_v2` PASS: all clearance API and PDF checks passed; public storefront collections correctly remained live-only.
+
 
 ### [Aug 22, 2026 — Forked session, part 2] 🟢 Series Rename in the DRAWER + Auto-fix all DELETED — VERIFIED
 
