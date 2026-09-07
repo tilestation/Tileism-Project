@@ -17,6 +17,13 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Sep 7, 2026 — Forked session] 🟢 Bulk pricing modal: real WAS/NOW sale & clearance pricing, no cropping, full names — VERIFIED
+- **Bug**: `BulkFieldsModal.jsx` "Sale %" wrote a dead `sale_pct` field (nothing on the storefront/leaflet reads it) — so "I can't set up any pricing" was literally true. Column was also cropped and product names truncated to one line in a `max-w-2xl` dialog.
+- **Fix**: Modal is `max-w-4xl`; Edit-each table = Product (full wrapped name via `productDisplayName`) | **Now £** (list/selling) | **Was £** (crossed-out anchor; blank = unchanged, 0 = remove sale; must be > Now, checked locally) | Cost £ | Stock. Set mode "Sale / Clearance % off" and Adjust mode now drive `POST /api/supplier-sync/products/bulk-sale-pricing` (same engine as the Sale & Labels modal): `was_price`/`discount_percentage`/`sale_active` written to supplier_products, products AND tiles → storefront strike-through, SALE badge and Clearance leaflet all pick it up. Undo snapshot now includes the sale fields.
+- **Answer to "how do I set Clearance WAS/NOW?"** — exactly like Sale: give the product a Was £ (or % off) here, and the Clearance *label* (bulk bar CLEARANCE button). The leaflet prints WAS/NOW/−% from those fields.
+- Verified in preview via UI: Edit-each Was £39.99 → sp+tile `was_price 39.99, discount 25%, sale_active` and storefront API shows it; Was ≤ Now blocked with a clear toast; Was 0 clears the sale; Set mode 20% → WAS £37.99 (.99 rounding, 21%). Test product restored.
+
+
 ### [Sep 7, 2026 — Forked session] 🟡 "Deployed but no change" — diagnosed + build stamp added
 - Production `www.tilestation.co.uk` is served by **Railway** (server: railway-hikari) from GitHub — NOT by Emergent's Deploy button. Fetched the live `asset-manifest.json`: `main.4bb165d2.js` + chunk `5464.c3e5db9f` still contain the OLD "cross-sell-label-" markup and none of the last 3 checkpoints (Page Map, Customers Also Liked, per-unit storefront fix, YMAN cards). The Per-Unit toggle (checkpoint d0ccbbf) IS live → pipeline works; the newest commits simply haven't been pushed/built yet (or Railway build still running/failed). Service worker caches nothing; index.html is no-cache — not a browser-cache issue.
 - Added a **build stamp**: `frontend/scripts/build-info.js` runs first in `yarn build` and writes `public/build-info.json` ({commit (RAILWAY_GIT_COMMIT_SHA or git), short, branch, built_at}). Admin sidebar shows "Build <sha> · <date time>" under Logout (`admin-build-stamp`). Check live at `https://www.tilestation.co.uk/build-info.json` (404 until the first build with this change ships).
