@@ -97,6 +97,10 @@ def _default_config() -> dict:
             # — user asked for proactive alerts so the team doesn't
             # have to keep tab on the topbar pill all day.)
             "radio_offair": True,
+            # 🧩 Verona extension report — fires the moment the Chrome
+            # extension's "Send report to Tile Station" button posts a
+            # self-check, so support sees the failure without chasing.
+            "extension_report": True,
         },
         # Silent-mode events — 22 Jun 2026
         # ─────────────────────────────────

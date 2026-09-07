@@ -32,6 +32,7 @@ const EVENT_LABELS = {
   basket_add:      ['Item added to basket', 'Fires every time a customer increases their basket count. Real buying signal — but can be noisy if you have lots of traffic.'],
   hot_session:     ['🔥 Hot session (high buying intent)', 'Fires once per session when a visitor views ≥3 product pages AND stays >2 min. Filters out drive-by visits — only genuine buying intent. Default ON.'],
   new_customer:    ['New customer / Trade account', 'Fires when someone signs up — both retail customers and Trade accounts. Default ON.'],
+  extension_report:['🧩 Verona extension report received', 'Fires the moment someone presses "Send report to Tile Station" in the Verona Chrome extension — engine / server / page checks and the last problem, so nobody has to chase. Default ON.'],
 };
 
 export default function TelegramNotifications({ onConfigChange } = {}) {

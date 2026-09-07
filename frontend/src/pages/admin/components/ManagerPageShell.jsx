@@ -1215,7 +1215,7 @@ const ManagerPageShell = ({
                           </td>
                           <td className="px-3 py-2 whitespace-nowrap" data-testid={`price-cell-${p.sku || p.supplier_code}`}>
                             {(() => {
-                              const now = Number(p.list_price || p.retail_price || p.price || 0);
+                              const now = Number(p.list_price || p.retail_price || p.price || p.room_lot_price || 0);
                               const was = Number(p.was_price || 0);
                               const saleOn = !!p.sale_active && was > now && now > 0;
                               const clearance = [...(p.labels || []), ...(p.custom_labels || [])].some(l => String(l || '').trim().toLowerCase() === 'clearance');

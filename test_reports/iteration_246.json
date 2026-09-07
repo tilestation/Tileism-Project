@@ -1,0 +1,21 @@
+{
+  "summary": "Iteration 246 — WHOLE-SITE PRICING SCAN + Verona extension REPORT ALERT verified end-to-end. Backend pytest 5/5 passed (1 skipped — telegram/config requires super_admin cookie auth from bare requests, but default is code-verified). Frontend: dashboard site-pricing-scan block shows clean 'Website matches admin pricing on all 721 live products' when no drift; after seeding 3 drift rows (LP-1231 pallets, LP-1631 sale, LP-1132 price) the block turns amber '3 of 721 live products differ on the website' with group chips (Pallets: 1, Sale / Was £: 1, Now £: 1), site-scan-toggle reveals site-diff-LP-1231-pallets / site-diff-LP-1631-sale / site-diff-LP-1132-price with Admin vs Website columns, and site-scan-fix-all pushes → block turns green. Verona Sync Hub verona-last-report renders v6.1.0, 'page: Cloudflare check' red, engine state paused, last problem 'cloudflare — Security check'. Telegram notifications page (/admin/notifications/telegram) contains the '🧩 Verona extension report received' event label. Adopt-price path also verified (LP-1131 drafts unset → tile 19.99 → fix-all adopted_prices=1, price_source='adopted_from_website'). All seeded drift removed and pricing_sync_runs/extension_reports test docs deleted; final scan mismatch_count=0.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": ["/app/backend/tests/test_site_pricing_and_extension_iter246.py", "/app/test_reports/pytest/iter246.xml"],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "_scan_site_pricing (supplier_sync.py ~7139) correctly compares live tiles against admin drafts across pallets/sale/price/labels/tiers/delivery via _LIVE_GROUPS and marks items non-fixable only when there is no admin price and price is the only mismatch.",
+    "fix-all endpoint correctly adopts live price into draft when admin has none (list_price=price=room_lot_price=live, price_source='adopted_from_website') and mirrors admin values into tiles otherwise; logs pricing_sync_runs and busts storefront cache.",
+    "receive_extension_report is defensive — telegram alert failure is caught, endpoint returns 200 with alert={} on error; on this DB telegram is disabled so alert.telegram is a benign skip payload and email is fire-and-forget started via daemon thread — good.",
+    "_default_config in services/telegram_notify.py sets events.extension_report=True by default; UI label EVENT_LABELS.extension_report is present.",
+    "Existing noisy React 'unique key prop' warning still logged from AdminDashboard render (carried over, non-blocking)."
+  ],
+  "updated_files": ["/app/backend/tests/test_site_pricing_and_extension_iter246.py", "/app/test_reports/iteration_246.json"],
+  "success_rate": {"backend": "100% (5/5 passed, 1 auth-gated skip)", "frontend": "100% (all specified flows verified)"},
+  "test_credentials": "admin@test.com / admin123",
+  "seed_data_creation": "None persisted. Drift on LP-1231/LP-1631/LP-1132 was restored via fix-all + pytest snapshot restore; adopt-case draft on LP-1131 was restored via replace_one snapshot; test extension_reports and pricing_sync_runs docs deleted after run; final /live-pricing/scan → mismatch_count 0 (726 live).",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Testids validated on live UI: site-pricing-scan, site-scan-run, site-scan-ok, site-scan-mismatch, site-scan-groups, site-scan-toggle, site-scan-fix-all, site-diff-{sku}-{group} (groups: pallets|sale|price|labels|tiers|delivery), live-pricing-site-toggle (inside pricing hub), verona-last-report. Telegram notifications route is /admin/notifications/telegram (NOT /admin/telegram-notifications). Live-pricing endpoints are unauthenticated. Extension-report POST is idempotent-ish (generates fresh 6-hex ref each time) — do not spam (RESEND emails go to qasim@tilestation.co.uk). Backend pytest at /app/backend/tests/test_site_pricing_and_extension_iter246.py is a strong regression covering scan baseline, seeded 3-way drift detection, fix-all push, adopt-price case, extension-report POST + last-receive + list."
+}

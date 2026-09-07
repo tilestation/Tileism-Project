@@ -15,7 +15,7 @@ const isClearanceLabel = (l) => String(l || '').trim().toLowerCase() === 'cleara
 
 // Current (saved) state of a product as the table needs it
 export const rowCurrent = (p) => {
-  const now = Number(p.list_price || p.retail_price || p.price || 0);
+  const now = Number(p.list_price || p.retail_price || p.price || p.room_lot_price || 0);
   const was = Number(p.was_price || 0);
   return {
     now,

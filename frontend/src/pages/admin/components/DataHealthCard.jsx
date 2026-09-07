@@ -12,6 +12,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { ImageOff, CheckCircle2, Eraser, RefreshCw, ShieldAlert, CloudDownload, AlertTriangle, Siren, Chrome } from 'lucide-react';
 import { toast } from 'sonner';
+import SitePricingScan from './managers/SitePricingScan';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
 const LIVE_SITE_URL = 'https://tile-station-production.up.railway.app';
@@ -404,6 +405,7 @@ export const DataHealthCard = () => {
       {isPreviewEnv() && <LiveSyncRow onSynced={load} />}
     </div>
     <VeronaArrivalRow />
+    <div className="mt-2"><SitePricingScan /></div>
     </>
   );
 };

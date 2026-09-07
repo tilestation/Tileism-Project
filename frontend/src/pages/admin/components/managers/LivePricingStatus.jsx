@@ -8,7 +8,8 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { Button } from '../../../../components/ui/button';
-import { CheckCircle2, AlertTriangle, RefreshCw, Globe, ChevronDown, ChevronRight, HelpCircle, Upload } from 'lucide-react';
+import { CheckCircle2, AlertTriangle, RefreshCw, Globe, HelpCircle, Upload, ScanSearch } from 'lucide-react';
+import SitePricingScan from './SitePricingScan';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
 
@@ -45,6 +46,7 @@ const LivePricingStatus = ({ selectedList = [], refreshKey = 0 }) => {
   const [pushing, setPushing] = useState(false);
   const [open, setOpen] = useState(false);
   const [legendOpen, setLegendOpen] = useState(false);
+  const [siteOpen, setSiteOpen] = useState(false);
 
   const skus = selectedList.map(p => p.sku || p.supplier_code).filter(Boolean);
   const skuKey = skus.join(',');
@@ -115,11 +117,18 @@ const LivePricingStatus = ({ selectedList = [], refreshKey = 0 }) => {
           </>
         )}
         {!loading && !report?.error && (
-          <button type="button" onClick={() => setLegendOpen(v => !v)} className={`${mismatched.length ? '' : 'ml-auto'} inline-flex items-center gap-1 text-[11px] text-slate-500 hover:text-slate-800`} data-testid="live-pricing-legend-toggle">
-            <HelpCircle className="w-3.5 h-3.5" /> what reaches the website?
-          </button>
+          <span className={`${mismatched.length ? '' : 'ml-auto'} inline-flex items-center gap-3`}>
+            <button type="button" onClick={() => setSiteOpen(v => !v)} className="inline-flex items-center gap-1 text-[11px] text-slate-500 hover:text-slate-800" data-testid="live-pricing-site-toggle">
+              <ScanSearch className="w-3.5 h-3.5" /> check the whole website
+            </button>
+            <button type="button" onClick={() => setLegendOpen(v => !v)} className="inline-flex items-center gap-1 text-[11px] text-slate-500 hover:text-slate-800" data-testid="live-pricing-legend-toggle">
+              <HelpCircle className="w-3.5 h-3.5" /> what reaches the website?
+            </button>
+          </span>
         )}
       </div>
+
+      {siteOpen && <SitePricingScan compact />}
 
       {open && mismatched.length > 0 && (
         <div className="border border-amber-200 rounded-lg overflow-hidden" data-testid="live-pricing-diff">

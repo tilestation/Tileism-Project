@@ -195,23 +195,31 @@ class ExtensionReportIn(BaseModel):
 
 
 @router.post("/verona/extension-report")
-def receive_extension_report(data: ExtensionReportIn):
-    """Diagnostics posted by the Verona extension's 'Send report' button."""
+async def receive_extension_report(data: ExtensionReportIn):
+    """Diagnostics posted by the Verona extension's 'Send report' button.
+    Pings the owner (Telegram event `extension_report` + email) the moment it lands."""
     import secrets
     db = get_db()
     ref = secrets.token_hex(3).upper()
-    db.extension_reports.insert_one({
+    doc = {
         "ref": ref,
         "version": data.version,
         "report": data.report,
         "received_at": datetime.now(timezone.utc),
-    })
+    }
+    db.extension_reports.insert_one(doc)
     # keep the collection small — last 50 reports
     stale = list(db.extension_reports.find({}, {"_id": 1}, sort=[("received_at", -1)]).skip(50))
     if stale:
         db.extension_reports.delete_many({"_id": {"$in": [s["_id"] for s in stale]}})
     logger.info(f"Verona extension report {ref} received (v{data.version})")
-    return {"success": True, "id": ref}
+    alert = {}
+    try:
+        from services.extension_report_alerts import notify_extension_report
+        alert = await notify_extension_report(_summarize_extension_report(doc))
+    except Exception as e:
+        logger.warning(f"Extension report alert failed: {e}")
+    return {"success": True, "id": ref, "alert": alert}
 
 
 @router.get("/verona/extension-reports")
@@ -6950,7 +6958,9 @@ def _num(v):
 
 def _canonical_pricing(sp: dict) -> dict:
     """The pricing the storefront must show for this admin draft."""
-    price = _num(sp.get("list_price")) or _num(sp.get("price")) or 0
+    # list_price is the admin's selling price; `price` mirrors it; legacy drafts
+    # (April imports) only carry room_lot_price — the storefront's own field
+    price = _num(sp.get("list_price")) or _num(sp.get("price")) or _num(sp.get("room_lot_price")) or 0
     was = _num(sp.get("was_price"))
     sale_on = bool(sp.get("sale_active")) and bool(was) and price > 0 and was > price
     labels = [str(x) for x in (sp.get("labels") or []) if x not in (None, "")]
@@ -6984,7 +6994,10 @@ def _live_view(doc: dict, is_tile: bool = False) -> dict:
     draft (supplier_products) and a live tile so the two can be compared."""
     if not doc:
         return {}
-    price = _num(doc.get("list_price")) or _num(doc.get("room_lot_price")) or _num(doc.get("price")) or 0
+    if is_tile:
+        price = _num(doc.get("room_lot_price")) or _num(doc.get("price")) or 0   # storefront read order
+    else:
+        price = _num(doc.get("list_price")) or _num(doc.get("price")) or _num(doc.get("room_lot_price")) or 0
     was = _num(doc.get("was_price"))
     sale_on = bool(doc.get("sale_active")) and bool(was) and price > 0 and was > price
     all_labels = (doc.get("labels") or []) + (doc.get("custom_labels") or [])
@@ -7112,6 +7125,118 @@ def push_live_pricing(data: PushLivePricingRequest):
             pushed += 1
     _bust_storefront_cache()
     return {"success": True, "pushed": pushed, "message": f"Website pricing re-synced for {pushed} product(s)"}
+
+
+# ---- Whole-site scan: every live tile vs its admin draft, in two queries ----
+
+_SCAN_FIELDS = {f: 1 for f in [
+    "sku", "supplier_code", "supplier", "product_name", "our_product_name", "name",
+    "list_price", "price", "room_lot_price", "was_price", "sale_active", "labels", "custom_labels",
+    *_PALLET_MIRROR, *_DELIVERY_MIRROR, *_TIER_MIRROR,
+]}
+
+
+def _scan_site_pricing(db) -> dict:
+    tiles = list(db.tiles.find({}, {"_id": 0, **_SCAN_FIELDS}))
+    skus = list({t.get("sku") or t.get("supplier_code") for t in tiles if (t.get("sku") or t.get("supplier_code"))})
+    drafts = {}
+    for sp in db.supplier_products.find({"$or": [{"sku": {"$in": skus}}, {"supplier_code": {"$in": skus}}]}, {"_id": 0, **_SCAN_FIELDS}):
+        for k in (sp.get("sku"), sp.get("supplier_code")):
+            if k:
+                drafts.setdefault(k, sp)
+    items, by_group, no_draft, no_admin_price = [], {}, 0, 0
+    for t in tiles:
+        sku = t.get("sku") or t.get("supplier_code")
+        sp = drafts.get(sku) if sku else None
+        if not sp:
+            no_draft += 1
+            continue
+        admin_v, live_v = _live_view(sp), _live_view(t, is_tile=True)
+        mism = [g for g, fields in _LIVE_GROUPS.items() if any(admin_v.get(f) != live_v.get(f) for f in fields)]
+        if not mism:
+            continue
+        if "price" in mism and not admin_v.get("price"):
+            no_admin_price += 1
+        for g in mism:
+            by_group[g] = by_group.get(g, 0) + 1
+        items.append({
+            "sku": sku,
+            "supplier": sp.get("supplier"),
+            "name": sp.get("our_product_name") or sp.get("product_name") or t.get("name") or sku,
+            "mismatches": mism,
+            "admin": admin_v,
+            "website": live_v,
+            "fixable": not ("price" in mism and not admin_v.get("price") and len(mism) == 1),
+        })
+    items.sort(key=lambda i: (-len(i["mismatches"]), i["sku"]))
+    return {
+        "total_live": len(tiles),
+        "checked": len(tiles) - no_draft,
+        "no_draft": no_draft,
+        "mismatch_count": len(items),
+        "no_admin_price": no_admin_price,
+        "by_group": by_group,
+        "items": items,
+    }
+
+
+@router.get("/products/live-pricing/scan")
+def scan_live_pricing(limit: int = 300):
+    """Every live product vs its admin draft — what the website shows differently."""
+    db = get_db()
+    result = _scan_site_pricing(db)
+    result["items"] = result["items"][:max(1, min(limit, 1000))]
+    result["scanned_at"] = datetime.now(timezone.utc).isoformat()
+    return result
+
+
+@router.post("/products/live-pricing/fix-all")
+def fix_all_live_pricing():
+    """Push the admin pricing onto every live tile that differs. Returns what's left."""
+    db = get_db()
+    before = _scan_site_pricing(db)
+    fixed = 0
+    adopted = 0
+    for item in before["items"]:
+        q = {"$or": [{"sku": item["sku"]}, {"supplier_code": item["sku"]}]}
+        sp = db.supplier_products.find_one(q, {"_id": 0})
+        if not sp:
+            continue
+        # Draft has no selling price but the website does → adopt the live price
+        # into the draft (customers keep paying the same; admin finally sees it).
+        if not item["admin"].get("price") and item["website"].get("price"):
+            live_price = float(item["website"]["price"])
+            db.supplier_products.update_one(q, {"$set": {
+                "list_price": live_price, "price": live_price, "room_lot_price": live_price,
+                "price_source": "adopted_from_website", "updated_at": datetime.now(timezone.utc),
+            }})
+            sp = db.supplier_products.find_one(q, {"_id": 0})
+            adopted += 1
+        if _mirror_pricing_to_tiles(db, sp) > 0:
+            fixed += 1
+    _bust_storefront_cache()
+    after = _scan_site_pricing(db)
+    db.pricing_sync_runs.insert_one({
+        "at": datetime.now(timezone.utc),
+        "mismatched_before": before["mismatch_count"],
+        "pushed": fixed,
+        "adopted_prices": adopted,
+        "mismatched_after": after["mismatch_count"],
+        "no_admin_price": after["no_admin_price"],
+    })
+    logger.info(f"Whole-site pricing fix: {before['mismatch_count']} → {after['mismatch_count']} mismatches ({fixed} pushed, {adopted} prices adopted)")
+    return {
+        "success": True,
+        "pushed": fixed,
+        "adopted_prices": adopted,
+        "mismatched_before": before["mismatch_count"],
+        "mismatched_after": after["mismatch_count"],
+        "no_admin_price": after["no_admin_price"],
+        "remaining": after["items"][:100],
+        "message": f"Re-synced {fixed} product(s)"
+                   + (f", copied the live price into {adopted} draft(s) that had none" if adopted else "")
+                   + (f" — {after['mismatch_count']} still differ" if after["mismatch_count"] else " — website now matches admin everywhere"),
+    }
 
 
 # ============================================================
