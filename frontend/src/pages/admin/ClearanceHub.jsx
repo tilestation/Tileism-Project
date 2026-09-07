@@ -190,7 +190,16 @@ export default function ClearanceHub() {
             </span>
           </h1>
           <p className="text-sm text-gray-500 mt-2">
-            {items.length} product{items.length !== 1 ? 's' : ''} marked Clearance · marking never publishes anything — edit in the Managers, then hit <span className="font-bold text-emerald-700">Publish</span> here when YOU are ready
+            {items.length} product{items.length !== 1 ? 's' : ''} marked Clearance
+            {items.length > 0 && (
+              <>
+                {' · '}
+                <span className="font-semibold text-emerald-700" data-testid="hub-live-count">{items.filter(i => i.published).length} live</span>
+                {' · '}
+                <span className="font-semibold text-amber-700" data-testid="hub-draft-count">{items.filter(i => !i.published).length} draft{items.filter(i => !i.published).length !== 1 ? 's' : ''}</span>
+              </>
+            )}
+            {' — '}marking never publishes anything. Click a product's <span className="font-bold text-amber-700">Draft</span> pill to put it live.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -318,8 +327,8 @@ export default function ClearanceHub() {
                 <th className="px-3 py-2 text-right font-medium text-gray-600">Now</th>
                 <th className="px-3 py-2 text-center font-medium text-gray-600">% Off</th>
                 <th className="px-3 py-2 text-right font-medium text-gray-600">Stock</th>
-                <th className="px-3 py-2 text-center font-medium text-gray-600">Live</th>
-                <th className="px-3 py-2 text-right font-medium text-gray-600">Actions</th>
+                <th className="px-3 py-2 text-center font-medium text-gray-600">Status</th>
+                <th className="px-3 py-2 text-right font-medium text-gray-600"></th>
               </tr>
             </thead>
             <tbody className="divide-y">
@@ -355,34 +364,37 @@ export default function ClearanceHub() {
                     {Number(i.stock_m2 || 0) > 0 ? `${Number(i.stock_m2).toLocaleString()} m²` : <span className="text-red-500 font-medium">0</span>}
                   </td>
                   <td className="px-3 py-2 text-center">
-                    {i.published
-                      ? <Badge className="bg-emerald-100 text-emerald-700 border-0">Live</Badge>
-                      : <Badge className="bg-gray-100 text-gray-500 border-0">Draft</Badge>}
-                  </td>
-                  <td className="px-3 py-2 text-right whitespace-nowrap">
+                    {/* One control: the status pill IS the publish/unpublish action */}
                     {i.published ? (
                       <button
                         type="button"
                         onClick={() => unpublishSkus([i.sku])}
                         disabled={busy}
-                        className="inline-flex items-center gap-1 text-xs text-orange-600 hover:text-orange-800 mr-3"
-                        title="Take OFF the live storefront (keeps the draft + Clearance label)"
+                        className="group inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-700 hover:bg-orange-100 hover:text-orange-700 transition-colors disabled:opacity-50"
+                        title="LIVE on the storefront — click to take it off (keeps the draft + Clearance label)"
                         data-testid={`hub-unpublish-${i.sku}`}
                       >
-                        <EyeOff className="w-3 h-3" /> Unpublish
+                        <Globe className="w-3 h-3 group-hover:hidden" />
+                        <EyeOff className="w-3 h-3 hidden group-hover:inline" />
+                        <span className="group-hover:hidden">Live</span>
+                        <span className="hidden group-hover:inline">Unpublish</span>
                       </button>
                     ) : (
                       <button
                         type="button"
                         onClick={() => publishSkus([i.sku])}
                         disabled={busy}
-                        className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-600 hover:text-emerald-800 mr-3"
-                        title="Publish this draft to the live storefront"
+                        className="group inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-amber-100 text-amber-800 border border-dashed border-amber-400 hover:bg-emerald-600 hover:text-white hover:border-emerald-600 transition-colors disabled:opacity-50"
+                        title="DRAFT — not on the website yet. Click to publish it live"
                         data-testid={`hub-publish-${i.sku}`}
                       >
-                        <Globe className="w-3 h-3" /> Publish
+                        <span className="group-hover:hidden">Draft</span>
+                        <Globe className="w-3 h-3 hidden group-hover:inline" />
+                        <span className="hidden group-hover:inline">Publish</span>
                       </button>
                     )}
+                  </td>
+                  <td className="px-3 py-2 text-right whitespace-nowrap">
                     <Link
                       to={GROUP_TO_PATH[i.product_group] || '/admin/supplier-products'}
                       className="inline-flex items-center gap-1 text-xs text-blue-600 hover:underline mr-3"

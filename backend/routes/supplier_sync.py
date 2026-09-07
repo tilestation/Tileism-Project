@@ -5460,6 +5460,8 @@ class QuickUpdateRequest(BaseModel):
     sale_price: Optional[float] = None  # Alias for now_price used by newer clients
     discount_percentage: Optional[float] = None  # Discount percentage
     sale_active: Optional[bool] = None  # Whether sale pricing is active
+    # Pricing unit — "m2" (per square metre) or "unit" (each). None = leave unchanged.
+    pricing_unit: Optional[str] = None
     # Long product description ("About This Product" on the customer landing page).
     description: Optional[str] = None
     # Admin-pinned related products for the landing page carousels.
@@ -5780,6 +5782,10 @@ def quick_update_supplier_product(data: QuickUpdateRequest):
             update_fields["discount_percentage"] = data.discount_percentage
         if data.sale_active is not None:
             update_fields["sale_active"] = data.sale_active
+        if data.pricing_unit is not None:
+            if data.pricing_unit not in ("m2", "unit"):
+                raise HTTPException(status_code=400, detail="pricing_unit must be 'm2' or 'unit'")
+            update_fields["pricing_unit"] = data.pricing_unit
         # Long product description — surfaces as "About This Product" on the
         # customer landing page. Allow empty string to clear it.
         if data.description is not None:
@@ -5891,6 +5897,8 @@ def quick_update_supplier_product(data: QuickUpdateRequest):
             products_update["discount_percentage"] = data.discount_percentage
         if data.sale_active is not None:
             products_update["sale_active"] = data.sale_active
+        if data.pricing_unit is not None:
+            products_update["pricing_unit"] = data.pricing_unit
         
         # Sync images to main products collection
         if data.images is not None:
@@ -5930,6 +5938,8 @@ def quick_update_supplier_product(data: QuickUpdateRequest):
                 tiles_update["images"] = data.images
             if data.is_featured is not None:
                 tiles_update["is_featured"] = data.is_featured
+            if data.pricing_unit is not None:
+                tiles_update["pricing_unit"] = data.pricing_unit
             if "related_products" in update_fields:
                 tiles_update["related_products"] = update_fields["related_products"]
             

@@ -20,6 +20,11 @@ import WelcomePopup from '../../components/shop/WelcomePopup';
 import SeoHead from '../../components/seo/SeoHead';
 import { normaliseImageUrl } from '../../utils/safeStr';
 
+// Lazy so the homepage doesn't join the TileCollectionsPage import cycle
+const RecentlyViewedSection = React.lazy(() =>
+  import('../../components/shop/CrossSellSections').then(m => ({ default: m.RecentlyViewedSection }))
+);
+
 const API_URL = process.env.REACT_APP_BACKEND_URL;
 
 const ensureClearanceNav = (items) => {
@@ -1518,6 +1523,11 @@ const TileStationHome = () => {
 
       {/* Shop Categories */}
       <ShopCategories />
+
+      {/* Recently Viewed — same real collection cards as /tiles; hidden for first-time visitors */}
+      <React.Suspense fallback={null}>
+        <RecentlyViewedSection maxItems={6} />
+      </React.Suspense>
 
       {/* Featured Collections / Products */}
       <section className="py-12 md:py-16">

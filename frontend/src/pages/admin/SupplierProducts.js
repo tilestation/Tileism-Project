@@ -7372,6 +7372,7 @@ export default function SupplierProducts() {
       original_series: product.original_series || product.supplier_product_name || '',
       // Other fields
       price: product.price || '',
+      pricing_unit: product.pricing_unit || '',
       cost_price: product.cost_price || '',
       stock_quantity: product.stock_quantity || '',
       stock_m2: product.stock_m2 || '',
@@ -7414,6 +7415,7 @@ export default function SupplierProducts() {
         product_name: quickEditForm.display_name, // Sync with display_name
         original_series: quickEditForm.original_series,
         price: quickEditForm.price ? parseFloat(quickEditForm.price) : null,
+        pricing_unit: quickEditForm.pricing_unit || null,
         cost_price: quickEditForm.cost_price ? parseFloat(quickEditForm.cost_price) : null,
         stock_quantity: quickEditForm.stock_quantity ? parseFloat(quickEditForm.stock_quantity) : null,
         stock_m2: quickEditForm.stock_m2 ? parseFloat(quickEditForm.stock_m2) : null,

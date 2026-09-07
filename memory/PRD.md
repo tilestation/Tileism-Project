@@ -17,6 +17,13 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Sep 7, 2026 — Forked session] 🟢 Per-Unit toggle · Clearance Hub single status pill · Homepage Recently Viewed — VERIFIED (iteration_241, 100%)
+
+1. **Per-Unit Toggle (Quick Edit drawer)** — `QuickEditModal.jsx` shows a `Per m² / Per Unit` switch next to List Price (label flips to `£/m²` / `£ each`). Both consumers (Tiles/Materials/… Manager drawer `QuickEditProductDrawer.jsx` and `/admin/supplier-products` `SupplierProducts.js`) send `pricing_unit` to `PUT /api/supplier-sync/products/quick-update`. Backend (`QuickUpdateRequest.pricing_unit`) validates `m2|unit` (400 otherwise) and writes to `supplier_products`, `products`, and `tiles` (if published). `null` = leave unchanged, so untouched products keep the group default (materials→unit at publish).
+2. **Clearance Hub — fewer buttons** — the Live/Draft badge and the Publish/Unpublish buttons were merged into ONE pill per row: green **Live** (hover → Unpublish) / amber dashed **Draft** (hover → Publish). Header shows `N live · N drafts`. Manager + Remove links kept; bulk "Publish N drafts" appears only when drafts are ticked.
+3. **Homepage Recently Viewed** — `TileStationHome.js` renders `RecentlyViewedSection` (lazy-loaded to avoid the TileCollectionsPage import cycle) between Shop Categories and Featured Collections; hidden for first-time visitors; uses the real collection cards.
+
+
 ### [Sep 7, 2026 — Forked session] 🟢 "Recently Viewed" strip now shows the REAL collection cards — VERIFIED
 
 **Owner report**: Images at the bottom of collection pages (Recently Viewed strip) did not match the actual collection images. Owner asked to keep the strip but show the actual collection images exactly as on the collections page.

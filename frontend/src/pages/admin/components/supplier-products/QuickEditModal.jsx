@@ -319,11 +319,31 @@ const QuickEditModal = ({
               </div>
             </div>
 
-            {/* List Price */}
+            {/* List Price + pricing unit */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                List Price (£)
-              </label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-sm font-medium text-gray-700">
+                  List Price (£{(form.pricing_unit || product?.pricing_unit || (product?.product_group === 'materials' ? 'unit' : 'm2')) === 'unit' ? ' each' : '/m²'})
+                </label>
+                <div className="inline-flex rounded-md border border-gray-300 overflow-hidden text-[11px] font-semibold" data-testid="quick-edit-pricing-unit-toggle">
+                  {[['m2', 'Per m²'], ['unit', 'Per Unit']].map(([val, label]) => {
+                    const effective = form.pricing_unit || product?.pricing_unit || (product?.product_group === 'materials' ? 'unit' : 'm2');
+                    const active = effective === val;
+                    return (
+                      <button
+                        key={val}
+                        type="button"
+                        onClick={() => setForm(prev => ({ ...prev, pricing_unit: val }))}
+                        className={`px-2.5 py-1 transition-colors ${active ? 'bg-gray-900 text-white' : 'bg-white text-gray-600 hover:bg-gray-100'}`}
+                        aria-pressed={active}
+                        data-testid={`quick-edit-pricing-unit-${val}`}
+                      >
+                        {label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
               <Input
                 type="number"
                 step="0.01"
