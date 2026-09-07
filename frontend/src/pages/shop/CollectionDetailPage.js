@@ -390,11 +390,31 @@ const CollectionDetailPage = () => {
 
   // Fetch products
   useEffect(() => {
+    let cancelled = false;
+
+    // Reset all product-selection state when the collection route changes.
+    // Without this, the previous collection's selectedProduct can survive long
+    // enough to render under the new collection heading, especially when both
+    // collections share the same colour / finish / size values. That is how a
+    // Songbird variant can appear briefly (or stay stuck) inside Genesis Slate
+    // until the user clicks another swatch.
+    setLoading(true);
+    setProducts([]);
+    setSelectedProduct(null);
+    setSelectedColor(null);
+    setSelectedFinish(null);
+    setSelectedSize(null);
+    setSelectedStyle(null);
+    setSelectedMaterialProduct(null);
+    setMainImageIndex(0);
+    setPreviewThumbIdx(null);
+    setProductDocuments([]);
+
     const fetchProducts = async () => {
-      setLoading(true);
       try {
         const res = await fetch(`${API_URL}/api/tiles/collection/${encodeURIComponent(decodedSeriesName)}?limit=100${isAdminPreview ? '&preview=1' : ''}`);
         const data = await res.json();
+        if (cancelled) return;
         const fetchedProducts = data.products || [];
         setProducts(fetchedProducts);
         
@@ -462,33 +482,35 @@ const CollectionDetailPage = () => {
           }
           
           if (targetProduct) {
+            // Pin the selected product immediately so the PDP never renders the
+            // previous collection's title/specs while the option state settles.
+            setSelectedProduct({ ...targetProduct, _isPreview: false });
+
             // Get the color (from field or extracted from name) — normalize to lowercase
             const rawColor = targetProduct.color || targetProduct.attributes?.color || extractColorFromName(targetProduct.display_name || targetProduct.name);
-            if (rawColor && rawColor.trim()) {
-              setSelectedColor(rawColor.trim().toLowerCase());
-            }
+            setSelectedColor(rawColor && rawColor.trim() ? rawColor.trim().toLowerCase() : null);
             
             // Get the finish
             const productFinish = targetProduct.finish || targetProduct.attributes?.finish;
-            if (productFinish) {
-              setSelectedFinish(productFinish);
-            }
+            setSelectedFinish(productFinish || null);
             
             // Get the size
             const productSize = targetProduct.size || targetProduct.attributes?.size;
-            if (productSize) {
-              setSelectedSize(productSize);
-            }
+            setSelectedSize(productSize || null);
+            setSelectedStyle(null);
+            setSelectedMaterialProduct(null);
           }
         }
       } catch (e) {
+        if (cancelled) return;
         console.error('Error loading collection:', e);
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     };
     fetchProducts();
-  }, [decodedSeriesName]);
+    return () => { cancelled = true; };
+  }, [decodedSeriesName, productSlugParam, isAdminPreview]);
 
   // Fetch related products/collections
   useEffect(() => {

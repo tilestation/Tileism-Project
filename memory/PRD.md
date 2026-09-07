@@ -63,6 +63,27 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - `auto_frontend_testing_agent` PASS: bulk Attribute Studio and Quick Edit both scoped correctly, with no blank screens or modal errors.
 
 
+### [Sep 7, 2026 — Forked session] 🟢 Storefront collection page stale-name leak — VERIFIED
+
+**Owner report**: On the live storefront, `/shop/collection/Genesis%20Slate` showed the correct collection heading but the selected product banner could display a product from another series (example shown: a Songbird product title inside Genesis Slate).
+
+**Root cause**:
+1. `CollectionDetailPage.js` reused `selectedProduct`, `selectedColor`, `selectedFinish`, `selectedSize`, and related local state across SPA route changes.
+2. When moving from one collection page to another, the previous collection's selected product could survive long enough to render under the new collection heading.
+3. Because the page intentionally kept the previous product during transient no-match states (to avoid flicker), the stale product name could remain visible until the user clicked another swatch.
+4. If the new collection reused similar option values (same finish / size / colour family), the stale state could look like a series mix-up even though the admin list itself was clean.
+
+**Delivered**:
+1. On collection route change, the PDP now clears old selection state immediately (`selectedProduct`, selected variant filters, documents, image index, etc.).
+2. After the new collection payload loads, the page now pins the new target product immediately before the option state settles.
+3. Fetch effect now also reacts correctly to collection/product route params so stale names cannot bleed between collections.
+
+**Verified**:
+- Local storefront smoke test: `Opaco` → change variant → navigate to `Alabaster` → product banner updated to Alabaster and did not retain Opaco.
+- Reverse navigation test: `Alabaster` → `Opaco` also passed.
+- `auto_frontend_testing_agent` PASS: collection-to-collection route switching no longer leaves stale product names/specs behind.
+
+
 ### [Aug 22, 2026 — Forked session, part 2] 🟢 Series Rename in the DRAWER + Auto-fix all DELETED — VERIFIED
 
 **Owner feedback** (screenshot of live tilestation.co.uk Name Sanity drawer): "I don't see any difference… what is that auto-fix all, if it's crap then delete that shit and tell me where you made the changes."
