@@ -90,43 +90,64 @@ def get_db():
     return client[os.environ.get('DB_NAME', 'tile_station')]
 
 
+EXTENSION_SRC_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "extensions-final", "TileStation-Verona")
+EXTENSION_ZIP_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "static", "extensions")
+
+
+def _extension_version() -> str:
+    try:
+        with open(os.path.join(EXTENSION_SRC_DIR, "manifest.json")) as f:
+            return json.load(f).get("version", "0")
+    except Exception:
+        return "0"
+
+
+def _build_extension_zip() -> str:
+    """Zip the tracked extension source (always in the repo) so the download can
+    never 404 on a fresh deploy — the pre-built zips are optional."""
+    import zipfile
+    version = _extension_version()
+    os.makedirs(EXTENSION_ZIP_DIR, exist_ok=True)
+    out = os.path.join(EXTENSION_ZIP_DIR, f"verona-sync-extension-v{version}.zip")
+    if os.path.exists(out):
+        return out
+    with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as zf:
+        for root, _dirs, files in os.walk(EXTENSION_SRC_DIR):
+            for fn in files:
+                if fn == ".DS_Store":
+                    continue
+                full = os.path.join(root, fn)
+                zf.write(full, os.path.relpath(full, EXTENSION_SRC_DIR))
+    logger.info(f"Built Verona extension zip v{version} at {out}")
+    return out
+
+
+@router.get("/verona/extension/version")
+def verona_extension_version():
+    return {"version": _extension_version()}
+
+
 @router.get("/verona/extension/download")
 def download_verona_extension():
-    """
-    Download the Verona browser extension ZIP file
-    """
-    # Check multiple possible locations - latest version first
-    possible_paths = [
-        "/app/backend/static/extensions/verona-sync-extension-v6.1.zip",
-        "/app/frontend/public/verona-sync-extension-v6.1.zip",
-        "/app/backend/static/extensions/verona-sync-extension-v6.0.zip",
-        "/app/frontend/public/verona-sync-extension-v6.0.zip",
-        "/app/backend/static/extensions/verona-sync-extension-v5.1.zip",
-        "/app/frontend/public/verona-sync-extension-v5.1.zip",
-        "/app/frontend/public/verona-sync-extension-v5.0.zip",
-        "/app/frontend/public/verona-sync-extension-v4.9.zip",
-        "/app/frontend/public/verona-sync-extension-v4.8.zip",
-        "/app/frontend/public/verona-sync-extension-v4.6.zip",
-        "/app/frontend/public/verona-sync-extension-v4.5.zip",
-        "/app/frontend/public/verona-sync-extension-v4.4.zip",
-        "/app/frontend/public/verona-sync-extension-v4.3.zip",
-        "/app/frontend/public/verona-sync-extension-v4.1.zip",
-        "/app/frontend/public/verona-sync-extension-v4.0.zip",
-        "/app/frontend/public/verona-sync-extension-v3.1.zip",
-        "/app/browser-extension.zip",
-        "/app/frontend/public/verona-extension.zip",
-        "/app/browser-extension/verona-extension.zip"
+    """Download the Verona browser extension ZIP (built from source if the pre-built zip is missing)."""
+    version = _extension_version()
+    candidates = [
+        os.path.join(EXTENSION_ZIP_DIR, f"verona-sync-extension-v{version}.zip"),
+        f"/app/frontend/public/verona-sync-extension-v{version}.zip",
     ]
-    
-    for path in possible_paths:
-        if os.path.exists(path):
-            return FileResponse(
-                path,
-                media_type="application/zip",
-                filename=f"TileStation-Verona-Extension-{os.path.basename(path).split('-')[-1].replace('.zip','')}.zip"
-            )
-    
-    raise HTTPException(status_code=404, detail="Extension file not found")
+    path = next((p for p in candidates if os.path.exists(p)), None)
+    if not path:
+        try:
+            path = _build_extension_zip()
+        except Exception as e:
+            logger.error(f"Extension zip build failed: {e}")
+            raise HTTPException(status_code=404, detail=f"Extension file not found ({e})")
+    return FileResponse(
+        path,
+        media_type="application/zip",
+        filename=f"TileStation-Verona-Extension-v{version}.zip",
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @router.get("/verona/last-receive")
