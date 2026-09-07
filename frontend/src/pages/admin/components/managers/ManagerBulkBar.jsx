@@ -272,7 +272,7 @@ const ManagerBulkBar = ({
           disabled={saving}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/15 hover:bg-white/25 transition text-[13px] font-medium"
           data-testid="bar-bulk-fields"
-          title="Everything pricing in one place: Now / Was (sale & clearance) price, cost, stock · pallets, pallet-only & delivery charges per item · tier discounts, trade %"
+          title="Everything pricing in one place: Now / Was £ with SALE + CLEARANCE ticks, cost, stock · pallets, pallet-only & delivery charges per item · tier discounts, trade %"
         >
           <PoundSterling className="w-3.5 h-3.5" />
           Pricing
@@ -311,10 +311,10 @@ const ManagerBulkBar = ({
           disabled={saving}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/15 hover:bg-white/25 transition text-[13px] font-medium"
           data-testid="bar-sale-labels"
-          title="Apply Sale % + Labels (Sale, Clearance, New Arrival, Best Seller, Limited Stock)"
+          title="Labels: New Arrival, Best Seller, Limited Stock, custom. (SALE + CLEARANCE are in Pricing so badge and price stay together)"
         >
           <Tag className="w-3.5 h-3.5" />
-          Sale / Labels
+          Labels
         </button>
       )}
       {!hidden.has('clearance') && onMarkClearance && (

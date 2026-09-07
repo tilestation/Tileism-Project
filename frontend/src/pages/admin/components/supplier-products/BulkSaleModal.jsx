@@ -26,6 +26,8 @@ import {
 } from 'lucide-react';
 
 const PRESET_LABELS = ['Sale', 'Clearance', 'New Arrival', 'Limited Stock', 'Best Seller'];
+// Managers: SALE + CLEARANCE live in the Pricing hub (prices and badges together)
+const LABELS_ONLY_PRESETS = ['New Arrival', 'Limited Stock', 'Best Seller'];
 
 const BulkSaleModal = ({
   open,
@@ -37,7 +39,9 @@ const BulkSaleModal = ({
   setForm,
   loading,
   onApply,
+  labelsOnly = false,
 }) => {
+  const presets = labelsOnly ? LABELS_ONLY_PRESETS : PRESET_LABELS;
   const [showProductList, setShowProductList] = useState(false);
   const [targetProducts, setTargetProducts] = useState(new Set());
 
@@ -64,9 +68,14 @@ const BulkSaleModal = ({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Tag className="w-5 h-5 text-rose-600" />
-            Bulk Sale & Labels ({selectedProducts.size} products)
+            {labelsOnly ? 'Labels' : 'Bulk Sale & Labels'} ({selectedProducts.size} products)
           </DialogTitle>
         </DialogHeader>
+        {labelsOnly && (
+          <p className="text-[11px] text-slate-600 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2" data-testid="labels-only-note">
+            <b>SALE</b> and <b>CLEARANCE</b> are set in <b>Pricing → Prices &amp; Sale</b> (tick boxes next to each price) so the badge and the Was / Now price always match.
+          </p>
+        )}
         
         <div className="space-y-6">
           {/* Action Type */}
@@ -100,7 +109,7 @@ const BulkSaleModal = ({
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">Select Labels</label>
               <div className="flex flex-wrap gap-2">
-                {PRESET_LABELS.map(label => (
+                {presets.map(label => (
                   <button
                     key={label}
                     onClick={() => {
@@ -125,7 +134,7 @@ const BulkSaleModal = ({
           )}
 
           {/* Bulk Discount */}
-          {form.action !== 'clear' && (
+          {!labelsOnly && form.action !== 'clear' && (
             <div className="border-t pt-4">
               <div className="flex items-center gap-2 mb-4">
                 <input
@@ -310,7 +319,7 @@ const BulkSaleModal = ({
             <div className="bg-orange-50 border border-orange-200 p-3 rounded-lg">
               <p className="text-sm text-orange-800 flex items-center gap-2">
                 <AlertTriangle className="w-4 h-4" />
-                This will remove ALL labels and sale pricing from {targetCount} products.
+                This will remove ALL labels{labelsOnly ? '' : ' and sale pricing'} from {targetCount} products.
               </p>
             </div>
           )}

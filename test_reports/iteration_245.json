@@ -1,0 +1,31 @@
+{
+  "summary": "Iteration 245 — Live Pricing Hub + SALE/CLEARANCE mirroring end-to-end. Backend: 7/7 pytest passed (live-pricing report + push, bulk-sale-pricing set/clear + errors, bulk-labels add/remove mirror, quick-update mirror on set and clear). Frontend: verified Price column with SALE tag/Clearance tag, bulk bar 'Labels' (no 'Sale / Labels', no bar-delivery-charge), Pricing Hub live-pricing status strip (ok + mismatch + diff row + push), Edit-each Quick fill bar + per-row SALE/CLEARANCE ticks + dynamic 'Save N changed' button (auto-disabled at 0), Edit-each per-item save (Was auto-ticks SALE, CLEARANCE tick), toast 'Saved 2 products', Mongo mirrored on supplier_products AND tiles. Labels modal is labels-only with New Arrival/Limited Stock/Best Seller and no Apply Discount/Sale/Clearance chips. Quick Edit drawer 'Sale & Clearance' card renders with all testids.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {"flow": "Labels modal apply via automation", "issue": "In the automated test, clicking 'Apply to N Products' did not always trigger a DB write (labels never appeared for LP-1631). Modal remained open on second attempt. This could be a Playwright/click-interception issue rather than a functional bug — the underlying /api/supplier-sync/products/bulk-labels endpoint is verified working in backend pytest (add/remove mirror to sp+tiles). Suggest main agent manually verify or add a stronger data-testid on the primary Apply button (e.g. bar-labels-apply)", "affected_selectors": ["role=dialog >> button:has-text('Apply to')"]}
+    ],
+    "design_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_live_pricing_hub_iter245.py", "/app/test_reports/pytest/iter245.xml"],
+  "action_items": [
+    "Optional: add data-testid='bar-labels-apply' (or similar) to the primary Apply button in BulkSaleModal.jsx so automation can target it unambiguously; also consider data-testid on Apply-Discount-free labelsOnly submit button.",
+    "Console has repeated 403s on some Admin resource(s) (image/logo fetches?) — worth checking but not blocking; no functional impact seen in tested flows.",
+    "React 'Each child in a list should have a unique key prop' warning in AdminDashboard render — cosmetic but noisy."
+  ],
+  "critical_code_review_comments": [
+    "quick_update_supplier_product now unsets was_price/discount_percentage when sale_active is cleared and mirrors to tiles — good, verified.",
+    "bulk_update_sale_pricing correctly manages the 'Sale' label alongside was_price/sale_active on BOTH collections and rejects was_price ≤ current price.",
+    "GET /products/live-pricing correctly flags stray tile pallet payload against pallet_enabled=false in draft and push-live-pricing clears it — this covers the exact bug the owner reported ('pricing changes not reflecting on storefront').",
+    "Manager Price column (price-cell-{sku}) works, with sale-tag-{sku} and clearance-tag-{sku} rendering; SALE % is computed against was/now."
+  ],
+  "updated_files": ["/app/backend/tests/test_live_pricing_hub_iter245.py"],
+  "success_rate": {"backend": "100% (7/7)", "frontend": "≈95% (all specified flows verified except Labels modal DB-write via automation)"},
+  "test_credentials": "admin@test.com / admin123",
+  "seed_data_creation": "None. Test products (LP-1131/1231/1631/1132) restored to original state (price 30, no sale, no labels, no pallet). Automated snapshot/restore fixture in pytest also protects.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend pytest at /app/backend/tests/test_live_pricing_hub_iter245.py is a strong regression for supplier_sync pricing mirroring; run it after any change to _mirror_pricing_to_tiles / bulk-sale-pricing / bulk-labels / quick-update / live-pricing endpoints. Frontend testids verified: price-cell-*, sale-tag-*, clearance-tag-*, bar-sale-labels (text 'Labels'), bar-mark-clearance, bar-bulk-fields, live-pricing-status/ok/mismatch/toggle/diff/push, live-pricing-legend-toggle/legend, live-diff-{sku}-{group}, bulk-mode-edit, edit-quick-fill, fill-list_price/fill-apply-list_price, fill-sale-all-on/off, fill-clearance-all-on/off, fill-pct/fill-make-sale, edit-clear-all, bulk-edit-sale-{sku}, bulk-edit-clearance-{sku}, bulk-edit-was-{sku}, bulk-edit-price-{sku}, quick-edit-sale-panel/-sale-active/-was-price/-now-price/-clearance, labels-only-note.",
+  "rca of the issue": "Owner-reported bug ('pricing changes not reflecting on storefront') RCA — earlier writes only touched supplier_products draft while tiles (storefront read model) retained stale pallet/sale values; fix mirrors every pricing write path (quick-update, bulk-sale-pricing, bulk-labels) into tiles and adds a /live-pricing report + /push-live-pricing to reconcile drift. Verified: forcing stray pallet_price=24.99 on tiles is now detected as 'pallets' mismatch and cleared by push; forcing tile sale_active=true with no draft sale is detected as 'sale' mismatch and cleared. Regression-locked via 7 backend pytest cases + end-to-end UI walk-through."
+}

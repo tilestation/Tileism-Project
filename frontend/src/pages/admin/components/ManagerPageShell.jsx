@@ -1074,6 +1074,7 @@ const ManagerPageShell = ({
                     />
                   </th>
                   <th className="px-3 py-2 text-left font-medium text-gray-700">Product</th>
+                  <th className="px-3 py-2 text-left font-medium text-gray-700" title="What the website charges — Now £, crossed-out Was £ when on SALE, CLEARANCE badge. Change via the Pricing button or Edit">Price</th>
                   {seriesQuickEdit && (
                     <th className="px-3 py-2 text-left font-medium text-gray-700" title="Which storefront card this product groups under — click a cell to re-group it">Series</th>
                   )}
@@ -1115,7 +1116,7 @@ const ManagerPageShell = ({
                             data-testid={`${categoryKey}-series-check-${group.series}`}
                           />
                         </td>
-                        <td colSpan={columns.length + 3 + (seriesQuickEdit ? 1 : 0)} className="px-3 py-2">
+                        <td colSpan={columns.length + 4 + (seriesQuickEdit ? 1 : 0)} className="px-3 py-2">
                           <div className="flex items-center gap-2 text-sm font-semibold text-gray-800">
                             <Layers className="w-4 h-4 text-slate-500" />
                             <span>{group.series} Series</span>
@@ -1153,7 +1154,7 @@ const ManagerPageShell = ({
                     ) : (
                       <tr className="border-y border-dashed border-gray-200" data-testid={`${categoryKey}-series-header-individual`}>
                         <td className="px-3 py-2" />
-                        <td colSpan={columns.length + 3 + (seriesQuickEdit ? 1 : 0)} className="px-3 py-1 text-[11px] text-gray-500 italic">
+                        <td colSpan={columns.length + 4 + (seriesQuickEdit ? 1 : 0)} className="px-3 py-1 text-[11px] text-gray-500 italic">
                           Individual — {group.products.length} product{group.products.length !== 1 ? 's' : ''} (no series assigned)
                         </td>
                       </tr>
@@ -1211,6 +1212,29 @@ const ManagerPageShell = ({
                                 <span className="px-1.5 py-[1px] rounded bg-sky-50 text-sky-700 border border-sky-200 text-[10px] font-semibold" title="Priced and sold per unit (each), not per m²" data-testid={`per-unit-tag-${p.sku || p.supplier_code}`}>each</span>
                               )}
                             </div>
+                          </td>
+                          <td className="px-3 py-2 whitespace-nowrap" data-testid={`price-cell-${p.sku || p.supplier_code}`}>
+                            {(() => {
+                              const now = Number(p.list_price || p.retail_price || p.price || 0);
+                              const was = Number(p.was_price || 0);
+                              const saleOn = !!p.sale_active && was > now && now > 0;
+                              const clearance = [...(p.labels || []), ...(p.custom_labels || [])].some(l => String(l || '').trim().toLowerCase() === 'clearance');
+                              const unit = p.pricing_unit === 'unit' ? '/each' : '/m²';
+                              return (
+                                <div className="flex flex-col gap-0.5">
+                                  <div className="flex items-baseline gap-1.5">
+                                    {now > 0 ? <span className={`font-semibold ${saleOn ? 'text-rose-700' : 'text-gray-900'}`}>£{now.toFixed(2)}<span className="text-[10px] text-gray-400 font-normal">{unit}</span></span> : <span className="text-[11px] text-amber-600 font-medium" title="No selling price yet — set one via Pricing or Edit">no price</span>}
+                                    {saleOn && <s className="text-[11px] text-gray-400">£{was.toFixed(2)}</s>}
+                                  </div>
+                                  {(saleOn || clearance) && (
+                                    <div className="flex items-center gap-1">
+                                      {saleOn && <span className="px-1 rounded bg-rose-600 text-white text-[9px] font-bold" data-testid={`sale-tag-${p.sku || p.supplier_code}`}>SALE −{Math.round((was - now) / was * 100)}%</span>}
+                                      {clearance && <span className="px-1 rounded bg-[#e5d918] text-red-700 text-[9px] font-black uppercase" data-testid={`clearance-tag-${p.sku || p.supplier_code}`}>Clearance</span>}
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })()}
                           </td>
                           {seriesQuickEdit && (
                             <td className="px-3 py-2">
@@ -1379,8 +1403,10 @@ const ManagerPageShell = ({
       <BulkAIDescriptionsModal open={showAIDescriptions} onOpenChange={setShowAIDescriptions} selectedList={bulk.getSelectedList()} themeColor={theme} onSuccess={() => fetchProducts()} />
       <BulkImageUploadModal open={showBulkImages} onOpenChange={setShowBulkImages} selectedList={bulk.getSelectedList()} themeColor={theme} onSuccess={() => { bulk.clearAll(); fetchProducts(); }} />
 
-      {/* Sale % + Labels (Sale, Clearance, New Arrival, Limited Stock, Best Seller) */}
+      {/* Labels (New Arrival, Limited Stock, Best Seller, custom). SALE and
+          CLEARANCE are driven from the Pricing hub so prices + badges stay together. */}
       <BulkSaleModal
+        labelsOnly
         open={showBulkSaleLabels}
         onOpenChange={setShowBulkSaleLabels}
         selectedProducts={new Set([...bulk.selectedProducts])}
@@ -1396,56 +1422,30 @@ const ManagerPageShell = ({
             : selectedList;
           if (scopedList.length === 0) return;
           const productIds = scopedList.map(p => ({ sku: p.sku || p.supplier_code || p._id, supplier: p.supplier }));
-
+          if (bulkSaleForm.action !== 'clear' && bulkSaleForm.labels.length === 0 && bulkSaleForm.custom_labels.length === 0) {
+            toast.error('Pick at least one label');
+            return;
+          }
           setBulkSaleSaving(true);
           try {
-            // Labels
-            if (bulkSaleForm.labels.length > 0 || bulkSaleForm.custom_labels.length > 0 || bulkSaleForm.action === 'clear') {
-              const labelsAction = bulkSaleForm.action === 'clear' ? 'replace' : bulkSaleForm.action;
-              await fetch(`${API_URL}/api/supplier-sync/products/bulk-labels`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  product_ids: productIds,
-                  labels: bulkSaleForm.action === 'clear' ? [] : bulkSaleForm.labels,
-                  custom_labels: bulkSaleForm.action === 'clear' ? [] : bulkSaleForm.custom_labels,
-                  action: labelsAction,
-                }),
-              });
-            }
-            // Sale pricing — explicit WAS anchor or % off current price
-            const usingWas = (bulkSaleForm.saleMode || 'was') === 'was';
-            const saleValue = usingWas ? bulkSaleForm.was_price : bulkSaleForm.discount_percentage;
-            if (bulkSaleForm.applyDiscount && saleValue) {
-              await fetch(`${API_URL}/api/supplier-sync/products/bulk-sale-pricing`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  product_ids: productIds,
-                  ...(usingWas
-                    ? { was_price: parseFloat(bulkSaleForm.was_price) }
-                    : { discount_percentage: parseFloat(bulkSaleForm.discount_percentage) }),
-                  sale_active: true,
-                  clear_sale: false,
-                }),
-              });
-            }
-            // Clear-sale action
-            if (bulkSaleForm.action === 'clear') {
-              await fetch(`${API_URL}/api/supplier-sync/products/bulk-sale-pricing`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ product_ids: productIds, clear_sale: true }),
-              });
-            }
-            toast.success(`Updated ${scopedList.length} product${scopedList.length !== 1 ? 's' : ''}`);
+            const labelsAction = bulkSaleForm.action === 'clear' ? 'replace' : bulkSaleForm.action;
+            const res = await fetch(`${API_URL}/api/supplier-sync/products/bulk-labels`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                product_ids: productIds,
+                labels: bulkSaleForm.action === 'clear' ? [] : bulkSaleForm.labels,
+                custom_labels: bulkSaleForm.action === 'clear' ? [] : bulkSaleForm.custom_labels,
+                action: labelsAction,
+              }),
+            });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            toast.success(`Labels updated on ${scopedList.length} product${scopedList.length !== 1 ? 's' : ''}`);
             setShowBulkSaleLabels(false);
             setBulkSaleForm({ labels: [], custom_labels: [], discount_percentage: '', was_price: '', saleMode: 'was', action: 'add', applyDiscount: false });
-            // Keep the selection and the user's place on the page — silent
-            // refresh (no full-page spinner) so nothing jumps or deselects.
             fetchProducts(true);
           } catch (err) {
-            toast.error(`Sale/Labels update failed: ${err.message}`);
+            toast.error(`Labels update failed: ${err.message}`);
           } finally {
             setBulkSaleSaving(false);
           }
@@ -1561,6 +1561,7 @@ const ManagerPageShell = ({
         open={pricingHubOpen}
         initialTab={showTierPricing && !showBulkFields ? 'tiers' : 'prices'}
         count={bulk.getSelectedList().length}
+        selectedList={bulk.getSelectedList()}
         onOpenChange={(o) => { if (!o) closePricingHub(); }}
         pricesPanel={
           <BulkFieldsModal

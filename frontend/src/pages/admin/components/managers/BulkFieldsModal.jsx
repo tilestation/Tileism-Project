@@ -8,9 +8,10 @@
  *               (Best for: 5% collection-wide price rise, £2 cost decrease,
  *               15% sale — preserves the relative differences between SKUs.)
  *
- *   ▸ EDIT EACH Per-SKU inline table with editable inputs for NOW (list) price,
- *               WAS (crossed-out) price, Cost and Stock. Only touched rows save.
- *               (Best for: tweaking a small number of SKUs precisely.)
+ *   ▸ EDIT EACH Per-SKU table: NOW (list) price, WAS (crossed-out) price,
+ *               SALE ☐ / CLEARANCE ☐ ticks, Cost and Stock, with a Quick-fill bar
+ *               (fill a column, flip all ticks, one-click sale maker). Only
+ *               touched rows save. CLEARANCE goes through /api/clearance/mark.
  *
  * Price / cost / stock go through the verified `bulk-update-unified` endpoint.
  * Sale & Clearance pricing (WAS / NOW) goes through `bulk-sale-pricing`, the
@@ -26,10 +27,10 @@ import {
 import { Button } from '../../../../components/ui/button';
 import { Input } from '../../../../components/ui/input';
 import {
-  PoundSterling, Package, Percent, Save, RefreshCw, AlertTriangle, Plus, Minus, Equal, Edit3, TrendingUp, Undo2,
+  PoundSterling, Package, Percent, Save, RefreshCw, AlertTriangle, Plus, Minus, Equal, Edit3, TrendingUp, Undo2, Flame, Tag,
 } from 'lucide-react';
 import { useBulkUndo } from './useBulkUndo';
-import { productDisplayName } from './useManagerBulk';
+import EditEachPricing, { rowCurrent, rowFlags, rowHasChanges } from './EditEachPricing';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
 
@@ -71,12 +72,33 @@ const SetMode = ({ selectedList, values, setValues, checks, setChecks }) => {
         input={<Input type="number" step="0.01" min="0" placeholder="e.g. 12.50" value={values.cost} onChange={e => setVal('cost', e.target.value)} disabled={!checks.cost} data-testid="bulk-fields-cost" />} unit="£" />
       <FieldRow check={checks.stock} onToggle={() => toggle('stock')} label="Warehouse Stock" icon={<Package className="w-4 h-4 text-purple-600" />} avg={avg.stock}
         input={<Input type="number" step="1" min="0" placeholder="e.g. 100" value={values.stock} onChange={e => setVal('stock', e.target.value)} disabled={!checks.stock} data-testid="bulk-fields-stock" />} unit="pcs" />
-      <FieldRow check={checks.sale} onToggle={() => toggle('sale')} label="Sale / Clearance % off" icon={<Percent className="w-4 h-4 text-rose-600" />} avg={null}
+      <FieldRow check={checks.sale} onToggle={() => toggle('sale')} label="SALE — % off" icon={<Percent className="w-4 h-4 text-rose-600" />} avg={null}
         hint="Today's price stays as NOW; a crossed-out WAS is worked out from the % (rounded to .99). Enter 0 to remove the sale."
         input={<Input type="number" step="1" min="0" max="99" placeholder="e.g. 15" value={values.sale} onChange={e => setVal('sale', e.target.value)} disabled={!checks.sale} data-testid="bulk-fields-sale" />} unit="%" />
+      <BadgeRow label="CLEARANCE badge" icon={<Flame className="w-4 h-4 text-amber-600" />} value={values.clearance} onChange={(v) => setVal('clearance', v)} testKey="clearance"
+        hint="Flashing CLEARANCE badge on the website + Clearance page & leaflet. Prices are set separately above." onLabel="Mark all" offLabel="Unmark all" />
+      <BadgeRow label="SALE badge" icon={<Tag className="w-4 h-4 text-rose-600" />} value={values.saleFlag} onChange={(v) => setVal('saleFlag', v)} testKey="sale-flag"
+        hint="Remove = clears the Was £ and SALE badge on every selected product. To put items ON sale use the % row above or Was £ in Edit each." onLabel={null} offLabel="Remove sale from all" />
     </div>
   );
 };
+
+// Tri-state "leave / on / off" row for badges in Set mode
+const BadgeRow = ({ label, icon, value = 'leave', onChange, hint, onLabel, offLabel, testKey }) => (
+  <div className={`border rounded-lg p-2 flex items-center gap-3 ${value !== 'leave' ? 'border-emerald-200 bg-emerald-50/40' : 'border-gray-200'}`}>
+    <div className="w-4" />
+    <div className="w-8 h-8 rounded-md flex items-center justify-center bg-white border border-gray-100">{icon}</div>
+    <div className="flex-1 min-w-0">
+      <div className="text-sm font-medium text-gray-800">{label}</div>
+      {hint && <div className="text-[10px] text-gray-500 leading-snug">{hint}</div>}
+    </div>
+    <div className="inline-flex rounded border border-gray-300 overflow-hidden text-xs">
+      <button type="button" onClick={() => onChange('leave')} className={`px-2 py-1 ${value === 'leave' ? 'bg-slate-700 text-white' : 'bg-white text-gray-600'}`} data-testid={`bulk-badge-${testKey}-leave`}>Leave as is</button>
+      {onLabel && <button type="button" onClick={() => onChange('on')} className={`px-2 py-1 ${value === 'on' ? 'bg-amber-500 text-white' : 'bg-white text-gray-600'}`} data-testid={`bulk-badge-${testKey}-on`}>{onLabel}</button>}
+      <button type="button" onClick={() => onChange('off')} className={`px-2 py-1 ${value === 'off' ? 'bg-red-500 text-white' : 'bg-white text-gray-600'}`} data-testid={`bulk-badge-${testKey}-off`}>{offLabel}</button>
+    </div>
+  </div>
+);
 
 const FieldRow = ({ check, onToggle, label, icon, input, unit, avg, hint }) => (
   <div className={`border rounded-lg p-2 flex items-center gap-3 ${check ? 'border-emerald-200 bg-emerald-50/40' : 'border-gray-200'}`}>
@@ -182,86 +204,11 @@ const AdjustMode = ({ selectedList, adjust, setAdjust }) => {
   );
 };
 
-// --------------- Edit each mode ---------------
-const EditEachMode = ({ selectedList, edits, setEdits }) => {
-  const setCell = (sku, field, v) => setEdits(prev => ({ ...prev, [sku]: { ...(prev[sku] || {}), [field]: v } }));
-  return (
-    <div className="space-y-2">
-      <div className="bg-purple-50 border border-purple-100 text-purple-700 text-[11px] p-2 rounded flex items-start gap-1.5">
-        <Edit3 className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
-        <span>
-          Change any cell — only rows you touch are saved, blank = unchanged.{' '}
-          <b>Now £</b> is the selling price. <b>Was £</b> is the crossed-out price that turns on the SALE / CLEARANCE saving
-          (must be higher than Now; enter <b>0</b> to remove it).
-        </span>
-      </div>
-      <div className="max-h-[45vh] overflow-auto border border-gray-200 rounded-lg">
-        <table className="w-full min-w-[720px] text-xs">
-          <thead className="bg-gray-50 border-b border-gray-200 sticky top-0 z-10">
-            <tr>
-              <th className="px-2 py-2 text-left font-medium text-gray-700 w-[38%]">Product</th>
-              <th className="px-2 py-2 text-left font-medium text-gray-700">Now £</th>
-              <th className="px-2 py-2 text-left font-medium text-rose-700">Was £</th>
-              <th className="px-2 py-2 text-left font-medium text-gray-700">Cost £</th>
-              <th className="px-2 py-2 text-left font-medium text-gray-700">Stock</th>
-            </tr>
-          </thead>
-          <tbody>
-            {selectedList.map(p => {
-              const sku = p.sku || p.supplier_code;
-              const row = edits[sku] || {};
-              const name = productDisplayName(p);
-              const curWas = Number(p.was_price || 0);
-              const curNow = Number(p.list_price || p.retail_price || p.price || 0);
-              return (
-                <tr key={sku} className="border-b border-gray-100 align-top" data-testid={`bulk-edit-row-${sku}`}>
-                  <td className="px-2 py-1.5">
-                    <div className="font-medium text-gray-900 whitespace-normal break-words leading-snug" title={name} data-testid={`bulk-edit-name-${sku}`}>{name}</div>
-                    <div className="text-[10px] text-gray-500">{p.supplier} · {sku}</div>
-                  </td>
-                  <td className="px-2 py-1">
-                    <div className="flex items-baseline gap-1">
-                      <span className="text-[10px] text-gray-400">£{curNow.toFixed(2)}</span>
-                    </div>
-                    <Input type="number" step="0.01" min="0" placeholder="new" value={row.list_price ?? ''} onChange={(e) => setCell(sku, 'list_price', e.target.value)} className="h-7 text-xs" data-testid={`bulk-edit-price-${sku}`} />
-                  </td>
-                  <td className="px-2 py-1">
-                    <div className="flex items-baseline gap-1">
-                      <span className="text-[10px] text-gray-400">
-                        {curWas > curNow && curNow > 0
-                          ? <><s>£{curWas.toFixed(2)}</s> <span className="text-rose-600 font-semibold">−{Math.round((curWas - curNow) / curWas * 100)}%</span></>
-                          : 'no sale'}
-                      </span>
-                    </div>
-                    <Input type="number" step="0.01" min="0" placeholder="was" value={row.was_price ?? ''} onChange={(e) => setCell(sku, 'was_price', e.target.value)} className="h-7 text-xs border-rose-200 focus-visible:ring-rose-300" data-testid={`bulk-edit-was-${sku}`} />
-                  </td>
-                  <td className="px-2 py-1">
-                    <div className="flex items-baseline gap-1">
-                      <span className="text-[10px] text-gray-400">£{Number(p.cost_price || 0).toFixed(2)}</span>
-                    </div>
-                    <Input type="number" step="0.01" min="0" placeholder="new" value={row.cost_price ?? ''} onChange={(e) => setCell(sku, 'cost_price', e.target.value)} className="h-7 text-xs" data-testid={`bulk-edit-cost-${sku}`} />
-                  </td>
-                  <td className="px-2 py-1">
-                    <div className="flex items-baseline gap-1">
-                      <span className="text-[10px] text-gray-400">{Number(p.warehouse_stock || 0)}</span>
-                    </div>
-                    <Input type="number" step="1" min="0" placeholder="new" value={row.warehouse_stock ?? ''} onChange={(e) => setCell(sku, 'warehouse_stock', e.target.value)} className="h-7 text-xs" data-testid={`bulk-edit-stock-${sku}`} />
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-};
-
 // --------------- Main modal ---------------
 const BulkFieldsModal = ({ open, onOpenChange, selectedList = [], onSuccess, themeColor = 'orange', embedded = false }) => {
   const [mode, setMode] = useState('set');
   // Set mode state
-  const [setValues, setSetValues] = useState({ price: '', cost: '', stock: '', sale: '' });
+  const [setValues, setSetValues] = useState({ price: '', cost: '', stock: '', sale: '', clearance: 'leave', saleFlag: 'leave' });
   const [setChecks, setSetChecks] = useState({ price: false, cost: false, stock: false, sale: false });
   // Adjust mode state
   const [adjust, setAdjust] = useState({
@@ -277,7 +224,7 @@ const BulkFieldsModal = ({ open, onOpenChange, selectedList = [], onSuccess, the
 
   // Fields this modal ever touches — used to snapshot the pre-state so a
   // single Undo click can revert every mutation regardless of mode.
-  const TOUCHED_FIELDS = ['list_price', 'retail_price', 'price', 'cost_price', 'warehouse_stock', 'was_price', 'now_price', 'discount_percentage', 'sale_active'];
+  const TOUCHED_FIELDS = ['list_price', 'retail_price', 'price', 'cost_price', 'warehouse_stock', 'was_price', 'now_price', 'discount_percentage', 'sale_active', 'labels'];
 
   const themeBtn = {
     orange: 'bg-orange-600 hover:bg-orange-700 text-white',
@@ -290,7 +237,7 @@ const BulkFieldsModal = ({ open, onOpenChange, selectedList = [], onSuccess, the
   }[themeColor] || 'bg-orange-600 hover:bg-orange-700 text-white';
 
   const resetState = useCallback(() => {
-    setSetValues({ price: '', cost: '', stock: '', sale: '' });
+    setSetValues({ price: '', cost: '', stock: '', sale: '', clearance: 'leave', saleFlag: 'leave' });
     setSetChecks({ price: false, cost: false, stock: false, sale: false });
     setAdjust({
       price: { on: false, op: '+', type: 'percent', amount: '' },
@@ -303,7 +250,7 @@ const BulkFieldsModal = ({ open, onOpenChange, selectedList = [], onSuccess, the
 
   const changeCounts = useMemo(() => {
     if (mode === 'set') {
-      const count = Object.values(setChecks).filter(Boolean).length;
+      const count = Object.values(setChecks).filter(Boolean).length + (setValues.clearance !== 'leave' ? 1 : 0) + (setValues.saleFlag !== 'leave' ? 1 : 0);
       return { fields: count, rows: count > 0 ? selectedList.length : 0 };
     }
     if (mode === 'adjust') {
@@ -311,9 +258,26 @@ const BulkFieldsModal = ({ open, onOpenChange, selectedList = [], onSuccess, the
       return { fields: active, rows: active > 0 ? selectedList.length : 0 };
     }
     // edit
-    const changedRows = Object.entries(edits).filter(([sku, v]) => v && Object.values(v).some(x => x !== '' && x !== null && x !== undefined));
+    const changedRows = selectedList.filter(p => rowHasChanges(p, edits[p.sku || p.supplier_code]));
     return { fields: 0, rows: changedRows.length };
-  }, [mode, setChecks, adjust, edits, selectedList.length]);
+  }, [mode, setChecks, setValues, adjust, edits, selectedList]);
+
+  // CLEARANCE is a label — toggled through the Clearance platform so drafts,
+  // live tiles, the Clearance page and the leaflet all agree.
+  const markClearance = async (products, on) => {
+    if (products.length === 0) return { count: 0, failures: [] };
+    try {
+      const res = await fetch(`${API_URL}/api/clearance/mark`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(localStorage.getItem('token') ? { Authorization: `Bearer ${localStorage.getItem('token')}` } : {}) },
+        body: JSON.stringify({ product_ids: products.map(p => ({ sku: p.sku || p.supplier_code, supplier: p.supplier })), on }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return { count: products.length, failures: [] };
+    } catch (err) {
+      return { count: 0, failures: products.map(p => ({ sku: p.sku || p.supplier_code, message: `Clearance: ${err.message}` })) };
+    }
+  };
 
   // Post one API call per SKU (needed when values differ per SKU)
   const saveOnePerSku = async (perSkuUpdates) => {
@@ -386,7 +350,9 @@ const BulkFieldsModal = ({ open, onOpenChange, selectedList = [], onSuccess, the
         if (setChecks.stock && setValues.stock !== '') { const n = parseInt(setValues.stock, 10); if (isNaN(n) || n < 0) throw new Error('Stock invalid'); updates.warehouse_stock = n; }
         let salePct = null;
         if (setChecks.sale  && setValues.sale  !== '') { const n = parseFloat(setValues.sale);  if (isNaN(n) || n < 0 || n >= 100) throw new Error('Sale % must be 0-99'); salePct = n; }
-        if (Object.keys(updates).length === 0 && salePct === null) throw new Error('Tick at least one field and enter a value');
+        const clearanceFlag = setValues.clearance !== 'leave' ? setValues.clearance === 'on' : null;
+        const removeSale = setValues.saleFlag === 'off';
+        if (Object.keys(updates).length === 0 && salePct === null && clearanceFlag === null && !removeSale) throw new Error('Tick at least one field and enter a value');
 
         // Bulk endpoint — one call with shared updates
         const skuList = selectedList.filter(p => p.sku).map(p => p.sku);
@@ -407,6 +373,15 @@ const BulkFieldsModal = ({ open, onOpenChange, selectedList = [], onSuccess, the
           // After the price write so NOW = the new price
           const { successCount, failures } = await saveSalePricing([{ products: selectedList, payload: salePayloadFor('pct', salePct) }]);
           total = Math.max(total, successCount);
+          allFails.push(...failures.map(f => `${f.sku}: ${f.message}`));
+        } else if (removeSale) {
+          const { successCount, failures } = await saveSalePricing([{ products: selectedList, payload: { clear_sale: true } }]);
+          total = Math.max(total, successCount);
+          allFails.push(...failures.map(f => `${f.sku}: ${f.message}`));
+        }
+        if (clearanceFlag !== null) {
+          const { count, failures } = await markClearance(selectedList, clearanceFlag);
+          total = Math.max(total, count);
           allFails.push(...failures.map(f => `${f.sku}: ${f.message}`));
         }
         if (allFails.length > 0) {
@@ -455,6 +430,9 @@ const BulkFieldsModal = ({ open, onOpenChange, selectedList = [], onSuccess, the
           const sku = p.sku || p.supplier_code;
           const idField = p.sku ? 'sku' : 'supplier_code';
           const row = edits[sku] || {};
+          if (!rowHasChanges(p, row)) return null;
+          const cur = rowCurrent(p);
+          const flags = rowFlags(p, row);
           const updates = {};
           if (row.list_price !== undefined && row.list_price !== '') {
             const n = parseFloat(row.list_price); if (!isNaN(n) && n >= 0) { updates.list_price = n; updates.retail_price = n; }
@@ -465,22 +443,33 @@ const BulkFieldsModal = ({ open, onOpenChange, selectedList = [], onSuccess, the
           if (row.warehouse_stock !== undefined && row.warehouse_stock !== '') {
             const n = parseInt(row.warehouse_stock, 10); if (!isNaN(n) && n >= 0) updates.warehouse_stock = n;
           }
-          let was = null;
-          if (row.was_price !== undefined && row.was_price !== '') {
-            const n = parseFloat(row.was_price); if (!isNaN(n) && n >= 0) was = round2(n);
+          const newNow = updates.list_price ?? cur.now;
+          const wasTyped = (row.was_price !== undefined && row.was_price !== '') ? round2(parseFloat(row.was_price) || 0) : null;
+          // SALE: off (or Was 0) ⇒ clear; on ⇒ needs a Was above Now (typed, or the saved one)
+          let sale = null;
+          if (wasTyped === 0 || (flags.sale === false && (cur.saleOn || cur.was > 0))) {
+            sale = { clear_sale: true };
+          } else if (flags.sale) {
+            const was = wasTyped > 0 ? wasTyped : cur.was;
+            const saleTouched = row.sale === true || wasTyped !== null || (updates.list_price !== undefined && cur.saleOn);
+            if (saleTouched) {
+              if (!(was > 0)) throw new Error(`${sku}: SALE is ticked — enter a Was £ (the crossed-out price)`);
+              if (was <= newNow) throw new Error(`${sku}: Was £${was.toFixed(2)} must be higher than Now £${Number(newNow).toFixed(2)}`);
+              sale = { was_price: was, sale_active: true };
+            }
           }
-          return { sku, idField, updates, was, product: p };
-        }).filter(x => Object.keys(x.updates).length > 0 || x.was !== null);
+          const clearance = (row.clearance !== undefined && row.clearance !== cur.clearance) ? row.clearance : null;
+          return { sku, idField, updates, sale, clearance, product: p };
+        }).filter(Boolean);
         if (perSku.length === 0) throw new Error('Fill in at least one cell to save');
-        // Local sanity check so a bad WAS never reaches the server silently
-        const badWas = perSku.filter(x => x.was !== null && x.was > 0 && x.was <= (x.updates.list_price ?? Number(x.product.list_price || x.product.retail_price || x.product.price || 0)));
-        if (badWas.length) throw new Error(`Was £ must be higher than Now £ — check ${badWas.map(x => x.sku).join(', ')}`);
         const { successCount: c1, failures: f1 } = await saveOnePerSku(perSku.filter(x => Object.keys(x.updates).length > 0));
-        const wasGroups = perSku.filter(x => x.was !== null).map(x => ({ products: [x.product], payload: salePayloadFor('was', x.was) }));
-        const { successCount: c2, failures: f2 } = wasGroups.length ? await saveSalePricing(wasGroups) : { successCount: 0, failures: [] };
-        const successCount = Math.max(c1, c2); const failures = [...f1, ...f2];
-        if (failures.length === 0) successMsg = `Saved ${successCount} product${successCount !== 1 ? 's' : ''}`;
-        else { hadFailures = true; toast.warning(`${successCount} saved, ${failures.length} failed — see console`, { duration: 12000 }); }
+        const saleGroups = perSku.filter(x => x.sale).map(x => ({ products: [x.product], payload: x.sale }));
+        const { successCount: c2, failures: f2 } = saleGroups.length ? await saveSalePricing(saleGroups) : { successCount: 0, failures: [] };
+        const { count: c3, failures: f3 } = await markClearance(perSku.filter(x => x.clearance === true).map(x => x.product), true);
+        const { count: c4, failures: f4 } = await markClearance(perSku.filter(x => x.clearance === false).map(x => x.product), false);
+        const successCount = Math.max(c1, c2, c3, c4); const failures = [...f1, ...f2, ...f3, ...f4];
+        if (failures.length === 0) successMsg = `Saved ${perSku.length} product${perSku.length !== 1 ? 's' : ''}`;
+        else { hadFailures = true; toast.warning(`${successCount} saved, ${failures.length} failed — ${failures.slice(0, 3).map(f => `${f.sku}: ${f.message}`).join(' · ')}`, { duration: 15000 }); }
         if (failures.length > 0) console.warn('[Bulk Edit-each] Failures:', failures);
       }
       // Fire the shared 15s Undo toast when the save was fully successful.
@@ -508,7 +497,7 @@ const BulkFieldsModal = ({ open, onOpenChange, selectedList = [], onSuccess, the
           {[
             { key: 'set',    label: 'Set all to same',  hint: 'Same price for every product',      icon: Equal },
             { key: 'adjust', label: 'Adjust each',      hint: 'Bump by % or £ — keeps differences', icon: TrendingUp },
-            { key: 'edit',   label: 'Edit each',        hint: 'Per-SKU inline table',              icon: Edit3 },
+            { key: 'edit',   label: 'Edit each',        hint: 'Per-SKU table · SALE / CLEARANCE ticks · quick fill', icon: Edit3 },
           ].map(t => (
             <button
               key={t.key}
@@ -530,7 +519,7 @@ const BulkFieldsModal = ({ open, onOpenChange, selectedList = [], onSuccess, the
         <div className="pt-2 max-h-[60vh] overflow-y-auto">
           {mode === 'set'    && <SetMode    selectedList={selectedList} values={setValues} setValues={setSetValues} checks={setChecks} setChecks={setSetChecks} />}
           {mode === 'adjust' && <AdjustMode selectedList={selectedList} adjust={adjust} setAdjust={setAdjust} />}
-          {mode === 'edit'   && <EditEachMode selectedList={selectedList} edits={edits} setEdits={setEdits} />}
+          {mode === 'edit'   && <EditEachPricing selectedList={selectedList} edits={edits} setEdits={setEdits} />}
         </div>
 
         <div className="flex items-start gap-2 text-[11px] text-amber-700 bg-amber-50 border border-amber-100 rounded p-2 mt-2">
@@ -553,11 +542,11 @@ const BulkFieldsModal = ({ open, onOpenChange, selectedList = [], onSuccess, the
             </span>
           </span>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>Cancel</Button>
-          <Button onClick={handleSave} disabled={saving} className={themeBtn} data-testid="bulk-fields-save">
+          <Button onClick={handleSave} disabled={saving || (mode === 'edit' && changeCounts.rows === 0)} className={themeBtn} data-testid="bulk-fields-save">
             {saving ? <RefreshCw className="w-4 h-4 mr-1 animate-spin" /> : <Save className="w-4 h-4 mr-1" />}
             {mode === 'set'    && `Save to ${selectedList.length}`}
             {mode === 'adjust' && `Adjust ${selectedList.length}`}
-            {mode === 'edit'   && `Save ${changeCounts.rows || selectedList.length}`}
+            {mode === 'edit'   && `Save ${changeCounts.rows} changed`}
           </Button>
         </Footer>
     </>

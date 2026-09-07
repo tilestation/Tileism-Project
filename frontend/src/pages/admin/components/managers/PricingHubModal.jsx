@@ -11,14 +11,15 @@
 import React, { useEffect, useState } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../../../../components/ui/dialog';
 import { PoundSterling, Percent, Truck } from 'lucide-react';
+import LivePricingStatus from './LivePricingStatus';
 
 const TABS = [
-  { key: 'prices',  label: 'Prices & Sale',            hint: 'Now / Was £ · cost · stock',                          icon: PoundSterling, testid: 'pricing-hub-tab-prices' },
+  { key: 'prices',  label: 'Prices & Sale',            hint: 'Now / Was £ · SALE · CLEARANCE · cost · stock',       icon: PoundSterling, testid: 'pricing-hub-tab-prices' },
   { key: 'pallets', label: 'Pallets & Delivery',       hint: 'Pallet only · pallet rates · delivery £ — per item',  icon: Truck,         testid: 'pricing-hub-tab-pallets' },
   { key: 'tiers',   label: 'Volume & Trade Discounts', hint: 'Quantity tiers · trade % / £ · credit back',          icon: Percent,       testid: 'pricing-hub-tab-tiers' },
 ];
 
-const PricingHubModal = ({ open, onOpenChange, initialTab = 'prices', count = 0, pricesPanel, palletsPanel, tierPanel }) => {
+const PricingHubModal = ({ open, onOpenChange, initialTab = 'prices', count = 0, selectedList = [], pricesPanel, palletsPanel, tierPanel }) => {
   const [tab, setTab] = useState(initialTab);
   useEffect(() => { if (open) setTab(initialTab); }, [open, initialTab]);
   const panel = { prices: pricesPanel, pallets: palletsPanel, tiers: tierPanel }[tab];
@@ -33,6 +34,7 @@ const PricingHubModal = ({ open, onOpenChange, initialTab = 'prices', count = 0,
             <span className="ml-2 text-xs font-normal text-gray-500">Prices, pallets, delivery and discounts — all in one place</span>
           </DialogTitle>
         </DialogHeader>
+        {open && <LivePricingStatus selectedList={selectedList} />}
         <div className="flex gap-1 border-b border-gray-200">
           {TABS.map(t => (
             <button

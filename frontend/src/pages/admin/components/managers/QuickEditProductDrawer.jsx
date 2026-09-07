@@ -19,7 +19,7 @@
  */
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { toast } from 'sonner';
-import { ChevronDown, ChevronRight, Sliders, Tag, ExternalLink, Percent, FileText, Eye, Layers, Palette, Ruler, Sparkles, Link2, PenLine, X as XIcon, Pin, Search, Heart, PackagePlus, LayoutGrid, Check, Truck } from 'lucide-react';
+import { ChevronDown, ChevronRight, Sliders, Tag, ExternalLink, Percent, FileText, Eye, Layers, Palette, Ruler, Sparkles, Link2, PenLine, X as XIcon, Pin, Search, Heart, PackagePlus, LayoutGrid, Check, Truck, Flame } from 'lucide-react';
 import QuickEditModal from '../supplier-products/QuickEditModal';
 import SellingRulesCard from './SellingRulesCard';
 import { rowFromProduct, rulesChanged, validateRules, palletPayload, deliveryPayload, saveSellingRules } from './sellingRules';
@@ -27,6 +27,7 @@ import { getSeriesName } from '../../lib/series';
 import { fetchShopTabDestinations, filterShopTabPagesForManager } from '../../lib/shopTabDestinations';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
+const isClearanceLabel = (l) => String(l || '').trim().toLowerCase() === 'clearance';
 
 const emptyForm = () => ({
   name: '',
@@ -50,7 +51,7 @@ const emptyForm = () => ({
   // SAVE Z, N% OFF" ribbon controls directly in Quick Edit.
   sale_active: false,
   was_price: '',
-  sale_price: '',
+  clearance: false,
   // Rich long description that renders on the customer /shop/collection page
   // under "About This Product". Stored as a plain string (markdown-lite).
   description: '',
@@ -138,7 +139,7 @@ const QuickEditProductDrawer = ({ open, onOpenChange, product, onSaved, previewI
       // don't have to open a separate bulk modal for a single product.
       sale_active: !!product.sale_active,
       was_price: product.was_price ?? '',
-      sale_price: product.sale_price ?? '',
+      clearance: [...(product.labels || []), ...(product.custom_labels || [])].some(isClearanceLabel),
       description: product.description || product.short_description || '',
     });
     setDisplayCodePreview(displayCode);
@@ -216,6 +217,11 @@ const QuickEditProductDrawer = ({ open, onOpenChange, product, onSaved, previewI
       const err = validateRules(rules, 'Pallets & Delivery');
       if (err) { toast.error(err); return; }
     }
+    if (form.sale_active) {
+      const was = parseFloat(form.was_price); const now = parseFloat(form.price);
+      if (!(was > 0)) { toast.error('SALE is ticked — enter the Was £ (crossed-out price)'); return; }
+      if (!(now > 0) || was <= now) { toast.error(`Was £${was.toFixed(2)} must be higher than the List (Now) price £${(now || 0).toFixed(2)}`); return; }
+    }
     setLoading(true);
     try {
       const updateData = {
@@ -244,9 +250,15 @@ const QuickEditProductDrawer = ({ open, onOpenChange, product, onSaved, previewI
         image: form.images.length > 0 ? form.images[0] : null,
         // Sale + description — persist directly via quick-update so admins
         // don't need the bulk modal for a single product.
-        sale_active: form.sale_active,
-        was_price: form.was_price === '' ? null : parseFloat(form.was_price),
-        sale_price: form.sale_price === '' ? null : parseFloat(form.sale_price),
+        sale_active: !!form.sale_active,
+        was_price: (!form.sale_active || form.was_price === '') ? null : parseFloat(form.was_price),
+        // CLEARANCE is a label — send the full list only when the tick changed
+        ...(form.clearance !== [...(product.labels || []), ...(product.custom_labels || [])].some(isClearanceLabel)
+          ? { labels: form.clearance
+              ? [...(product.labels || []).filter(l => !isClearanceLabel(l)), 'Clearance']
+              : (product.labels || []).filter(l => !isClearanceLabel(l)),
+            ...(form.clearance ? {} : { custom_labels: (product.custom_labels || []).filter(l => !isClearanceLabel(l)) }) }
+          : {}),
         description: form.description,
         related_products: relatedPins.map(p => ({
           sku: p.sku,
@@ -442,31 +454,34 @@ const QuickEditProductDrawer = ({ open, onOpenChange, product, onSaved, previewI
   // see the customer-facing chip preview as they type.
   const saleMath = useMemo(() => {
     const was = parseFloat(form.was_price);
-    const now = parseFloat(form.sale_price);
+    const now = parseFloat(form.price);
     if (!Number.isFinite(was) || !Number.isFinite(now) || was <= 0 || now <= 0 || now >= was) return null;
     const save = was - now;
     const pct = Math.round((save / was) * 100);
     return { save: save.toFixed(2), pct };
-  }, [form.was_price, form.sale_price]);
+  }, [form.was_price, form.price]);
 
   // Sale + Description panel JSX — rendered in the QuickEditModal below the
   // Featured toggle, above the More Specs collapsible.
   const saleAndDescriptionPanel = (
     <div className="space-y-3">
-      {/* Sale ribbon controls */}
-      <div className="border border-rose-100 rounded-lg overflow-hidden">
+      {/* Sale + Clearance — the two customer-facing badges */}
+      <div className="border border-rose-100 rounded-lg overflow-hidden" data-testid="quick-edit-sale-panel">
         <div className="px-3 py-2 bg-rose-50 border-b border-rose-100 flex items-center gap-2 text-sm font-medium text-rose-800">
           <Tag className="w-4 h-4" />
-          <span>Sale Panel</span>
+          <span>Sale &amp; Clearance</span>
           <span className="ml-1 text-[10px] uppercase tracking-wider text-rose-500">
-            Controls the customer WAS/NOW/SAVE ribbon
+            WAS / NOW ribbon · flashing CLEARANCE badge
           </span>
-          {form.sale_active && saleMath && (
-            <div className="ml-auto flex items-center gap-1.5 text-[11px] font-semibold">
-              <span className="px-1.5 py-0.5 rounded bg-white text-rose-700 border border-rose-200">SAVE £{saleMath.save}</span>
-              <span className="px-1.5 py-0.5 rounded bg-rose-600 text-white">{saleMath.pct}% OFF</span>
-            </div>
-          )}
+          <div className="ml-auto flex items-center gap-1.5 text-[11px] font-semibold">
+            {form.sale_active && saleMath && (
+              <>
+                <span className="px-1.5 py-0.5 rounded bg-white text-rose-700 border border-rose-200">SAVE £{saleMath.save}</span>
+                <span className="px-1.5 py-0.5 rounded bg-rose-600 text-white">{saleMath.pct}% OFF</span>
+              </>
+            )}
+            {form.clearance && <span className="px-1.5 py-0.5 rounded bg-[#e5d918] text-red-700 uppercase font-black" data-testid="quick-edit-tag-clearance">Clearance</span>}
+          </div>
         </div>
         <div className="p-3 bg-white grid grid-cols-3 gap-3">
           <label className="col-span-3 flex items-center gap-2 text-sm cursor-pointer" data-testid="quick-edit-sale-active-toggle">
@@ -474,44 +489,51 @@ const QuickEditProductDrawer = ({ open, onOpenChange, product, onSaved, previewI
               type="checkbox"
               checked={!!form.sale_active}
               onChange={(e) => setFormField('sale_active', e.target.checked)}
-              className="w-4 h-4"
+              className="w-4 h-4 accent-rose-600"
+              data-testid="quick-edit-sale-active"
             />
-            <span className="font-medium">Sale is active for this product</span>
-            <span className="text-[11px] text-gray-500">— shows the red Sale ribbon + WAS/NOW panel on the landing page</span>
+            <span className="font-medium">SALE</span>
+            <span className="text-[11px] text-gray-500">— red SALE badge + crossed-out Was £; the List price above is the Now £ customers pay</span>
           </label>
           <div>
-            <label className="block text-[11px] font-medium text-gray-600 mb-1">WAS Price (£)</label>
+            <label className="block text-[11px] font-medium text-gray-600 mb-1">Was £ (crossed out)</label>
             <input
               type="number"
               step="0.01"
+              min="0"
               value={form.was_price ?? ''}
               onChange={(e) => setFormField('was_price', e.target.value)}
               placeholder="58.99"
-              className="w-full h-8 text-xs border border-gray-300 rounded px-2"
+              className="w-full h-8 text-xs border border-rose-200 rounded px-2"
               data-testid="quick-edit-was-price"
               disabled={!form.sale_active}
             />
           </div>
           <div>
-            <label className="block text-[11px] font-medium text-gray-600 mb-1">NOW Price (£)</label>
-            <input
-              type="number"
-              step="0.01"
-              value={form.sale_price ?? ''}
-              onChange={(e) => setFormField('sale_price', e.target.value)}
-              placeholder="44.99"
-              className="w-full h-8 text-xs border border-gray-300 rounded px-2"
-              data-testid="quick-edit-sale-price"
-              disabled={!form.sale_active}
-            />
-          </div>
-          <div>
-            <label className="block text-[11px] font-medium text-gray-600 mb-1">Computed</label>
-            <div className="h-8 text-xs border border-gray-200 rounded px-2 bg-gray-50 flex items-center gap-1.5 text-gray-500">
-              <Percent className="w-3 h-3" />
-              {saleMath ? <span className="text-emerald-700 font-semibold">£{saleMath.save} · {saleMath.pct}%</span> : <span>set both prices</span>}
+            <label className="block text-[11px] font-medium text-gray-600 mb-1">Now £ (= List price)</label>
+            <div className="h-8 text-xs border border-gray-200 rounded px-2 bg-gray-50 flex items-center font-mono" data-testid="quick-edit-now-price">
+              £{Number(form.price || 0).toFixed(2)}
             </div>
           </div>
+          <div>
+            <label className="block text-[11px] font-medium text-gray-600 mb-1">Customer saves</label>
+            <div className="h-8 text-xs border border-gray-200 rounded px-2 bg-gray-50 flex items-center gap-1.5 text-gray-500">
+              <Percent className="w-3 h-3" />
+              {saleMath ? <span className="text-emerald-700 font-semibold">£{saleMath.save} · {saleMath.pct}%</span> : <span>{form.sale_active ? 'Was must be above Now' : 'not on sale'}</span>}
+            </div>
+          </div>
+          <label className={`col-span-3 flex items-center gap-2 text-sm cursor-pointer rounded-md border p-2 ${form.clearance ? 'bg-amber-50 border-amber-300' : 'border-gray-200'}`} data-testid="quick-edit-clearance-toggle">
+            <input
+              type="checkbox"
+              checked={!!form.clearance}
+              onChange={(e) => setFormField('clearance', e.target.checked)}
+              className="w-4 h-4 accent-amber-600"
+              data-testid="quick-edit-clearance"
+            />
+            <Flame className="w-4 h-4 text-amber-600" />
+            <span className="font-medium">CLEARANCE</span>
+            <span className="text-[11px] text-gray-500">— flashing badge on the website, listed on the Clearance page &amp; leaflet. Combine with SALE for a Was / Now price.</span>
+          </label>
         </div>
       </div>
 

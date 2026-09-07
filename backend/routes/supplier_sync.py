@@ -5743,6 +5743,9 @@ def quick_update_supplier_product(data: QuickUpdateRequest):
             update_fields["original_series"] = data.original_series
         if data.price is not None:
             update_fields["price"] = data.price
+            # list_price is what the managers / Pricing hub read — keep both in step
+            update_fields["list_price"] = data.price
+            update_fields["room_lot_price"] = data.price
             update_fields["price_locked"] = True  # Lock price from sync overwrites
             update_fields["price_locked_at"] = datetime.now(timezone.utc)
         if data.cost_price is not None:
@@ -5782,6 +5785,17 @@ def quick_update_supplier_product(data: QuickUpdateRequest):
             update_fields["discount_percentage"] = data.discount_percentage
         if data.sale_active is not None:
             update_fields["sale_active"] = data.sale_active
+        # Sale OFF wipes the WAS anchor so no stale strike-through can linger;
+        # Sale ON with a WAS derives the % from WAS vs the selling price.
+        unset_fields = {}
+        if data.sale_active is False:
+            for f in ("was_price", "now_price", "sale_price", "discount_percentage"):
+                update_fields.pop(f, None)
+                unset_fields[f] = ""
+        elif data.sale_active and data.was_price:
+            sell = data.price if data.price is not None else (current_product.get("list_price") or current_product.get("price") or 0)
+            if sell and float(data.was_price) > float(sell):
+                update_fields["discount_percentage"] = round((float(data.was_price) - float(sell)) / float(data.was_price) * 100, 1)
         if data.pricing_unit is not None:
             if data.pricing_unit not in ("m2", "unit"):
                 raise HTTPException(status_code=400, detail="pricing_unit must be 'm2' or 'unit'")
@@ -5829,11 +5843,20 @@ def quick_update_supplier_product(data: QuickUpdateRequest):
         
         result = db.supplier_products.update_one(
             update_filter,
-            {"$set": update_fields}
+            {"$set": update_fields, **({"$unset": unset_fields} if unset_fields else {})}
         )
         
         if result.matched_count == 0:
             raise HTTPException(status_code=404, detail=f"Product not found: {data.sku}")
+
+        # Pricing edits (price / cost / sale / labels) must reach the live tile in
+        # the exact shape the storefront reads (price + room_lot_price, WAS +
+        # sale_active, labels) — one canonical mirror instead of ad-hoc copies.
+        _PRICING_KEYS = {"price", "cost_price", "was_price", "sale_active", "discount_percentage", "labels", "custom_labels"}
+        if _PRICING_KEYS & (set(update_fields) | set(unset_fields)):
+            fresh_sp = db.supplier_products.find_one(update_filter, {"_id": 0})
+            if fresh_sp:
+                _mirror_pricing_to_tiles(db, fresh_sp)
         
         # If category is provided, add to master categories list and update products collection
         if data.category is not None and data.category.strip():
@@ -6634,6 +6657,7 @@ def bulk_update_product_tier_pricing(data: BulkTierUpdateRequest):
         
         action = "disabled" if data.disabled else "updated"
         logger.info(f"Bulk tier update: {updated_count} products {action}")
+        _bust_storefront_cache()
         
         return {
             "success": True,
@@ -6731,6 +6755,7 @@ class BulkDeliverySettingsRequest(BaseModel):
 
 
 _DELIVERY_ROW_KEYS = ("delivery_charge_required", "delivery_charge", "parcel_delivery", "parcel_fee")
+_SALE_LABELS = ["Sale", "SALE", "sale", "On Sale", "ON SALE"]
 
 
 def _apply_delivery_fields(target: dict, required, charge, parcel, fee) -> None:
@@ -6803,6 +6828,7 @@ def bulk_update_product_delivery_settings(data: BulkDeliverySettingsRequest):
                 )
 
         logger.info(f"Bulk delivery settings: {updated_count} products updated")
+        _bust_storefront_cache()
         return {
             "success": True,
             "message": f"Delivery settings updated for {updated_count} products",
@@ -6812,6 +6838,212 @@ def bulk_update_product_delivery_settings(data: BulkDeliverySettingsRequest):
     except Exception as e:
         logger.error(f"Error in bulk delivery settings update: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================
+# LIVE PRICING — what the storefront (tiles) actually has vs the admin draft
+# (supplier_products). Every pricing write path updates supplier_products;
+# `_canonical_pricing` is the single definition of what must reach the
+# live tile so the two can be compared and re-synced in one call.
+# ============================================================
+
+_PALLET_MIRROR = ["pallet_enabled", "pallet_price", "half_pallet_price", "m2_per_pallet", "m2_per_half_pallet", "pallet_only", "pallet_qty_unit"]
+_DELIVERY_MIRROR = ["delivery_charge_required", "delivery_charge", "parcel_delivery", "parcel_fee"]
+_TIER_MIRROR = ["tier_thresholds", "tier_discounts", "tier_pricing_disabled", "has_custom_tier_pricing", "trade_discount", "trade_discount_type", "credit_back_rate"]
+_LIVE_GROUPS = {
+    "price": ["price"],
+    "sale": ["sale_active", "was_price"],
+    "clearance": ["clearance"],
+    "labels": ["labels"],
+    "pallets": _PALLET_MIRROR,
+    "delivery": _DELIVERY_MIRROR,
+    "tiers": _TIER_MIRROR,
+}
+
+
+def _bust_storefront_cache():
+    try:
+        from utils.endpoint_cache import endpoint_cache
+        endpoint_cache.invalidate()
+    except Exception:
+        pass
+
+
+def _is_clearance_label(v) -> bool:
+    return str(v or "").strip().lower() == "clearance"
+
+
+def _num(v):
+    try:
+        return round(float(v), 2) if v is not None and v != "" else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _canonical_pricing(sp: dict) -> dict:
+    """The pricing the storefront must show for this admin draft."""
+    price = _num(sp.get("list_price")) or _num(sp.get("price")) or 0
+    was = _num(sp.get("was_price"))
+    sale_on = bool(sp.get("sale_active")) and bool(was) and price > 0 and was > price
+    labels = [str(x) for x in (sp.get("labels") or []) if x not in (None, "")]
+    out = {
+        "price": price,
+        "room_lot_price": price,
+        "cost_price": _num(sp.get("cost_price")),
+        "sale_active": sale_on,
+        "was_price": was if sale_on else None,
+        "discount_percentage": round((was - price) / was * 100, 1) if sale_on else None,
+        "labels": labels,
+        "custom_labels": [str(x) for x in (sp.get("custom_labels") or []) if x not in (None, "")],
+    }
+    pallet_on = bool(sp.get("pallet_enabled"))
+    out["pallet_enabled"] = pallet_on
+    out["pallet_only"] = bool(sp.get("pallet_only")) if pallet_on else False
+    out["pallet_qty_unit"] = sp.get("pallet_qty_unit") if pallet_on else None
+    for f in ("pallet_price", "half_pallet_price", "m2_per_pallet", "m2_per_half_pallet"):
+        out[f] = _num(sp.get(f)) if pallet_on else None
+    out["delivery_charge_required"] = bool(sp.get("delivery_charge_required"))
+    out["delivery_charge"] = _num(sp.get("delivery_charge")) if out["delivery_charge_required"] else None
+    out["parcel_delivery"] = bool(sp.get("parcel_delivery"))
+    out["parcel_fee"] = _num(sp.get("parcel_fee")) if out["parcel_delivery"] else None
+    for f in _TIER_MIRROR:
+        out[f] = sp.get(f)
+    return out
+
+
+def _live_view(doc: dict, is_tile: bool = False) -> dict:
+    """What the storefront would actually show for this doc — same shape for a
+    draft (supplier_products) and a live tile so the two can be compared."""
+    if not doc:
+        return {}
+    price = _num(doc.get("list_price")) or _num(doc.get("room_lot_price")) or _num(doc.get("price")) or 0
+    was = _num(doc.get("was_price"))
+    sale_on = bool(doc.get("sale_active")) and bool(was) and price > 0 and was > price
+    all_labels = (doc.get("labels") or []) + (doc.get("custom_labels") or [])
+    view = {
+        "price": price,
+        "sale_active": sale_on,
+        "was_price": was if sale_on else None,
+        "clearance": any(_is_clearance_label(x) for x in all_labels),
+        "labels": sorted({str(x) for x in (doc.get("labels") or []) if x not in (None, "") and not _is_clearance_label(x)}),
+    }
+    # Pallets — the PDP offers a chip whenever rate AND quantity are set; a draft
+    # additionally needs pallet_enabled (the mirror nulls the rates when it's off)
+    gate = True if is_tile else bool(doc.get("pallet_enabled"))
+    full_rate = _num(doc.get("pallet_price")) if gate else None
+    full_m2 = _num(doc.get("m2_per_pallet")) if gate else None
+    half_rate = _num(doc.get("half_pallet_price")) if gate else None
+    half_m2 = _num(doc.get("m2_per_half_pallet")) if gate else None
+    if half_m2 is None and full_m2:
+        half_m2 = round(full_m2 / 2, 2)
+    full_av = bool(full_rate and full_rate > 0 and full_m2 and full_m2 > 0)
+    half_av = bool(half_rate and half_rate > 0 and half_m2 and half_m2 > 0)
+    any_pallet = full_av or half_av
+    view.update({
+        "pallet_enabled": any_pallet,
+        "pallet_price": full_rate if full_av else None,
+        "m2_per_pallet": full_m2 if full_av else None,
+        "half_pallet_price": half_rate if half_av else None,
+        "m2_per_half_pallet": half_m2 if half_av else None,
+        "pallet_only": bool(doc.get("pallet_only")) and any_pallet,
+        "pallet_qty_unit": (doc.get("pallet_qty_unit") or "m2") if any_pallet else None,
+    })
+    req = bool(doc.get("delivery_charge_required"))
+    parcel = bool(doc.get("parcel_delivery"))
+    view.update({
+        "delivery_charge_required": req,
+        "delivery_charge": _num(doc.get("delivery_charge")) if req else None,
+        "parcel_delivery": parcel,
+        "parcel_fee": _num(doc.get("parcel_fee")) if parcel else None,
+    })
+    for f in _TIER_MIRROR:
+        view[f] = doc.get(f)
+    for f in ("tier_thresholds", "tier_discounts"):
+        if isinstance(view.get(f), list):
+            view[f] = [_num(x) for x in view[f]]
+    for f in ("trade_discount", "credit_back_rate"):
+        view[f] = _num(view.get(f))
+    view["tier_pricing_disabled"] = bool(view.get("tier_pricing_disabled"))
+    view["has_custom_tier_pricing"] = bool(view.get("has_custom_tier_pricing"))
+    return view
+
+
+def _tiles_query_for(sku: str) -> dict:
+    return {"$or": [{"sku": sku}, {"supplier_code": sku}]}
+
+
+def _mirror_pricing_to_tiles(db, sp: dict) -> int:
+    """Push the admin draft's pricing onto its live tile(s). Returns tiles matched."""
+    sku = sp.get("sku") or sp.get("supplier_code")
+    if not sku:
+        return 0
+    canon = _canonical_pricing(sp)
+    if not canon.get("price"):
+        # Draft has no selling price yet — never zero out a live price
+        canon.pop("price", None)
+        canon.pop("room_lot_price", None)
+    set_fields = {k: v for k, v in canon.items() if v is not None}
+    unset_fields = {k: "" for k, v in canon.items() if v is None}
+    set_fields["updated_at"] = datetime.now(timezone.utc)
+    update = {"$set": set_fields}
+    if unset_fields:
+        update["$unset"] = unset_fields
+    return db.tiles.update_many(_tiles_query_for(sku), update).matched_count
+
+
+def _live_pricing_report(db, skus: List[str]) -> List[dict]:
+    items = []
+    for sku in skus:
+        sp = db.supplier_products.find_one({"$or": [{"sku": sku}, {"supplier_code": sku}]}, {"_id": 0})
+        tile = db.tiles.find_one(_tiles_query_for(sku), {"_id": 0})
+        admin_v = _live_view(sp) if sp else {}
+        live_v = _live_view(tile, is_tile=True) if tile else {}
+        mismatches = []
+        if sp and tile:
+            for group, fields in _LIVE_GROUPS.items():
+                if any(admin_v.get(f) != live_v.get(f) for f in fields):
+                    mismatches.append(group)
+        items.append({
+            "sku": sku,
+            "live": tile is not None,
+            "in_admin": sp is not None,
+            "admin": admin_v,
+            "website": live_v,
+            "mismatches": mismatches,
+        })
+    return items
+
+
+@router.get("/products/live-pricing")
+def get_live_pricing(skus: str = ""):
+    """Compare admin pricing (supplier_products) with what the website serves (tiles)."""
+    sku_list = [s.strip() for s in (skus or "").split(",") if s.strip()][:300]
+    if not sku_list:
+        return {"items": [], "mismatch_count": 0}
+    db = get_db()
+    items = _live_pricing_report(db, sku_list)
+    return {
+        "items": items,
+        "mismatch_count": sum(1 for i in items if i["mismatches"]),
+        "not_live_count": sum(1 for i in items if not i["live"]),
+    }
+
+
+class PushLivePricingRequest(BaseModel):
+    skus: List[str]
+
+
+@router.post("/products/push-live-pricing")
+def push_live_pricing(data: PushLivePricingRequest):
+    """Re-sync the website (tiles) to the admin pricing for these SKUs."""
+    db = get_db()
+    pushed = 0
+    for sku in [s for s in data.skus if s][:500]:
+        sp = db.supplier_products.find_one({"$or": [{"sku": sku}, {"supplier_code": sku}]}, {"_id": 0})
+        if sp and _mirror_pricing_to_tiles(db, sp) > 0:
+            pushed += 1
+    _bust_storefront_cache()
+    return {"success": True, "pushed": pushed, "message": f"Website pricing re-synced for {pushed} product(s)"}
 
 
 # ============================================================
@@ -7804,27 +8036,21 @@ def bulk_update_labels(data: BulkLabelsRequest):
                 
                 if result.matched_count > 0:
                     updated_count += 1
-                    # Also update main products
+                    # Also update main products + the live tile (storefront badges read tiles)
                     if data.action == "replace":
-                        db.products.update_one(
-                            {"sku": sku},
-                            {"$set": {"labels": data.labels, "custom_labels": data.custom_labels}}
-                        )
+                        mirror = {"$set": {"labels": data.labels, "custom_labels": data.custom_labels}}
                     elif data.action == "add":
-                        db.products.update_one(
-                            {"sku": sku},
-                            {"$addToSet": {"labels": {"$each": data.labels}, "custom_labels": {"$each": data.custom_labels}}}
-                        )
-                    elif data.action == "remove":
-                        db.products.update_one(
-                            {"sku": sku},
-                            {"$pull": {"labels": {"$in": data.labels}, "custom_labels": {"$in": data.custom_labels}}}
-                        )
+                        mirror = {"$addToSet": {"labels": {"$each": data.labels}, "custom_labels": {"$each": data.custom_labels}}}
+                    else:
+                        mirror = {"$pull": {"labels": {"$in": data.labels}, "custom_labels": {"$in": data.custom_labels}}}
+                    db.products.update_one({"sku": sku}, mirror)
+                    db.tiles.update_many(_tiles_query_for(sku), mirror)
                         
             except Exception as e:
                 errors.append(f"Error updating {sku}: {str(e)}")
         
         logger.info(f"Bulk labels update: {updated_count}/{len(data.product_ids)} products updated")
+        _bust_storefront_cache()
         
         return {
             "success": True,
@@ -7864,7 +8090,7 @@ def bulk_update_sale_pricing(data: BulkSalePricingRequest):
                 # Get current product
                 product = db.supplier_products.find_one(
                     {"sku": sku, "supplier": supplier},
-                    {"_id": 0, "cost_price": 1, "price": 1, "product_name": 1}
+                    {"_id": 0, "cost_price": 1, "price": 1, "list_price": 1, "product_name": 1}
                 )
                 
                 if not product:
@@ -7884,11 +8110,14 @@ def bulk_update_sale_pricing(data: BulkSalePricingRequest):
                             "discount_percentage": "",
                             "sale_profit": "",
                             "sale_profit_margin": ""
-                        }
+                        },
+                        # The storefront SALE badge also reads the label — keep them in step
+                        "$pull": {"labels": {"$in": _SALE_LABELS}, "custom_labels": {"$in": _SALE_LABELS}},
                     }
                 else:
                     cost_price = product.get("cost_price", 0) or 0
-                    current_price = product.get("price", 0) or 0
+                    # list_price is the admin's selling price; `price` mirrors it
+                    current_price = product.get("list_price") or product.get("price", 0) or 0
                     discount_pct = data.discount_percentage
 
                     if data.was_price and data.was_price > 0:
@@ -7939,6 +8168,8 @@ def bulk_update_sale_pricing(data: BulkSalePricingRequest):
                             "last_updated": datetime.now(timezone.utc)
                         }
                     }
+                    if data.sale_active:
+                        update["$addToSet"] = {"labels": "Sale"}
                     
                     results.append({
                         "sku": sku,
@@ -7956,39 +8187,22 @@ def bulk_update_sale_pricing(data: BulkSalePricingRequest):
                 
                 # Sync to main products
                 if data.clear_sale:
-                    db.products.update_one(
-                        {"sku": sku},
-                        {
-                            "$set": {"sale_active": False},
-                            "$unset": {"was_price": "", "now_price": "", "discount_percentage": ""}
-                        }
-                    )
-                    db.tiles.update_many(
-                        {"sku": sku},
-                        {
-                            "$set": {"sale_active": False},
-                            "$unset": {"was_price": "", "now_price": "", "discount_percentage": ""}
-                        }
-                    )
+                    mirror = {
+                        "$set": {"sale_active": False},
+                        "$unset": {"was_price": "", "now_price": "", "discount_percentage": ""},
+                        "$pull": {"labels": {"$in": _SALE_LABELS}, "custom_labels": {"$in": _SALE_LABELS}},
+                    }
                 else:
-                    db.products.update_one(
-                        {"sku": sku},
-                        {"$set": {
-                            "was_price": was_price,
-                            "now_price": now_price,
-                            "discount_percentage": discount_pct,
-                            "sale_active": data.sale_active
-                        }}
-                    )
-                    db.tiles.update_many(
-                        {"sku": sku},
-                        {"$set": {
-                            "was_price": was_price,
-                            "now_price": now_price,
-                            "discount_percentage": discount_pct,
-                            "sale_active": data.sale_active
-                        }}
-                    )
+                    mirror = {"$set": {
+                        "was_price": was_price,
+                        "now_price": now_price,
+                        "discount_percentage": discount_pct,
+                        "sale_active": data.sale_active
+                    }}
+                    if data.sale_active:
+                        mirror["$addToSet"] = {"labels": "Sale"}
+                db.products.update_one({"sku": sku}, mirror)
+                db.tiles.update_many(_tiles_query_for(sku), mirror)
                 
                 updated_count += 1
                 
@@ -7996,6 +8210,7 @@ def bulk_update_sale_pricing(data: BulkSalePricingRequest):
                 errors.append(f"Error updating {sku}: {str(e)}")
         
         logger.info(f"Bulk sale pricing update: {updated_count}/{len(data.product_ids)} products")
+        _bust_storefront_cache()
         
         return {
             "success": True,
