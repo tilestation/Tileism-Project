@@ -17,6 +17,11 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Deployment**: Railway (production), Emergent (preview)
 
 
+### [Sep 7, 2026 — Forked session] 🟢 "You May Also Need" cards redesigned (no more overflow) — VERIFIED
+- Problem: the strip reused the tall `<CollectionCard>` (hero + swatch grid) in 288px boxes → clipped category pills, swatches spilling out of the card, giant cards.
+- Fix: new compact `CrossSellCard` in `CrossSellSections.jsx` — square image (packshots `object-contain` on light grey, tiles `object-cover`), category pill inside the image, optional Sale pill, 2-line clamped name, "N colours · N sizes" summary (falls back to the reason text), "From £X /each|/m²" (trade-aware), "View →". Rendered in a responsive grid (2/3/4/6 columns) instead of a horizontal scroller. Verified: every card's scrollWidth/Height == clientWidth/Height (nothing overflows). Used on collection pages and single product pages.
+
+
 ### [Sep 7, 2026 — Forked session] 🟢 Bug fix: "Per Unit" product still showed £/m² on the storefront — VERIFIED
 - **Root cause**: `CollectionDetailPage.js` derived every "m² / each" label, the m²+box quantity inputs, box maths and pallet unit purely from `isSurfaceProduct` (does the product have a WxH size?) — the saved `pricing_unit` was ignored, so a 30x30 mosaic saved "Per Unit" still read "£23.99m²".
 - **Fix**: new `sellsPerM2 = isSurfaceProduct && selectedProduct.pricing_unit !== 'unit'` + `priceUnit`. All price suffixes (sale ribbon, main price, was-price, sticky bar, FBT bundle, cards), size-button prices (per variant via `getProductForSize`), VolumePricingTable header, dual m²/box inputs, box-price line, coverage box, pallet `isUnit`, and `getEffectiveSqmQuantity/boxesNeeded` now honour the per-unit override (quantity = plain count, total = qty × price). Tile-feature panels (calculator/installation/specs) still follow `isSurfaceProduct`.

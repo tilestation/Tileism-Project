@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { Clock, Package, ArrowRight } from 'lucide-react';
 import { CollectionCard } from '../../pages/shop/TileCollectionsPage';
 import { normaliseImageUrl } from '../../utils/safeStr';
+import { useTradeUser } from '../../hooks/useTradeUser';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
 const STORAGE_KEY = 'tile_station_recently_viewed';
@@ -164,6 +165,90 @@ export const RecentlyViewedSection = ({
   );
 };
 
+// --- CrossSellCard ---
+// Compact, fixed-proportion card for the "You May Also Need" strip. The full
+// <CollectionCard> (tall hero + swatch grid) was overflowing its box here, so
+// this one keeps everything inside: square image (packshots are letter-boxed
+// with object-contain, tiles fill the square), 2-line name, variant summary,
+// price and a single "View" affordance.
+const CrossSellCard = ({ collection, groupLabel, reason }) => {
+  const { isTrade, getTradePrice } = useTradeUser();
+  const {
+    series_name,
+    hero_image,
+    product_images = [],
+    color_swatches = [],
+    additional_colors = 0,
+    sizes = [],
+    variant_type = 'color',
+    variant_count = 0,
+    is_surface_product,
+    is_sale,
+    prices_from,
+    min_price,
+    tier_pricing_disabled,
+  } = collection;
+
+  const image = normaliseImageUrl(hero_image || product_images?.[0]?.image || color_swatches?.[0]?.image || '');
+  const rawPrice = tier_pricing_disabled && !isTrade ? (min_price || prices_from) : (prices_from || min_price);
+  const price = rawPrice > 0 ? (isTrade ? getTradePrice(rawPrice) : rawPrice) : 0;
+  const unit = is_surface_product === false ? '/each' : '/m²';
+  const colourCount = variant_count || color_swatches.length + (additional_colors || 0);
+  const parts = [];
+  if (colourCount > 1) parts.push(`${colourCount} ${variant_type === 'color' ? 'colours' : 'variants'}`);
+  if (sizes.length > 1) parts.push(`${sizes.length} sizes`);
+  const summary = parts.join(' · ') || reason || '';
+  const surface = is_surface_product !== false;
+
+  return (
+    <Link
+      to={`/shop/collection/${encodeURIComponent(series_name)}`}
+      className="group flex flex-col h-full bg-white rounded-xl border border-gray-200 overflow-hidden hover:border-amber-400 hover:shadow-md transition-[border-color,box-shadow] duration-200"
+      data-testid={`cross-sell-card-${series_name}`}
+    >
+      <div className="relative aspect-square bg-gray-50 overflow-hidden">
+        {image ? (
+          <img
+            src={image}
+            alt={series_name}
+            loading="lazy"
+            className={`absolute inset-0 w-full h-full ${surface ? 'object-cover' : 'object-contain p-5'} transition-transform duration-300 group-hover:scale-[1.03]`}
+          />
+        ) : (
+          <div className="absolute inset-0 flex items-center justify-center text-gray-300"><Package className="w-8 h-8" /></div>
+        )}
+        <span
+          className="absolute top-2 left-2 max-w-[calc(100%-1rem)] truncate px-2 py-0.5 rounded-full bg-amber-500 text-white text-[10px] font-bold uppercase tracking-wide shadow-sm"
+          title={groupLabel}
+          data-testid={`cross-sell-label-${series_name}`}
+        >
+          {groupLabel}
+        </span>
+        {is_sale && (
+          <span className="absolute top-2 right-2 px-2 py-0.5 rounded-full bg-red-600 text-white text-[10px] font-bold uppercase">Sale</span>
+        )}
+      </div>
+      <div className="flex flex-col flex-1 p-3">
+        <h3 className="text-sm font-semibold text-gray-900 leading-snug line-clamp-2 min-h-[2.5rem]">{series_name}</h3>
+        {summary && <p className="text-xs text-gray-500 mt-1 truncate">{summary}</p>}
+        <div className="mt-auto pt-2 flex items-end justify-between gap-2">
+          {price > 0 ? (
+            <p className="leading-none">
+              <span className="text-[11px] text-gray-500 mr-1">From</span>
+              <span className="text-base font-bold text-gray-900">£{price.toFixed(2)}</span>
+              <span className="text-xs text-gray-500">{unit}</span>
+              {isTrade && <span className="block text-[10px] text-gray-400 mt-0.5">ex. VAT</span>}
+            </p>
+          ) : <span />}
+          <span className="inline-flex items-center gap-1 text-xs font-semibold text-amber-600 whitespace-nowrap">
+            View <ArrowRight className="w-3 h-3 group-hover:translate-x-0.5 transition-transform" />
+          </span>
+        </div>
+      </div>
+    </Link>
+  );
+};
+
 // --- YouMayAlsoNeed ---
 // Cross-group cards rendered in the same rich format as Trending Now.
 // We pass the API's full collection objects (with sizes, swatches, sale
@@ -266,40 +351,13 @@ export const YouMayAlsoNeed = ({
           </div>
         </div>
 
-        <div
-          className="flex gap-6 overflow-x-auto pb-4 scrollbar-hide -mx-4 px-4"
-          style={{ scrollSnapType: 'x mandatory' }}
-        >
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
           {items.map(({ collection, group_label, reason }, idx) => (
             <div
               key={`${collection.series_name || idx}-${idx}`}
-              className="flex-shrink-0 w-72 relative"
-              style={{ scrollSnapAlign: 'start' }}
               data-testid={`cross-sell-item-${collection.series_name || idx}`}
             >
-              {/* Group-label pill — sits above the card and identifies which
-                  cross-sell category this recommendation belongs to.
-                  14 May 2026 — was overflowing the card on long labels
-                  like "ADHESIVES & UNDERLAY" because `tracking-wider`
-                  + uppercase + no max-width = ~10% extra width than
-                  the card. Capped at card width minus the left offset,
-                  dropped tracking, and allowed natural word-wrap. */}
-              <span
-                className="absolute -top-2 left-3 z-20 px-2.5 py-1 bg-amber-500 text-white text-[10px] font-bold uppercase rounded-full shadow-sm max-w-[calc(100%-1.5rem)] leading-tight"
-                style={{ wordBreak: 'normal', overflowWrap: 'anywhere' }}
-                data-testid={`cross-sell-label-${collection.series_name || idx}`}
-                title={group_label}
-              >
-                {group_label}
-              </span>
-              <CollectionCard
-                collection={collection}
-                useLifestyleImages={false}
-                gridCols={4}
-              />
-              {reason && (
-                <p className="text-xs text-gray-500 mt-2 px-1 italic">{reason}</p>
-              )}
+              <CrossSellCard collection={collection} groupLabel={group_label} reason={reason} />
             </div>
           ))}
         </div>
