@@ -155,6 +155,32 @@ const TileCheckoutPage = () => {
     if (stored) {
       try { setCartItems(JSON.parse(stored)); } catch (e) { /* ignore */ }
     }
+    // Signed-in customer (trade or retail): prefill contact + address so they
+    // never retype what we already hold on their account.
+    if (localStorage.getItem('tile_shop_token')) {
+      try {
+        const c = JSON.parse(localStorage.getItem('tile_shop_customer') || 'null');
+        if (c?.email) {
+          const [firstName = '', ...rest] = String(c.name || '').trim().split(/\s+/);
+          setDetails(p => ({
+            email: p.email || c.email,
+            firstName: p.firstName || firstName,
+            lastName: p.lastName || rest.join(' '),
+            phone: p.phone || c.phone || '',
+          }));
+          const a = c.address || {};
+          setDelivery(p => ({
+            ...p,
+            address1: p.address1 || a.line1 || a.address1 || '',
+            address2: p.address2 || a.line2 || a.address2 || '',
+            city: p.city || a.city || '',
+            county: p.county || a.county || '',
+            postcode: p.postcode || a.postcode || '',
+          }));
+          if (c.business_name) setBilling(p => ({ ...p, company: p.company || c.business_name }));
+        }
+      } catch { /* corrupt cache — customer just types their details */ }
+    }
     // Fetch checkout settings
     axios.get(`${API_URL}/api/website-admin/public/checkout-settings`)
       .then(res => res.data)
@@ -512,8 +538,13 @@ const TileCheckoutPage = () => {
       };
       let orderResult;
       try {
+        const shopToken = localStorage.getItem('tile_shop_token');
         const orderRes = await axios.post(`${API_URL}/api/shop/guest-checkout`, orderData, {
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            // Link the order to the signed-in (trade) customer — dashboard, credit-back, tier progress.
+            ...(shopToken ? { Authorization: `Bearer ${shopToken}` } : {}),
+          },
         });
         orderResult = orderRes.data;
       } catch (err) {

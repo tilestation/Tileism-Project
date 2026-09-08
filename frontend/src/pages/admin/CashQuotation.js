@@ -843,8 +843,7 @@ export const CashQuotation = () => {
                   <Input
                     value={quotationData.quotationNo}
                     onChange={(e) => setQuotationData({ ...quotationData, quotationNo: e.target.value })}
-                    className="h-9 text-sm"
-                    className="font-mono"
+                    className="h-9 text-sm font-mono"
                     data-testid="quotation-no-input"
                   />
                 </div>

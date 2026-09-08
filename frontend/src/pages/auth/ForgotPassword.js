@@ -13,6 +13,12 @@ const ForgotPassword = () => {
   const [submitted, setSubmitted] = useState(false);
   const location = useLocation();
 
+  // Storefront customers arrive via /shop/tile-forgot-password (trade adds
+  // ?type=trade) — send them back to the right sign-in, not the staff one.
+  const isShop = location.pathname.startsWith('/shop/');
+  const isTrade = new URLSearchParams(location.search).get('type') === 'trade';
+  const loginPath = isShop ? (isTrade ? '/shop/trade/login' : '/shop/tile-login') : '/admin/login';
+
   // Pre-fill email from `?email=` query param (set by the login pages when
   // the user clicks "Forgot password?" — saves them retyping their address
   // and shaves a step off the recovery flow).
@@ -63,6 +69,7 @@ const ForgotPassword = () => {
                 <li>Check your spam/junk folder</li>
                 <li>Make sure you entered the correct email</li>
                 <li>Wait a few minutes and try again</li>
+                {isTrade && <li>Set up in-store? Ring your showroom and they can send you a login link straight away</li>}
               </ul>
             </div>
             <div className="flex flex-col gap-2">
@@ -73,7 +80,7 @@ const ForgotPassword = () => {
               >
                 Try a different email
               </Button>
-              <Link to="/admin/login" className="w-full">
+              <Link to={loginPath} className="w-full" data-testid="forgot-back-to-login">
                 <Button variant="ghost" className="w-full">
                   <ArrowLeft className="h-4 w-4 mr-2" /> Back to Login
                 </Button>
@@ -94,7 +101,9 @@ const ForgotPassword = () => {
           </div>
           <CardTitle className="text-2xl">Forgot Password?</CardTitle>
           <CardDescription className="text-base mt-2">
-            No worries! Enter your email and we&apos;ll send you a link to reset your password.
+            {isTrade
+              ? "Enter your trade account email and we'll send you a link to set a new password."
+              : "No worries! Enter your email and we'll send you a link to reset your password."}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -119,7 +128,7 @@ const ForgotPassword = () => {
             >
               {loading ? 'Sending...' : 'Send Reset Link'}
             </Button>
-            <Link to="/admin/login" className="block">
+            <Link to={loginPath} className="block" data-testid="forgot-back-to-login-form">
               <Button variant="ghost" className="w-full">
                 <ArrowLeft className="h-4 w-4 mr-2" /> Back to Login
               </Button>

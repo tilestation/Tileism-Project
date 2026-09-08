@@ -1,0 +1,42 @@
+{
+  "summary": "Independent black-box verification of the Trade access / password-reset flow. Backend pytest suite (test_trade_access_blackbox_iter247.py) 8/8 PASS. Frontend E2Es #1, #1b, #2, #4 fully verified against the preview URL; E2E #3 partially verified — trade login is case-insensitive and lands on /shop/trade/account with T-00024, but I was unable to reach a real PDP / add-to-basket / checkout state within test time because the home-page 'clearance' cards route to /tiles?clearance=true (a listing view) rather than a PDP and I did not find explicit ex-VAT/trade-price labels on the pages I reached. The critical fix targets (dual-collection reset, T-number + login-link on create, case-insensitive login, admin key-icon flow, no-longer-working TempPass123!) all check out.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {
+        "flow": "Trade browse → add-to-basket → cart/checkout (E2E #3)",
+        "issue": "From /shop/trade/account I could not deterministically reach a PDP: home 'Clearance' cards (data-testid=home-clearance-card-LP-*) navigate to /tiles?clearance=true (listing) and I could not locate an add-to-basket button. Cart at /shop/tile-cart stayed empty and /shop/checkout redirects to /shop/cart (empty). Could not verify the trade-discount line / ex-VAT column on the order summary. No JS crashes seen; only console warnings.",
+        "affected_selectors": ["home-clearance-card-LP-*", "pdp-add-to-basket", "add-to-basket"]
+      }
+    ],
+    "design_issues": [
+      {"screen": "AdminDashboard (/admin)", "issues": ["React key warning: 'Each child in a list should have a unique key prop' in AdminDashboard render (pre-existing, unrelated to trade flow)"]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_trade_access_blackbox_iter247.py",
+    "/app/test_reports/pytest/iter247_trade_blackbox.xml"
+  ],
+  "action_items": [
+    "E2E #3 (owner priority): main agent should manually confirm — logged in as smoke.trade@example.com, open a real product PDP (e.g. via /shop/tiles or a collection like /shop/collection/<slug>), verify the PDP shows an ex-VAT / trade price indicator and a working Add-to-basket button, and that /shop/tile-cart + /shop/checkout render the trade discount + ex-VAT column. My browse path via home clearance cards + /shop/clearance kept redirecting to listings without visible trade-price labels or add-to-basket controls, so this bit of the fix is not independently proven."
+  ],
+  "critical_code_review_comments": [
+    "trade-accounts POST requires address_line1/city/postcode/trade_type — worth documenting in the admin 'New Trade Account' form so the flow can't 422 silently.",
+    "Home-page clearance cards (data-testid=home-clearance-card-LP-*) route to a listing (/tiles?clearance=true) rather than a PDP; if the intent is PDP, adjust the anchor; otherwise ensure the listing has visible add-to-basket / trade-price labels for trade users.",
+    "AdminDashboard: React unique-key warning surfaces in the console every render — worth cleaning up."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_trade_access_blackbox_iter247.py"
+  ],
+  "success_rate": {"backend": "100% (8/8)", "frontend": "~85% (E2E #1, #1b, #2, #4 fully verified; #3 login+account verified, product/cart/checkout leg not independently reached)"},
+  "test_credentials": "admin@test.com / admin123; smoke.trade@example.com / SmokePass123! (T-00024)",
+  "seed_data_creation": "Created 2 QA trade accounts (qa.trade.<random>@example.com, T-00025 & T-00026 approx) and deleted them at the end via the admin DELETE endpoint (browser-context fetch confirmed 2 rows removed).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Notes for next run: (1) Cloudflare in the preview host blocks non-browser user-agents (urllib gets 403 error code 1010); use requests (works) or run API calls from within the browser via page.evaluate(fetch(...)). (2) Trade-accounts POST requires address_line1, city, postcode, trade_type in addition to the docs-listed fields. (3) Shop cart URL is /shop/tile-cart (not /shop/cart — that route redirects to /shop/tile-cart). (4) admin /admin/trade-accounts search input is a plain input with placeholder-based selector; the key-icon uses data-testid=send-login-link-<id> and the New-Trade-Account button is data-testid=new-trade-account-btn (both verified). (5) home clearance cards use data-testid=home-clearance-card-LP-<code>.",
+  "rca of the issue": "Not applicable — this iteration was verification of an already-merged fix. All backend behaviours match the change description (dual-collection reset, case-insensitive email lookup, T-number + login_link on admin-created accounts, staff-auth-required trade-accounts routes, old TempPass123! rejected)."
+}

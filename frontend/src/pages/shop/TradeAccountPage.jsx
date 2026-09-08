@@ -1434,7 +1434,7 @@ const TradeAccountPage = () => {
                             <a
                               href={`${API_URL}/api/shop/trade/credit-statement.pdf?year=${new Date().getFullYear()}`}
                               target="_blank"
-                              rel="noopener"
+                              rel="noopener noreferrer"
                               className="text-xs inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-emerald-600 text-white hover:bg-emerald-700 transition-colors"
                               data-testid="download-credit-statement"
                               title="Download a PDF statement of all credit activity for this year"

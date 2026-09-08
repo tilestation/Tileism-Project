@@ -38,20 +38,20 @@ export default function CheckoutRecover() {
   const restoreAndCheckout = () => {
     const items = state.data?.items || [];
     if (!items.length) return;
-    // Restore to the cart provider's localStorage key so ShopCheckout
-    // reads the same items the customer originally placed.
+    // Restore into the storefront cart (TileCartContext → `tilestation_cart`).
+    // Order lines carry `product_id`; the cart needs `id`, a numeric price
+    // and quantity or the line is dropped on load.
     try {
-      localStorage.setItem('tilecart_v1', JSON.stringify(items));
-      // Pre-fill the customer's known details for the checkout form.
-      sessionStorage.setItem('tilestation_recovery_prefill', JSON.stringify({
-        name: state.data.customer_name || '',
-        email: state.data.customer_email || '',
-        phone: state.data.customer_phone || '',
-        delivery_method: state.data.delivery_method || 'collect',
-        delivery_address: state.data.delivery_address || null,
-      }));
+      const cartItems = items.map((it) => ({
+        ...it,
+        id: it.id || it.product_id,
+        display_name: it.name,
+        price: Number(it.price) || 0,
+        quantity: Number(it.quantity) || 1,
+      })).filter((it) => it.id && it.price > 0);
+      localStorage.setItem('tilestation_cart', JSON.stringify(cartItems));
     } catch { /* localStorage can fail in private mode — checkout still works */ }
-    navigate('/shop/checkout');
+    navigate('/shop/tile-checkout');
   };
 
   if (state.loading) {

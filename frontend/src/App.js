@@ -192,8 +192,6 @@ import { ShopLayout } from './components/shop/ShopLayout';
 const ShopHome = React.lazy(() => import('./pages/shop/ShopHome').then(m => ({ default: m.ShopHome })));
 const ShopProducts = React.lazy(() => import('./pages/shop/ShopProducts').then(m => ({ default: m.ShopProducts })));
 const ShopProductDetail = React.lazy(() => import('./pages/shop/ShopProductDetail').then(m => ({ default: m.ShopProductDetail })));
-const ShopCart = React.lazy(() => import('./pages/shop/ShopCart').then(m => ({ default: m.ShopCart })));
-const ShopCheckout = React.lazy(() => import('./pages/shop/ShopCheckout').then(m => ({ default: m.ShopCheckout })));
 const CheckoutRecover = React.lazy(() => import('./pages/shop/CheckoutRecover'));
 const FailedPayments = React.lazy(() => import('./pages/admin/FailedPayments'));
 const ShopLogin = React.lazy(() => import('./pages/shop/ShopLogin').then(m => ({ default: m.ShopLogin })));
@@ -690,15 +688,8 @@ function App() {
             </ShopAuthProvider>
           } />
           
-          <Route path="/shop/cart" element={
-            <ShopAuthProvider>
-              <TileCartProvider>
-                <ShopLayout />
-              </TileCartProvider>
-            </ShopAuthProvider>
-          }>
-            <Route index element={<ShopCart />} />
-          </Route>
+          {/* Legacy basket/checkout URLs — the storefront cart lives at /shop/tile-cart */}
+          <Route path="/shop/cart" element={<Navigate to="/shop/tile-cart" replace />} />
           
           <Route path="/shop/checkout" element={
             <ShopAuthProvider>
@@ -707,7 +698,7 @@ function App() {
               </TileCartProvider>
             </ShopAuthProvider>
           }>
-            <Route index element={<ShopCheckout />} />
+            <Route index element={<Navigate to="/shop/tile-checkout" replace />} />
             <Route path="recover/:token" element={<CheckoutRecover />} />
           </Route>
           

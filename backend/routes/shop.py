@@ -94,6 +94,26 @@ async def _attach_trade_metadata(db, order_doc: dict, customer_id: Optional[str]
     return order_doc
 
 
+async def _record_paid_order_for_customer(db, order_id: str) -> None:
+    """On the first paid flip of a linked order: bump the customer's spend /
+    order count (drives tier progress) and award trade credit-back."""
+    order = await db.shop_orders.find_one({"id": order_id}, {"_id": 0, "customer_id": 1, "subtotal": 1, "total": 1, "paid_at": 1})
+    customer_id = (order or {}).get("customer_id")
+    if not customer_id:
+        return
+    try:
+        await db.shop_customers.update_one(
+            {"id": customer_id},
+            {"$inc": {"total_spent": float(order.get("subtotal") or order.get("total") or 0), "order_count": 1},
+             "$set": {"last_order_at": order.get("paid_at") or datetime.now(timezone.utc).isoformat()}},
+        )
+        credit = await award_credits_for_order(order_id, db)
+        if credit.get("success"):
+            logger.info("Trade credit £%.2f awarded for order %s", credit.get("credits_earned", 0), order_id)
+    except Exception:  # noqa: BLE001 — stats/credit never block the paid flip
+        logger.exception("Failed to record paid order for customer")
+
+
 # ============ Trade Credit Reversal Helpers (online orders) ================
 # Used when an online shop order is cancelled or refunded so the trader's
 # `credit_balance` mirrors the real economics:
@@ -929,10 +949,12 @@ async def get_featured_products(limit: int = 8):
 @router.post("/auth/register")
 async def shop_customer_register(input: ShopCustomerRegister):
     """Register new shop customer"""
+    from services.password_links import normalize_email, email_query
     db = get_db()
+    input.email = normalize_email(input.email)
     
     # Check if email exists
-    existing = await db.shop_customers.find_one({"email": input.email})
+    existing = await db.shop_customers.find_one(email_query(input.email))
     if existing:
         raise HTTPException(status_code=400, detail="Email already registered")
     
@@ -992,10 +1014,12 @@ async def shop_customer_register(input: ShopCustomerRegister):
 @router.post("/auth/trade-register")
 async def trade_customer_register(input: TradeCustomerRegister):
     """Register new trade customer account"""
+    from services.password_links import normalize_email, email_query
     db = get_db()
+    input.email = normalize_email(input.email)
     
     # Check if email exists
-    existing = await db.shop_customers.find_one({"email": input.email})
+    existing = await db.shop_customers.find_one(email_query(input.email))
     if existing:
         raise HTTPException(status_code=400, detail="Email already registered")
     
@@ -1118,30 +1142,36 @@ async def trade_customer_register(input: TradeCustomerRegister):
 
 @router.post("/auth/login")
 async def shop_customer_login(input: ShopCustomerLogin):
-    """Login shop customer"""
+    """Login shop customer (email is case-insensitive)"""
+    from services.password_links import email_query
     db = get_db()
     
-    customer = await db.shop_customers.find_one({"email": input.email})
-    if not customer:
+    customer = await db.shop_customers.find_one(email_query(input.email))
+    if not customer or not customer.get("password"):
         raise HTTPException(status_code=401, detail="Invalid email or password")
     
     if not verify_password(input.password, customer["password"]):
         raise HTTPException(status_code=401, detail="Invalid email or password")
     
-    # Create token
-    token = create_access_token({"sub": input.email, "type": "shop_customer"})
+    await db.shop_customers.update_one(
+        {"id": customer["id"]},
+        {"$set": {"last_login_at": datetime.now(timezone.utc).isoformat()}})
+
+    # Token subject must match the stored address exactly — /auth/me looks it up verbatim.
+    token = create_access_token({"sub": customer["email"], "type": "shop_customer"})
     
     return {
         "token": token,
         "customer": {
             "id": customer["id"],
             "email": customer["email"],
-            "name": customer["name"],
+            "name": customer.get("name", ""),
             "phone": customer.get("phone", ""),
             "address": customer.get("address", {}),
             "is_trade": customer.get("is_trade", False),
             "trade_discount": customer.get("trade_discount", 0),
             "trade_tier": customer.get("trade_tier", ""),
+            "trade_account_number": customer.get("trade_account_number", ""),
             "credit_balance": customer.get("credit_balance", 0),
             "business_name": customer.get("business_name", ""),
         }
@@ -1184,11 +1214,9 @@ async def shop_customer_email_exists(input: dict, request: Request):
     bucket.append(now)
     _email_exists_window[ip] = bucket
 
+    from services.password_links import email_query
     db = get_db()
-    found = await db.shop_customers.find_one(
-        {"email": email.strip().lower()},
-        {"_id": 0, "id": 1},
-    )
+    found = await db.shop_customers.find_one(email_query(email), {"_id": 0, "id": 1})
     return {"exists": bool(found)}
 
 
@@ -2710,13 +2738,24 @@ async def update_delivery_terms(data: DeliveryTermsUpdate):
 
 
 @router.post("/guest-checkout")
-async def create_guest_checkout_order(order_input: GuestCheckoutOrder):
-    """Create order from the new checkout page (no auth required)"""
+async def create_guest_checkout_order(request: Request, order_input: GuestCheckoutOrder):
+    """Create order from the checkout page. Works for guests; when a storefront
+    session token is sent, the order is linked to that customer so trade
+    orders show in their dashboard, earn credit and count towards their tier."""
+    from services.password_links import normalize_email
     db = get_db()
+
+    linked_customer = None
+    if request.headers.get("Authorization", "").startswith("Bearer "):
+        try:
+            linked_customer = await get_shop_customer(request)
+        except Exception:  # noqa: BLE001 — stale/invalid token never blocks checkout
+            linked_customer = None
 
     customer = order_input.customer
     if not customer.get("email") or not customer.get("firstName") or not customer.get("lastName"):
         raise HTTPException(status_code=400, detail="Missing required customer details")
+    customer["email"] = normalize_email(customer.get("email"))
 
     if not order_input.items:
         raise HTTPException(status_code=400, detail="Order must have items")
@@ -2847,6 +2886,8 @@ async def create_guest_checkout_order(order_input: GuestCheckoutOrder):
     order_doc = {
         "id": order_id,
         "order_number": order_number,
+        "customer_id": linked_customer["id"] if linked_customer else None,
+        "is_trade": bool(linked_customer and linked_customer.get("is_trade")),
         "customer_email": customer.get("email"),
         "customer_name": f"{customer.get('firstName', '')} {customer.get('lastName', '')}".strip(),
         "customer_phone": customer.get("phone", ""),
@@ -3381,6 +3422,8 @@ async def get_guest_checkout_status(session_id: str):
                     {"session_id": session_id},
                     {"$set": {"payment_status": "paid", "updated_at": now}}
                 )
+                # Linked (signed-in / trade) customer: spend stats + credit-back.
+                await _record_paid_order_for_customer(db, order["id"])
                 # Mark abandoned-cart sequence recovered for this email so day-1 doesn't fire post-purchase.
                 cust_email = (order.get("customer_email") or "").lower()
                 if cust_email:

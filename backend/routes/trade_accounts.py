@@ -2,13 +2,19 @@
 Trade Account management routes for builders and tradespeople
 Now reads from shop_customers collection (is_trade: True) for web-registered accounts
 """
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel, Field
 from typing import Optional
 from datetime import datetime, timezone
+import secrets
 import uuid
 
-router = APIRouter(prefix="/trade-accounts", tags=["trade-accounts"])
+from services import get_current_user
+
+SETUP_LINK_HOURS = 24 * 7
+
+router = APIRouter(prefix="/trade-accounts", tags=["trade-accounts"],
+                   dependencies=[Depends(get_current_user)])
 
 TRADE_TYPES = [
     "Builder", "Tiler", "Plumber", "Contractor", "Interior Designer",
@@ -99,6 +105,9 @@ def normalize_shop_customer(doc: dict) -> dict:
         "custom_discount": doc.get("custom_discount"),
         "account_number": doc.get("account_number", ""),
         "trade_account_number": doc.get("trade_account_number", ""),
+        "password_set_at": doc.get("password_set_at"),
+        "login_link_sent_at": doc.get("login_link_sent_at"),
+        "last_login_at": doc.get("last_login_at"),
         "total_spend": total_spend,
         "order_count": doc.get("order_count", 0) or 0,
         "credit_balance": doc.get("credit_balance", 0) or 0,
@@ -201,25 +210,49 @@ async def get_trade_account(account_id: str):
     return account
 
 
+async def _issue_login_link(db, customer: dict) -> dict:
+    """Create a 7-day set-password link for an admin-created / locked-out
+    trade customer and email it. Returns the link so staff can also pass it
+    on by phone/WhatsApp."""
+    from services.password_links import create_password_link, send_password_link_email
+    link = await create_password_link(
+        db, email=customer["email"], account_type="shop", account_id=customer.get("id"),
+        is_trade=True, purpose="setup", hours=SETUP_LINK_HOURS)
+    sent = await send_password_link_email(
+        to=customer["email"], name=customer.get("name") or "", link=link["link"],
+        purpose="setup", is_trade=True,
+        trade_account_number=customer.get("trade_account_number") or "", hours=SETUP_LINK_HOURS)
+    await db.shop_customers.update_one(
+        {"id": customer["id"]},
+        {"$set": {"login_link_sent_at": datetime.now(timezone.utc).isoformat()}})
+    return {"link": link["link"], "expires_at": link["expires_at"],
+            "email_sent": bool(sent.get("success")), "email_error": sent.get("error")}
+
+
 @router.post("")
 async def create_trade_account(account: TradeAccountCreate):
-    """Create a new trade account (staff-created via admin)"""
+    """Create a new trade account (staff-created via admin). The customer gets
+    a set-your-password email so they can order online straight away."""
     from server import db
     from services import hash_password
+    from services.password_links import normalize_email, email_query
+    from routes.shop import _mint_trade_account_number
 
-    existing = await db.shop_customers.find_one(
-        {"email": account.contact_email.lower()}, {"_id": 0, "id": 1}
-    )
+    email = normalize_email(account.contact_email)
+    if "@" not in email:
+        raise HTTPException(status_code=400, detail="A valid contact email is required")
+    existing = await db.shop_customers.find_one(email_query(email), {"_id": 0, "id": 1})
     if existing:
-        raise HTTPException(status_code=400, detail="A trade account with this email already exists")
+        raise HTTPException(status_code=400, detail="A customer with this email already exists — search for it and use 'Send login link' instead")
 
     customer_id = str(uuid.uuid4())
     now = datetime.now(timezone.utc)
 
     doc = {
         "id": customer_id,
-        "email": account.contact_email.lower(),
-        "password": hash_password("TempPass123!"),
+        "email": email,
+        "password": hash_password(secrets.token_urlsafe(24)),
+        "trade_account_number": await _mint_trade_account_number(db),
         "name": account.contact_name,
         "business_name": account.business_name,
         "trading_name": account.trading_name,
@@ -249,7 +282,28 @@ async def create_trade_account(account: TradeAccountCreate):
     }
 
     await db.shop_customers.insert_one(doc)
-    return normalize_shop_customer(doc)
+    result = normalize_shop_customer(doc)
+    result["login_link"] = await _issue_login_link(db, doc)
+    return result
+
+
+@router.post("/{account_id}/send-login-link")
+async def send_trade_login_link(account_id: str):
+    """Email a set-password link to a trade customer who can't get in
+    (in-store accounts, forgotten passwords, mixed-up emails)."""
+    from server import db
+    from routes.shop import _ensure_trade_account_number
+
+    customer = await db.shop_customers.find_one(
+        {"id": account_id, "is_trade": True}, {"_id": 0, "password": 0})
+    if not customer:
+        raise HTTPException(status_code=404, detail="Trade account not found")
+    if not customer.get("email") or "@" not in customer["email"]:
+        raise HTTPException(status_code=400, detail="This account has no valid email address — add one first")
+    customer = await _ensure_trade_account_number(db, customer)
+    result = await _issue_login_link(db, customer)
+    return {"success": True, "email": customer["email"],
+            "trade_account_number": customer.get("trade_account_number"), **result}
 
 
 @router.put("/{account_id}")

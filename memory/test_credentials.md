@@ -60,3 +60,11 @@
 
 ## WAS-price sale fixture (Aug 18, 2026)
 - Tile LP-1214 (LEPORCE, "Dolomite Onyx Green 60x120cm Polished", series Dolomite Onyx): price £30 (unchanged), was_price £39.99, discount_percentage 25.0, sale_active=True — set via POST /api/supplier-sync/products/bulk-sale-pricing with {"was_price": 39.99}
+
+
+## Trade access flow (Sep 8, 2026 — admin-created accounts / password reset)
+- Admin-created trade account (via POST /api/trade-accounts): smoke.trade@example.com / SmokePass123! — T-00024, Bronze, "Smoke Trade Ltd" (set via setup link → /reset-password?token=…&for=trade)
+- Admin-created accounts NO LONGER use "TempPass123!" — a random password is set and a 7-day set-password link is emailed (Resend rejects @example.com addresses, so in preview the link is returned in the API response `login_link.link` and via `POST /api/trade-accounts/{id}/send-login-link`).
+- `/api/auth/forgot-password`, `/api/auth/reset-password`, `/api/auth/verify-reset-token` now serve BOTH `users` (staff) and `shop_customers` (retail + trade). Tokens live in `password_resets` with `account_type` = staff|shop, `purpose` = reset|setup.
+- Storefront login `/api/shop/auth/login` is case-insensitive on email.
+- Pytest: backend/tests/test_trade_access_flow.py (needs MONGO_URL, DB_NAME, REACT_APP_BACKEND_URL env).

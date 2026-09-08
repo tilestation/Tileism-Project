@@ -277,6 +277,9 @@ export const api = {
   
   deleteTradeAccount: (id) =>
     axios.delete(`${API}/trade-accounts/${id}`, { headers: getAuthHeader() }),
+
+  sendTradeLoginLink: (id) =>
+    axios.post(`${API}/trade-accounts/${id}/send-login-link`, {}, { headers: getAuthHeader() }),
   
   getTradeTypes: () =>
     axios.get(`${API}/trade-accounts/trade-types`, { headers: getAuthHeader() }),

@@ -232,7 +232,7 @@ const TradeLoginPage = () => {
                   <div className="flex justify-between items-center">
                     <Label htmlFor="trade-password">Password</Label>
                     <Link
-                      to={`/shop/tile-forgot-password${email ? `?email=${encodeURIComponent(email)}` : ''}`}
+                      to={`/shop/tile-forgot-password?type=trade${email ? `&email=${encodeURIComponent(email)}` : ''}`}
                       className={`text-xs transition-colors ${
                         wrongPasswordStreak >= 2
                           ? 'text-amber-700 hover:text-amber-900 font-semibold underline animate-pulse'

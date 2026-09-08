@@ -1881,145 +1881,117 @@ class ResetPasswordRequest(BaseModel):
 
 @api_router.post("/auth/forgot-password")
 async def forgot_password(data: ForgotPasswordRequest):
-    """Request password reset - sends email with reset link"""
-    import secrets
-    from services import RESEND_AVAILABLE
-    
-    user = await db.users.find_one({"email": data.email.lower().strip()})
-    
-    # Always return success to prevent email enumeration
-    if not user:
-        return {"message": "If an account exists with this email, you will receive a password reset link."}
-    
-    # Generate reset token
-    reset_token = secrets.token_urlsafe(32)
-    expires_at = datetime.now(timezone.utc) + timedelta(hours=1)
-    
-    # Store reset token
-    await db.password_resets.delete_many({"email": data.email.lower().strip()})  # Remove old tokens
-    await db.password_resets.insert_one({
-        "email": data.email.lower().strip(),
-        "token": reset_token,
-        "expires_at": expires_at.isoformat(),
-        "created_at": datetime.now(timezone.utc).isoformat()
-    })
-    
-    # Send email with reset link
-    if RESEND_AVAILABLE:
-        try:
-            import resend
-            RESEND_API_KEY = os.environ.get("RESEND_API_KEY")
-            if RESEND_API_KEY:
-                resend.api_key = RESEND_API_KEY
-                
-                # Get frontend URL for reset link - derive from REACT_APP_BACKEND_URL or use environment variable
-                # In production, FRONTEND_URL should be set to the actual frontend domain
-                frontend_url = os.environ.get("FRONTEND_URL")
-                if not frontend_url:
-                    # Fallback: derive from backend URL by removing /api if present
-                    backend_url = os.environ.get("REACT_APP_BACKEND_URL", "")
-                    if backend_url:
-                        frontend_url = backend_url.replace("/api", "")
-                    else:
-                        frontend_url = "https://tilestation.co.uk"  # Default production domain
-                reset_link = f"{frontend_url}/reset-password?token={reset_token}"
-                
-                # Use verified domain
-                from_email = "Tile Station <noreply@tilestation.co.uk>"
-                
-                resend.Emails.send({
-                    "from": from_email,
-                    "to": [data.email],
-                    "subject": "Password Reset Request - Tile Station",
-                    "html": f"""
-                        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-                            <h2 style="color: #333;">Password Reset Request</h2>
-                            <p>Hello,</p>
-                            <p>We received a request to reset your password for your Tile Station account.</p>
-                            <p>Click the button below to reset your password:</p>
-                            <p style="text-align: center; margin: 30px 0;">
-                                <a href="{reset_link}" 
-                                   style="background-color: #2563eb; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">
-                                    Reset Password
-                                </a>
-                            </p>
-                            <p>Or copy and paste this link into your browser:</p>
-                            <p style="word-break: break-all; color: #666; font-size: 14px;">{reset_link}</p>
-                            <p style="color: #666; font-size: 14px;">This link will expire in 1 hour.</p>
-                            <p style="color: #666; font-size: 14px;">If you didn't request this, please ignore this email.</p>
-                            <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;">
-                            <p style="color: #999; font-size: 12px;">Tile Station - Amazing Tiles, Beautiful Bathrooms, Excellent Service</p>
-                        </div>
-                    """
-                })
-                print(f"Password reset email sent to {data.email}")
-        except Exception as e:
-            print(f"Failed to send reset email: {e}")
-    
-    return {"message": "If an account exists with this email, you will receive a password reset link."}
+    """Request a password reset — works for staff (`users`) AND storefront /
+    trade customers (`shop_customers`). Always answers 200 to avoid enumeration."""
+    from services.password_links import (find_account, create_password_link,
+                                         send_password_link_email, normalize_email)
+    generic = {"message": "If an account exists with this email, you will receive a password reset link."}
+    email = normalize_email(data.email)
+    if not email or "@" not in email:
+        return generic
+
+    account_type, account = await find_account(db, email)
+    if not account:
+        return generic
+
+    is_trade = bool(account.get("is_trade") or account.get("trade_account_status") == "approved")
+    link = await create_password_link(
+        db, email=account.get("email") or email, account_type=account_type,
+        account_id=account.get("id"), is_trade=is_trade, purpose="reset", hours=1)
+    asyncio.create_task(send_password_link_email(
+        to=account.get("email") or email, name=account.get("name") or "", link=link["link"],
+        purpose="reset", is_trade=is_trade,
+        trade_account_number=account.get("trade_account_number") or "", hours=1))
+    return generic
+
+
+async def _load_valid_reset_record(token: str) -> dict:
+    reset_record = await db.password_resets.find_one({"token": token})
+    if not reset_record:
+        raise HTTPException(status_code=400, detail="Invalid or expired reset token")
+    expires_at = datetime.fromisoformat(reset_record["expires_at"].replace('Z', '+00:00'))
+    if datetime.now(timezone.utc) > expires_at:
+        await db.password_resets.delete_one({"token": token})
+        raise HTTPException(status_code=400, detail="Reset token has expired. Please request a new one.")
+    return reset_record
 
 
 @api_router.post("/auth/reset-password")
 async def reset_password(data: ResetPasswordRequest):
-    """Reset password using token from email"""
-    # Find valid reset token
-    reset_record = await db.password_resets.find_one({"token": data.token})
-    
-    if not reset_record:
-        raise HTTPException(status_code=400, detail="Invalid or expired reset token")
-    
-    # Check if token is expired
-    expires_at = datetime.fromisoformat(reset_record["expires_at"].replace('Z', '+00:00'))
-    if datetime.now(timezone.utc) > expires_at:
-        await db.password_resets.delete_one({"token": data.token})
-        raise HTTPException(status_code=400, detail="Reset token has expired. Please request a new one.")
-    
-    # Validate new password
+    """Set a new password from an emailed link. Staff tokens update `users`;
+    customer tokens update `shop_customers` and hand back a storefront session
+    so the customer lands straight in their account."""
+    from services.password_links import email_query, login_path_for
+    reset_record = await _load_valid_reset_record(data.token)
+
     if len(data.new_password) < 8:
         raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
-    
-    # Update password
+
+    account_type = reset_record.get("account_type") or "staff"
+    collection = db.shop_customers if account_type == "shop" else db.users
     new_hashed_password = hash_password(data.new_password)
-    result = await db.users.update_one(
-        {"email": reset_record["email"]},
-        {"$set": {"password": new_hashed_password}}
+    result = await collection.update_one(
+        email_query(reset_record["email"]),
+        {"$set": {"password": new_hashed_password,
+                  "password_set_at": datetime.now(timezone.utc).isoformat()}}
     )
-    
-    if result.modified_count == 0:
+    if result.matched_count == 0:
         raise HTTPException(status_code=404, detail="User not found")
-    
-    # Delete used token
+
     await db.password_resets.delete_one({"token": data.token})
-    
-    # Log audit
-    user = await db.users.find_one({"email": reset_record["email"]}, {"_id": 0})
-    if user:
+
+    account = await collection.find_one(email_query(reset_record["email"]), {"_id": 0, "password": 0})
+    is_trade = bool(account and (account.get("is_trade") or account.get("trade_account_status") == "approved"))
+    response = {
+        "message": "Password set successfully. You can now log in with your new password.",
+        "account_type": account_type,
+        "is_trade": is_trade,
+        "login_path": login_path_for(account_type, is_trade),
+        "purpose": reset_record.get("purpose") or "reset",
+    }
+
+    if account_type == "staff" and account:
         await log_audit(
             action="UPDATE",
             entity_type="auth",
-            user=user,
-            entity_id=user.get("id", reset_record["email"]),
+            user=account,
+            entity_id=account.get("id", reset_record["email"]),
             entity_name=reset_record["email"],
             details="Password reset via email link"
         )
-    
-    return {"message": "Password reset successfully. You can now log in with your new password."}
+    elif account:
+        response["token"] = create_access_token({"sub": account["email"], "type": "shop_customer"})
+        response["customer"] = {
+            "id": account.get("id"),
+            "email": account.get("email"),
+            "name": account.get("name", ""),
+            "phone": account.get("phone", ""),
+            "address": account.get("address", {}),
+            "is_trade": is_trade,
+            "trade_discount": account.get("trade_discount", 0),
+            "trade_tier": account.get("trade_tier", ""),
+            "trade_account_number": account.get("trade_account_number", ""),
+            "credit_balance": account.get("credit_balance", 0),
+            "business_name": account.get("business_name", ""),
+        }
+    return response
 
 
 @api_router.get("/auth/verify-reset-token")
 async def verify_reset_token(token: str):
-    """Verify if a reset token is valid"""
-    reset_record = await db.password_resets.find_one({"token": token})
-    
-    if not reset_record:
-        raise HTTPException(status_code=400, detail="Invalid reset token")
-    
-    expires_at = datetime.fromisoformat(reset_record["expires_at"].replace('Z', '+00:00'))
-    if datetime.now(timezone.utc) > expires_at:
-        await db.password_resets.delete_one({"token": token})
-        raise HTTPException(status_code=400, detail="Reset token has expired")
-    
-    return {"valid": True, "email": reset_record["email"]}
+    """Verify a reset/setup token and tell the page which login it belongs to."""
+    from services.password_links import login_path_for
+    reset_record = await _load_valid_reset_record(token)
+    account_type = reset_record.get("account_type") or "staff"
+    is_trade = bool(reset_record.get("is_trade"))
+    return {
+        "valid": True,
+        "email": reset_record["email"],
+        "account_type": account_type,
+        "is_trade": is_trade,
+        "purpose": reset_record.get("purpose") or "reset",
+        "login_path": login_path_for(account_type, is_trade),
+    }
 
 
 @api_router.post("/categories", response_model=Category)

@@ -671,9 +671,9 @@ const TileDetailPage = () => {
               })()}
               
               {/* Klarna OSM — "From £X/mo with Klarna" (hidden unless admin enabled it) */}
-              {typeof finalPrice === 'number' && finalPrice > 0 && (
+              {typeof currentPrice === 'number' && currentPrice > 0 && (
                 <KlarnaOSM
-                  price={finalPrice}
+                  price={currentPrice}
                   placement="credit-promotion-standard"
                   className="block mb-4"
                 />

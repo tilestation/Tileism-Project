@@ -31,8 +31,12 @@ REAL_SKUS = ["LP-6683", "LP-6690"]
 
 @pytest.fixture(scope="session")
 def api():
+    r = requests.post(f"{BASE_URL}/api/auth/login",
+                      json={"email": "admin@test.com", "password": "admin123"}, timeout=30)
+    assert r.status_code == 200, r.text
+    token = r.json().get("token") or r.json().get("access_token")
     s = requests.Session()
-    s.headers.update({"Content-Type": "application/json"})
+    s.headers.update({"Content-Type": "application/json", "Authorization": f"Bearer {token}"})
     return s
 
 
@@ -71,7 +75,7 @@ class TestClearanceMark:
                      json={"product_ids": [], "on": True}, timeout=30)
         assert r.status_code == 400, r.text[:300]
 
-    def test_mark_autopublishes_draft_only_sku(self, api, db):
+    def test_mark_draft_only_sku_stays_draft(self, api, db):
         # seed a disposable draft that exists ONLY in supplier_products
         db.supplier_products.delete_many({"sku": TEST_SKU})
         db.tiles.delete_many({"sku": TEST_SKU})
@@ -81,11 +85,12 @@ class TestClearanceMark:
             "supplier_code": TEST_SKU,
             "product_name": "TEST_CLR Draft Tile",
             "our_product_name": "TEST_CLR Draft Tile",
-            "list_price": 19.99,
-            "was_price": 39.99,
+            "list_price": "19.99",
+            "was_price": "39.99",
+            "images": [{"url": "https://images.tilestation.co.uk/does-not-exist.jpg", "alt": "x"}],
             "size": "600x600mm",
             "product_group": "tiles",
-            "stock_m2": 50,
+            "stock_m2": "50",
             "pricing_unit": "m2",
             "published_to_website": False,
         })
@@ -98,21 +103,28 @@ class TestClearanceMark:
             body = r.json()
             assert body["success"] is True
             assert body["marked"] >= 1
+            assert body["draft_count"] >= 1, body
 
             sp = db.supplier_products.find_one({"sku": TEST_SKU})
             assert "Clearance" in (sp.get("labels") or []), sp.get("labels")
+            # label only — nothing is published
+            assert db.tiles.find_one({"sku": TEST_SKU}) is None
 
-            tile = db.tiles.find_one({"sku": TEST_SKU})
-            assert tile is not None, "auto-publish did not create a tiles doc"
-            assert "Clearance" in (tile.get("labels") or []), tile.get("labels")
-            assert body["auto_published"] >= 1, body
-
-            # appears in hub list as published
+            # appears in hub list as a draft; dict image + string prices normalised
             hub = api.get(f"{BASE_URL}/api/clearance/products", timeout=60).json()
             row = next((i for i in hub["items"] if i["sku"] == TEST_SKU), None)
             assert row is not None, "test SKU not in hub list"
-            assert row["published"] is True
+            assert row["published"] is False
+            assert row["image"] == "https://images.tilestation.co.uk/does-not-exist.jpg"
             assert row["price"] == pytest.approx(19.99, abs=0.5)
+            assert row["was_price"] == pytest.approx(39.99, abs=0.5)
+            assert row["stock_m2"] == pytest.approx(50)
+
+            # leaflet must not 500 on dict images / string numbers
+            pdf = api.post(f"{BASE_URL}/api/clearance/leaflet/generate",
+                           json={"skus": [TEST_SKU], "layout": "poster"}, timeout=120)
+            assert pdf.status_code == 200, pdf.text[:300]
+            assert pdf.content[:4] == b"%PDF"
 
             # unmark removes label from BOTH collections
             r2 = api.post(f"{BASE_URL}/api/clearance/mark",

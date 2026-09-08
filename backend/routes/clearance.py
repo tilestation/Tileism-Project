@@ -70,13 +70,28 @@ def _product_refs_query(refs: List["ProductRef"]):
     return {"$or": clauses} if clauses else {"_id": {"$exists": False}}
 
 
+def _image_url(value):
+    """Images may be stored as a plain URL string or as {url|src, alt} objects."""
+    if isinstance(value, dict):
+        value = value.get("url") or value.get("src") or value.get("image_url")
+    return value.strip() if isinstance(value, str) and value.strip() else None
+
+
 def _first_image(doc):
     imgs = doc.get("images")
     if isinstance(imgs, list):
         for i in imgs:
-            if i:
-                return i
-    return doc.get("image")
+            url = _image_url(i)
+            if url:
+                return url
+    return _image_url(doc.get("image"))
+
+
+def _num(value, default=0.0):
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
 
 
 @router.get("/products")
@@ -123,12 +138,15 @@ def _hub_item(sku, sp, t):
     price = (t or {}).get("price") or sp.get("list_price") or sp.get("price") or 0
     was = (t or {}).get("was_price") or sp.get("was_price")
     pct = (t or {}).get("discount_percentage") or sp.get("discount_percentage")
+    price = _num(price)
+    was = _num(was, None) if was else None
+    pct = _num(pct, None) if pct else None
     # Inverted/legacy data guard — a WAS at or below NOW is meaningless
-    if was and price and float(was) <= float(price):
+    if was and price and was <= price:
         was = None
         pct = None
-    if not pct and was and price and float(was) > float(price):
-        pct = round((float(was) - float(price)) / float(was) * 100)
+    if not pct and was and price and was > price:
+        pct = round((was - price) / was * 100)
     return {
         "sku": sku,
         "supplier": sp.get("supplier") or (t or {}).get("supplier_name") or "",
@@ -136,10 +154,10 @@ def _hub_item(sku, sp, t):
                 or sp.get("our_product_name") or sp.get("product_name") or sp.get("name") or sku,
         "image": (_first_image(t) if t else None) or _first_image(sp),
         "size": ((t or {}).get("attributes") or {}).get("size") or (t or {}).get("size") or sp.get("size") or "",
-        "price": float(price) if price else 0,
-        "was_price": float(was) if was else None,
+        "price": price,
+        "was_price": was,
         "discount_percentage": int(pct) if pct else None,
-        "stock_m2": (t or {}).get("stock_m2") or sp.get("stock_m2") or (t or {}).get("stock") or 0,
+        "stock_m2": _num((t or {}).get("stock_m2") or sp.get("stock_m2") or (t or {}).get("stock") or 0),
         "pricing_unit": (t or {}).get("pricing_unit") or sp.get("pricing_unit") or "",
         "product_group": (t or {}).get("product_group") or sp.get("product_group") or "",
         "published": live,
@@ -281,6 +299,7 @@ def _leaflet_products(db, skus):
 
 
 def _fetch_image(url, cache):
+    url = _image_url(url)
     if not url:
         return None
     if url in cache:
@@ -333,18 +352,18 @@ def _draw_footer(c, W):
 
 def _price_label(p):
     unit = "" if (p.get("pricing_unit") == "unit") else "/m²"
-    return f"£{float(p.get('price') or 0):.2f}{unit}"
+    return f"£{_num(p.get('price')):.2f}{unit}"
 
 
 def _draw_cell(c, p, x, y, w, h, img_cache, compact=False):
-    name = p.get("display_name") or p.get("name") or p.get("sku") or ""
-    size = (p.get("attributes") or {}).get("size") or p.get("size") or ""
-    was = p.get("was_price")
-    price = float(p.get("price") or 0)
-    pct = p.get("discount_percentage")
-    if not pct and was and float(was) > price > 0:
-        pct = round((float(was) - price) / float(was) * 100)
-    stock = p.get("stock_m2") or p.get("stock") or 0
+    name = str(p.get("display_name") or p.get("name") or p.get("sku") or "")
+    size = str((p.get("attributes") or {}).get("size") or p.get("size") or "")
+    was = _num(p.get("was_price"), None) if p.get("was_price") else None
+    price = _num(p.get("price"))
+    pct = _num(p.get("discount_percentage"), None) if p.get("discount_percentage") else None
+    if not pct and was and was > price > 0:
+        pct = round((was - price) / was * 100)
+    stock = _num(p.get("stock_m2") or p.get("stock") or 0)
 
     c.setStrokeColorRGB(0.85, 0.85, 0.85)
     c.setLineWidth(1)
@@ -385,10 +404,10 @@ def _draw_cell(c, p, x, y, w, h, img_cache, compact=False):
         c.drawString(tx, ty - (23 if line2 else 12), size)
 
     py = (y + 14) if compact else (y + 30)
-    if was and float(was) > price:
+    if was and was > price:
         c.setFillColorRGB(0.5, 0.5, 0.5)
         c.setFont("Helvetica", 9)
-        was_txt = f"WAS £{float(was):.2f}"
+        was_txt = f"WAS £{was:.2f}"
         c.drawString(tx, py + (16 if compact else 22), was_txt)
         tw = c.stringWidth(was_txt, "Helvetica", 9)
         c.setStrokeColorRGB(*FIRE_RED)
@@ -409,7 +428,7 @@ def _draw_cell(c, p, x, y, w, h, img_cache, compact=False):
     if not compact:
         c.setFillColorRGB(0.9, 0.45, 0.0)
         c.setFont("Helvetica-Bold", 8)
-        note = f"Only {stock:g} m² left — while stocks last" if stock and float(stock) > 0 else "Limited stock — while stocks last"
+        note = f"Only {stock:g} m² left — while stocks last" if stock > 0 else "Limited stock — while stocks last"
         c.drawString(tx, y + 12, note)
 
 

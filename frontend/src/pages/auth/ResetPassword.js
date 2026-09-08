@@ -21,6 +21,16 @@ const ResetPassword = () => {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
+  // Which sign-in this link belongs to (staff vs shop vs trade) and whether
+  // it's a first-time "set up your account" link rather than a reset. The
+  // `for=` hint in the emailed URL lets us route correctly even when the
+  // token itself has expired.
+  const forHint = searchParams.get('for');
+  const hintPath = forHint === 'trade' ? '/shop/trade/login' : forHint === 'shop' ? '/shop/tile-login' : '/admin/login';
+  const [loginPath, setLoginPath] = useState(hintPath);
+  const [isTrade, setIsTrade] = useState(forHint === 'trade');
+  const [isSetup, setIsSetup] = useState(false);
+  const [autoSignedIn, setAutoSignedIn] = useState(false);
 
   useEffect(() => {
     const verifyToken = async () => {
@@ -33,6 +43,9 @@ const ResetPassword = () => {
         const response = await api.verifyResetToken(token);
         setTokenValid(true);
         setEmail(response.data.email);
+        if (response.data.login_path) setLoginPath(response.data.login_path);
+        setIsTrade(!!response.data.is_trade);
+        setIsSetup(response.data.purpose === 'setup');
       } catch (error) {
         setTokenValid(false);
       } finally {
@@ -58,15 +71,25 @@ const ResetPassword = () => {
 
     setLoading(true);
     try {
-      await api.resetPassword(token, password);
+      const { data } = await api.resetPassword(token, password);
+      if (data?.login_path) setLoginPath(data.login_path);
+      // Storefront/trade customers get a session back — sign them straight in.
+      if (data?.account_type === 'shop' && data?.token) {
+        localStorage.setItem('tile_shop_token', data.token);
+        localStorage.setItem('tile_shop_customer', JSON.stringify(data.customer || {}));
+        window.dispatchEvent(new Event('trade-auth-change'));
+        setAutoSignedIn(true);
+      }
       setSuccess(true);
-      toast.success('Password reset successfully!');
+      toast.success(isSetup ? 'Password set — welcome aboard!' : 'Password reset successfully!');
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to reset password');
     } finally {
       setLoading(false);
     }
   };
+
+  const accountHome = isTrade ? '/shop/trade/account' : '/shop/account';
 
   // Loading state
   if (verifying) {
@@ -98,12 +121,12 @@ const ResetPassword = () => {
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 text-sm text-yellow-800">
-              <p>Reset links expire after 1 hour for security reasons.</p>
+              <p>Reset links expire after 1 hour (account set-up links after 7 days) for security reasons.</p>
             </div>
-            <Link to="/forgot-password" className="block">
-              <Button className="w-full">Request New Reset Link</Button>
+            <Link to={forHint === 'staff' || !forHint ? '/forgot-password' : `/shop/tile-forgot-password${forHint === 'trade' ? '?type=trade' : ''}`} className="block">
+              <Button className="w-full" data-testid="request-new-reset-link">Request New Reset Link</Button>
             </Link>
-            <Link to="/admin/login" className="block">
+            <Link to={loginPath} className="block">
               <Button variant="ghost" className="w-full">
                 <ArrowLeft className="h-4 w-4 mr-2" /> Back to Login
               </Button>
@@ -123,18 +146,20 @@ const ResetPassword = () => {
             <div className="mx-auto w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mb-4">
               <CheckCircle className="h-8 w-8 text-green-600" />
             </div>
-            <CardTitle className="text-2xl">Password Reset!</CardTitle>
+            <CardTitle className="text-2xl">{isSetup ? 'You\'re all set!' : 'Password Reset!'}</CardTitle>
             <CardDescription className="text-base mt-2">
-              Your password has been reset successfully. You can now log in with your new password.
+              {autoSignedIn
+                ? `Your password has been saved and you're signed in${isTrade ? ' — your trade prices are live' : ''}.`
+                : 'Your password has been reset successfully. You can now log in with your new password.'}
             </CardDescription>
           </CardHeader>
           <CardContent>
             <Button 
               className="w-full" 
-              onClick={() => navigate('/admin/login')}
+              onClick={() => navigate(autoSignedIn ? accountHome : loginPath)}
               data-testid="go-to-login"
             >
-              Go to Login
+              {autoSignedIn ? (isTrade ? 'Go to my Trade account' : 'Go to my account') : 'Go to Login'}
             </Button>
           </CardContent>
         </Card>
@@ -150,9 +175,9 @@ const ResetPassword = () => {
           <div className="mx-auto w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mb-4">
             <Lock className="h-8 w-8 text-blue-600" />
           </div>
-          <CardTitle className="text-2xl">Reset Your Password</CardTitle>
+          <CardTitle className="text-2xl">{isSetup ? (isTrade ? 'Set up your Trade account' : 'Set up your account') : 'Reset Your Password'}</CardTitle>
           <CardDescription className="text-base mt-2">
-            Enter a new password for <strong>{email}</strong>
+            {isSetup ? 'Choose a password for ' : 'Enter a new password for '}<strong>{email}</strong>
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -211,9 +236,9 @@ const ResetPassword = () => {
               disabled={loading}
               data-testid="reset-password-submit"
             >
-              {loading ? 'Resetting...' : 'Reset Password'}
+              {loading ? 'Saving...' : (isSetup ? 'Save password & sign in' : 'Reset Password')}
             </Button>
-            <Link to="/admin/login" className="block">
+            <Link to={loginPath} className="block" data-testid="reset-back-to-login">
               <Button variant="ghost" className="w-full">
                 <ArrowLeft className="h-4 w-4 mr-2" /> Back to Login
               </Button>

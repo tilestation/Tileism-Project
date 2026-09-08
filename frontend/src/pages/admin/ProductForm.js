@@ -68,7 +68,6 @@ export const ProductForm = () => {
     // Visibility & Status
     visibility: 'published',  // draft, published
     status: 'active',  // pending_approval, approved, active
-    show_on_website: true,
     show_in_epos: true,
     is_featured: false,  // Show in "Featured Tiles" section on homepage
     // Stocktake fields

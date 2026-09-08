@@ -3047,7 +3047,6 @@ export default function SupplierProducts() {
         seo_keywords: bulkDescriptionSettings.seo_keywords || '',
         material: sampleProduct.material || sampleProduct.attributes?.material || '',
         finish: sampleProduct.finish || sampleProduct.attributes?.finish || '',
-        type: sampleProduct.type || '',
         size: sampleProduct.size || sampleProduct.attributes?.size || '',
         colors: sampleProduct.colors || [sampleProduct.color || sampleProduct.attributes?.color].filter(Boolean),
         suitability: sampleProduct.suitability || '',

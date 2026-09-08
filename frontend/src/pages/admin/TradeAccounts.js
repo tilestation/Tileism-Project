@@ -22,7 +22,8 @@ import {
   CheckCircle,
   Loader2,
   Clock,
-  XCircle
+  XCircle,
+  KeyRound
 } from 'lucide-react';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
@@ -134,8 +135,14 @@ const TradeAccountModal = ({ isOpen, onClose, account, tradeTypes, onSave }) => 
         await api.updateTradeAccount(account.id, submitData);
         toast.success('Trade account updated');
       } else {
-        await api.createTradeAccount(submitData);
-        toast.success('Trade account created');
+        const { data } = await api.createTradeAccount(submitData);
+        const ll = data?.login_link;
+        toast.success(
+          ll?.email_sent
+            ? `Trade account ${data.trade_account_number || ''} created — set-password email sent to ${data.contact_email}`
+            : `Trade account ${data.trade_account_number || ''} created`,
+          ll && !ll.email_sent ? { description: `Email not sent (${ll.email_error || 'email service unavailable'}) — use the key button to copy a login link.` } : undefined
+        );
       }
       onSave();
       onClose();
@@ -560,6 +567,25 @@ const TradeAccounts = () => {
     }
   };
 
+  const [sendingLinkTo, setSendingLinkTo] = useState(null);
+
+  const sendLoginLink = async (account) => {
+    setSendingLinkTo(account.id);
+    try {
+      const { data } = await api.sendTradeLoginLink(account.id);
+      const copy = () => navigator.clipboard?.writeText(data.link).then(() => toast.success('Link copied'));
+      toast.success(
+        data.email_sent ? `Login link emailed to ${data.email}` : `Link created — email not sent (${data.email_error || 'email service unavailable'})`,
+        { description: 'Valid for 7 days. Copy it to send by WhatsApp or read out over the phone.', action: { label: 'Copy link', onClick: copy }, duration: 12000 }
+      );
+      fetchData();
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Failed to send login link');
+    } finally {
+      setSendingLinkTo(null);
+    }
+  };
+
   const sendWhatsAppToOne = async (account) => {
     if (!account.contact_phone && !account.phone && !account.mobile) {
       toast.error(`No phone number for ${account.business_name || account.name}`);
@@ -569,7 +595,7 @@ const TradeAccounts = () => {
     try {
       await api.sendWhatsAppToCustomer(account.id);
       toast.success(`WhatsApp sent to ${account.contact_name || account.name}`);
-      loadAccounts(); // Refresh to update badges
+      fetchData(); // Refresh to update badges
     } catch (err) {
       const detail = err.response?.data?.detail || 'Failed to send';
       toast.error(detail);
@@ -586,7 +612,7 @@ const TradeAccounts = () => {
       const { sent, failed, skipped } = res.data;
       toast.success(`Sent: ${sent}, Failed: ${failed}, Skipped: ${skipped}`);
       setSelectedIds(new Set());
-      loadAccounts(); // Refresh to update badges
+      fetchData(); // Refresh to update badges
     } catch (err) {
       toast.error('Bulk send failed');
     } finally {
@@ -606,7 +632,7 @@ const TradeAccounts = () => {
       setShowCustomMsg(false);
       setCustomMessage('');
       setSelectedIds(new Set());
-      loadAccounts(); // Refresh to update badges
+      fetchData(); // Refresh to update badges
     } catch (err) {
       const detail = err.response?.data?.detail || 'Failed to send custom message';
       toast.error(detail);
@@ -929,6 +955,25 @@ const TradeAccounts = () => {
                       <p className="text-xs text-gray-400">{account.order_count || 0} orders</p>
                     </div>
                     <div className="flex items-center gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => sendLoginLink(account)}
+                        disabled={sendingLinkTo === account.id}
+                        className={account.password_set_at || account.last_login_at ? 'text-gray-600' : 'text-amber-700 border-amber-300 bg-amber-50 hover:bg-amber-100'}
+                        title={account.last_login_at
+                          ? `Send login / reset link (last login ${new Date(account.last_login_at).toLocaleDateString('en-GB')})`
+                          : account.login_link_sent_at
+                            ? `Resend login link (sent ${new Date(account.login_link_sent_at).toLocaleDateString('en-GB')}) — customer has not logged in yet`
+                            : 'Customer has never logged in online — send them a set-password link'}
+                        data-testid={`send-login-link-${account.id}`}
+                      >
+                        {sendingLinkTo === account.id ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <KeyRound className="h-4 w-4" />
+                        )}
+                      </Button>
                       <Button
                         variant="outline"
                         size="sm"
