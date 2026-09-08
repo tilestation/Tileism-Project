@@ -1,0 +1,24 @@
+{
+  "summary": "Backend-only regression + Node SSR enrichment verification for iteration 250. (1) Re-ran pytest suites test_seo_auto_fixer.py + test_seo_auto_fixer_pdp_purge.py — 45/45 passed. (2) GET /api/seo/overrides on the live preview URL returned HTTP 200 with expected shape (overrides, noindex_paths, count=530, noindex_count=0, version). (3) `node -c` syntax check passed for both server-seo.js and server-seo-enrich.js. (4) Created /app/frontend/test_seo_enrich_node.js which directly requires the two modules and executes 20 function-level assertions covering (a) buildProductMeta bodyContent contains <h1>, breadcrumb <nav>, spec <ul>, material text; (b) buildCollectionMeta bodyContent contains <li><a href> product links to marble-a etc.; (c) buildCityPageMeta converts body_md ## / ### / - / **bold** into <h3>/<h4>/<ul><li>/<strong> and renders nearby_cities + related_collections as <a href> links; (d) seo.injectMeta() places meta.bodyContent (with a probe marker attribute) INSIDE the <div id=\"root\">…</div> in the output HTML; (e) seo.resolveSeo('/') and seo.resolveSeo('/shop/info/faq') both return objects with populated title/description ('Tile Station — Premium Tiles…' and 'FAQ · Tile Station' respectively). All 20 Node assertions pass. Also verified in source that enrichSeo() now correctly matches /^\\/(?:tiles|products)\\/([^/?#]+)\\/?$/ and calls lookupCityPage FIRST, then falls back to lookupProduct — matching TileProductRedirect.js precedence.",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": { "ui_bugs": [], "integration_issues": [], "design_issues": [] },
+  "test_report_links": [
+    "/app/backend/tests/test_seo_auto_fixer.py",
+    "/app/backend/tests/test_seo_auto_fixer_pdp_purge.py",
+    "/app/test_reports/pytest/seo_autofixer_iter250.xml",
+    "/app/frontend/test_seo_enrich_node.js"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "markdownToHtmlLite shifts heading levels: `## Welcome` renders as <h3> and `### Why us` as <h4> in city bodyContent. This produces <h1> (page title) → <h3> (first section) with no <h2> in between, which is a minor SEO/accessibility heading-hierarchy skip. Not a blocker (the standalone 'Nearby areas we cover' and 'Popular tile collections' <h2>s do exist), but consider normalising markdown ## to <h2> for well-formed hierarchy.",
+    "buildCityPageMeta breadcrumb uses row.town || row.display_name || slug — in the fake-row test, when neither field is present the breadcrumb renders `<span></span>` (empty label). Not a live-data issue if the DB row always populates town/display_name, but worth defaulting to a humanised slug for safety.",
+    "enrichSeo now does an extra DB/API call (lookupCityPage) on every /tiles/:slug and /products/:slug request before falling back to lookupProduct — small latency cost for every product PDP hit. Caching lookupCityPage misses would eliminate this."
+  ],
+  "updated_files": ["/app/frontend/test_seo_enrich_node.js"],
+  "success_rate": { "backend": "100%", "frontend": "N/A (not tested — preview does not serve production SSR)" },
+  "seed_data_creation": "None. Node tests use in-memory fake product/collection/city objects.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "The Node SSR files (/app/frontend/server-seo.js and /app/frontend/server-seo-enrich.js) are Railway-production-only and are NOT served by the preview's craco dev server. Do not curl the preview URL expecting to see SSR bodyContent — it will not be there. Verification must be via direct `node` require of the exported functions. /app/frontend/test_seo_enrich_node.js provides a reusable regression harness (20 assertions, exit 0 on pass). The /api/seo/overrides endpoint has noindex_count=0 which is the healthy expected state (the safelist + PDP purge from iter249 keeps the collection clean).",
+  "rca of the issue": "N/A — no bugs found this iteration. Prior routing bug (city pages at /tiles/tile-shop-<town> served with zero SSR body) is now fixed via the tiles|products regex lookupCityPage-first branch at server-seo-enrich.js:580-590."
+}

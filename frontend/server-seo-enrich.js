@@ -158,6 +158,28 @@ function buildCityPageMeta(row, slug) {
   }
   const meta = { title, description, jsonld };
   if (stealthKeywords) meta.stealthKeywords = stealthKeywords;
+  // ── SSR body content (8 Sep 2026 — national SEO push) ──
+  // These are the programmatic town × intent pages that carry the
+  // national-ranking strategy — but they're 100% client-fetched
+  // (CityLandingPage.jsx does its own `fetch` after mount), so a
+  // crawler that reads raw HTML previously saw NOTHING here — the
+  // single biggest content gap vs a competitor with server-rendered
+  // local pages. Render the actual `body_md` (LLM-written local copy)
+  // plus the real nearby-city / related-collection internal links.
+  const nearby = Array.isArray(row.nearby_cities) ? row.nearby_cities : [];
+  const related = Array.isArray(row.related_collections) ? row.related_collections : [];
+  const linkList = (items) => items
+    .slice(0, 6)
+    .map((i) => `<li><a href="${escapeHtmlText(i.url)}">${inlineMd(i.label)}</a></li>`)
+    .join('');
+  const townLabel = row.town || row.display_name || slug.replace(/-/g, ' ').replace(/^\w/, (c) => c.toUpperCase());
+  meta.bodyContent = (
+    `<nav aria-label="Breadcrumb"><a href="/">Home</a> &rsaquo; <a href="/tiles">Tiles</a> &rsaquo; <span>${inlineMd(townLabel)}</span></nav>` +
+    `<h1>${inlineMd(row.h1 || title)}</h1>` +
+    markdownToHtmlLite(row.body_md) +
+    (nearby.length > 0 ? `<h2>Nearby areas we cover</h2><ul>${linkList(nearby)}</ul>` : '') +
+    (related.length > 0 ? `<h2>Popular tile collections</h2><ul>${linkList(related)}</ul>` : '')
+  );
   return meta;
 }
 
@@ -230,13 +252,59 @@ async function lookupCollectionStealthKeywords(collectionKey) {
   return keys;
 }
 
+// ─────────────────────────────────────────────────────────────────
+// Tiny markdown → HTML for LLM-generated `body_md` (city pages). Only
+// covers the handful of constructs the city-page generator actually
+// produces (## headings, paragraphs, - bullet lists, **bold**) — not
+// a general-purpose parser. Escapes raw HTML first so nothing injected
+// by the LLM can break out of the SSR block.
+function escapeHtmlText(s) {
+  return String(s || '')
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+function inlineMd(s) {
+  return escapeHtmlText(s).replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+}
+function markdownToHtmlLite(md) {
+  if (!md) return '';
+  const lines = String(md).split(/\r?\n/);
+  const out = [];
+  let listOpen = false;
+  const closeList = () => { if (listOpen) { out.push('</ul>'); listOpen = false; } };
+  for (const raw of lines) {
+    const line = raw.trim();
+    if (!line) { closeList(); continue; }
+    const h = line.match(/^(#{1,4})\s+(.*)$/);
+    if (h) {
+      closeList();
+      // Markdown level maps 1:1 to h2/h3/h4 — except a literal single
+      // `#` (markdown h1) is bumped to h2 so it never collides with
+      // the page's real <h1> (already rendered above this block).
+      const hashLen = h[1].length;
+      const level = hashLen === 1 ? 2 : Math.min(hashLen, 4);
+      out.push(`<h${level}>${inlineMd(h[2])}</h${level}>`);
+      continue;
+    }
+    const li = line.match(/^[-*]\s+(.*)$/);
+    if (li) {
+      if (!listOpen) { out.push('<ul>'); listOpen = true; }
+      out.push(`<li>${inlineMd(li[1])}</li>`);
+      continue;
+    }
+    closeList();
+    out.push(`<p>${inlineMd(line)}</p>`);
+  }
+  closeList();
+  return out.join('');
+}
+
 function buildProductMeta(product, slug) {
   if (!product) return null;
   const name = (product.display_name || product.name || product.our_name || slug).trim();
   const price = product.price_per_m2 || product.our_price || product.price;
   const material = product.material || product.category || product.collection || '';
   const sizeMatch = name.match(/\d+\s*[xX]\s*\d+/);
-  const size = sizeMatch ? sizeMatch[0] : '';
+  const size = product.size || (sizeMatch ? sizeMatch[0] : '');
   // ── Title length (23 May 2026 fix) ──
   //
   // Google truncates SERP titles around 55-60 characters on desktop
@@ -337,11 +405,42 @@ function buildProductMeta(product, slug) {
       url: `${SITE_URL}/tiles/${slug}`,
     } : undefined,
   };
-  return { title, description, jsonld, stealthKeywords, product: {
+  // ── SSR body content (8 Sep 2026 — national SEO push) ──
+  // Previously the pre-hydration HTML only ever showed a generic
+  // title + description + nav links, even though enrichSeo already
+  // has the real price/material/size/description/stock for this
+  // product. Crawlers that don't wait for the React bundle (or that
+  // time out first-pass rendering) saw a thin page regardless of how
+  // rich the actual PDP is — a real content-depth disadvantage vs a
+  // competitor whose category/product pages are indexed with full text.
+  // This renders a proper breadcrumb + spec list + long description in
+  // the same off-screen block injectMeta already uses.
+  const finish = product.finish || '';
+  const color = product.color || product.colour || '';
+  const inStock = product.in_stock !== false;
+  const longDesc = product.description || product.short_description || description;
+  const specs = [
+    material ? `Material: ${material}` : '',
+    size ? `Size: ${size}` : '',
+    finish ? `Finish: ${finish}` : '',
+    color ? `Colour: ${color}` : '',
+    price ? `Price: £${Number(price).toFixed(2)} per m²` : '',
+    `Availability: ${inStock ? 'In stock' : 'Out of stock'}`,
+  ].filter(Boolean);
+  const bodyContent = (
+    `<nav aria-label="Breadcrumb"><a href="/">Home</a> &rsaquo; <a href="/tiles">Tiles</a>` +
+    (material ? ` &rsaquo; <a href="/tiles?material=${encodeURIComponent(material)}">${inlineMd(material)}</a>` : '') +
+    ` &rsaquo; <span>${inlineMd(name)}</span></nav>` +
+    `<h1>${inlineMd(name)}</h1>` +
+    `<p>${inlineMd(longDesc)}</p>` +
+    (specs.length > 0 ? `<ul>${specs.map((s) => `<li>${inlineMd(s)}</li>`).join('')}</ul>` : '')
+  );
+
+  return { title, description, jsonld, stealthKeywords, bodyContent, product: {
     name,
     price: price ? Number(price).toFixed(2) : null,
     currency: 'GBP',
-    availability: 'in stock',  // Pinterest reads "in stock" / "out of stock"
+    availability: inStock ? 'in stock' : 'out of stock',
     image: images.length > 0 ? images[0] : null,
     images,
     brand: BRAND,
@@ -433,6 +532,27 @@ function buildCollectionMeta(collection, slug, stealthKeywords = []) {
   }
   const meta = { title, description, jsonld };
   if (cleaned.length > 0) meta.stealthKeywords = cleaned.slice(0, 25);
+  // ── SSR body content (8 Sep 2026 — national SEO push) ──
+  // Breadcrumb + intro paragraph + real links to the first 10 products
+  // in the collection (already fetched above for the ItemList JSON-LD).
+  // Gives crawlers actual outgoing links + readable text before React
+  // mounts, instead of only the generic nav strip.
+  const prodLinks = products
+    .slice(0, 10)
+    .map((p) => {
+      const pSlug = p?.slug || p?.url_slug || p?.id;
+      if (!pSlug) return '';
+      const pName = p?.display_name || p?.name || pSlug;
+      return `<li><a href="/shop/product/${encodeURIComponent(pSlug)}">${inlineMd(pName)}</a></li>`;
+    })
+    .filter(Boolean)
+    .join('');
+  meta.bodyContent = (
+    `<nav aria-label="Breadcrumb"><a href="/">Home</a> &rsaquo; <a href="/tiles">Tiles</a> &rsaquo; <a href="/collections">Collections</a> &rsaquo; <span>${inlineMd(name)}</span></nav>` +
+    `<h1>${inlineMd(name)} Collection</h1>` +
+    `<p>${inlineMd(description)}</p>` +
+    (prodLinks ? `<h2>Products in this collection</h2><ul>${prodLinks}</ul>` : '')
+  );
   return meta;
 }
 
@@ -447,12 +567,36 @@ async function enrichSeo(rawPath, baseline) {
     const pathname = (rawPath || '/').split(/[?#]/)[0] || '/';
     const normalised = pathname.replace(/\/+$/, '') || '/';
 
+    // /tiles/:slug is a SHARED namespace — the frontend router
+    // (TileProductRedirect.js) checks city-landing-pages FIRST, then
+    // falls back to a real product. 8 Sep 2026 fix: this enrichment
+    // was checking PRODUCT first, so every city page (the whole
+    // national-ranking strategy — tile-shop-<town>, kitchen-tiles-
+    // <town> etc, all served at /tiles/<slug>) fell through
+    // lookupProduct (miss) → buildProductMeta returns null → then
+    // NEITHER the collection nor the old city-page regex below ever
+    // matched `/tiles/<slug>` (that regex only matched `/tile-shop/…`
+    // with a literal extra slash, or single-segment paths with no
+    // slash at all). Net effect: hundreds of city pages were served
+    // with zero real SSR content — the exact soft-404/thin-content
+    // risk this whole SSR layer exists to prevent. Mirror the
+    // frontend's precedence here.
+    let m = normalised.match(/^\/(?:tiles|products)\/([^/?#]+)\/?$/);
+    if (m) {
+      const cityRow = await lookupCityPage(m[1]);
+      const cityReal = buildCityPageMeta(cityRow, m[1]);
+      if (cityReal) {
+        return { ...baseline, ...cityReal };
+      }
+      const product = await lookupProduct(m[1]);
+      const real = buildProductMeta(product, m[1]);
+      if (real) {
+        return { ...baseline, ...real };
+      }
+    }
     // Product detail
     // Storefront uses /shop/product/<slug> as the canonical PDP URL.
-    // /tiles/<slug> + /products/<slug> retained for legacy / sitemap
-    // backwards-compat. Order matters: more-specific regex first.
-    let m = normalised.match(/^\/shop\/product\/([^/?#]+)\/?$/)
-        || normalised.match(/^\/(?:tiles|products)\/([^/?#]+)\/?$/);
+    m = normalised.match(/^\/shop\/product\/([^/?#]+)\/?$/);
     if (m) {
       const product = await lookupProduct(m[1]);
       const real = buildProductMeta(product, m[1]);

@@ -774,6 +774,13 @@ function injectMeta(html, meta) {
   // (`<div id="root"></div>`), so we don't trample any future
   // server-rendered content the build pipeline might add later.
   if (!meta.noindex) {
+    // 8 Sep 2026 — when enrichSeo produced real page content
+    // (bodyContent: breadcrumb + H1 + full description/specs for
+    // products, product-link lists for collections, the actual
+    // LLM body copy + nearby-city/collection links for programmatic
+    // city pages) render THAT instead of the generic one-line
+    // heading + paragraph. Falls back to the old generic block for
+    // any route enrichSeo doesn't cover (statics, fallback pages).
     const heading = escapeHtml(meta.title || '');
     const paragraph = escapeHtml(meta.description || '');
     // 13 May 2026 — UX fix. Previously the SSR fallback (H1 + nav +
@@ -835,8 +842,9 @@ function injectMeta(html, meta) {
       // The SSR content is positioned off-screen so users never see it
       // while React boots. Crawlers still see it (it's in the DOM).
       `<div class="ssr-fallback" style="${offScreenStyle}">` +
-        `<h1>${heading}</h1>` +
-        `<p>${paragraph}</p>` +
+        (meta.bodyContent
+          ? meta.bodyContent
+          : `<h1>${heading}</h1><p>${paragraph}</p>`) +
         navLinks +
       `</div>` +
       // Visible spinner — replaced by React on mount.
