@@ -9733,8 +9733,9 @@ async def startup_scheduler():
     # stuck noindex'd between deploys. One-shot, idempotent, runs in
     # the background so it never blocks startup.
     try:
-        from services.seo_auto_fixer import purge_safelist_noindex_flags
+        from services.seo_auto_fixer import purge_safelist_noindex_flags, purge_product_pdp_noindex_flags
         asyncio.create_task(purge_safelist_noindex_flags())
+        asyncio.create_task(purge_product_pdp_noindex_flags())
     except Exception as e:
         logger.warning(f"Failed to schedule noindex safelist purge: {e}")
 

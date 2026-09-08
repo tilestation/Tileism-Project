@@ -297,11 +297,9 @@ async def auto_fix_from_latest_crawl() -> dict[str, Any]:
     # flagged as noindex even though it had 51 inlinks from the main
     # nav. Mirror the same safe-list lives in frontend/server-seo.js as
     # a belt-and-braces second layer.
-    ALWAYS_INDEXABLE_PATHS = {
-        "/", "/new-collection", "/clearance", "/shop", "/tiles",
-        "/contact", "/about", "/showrooms", "/showroom-signup",
-        "/blog", "/faq", "/shop/faq",
-    }
+    # 8 Sep 2026 — both ALWAYS_INDEXABLE_PATHS and the product-PDP regex
+    # are now single module-level constants (see below in this file) so
+    # this loop and the boot-time purges can never drift out of sync.
     dup_pipeline = [
         {"$match": {"title": {"$ne": ""}, "issues.kind": {"$ne": "fallback_title"}}},
         {"$group": {
@@ -324,6 +322,8 @@ async def auto_fix_from_latest_crawl() -> dict[str, Any]:
                 continue
             if path in ALWAYS_INDEXABLE_PATHS:
                 continue  # Never auto-noindex critical landing pages
+            if PRODUCT_PDP_PATTERN.match(path):
+                continue  # Never auto-noindex real inventory — see note above
             await db[NOINDEX_FLAGS_COLLECTION].update_one(
                 {"_id": path},
                 {
@@ -428,10 +428,17 @@ async def delete_noindex_flag(path: str) -> int:
 # module-level constant. Both the autofixer (`run_auto_fixer`) and the
 # boot-time cleanup (`purge_safelist_noindex_flags`) read from this so
 # they can never drift out of sync. Mirror in frontend/server-seo.js.
+# 8 Sep 2026 — added the 5 /shop/info/* pages. Testing agent found they
+# were being noindexed by the exact same truncated-title false-positive
+# that hit product PDPs (they all shared a near-identical fallback title
+# before per-URL overrides existed). FAQ/terms/privacy/returns/delivery
+# are legitimate, valuable indexable pages — never auto-noindex them.
 ALWAYS_INDEXABLE_PATHS = {
     "/", "/new-collection", "/clearance", "/shop", "/tiles",
     "/contact", "/about", "/showrooms", "/showroom-signup",
     "/blog", "/faq", "/shop/faq",
+    "/shop/info/faq", "/shop/info/terms", "/shop/info/privacy",
+    "/shop/info/returns", "/shop/info/delivery",
 }
 
 
@@ -451,5 +458,38 @@ async def purge_safelist_noindex_flags() -> int:
             "seo_noindex_safelist_purged",
             count=res.deleted_count,
             paths=list(ALWAYS_INDEXABLE_PATHS),
+        )
+    return res.deleted_count
+
+
+# 8 Sep 2026 — real product/collection PDPs must never be auto-noindexed
+# (see the PRODUCT_PDP_RE note above `duplicate_title` fixing). This
+# purge un-blocks any inventory pages that were already wrongly flagged
+# by the pre-fix version of the duplicate-title heuristic. Idempotent —
+# safe to call on every boot.
+PRODUCT_PDP_PATTERN = re.compile(
+    r"^/(?:tiles|products|collections)/[^/]+/?$"
+    r"|^/shop/(?:product|products|tiles|collection)/[^/]+/?$"
+)
+
+
+async def purge_product_pdp_noindex_flags() -> int:
+    """Un-flag any real product/collection page that was incorrectly
+    auto-noindexed by the duplicate-title heuristic (truncated-title
+    false positives). Idempotent — safe to call on every boot."""
+    db = get_db()
+    ids = [
+        doc["_id"]
+        async for doc in db[NOINDEX_FLAGS_COLLECTION].find({}, {"_id": 1})
+        if PRODUCT_PDP_PATTERN.match(doc["_id"] or "")
+    ]
+    if not ids:
+        return 0
+    res = await db[NOINDEX_FLAGS_COLLECTION].delete_many({"_id": {"$in": ids}})
+    if res.deleted_count:
+        await _log_action(
+            "seo_noindex_product_pdp_purged",
+            count=res.deleted_count,
+            paths=ids,
         )
     return res.deleted_count

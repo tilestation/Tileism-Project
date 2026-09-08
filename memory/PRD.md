@@ -3656,6 +3656,19 @@ No team target set → `progress = []` → empty table. Meanwhile the head-to-he
 
 
 
+### [Sep 8, 2026 — Forked session] 🐛 SEO auto-fixer was silently de-indexing real product/info pages for months
+User asked why tilestation.co.uk lags righttiles.co.uk in rankings despite a year of Ahrefs-driven SEO work. Investigation (not a code bug in Ahrefs itself — subscription is real and active with daily snapshot jobs) found:
+1. **Root cause**: `services/seo_auto_fixer.py`'s duplicate-title heuristic grouped pages by their TRUNCATED (60-char) title. Two genuinely different products/pages can truncate to identical text, so the fixer wrongly flagged the "loser" URL `noindex` in `db.seo_noindex_flags`. `frontend/server-seo.js`'s `injectMeta()` then BOTH emits `<meta robots noindex>` AND skips the SSR crawler-visible body content (H1/paragraph/nav) for any noindexed path — so affected product pages looked completely blank to non-JS crawlers (Googlebot's first pass, Ahrefs, Semrush).
+2. Confirmed live: 4 real products (`earth-stone-grey-...`, `gem-handmade-green-...`, 2 cleaning-maintenance SKUs) + 5 info pages (`/shop/info/faq|terms|privacy|returns|delivery`) were wrongly noindexed in the preview DB. Production (older, more crawl history) likely has more.
+3. **Fix**: Added `PRODUCT_PDP_PATTERN` regex (`/tiles/:slug`, `/products/:slug`, `/collections/:slug`, `/shop/product|products|tiles|collection/:slug`) — auto-fixer now NEVER auto-noindexes real inventory pages via this heuristic. Extended `ALWAYS_INDEXABLE_PATHS` (shared module constant, mirrored in `server-seo.js`) with the 5 `/shop/info/*` pages. Added idempotent boot-time `purge_product_pdp_noindex_flags()` (wired into `server.py` startup) that self-heals the DB on every restart — same pattern as the existing `purge_safelist_noindex_flags()`.
+4. Consolidated a code-duplication risk the testing agent flagged: removed the inline re-definition of the product regex inside `auto_fix_from_latest_crawl()`, now references the single module-level `PRODUCT_PDP_PATTERN`.
+5. Added `righttiles.co.uk` to `services/ahrefs.py` `DEFAULT_COMPETITORS` (was untracked despite being a direct competitor the user named).
+6. **Verified**: `/api/seo/overrides` `noindex_count` dropped 9 → 0 on preview immediately after restart. 45/45 backend tests pass (`tests/test_seo_auto_fixer.py` + new `tests/test_seo_auto_fixer_pdp_purge.py`).
+- **User already redeployed once via Save to GitHub mid-session** (confirmed the deploy pipeline itself works — dynamic price-enriched titles proved fresh code was live). **A second redeploy is needed** to ship this latest info-page/product-page un-blocking fix. **After that deploy, `purge_product_pdp_noindex_flags()` and `purge_safelist_noindex_flags()` both need to run once against the Railway production DB** (they fire automatically on backend boot, so a normal restart is sufficient) to clean up whatever the year-old production DB has accumulated.
+- Files: `/app/backend/services/seo_auto_fixer.py`, `/app/backend/server.py` (startup wiring), `/app/backend/services/ahrefs.py`, `/app/frontend/server-seo.js`, `/app/backend/tests/test_seo_auto_fixer_pdp_purge.py` (new).
+- Test report: `/app/test_reports/iteration_249.json`.
+- **Open item / not yet done**: code review nit from testing agent — consider ranking duplicate-title "winner" by backlink/inlink count instead of arbitrary shortest-URL; consider $regex-based Mongo query in `purge_product_pdp_noindex_flags` for scale on the (larger) production DB.
+
 ### [Jun 5, 2026 — Forked session] 📈 Ahrefs Health Score 82 → ~98 — three root causes fixed
 
 Ahrefs Site Audit report (zipped CSV exports) revealed exactly three issues responsible for the 18-point drop:

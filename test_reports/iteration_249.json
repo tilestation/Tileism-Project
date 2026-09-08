@@ -1,0 +1,41 @@
+{
+  "summary": "Backend-only verification of the 8 Sep 2026 SEO auto-fixer fix (PRODUCT_PDP_RE + purge_product_pdp_noindex_flags + righttiles.co.uk competitor). All 45 tests pass (10 new + 35 existing). Live /api/seo/overrides returns correct shape (count=530, noindex_count=5) and the 4 previously mis-flagged product paths (/tiles/earth-stone-grey-..., /tiles/gem-handmade-green-..., 2 cleaning-maintenance products) are confirmed absent from noindex_paths. righttiles.co.uk is present in DEFAULT_COMPETITORS alongside the other 5. Backend logs show NO tracebacks from seo_auto_fixer or purge_product_pdp on boot; a normal WatchFiles reload happened cleanly after the edit. Remaining 5 noindex paths are all /shop/info/* pages — see critical review comment below.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "/api/seo/overrides (data-quality, not endpoint bug)",
+        "issue": "/shop/info/faq is currently noindexed by the duplicate-title heuristic even though frontend/server-seo.js line 245 explicitly declares it indexable with a proper title/description. This is almost certainly another instance of the same over-firing bug pattern: multiple /shop/info/* pages likely shared a fallback title before overrides were written, so the auto-fixer picked the ‘shortest URL’ as winner and blacklisted the rest. FAQ pages are high-value for SEO (FAQPage schema + long-tail keywords) — losing indexing here hurts rankings. Recommend: (a) add /shop/info/faq (and probably all /shop/info/* legitimate pages) to ALWAYS_INDEXABLE_PATHS, and (b) also add a boot-time purge for /shop/info/faq specifically, or broaden the safelist purge to include any path that has a per-URL override entry in frontend/server-seo.js STATIC_META (source of truth for ‘this page IS meant to be indexed’)."
+      }
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_seo_auto_fixer_pdp_purge.py",
+    "/app/backend/tests/test_seo_auto_fixer.py",
+    "/app/test_reports/pytest/pdp_purge.xml"
+  ],
+  "action_items": [
+    "Investigate/fix /shop/info/faq being noindexed — likely same over-firing dup-title bug, high SEO value page. Consider adding /shop/info/faq (and possibly the other 4 info pages: terms, privacy, returns, delivery — decide case-by-case) to ALWAYS_INDEXABLE_PATHS in backend/services/seo_auto_fixer.py, and mirror in frontend/server-seo.js.",
+    "Consider a stronger structural fix: have the auto-fixer read a canonical ‘indexable-by-design’ list from a single source (frontend STATIC_META entries that lack noindex:true) rather than a hand-maintained ALWAYS_INDEXABLE_PATHS set, to prevent drift.",
+    "After deploying this fix to production, run purge_product_pdp_noindex_flags() once on the Railway prod DB (the older DB has accumulated more incorrectly-noindexed products over the year). The function is idempotent so re-running is safe.",
+    "Code-quality nit: PRODUCT_PDP_RE is defined inline at line 314 inside auto_fix_from_latest_crawl() while PRODUCT_PDP_PATTERN is a module-level constant at line 478 with the identical regex. Same drift risk as the safelist. Extract to a single module constant."
+  ],
+  "critical_code_review_comments": [
+    "PRODUCT_PDP_RE (line 314) and PRODUCT_PDP_PATTERN (line 478) are duplicated definitions of the same regex — one-line drift here silently re-opens the bug. Extract to a single module constant, mirror the pattern the code comment itself calls out for ALWAYS_INDEXABLE_PATHS.",
+    "The duplicate-title dedupe uses ‘shortest URL wins’ which is arbitrary and non-deterministic when lengths tie (sorted by (len,u) so alphabetical tiebreak — OK, but still not correlated with SEO value). Consider ranking by backlink count / inlink count / recency instead. This is the same root cause that produced the /new-collection incident on 5 Jun.",
+    "The duplicate-title match pipeline lowercases title but does NOT trim whitespace — two pages with ‘Foo · Tile Station’ vs ‘Foo · Tile Station ’ (trailing space) would evade dedupe. Minor, but consider $trim in the aggregation.",
+    "purge_product_pdp_noindex_flags() fetches ALL noindex flag _ids into memory then filters in Python. Fine for O(hundreds); for the older Railway prod DB with potentially thousands of stale flags, prefer a $regex query pushed to Mongo.",
+    "server.py:9737-9738 fires both purges as asyncio.create_task without awaiting or error-handling — if either raises, the exception is swallowed silently. Consider a small try/except-and-log wrapper coroutine so future regressions surface in logs."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_seo_auto_fixer_pdp_purge.py (new)"
+  ],
+  "success_rate": {"backend": "100%", "frontend": "not tested (backend-only per request)"},
+  "test_credentials": "None used — all endpoints tested are public/read-only. No admin trigger endpoint was called; the auto-fixer logic was exercised via unit tests + inline source assertions instead.",
+  "seed_data_creation": "None — tests use mocked motor collections (AsyncMock cursors) and the existing live DB state for the /api/seo/overrides shape check.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Fix verified end-to-end. New pytest file at /app/backend/tests/test_seo_auto_fixer_pdp_purge.py has 10 tests covering: (1) live /api/seo/overrides shape + absence of the 4 mis-flagged products, (2) DEFAULT_COMPETITORS contains righttiles.co.uk + all originals, (3) PRODUCT_PDP_PATTERN regex parametrised for 10 positive + 9 negative paths, (4) purge_product_pdp_noindex_flags targets only pdp _ids and is no-op when none exist, (5) source-level assertion that the inline PRODUCT_PDP_RE in auto_fix_from_latest_crawl matches the module-level pattern to prevent drift. Next step: main agent should extend ALWAYS_INDEXABLE_PATHS to include /shop/info/faq (and re-evaluate the other 4 info pages) — see action_items[0].",
+  "rca of the issue": "Root cause of the original bug (already fixed by main agent): db.seo_self_crawl_results stores titles CLAMPED to ~60 chars (Google SERP limit). The duplicate-title aggregation pipeline groups by lower(title) on these already-truncated strings, so two products with genuinely unique 90-char titles that happen to share the same first 60 chars (e.g. ‘Earth Stone Grey 60x90cm 20mm Outdoor Matt Porcelain T…’) are misclassified as duplicates. The ‘loser’ (longer URL by str length) is written to seo_noindex_flags, then frontend/server-seo.js line ~768 both emits <meta name=robots content=noindex> AND suppresses the SSR body-content injection (H1/paragraph/nav-links) inside `if (!meta.noindex)`, meaning crawlers see a near-empty shell for a real inventory page. Compounded over a year of daily auto-fixer runs, this quietly de-indexed dozens of high-intent product pages — a plausible major contributor to why tilestation.co.uk lags righttiles.co.uk in SERP despite a paid Ahrefs subscription. Fix (verified): scope the heuristic away from PDP paths via PRODUCT_PDP_RE + idempotent boot-time purge_product_pdp_noindex_flags() that self-heals the DB on every restart. Preview DB noindex_count dropped 9→5 immediately after restart. Same purge needs to run once on Railway prod DB after deploy."
+}

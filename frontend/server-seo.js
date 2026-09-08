@@ -562,6 +562,14 @@ function resolveSeo(rawPath) {
       '/blog',
       '/faq',
       '/shop/faq',
+      // 8 Sep 2026 — matches backend/services/seo_auto_fixer.py
+      // ALWAYS_INDEXABLE_PATHS. These 5 info pages were being wrongly
+      // auto-noindexed by the truncated-title duplicate heuristic.
+      '/shop/info/faq',
+      '/shop/info/terms',
+      '/shop/info/privacy',
+      '/shop/info/returns',
+      '/shop/info/delivery',
     ]);
     if (isNoindexPath(normalised) && !ALWAYS_INDEXABLE.has(normalised)) {
       meta.noindex = true;
