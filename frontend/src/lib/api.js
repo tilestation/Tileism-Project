@@ -306,6 +306,12 @@ export const api = {
     axios.put(`${API}/trade-hub/traders/${id}/notes`, body, { headers: getAuthHeader() }),
   getCreditMovements: (days = 30, limit = 300) =>
     axios.get(`${API}/trade-hub/credit/movements`, { params: { days, limit }, headers: getAuthHeader() }),
+  getShowroomIps: () =>
+    axios.get(`${API}/trade-hub/showroom-ips`, { headers: getAuthHeader() }),
+  saveShowroomIps: (ips) =>
+    axios.put(`${API}/trade-hub/showroom-ips`, { ips }, { headers: getAuthHeader() }),
+  getMyIp: () =>
+    axios.get(`${API}/trade-hub/my-ip`, { headers: getAuthHeader() }),
   
   getTradeTypes: () =>
     axios.get(`${API}/trade-accounts/trade-types`, { headers: getAuthHeader() }),

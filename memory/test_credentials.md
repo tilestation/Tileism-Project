@@ -73,5 +73,5 @@
 - Admin URL: /admin/trade (tabs ?tab=dashboard|traders|credit|settings). Old routes /admin/trade-accounts, /admin/trade-list, /admin/trade-account-settings, /admin/trade-credit-emails redirect here.
 - Super-admin-only: POST /api/trade-hub/traders/{id}/credit-adjust, /credit-expiry/expire-now, /credit-expiry/set-bulk. Staff (any trade_accounts permission) can read ledger/summary/timeline, set expiry dates, send reminders/nudges/login links.
 - Trade tiers are DISABLED (website_settings trade_account_settings.tiers_enabled=false; frontend treats missing as disabled). New accounts: trade_discount 0, trade_tier null.
-- Registration source: X-Staff-Token header (admin JWT) on /api/shop/auth/trade-register → channel in_store; else online + device from UA; admin-created → staff_created. Optional showroom IP allowlist: trade_account_settings.showroom_ips = [{ip, showroom}].
+- Registration source: X-Staff-Token header (admin JWT) on /api/shop/auth/trade-register → channel in_store; else showroom IP list (Trade Hub → Settings → Showroom computers; GET/PUT /api/trade-hub/showroom-ips, GET /api/trade-hub/my-ip) → in_store; else online + device from UA; admin-created → staff_created.
 - Pytest: backend/tests/test_trade_hub.py (creates a temporary staff user hub_staff_*@example.com / StaffPass123! and deletes it).

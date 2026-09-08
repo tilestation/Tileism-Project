@@ -1032,7 +1032,7 @@ async def _detect_registration_source(db, request: Request) -> dict:
     from the customer's own device. Signals, strongest first:
       1. `X-Staff-Token` header — the browser also holds a staff/admin login
          (the register page sends it automatically on showroom machines).
-      2. Request IP matches a showroom IP configured in Trade settings.
+      2. Request IP matches a showroom computer registered in Trade Hub → Settings.
       3. Otherwise: online, with device type from the user-agent."""
     ip = _client_ip(request)
     ua = request.headers.get("user-agent", "")
@@ -1053,11 +1053,12 @@ async def _detect_registration_source(db, request: Request) -> dict:
         except Exception:  # noqa: BLE001 — a bad staff token just means "not a showroom machine"
             pass
     try:
-        settings = await db.website_settings.find_one({"_id": "trade_account_settings"}, {"_id": 0, "settings": 1})
-        for entry in ((settings or {}).get("settings") or {}).get("showroom_ips") or []:
-            if isinstance(entry, dict) and entry.get("ip") and entry["ip"].strip() == ip:
-                source.update({"channel": "in_store", "detected_by": "showroom_ip", "showroom_name": entry.get("showroom") or entry.get("name")})
-                return source
+        from routes.trade_hub import load_showroom_ips, match_showroom_ip
+        hit = match_showroom_ip(await load_showroom_ips(db), ip)
+        if hit:
+            source.update({"channel": "in_store", "detected_by": "showroom_ip",
+                           "showroom_name": hit.get("showroom_name"), "showroom_id": hit.get("showroom_id")})
+            return source
     except Exception:  # noqa: BLE001
         pass
     return source

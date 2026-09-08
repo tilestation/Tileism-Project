@@ -9770,3 +9770,8 @@ User requested these strategic suggestions be kept as future task reminders (fro
 ## Sep 8, 2026 (later 3) — BUG: reset changed the wrong account when email is both staff + trade
 - SYMPTOM (live, after redeploy): reset link "worked" but trade login still took the OLD password. CAUSE: `find_account` checked `users` first, so an email that is both a staff login and a trade account had its STAFF password reset.
 - FIX: `ForgotPasswordRequest.account_type` hint ('shop' from /shop/tile-forgot-password, 'staff' from /forgot-password) → `find_account(prefer=…)`; with no hint and a match in both collections the token is `account_type: both` and reset-password updates BOTH. Tests: TestDualAccountEmail (3) in test_trade_access_flow.py → 20/20.
+
+## Sep 8, 2026 (later 4) — Showroom IP editor (Trade Hub → Settings)
+- Backend (`routes/trade_hub.py`): `GET /api/trade-hub/my-ip` (caller IP + matched showroom), `GET/PUT /api/trade-hub/showroom-ips` (any staff; IPs validated, deduped, stored in website_settings `_id: trade_showroom_ips` with added_by/added_at). `shop.py _detect_registration_source` matches against this list → channel in_store / detected_by showroom_ip / showroom_name+id.
+- Frontend: `pages/admin/trade/ShowroomIpEditor.jsx` (Add this computer, Add IP, showroom select from /api/showrooms, label, delete, save, live "this computer is registered as X" line). Trade Hub Settings tab now visible to ALL staff (IP editor); Trade Account website settings inside it remain super-admin only.
+- Tests: test_trade_hub.py TestShowroomIps (21/21 total). UI verified by screenshot.

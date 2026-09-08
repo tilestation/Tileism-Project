@@ -9,7 +9,7 @@ import uuid
 from datetime import datetime, timezone, timedelta
 from typing import Optional, List
 
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Request
 from pydantic import BaseModel, Field
 
 from services import get_current_user
@@ -80,6 +80,83 @@ def _ts(v) -> str:
     if isinstance(v, datetime):
         return (v if v.tzinfo else v.replace(tzinfo=timezone.utc)).isoformat()
     return str(v)
+
+
+# ───────────────────────────── showroom IPs ─────────────────────────────
+# Public IPs of the showroom computers. A trade sign-up from one of these is
+# recorded as "in store" even when nobody is logged into the admin.
+
+SHOWROOM_IPS_DOC = "trade_showroom_ips"
+
+
+def _request_ip(request) -> str:
+    fwd = request.headers.get("x-forwarded-for") or request.headers.get("x-real-ip") or ""
+    return fwd.split(",")[0].strip() if fwd else (request.client.host if request.client else "")
+
+
+async def load_showroom_ips(db) -> list:
+    doc = await db.website_settings.find_one({"_id": SHOWROOM_IPS_DOC}, {"_id": 0, "ips": 1})
+    return (doc or {}).get("ips") or []
+
+
+def match_showroom_ip(ips: list, ip: str):
+    for entry in ips:
+        if isinstance(entry, dict) and (entry.get("ip") or "").strip() == (ip or "").strip():
+            return entry
+    return None
+
+
+class ShowroomIp(BaseModel):
+    id: Optional[str] = None
+    ip: str = Field(..., min_length=3)
+    showroom_id: Optional[str] = None
+    showroom_name: str = Field(..., min_length=1)
+    label: Optional[str] = ""
+
+
+class ShowroomIps(BaseModel):
+    ips: List[ShowroomIp]
+
+
+@router.get("/my-ip")
+async def my_ip(request: Request):
+    from server import db
+    ip = _request_ip(request)
+    hit = match_showroom_ip(await load_showroom_ips(db), ip)
+    return {"ip": ip, "matched_showroom": (hit or {}).get("showroom_name")}
+
+
+@router.get("/showroom-ips")
+async def get_showroom_ips():
+    from server import db
+    return {"ips": await load_showroom_ips(db)}
+
+
+@router.put("/showroom-ips")
+async def save_showroom_ips(body: ShowroomIps, user: dict = Depends(get_current_user)):
+    from server import db
+    import ipaddress
+    now = datetime.now(timezone.utc).isoformat()
+    existing = {e.get("id"): e for e in await load_showroom_ips(db) if e.get("id")}
+    cleaned, seen = [], set()
+    for e in body.ips:
+        ip = e.ip.strip()
+        try:
+            ipaddress.ip_address(ip)
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"'{ip}' is not a valid IP address")
+        if ip in seen:
+            continue
+        seen.add(ip)
+        prev = existing.get(e.id) or {}
+        cleaned.append({
+            "id": e.id or str(uuid.uuid4()), "ip": ip, "showroom_id": e.showroom_id,
+            "showroom_name": e.showroom_name.strip(), "label": (e.label or "").strip(),
+            "added_by": prev.get("added_by") or _actor(user), "added_at": prev.get("added_at") or now,
+        })
+    await db.website_settings.update_one(
+        {"_id": SHOWROOM_IPS_DOC}, {"$set": {"ips": cleaned, "updated_at": now, "updated_by": _actor(user)}}, upsert=True)
+    return {"success": True, "ips": cleaned}
 
 
 # ───────────────────────────── ledger ─────────────────────────────

@@ -5,6 +5,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '../../../components/ui
 import { useAuth } from '../../../contexts/AuthContext';
 import { TradeDashboardTab } from './TradeDashboardTab';
 import { TradeCreditTab } from './TradeCreditTab';
+import { ShowroomIpEditor } from './ShowroomIpEditor';
 
 const TradeAccounts = React.lazy(() => import('../TradeAccounts'));
 const TradeAccountSettings = React.lazy(() => import('../TradeAccountSettings'));
@@ -13,14 +14,14 @@ const TABS = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { id: 'traders', label: 'Traders', icon: Users },
   { id: 'credit', label: 'Credit', icon: Coins },
-  { id: 'settings', label: 'Website settings', icon: Settings, superAdminOnly: true },
+  { id: 'settings', label: 'Settings', icon: Settings },
 ];
 
 export default function TradeHub() {
   const [params, setParams] = useSearchParams();
   const { user } = useAuth();
   const isSuperAdmin = user?.role === 'super_admin';
-  const tabs = TABS.filter((t) => !t.superAdminOnly || isSuperAdmin);
+  const tabs = TABS;
   const current = tabs.some((t) => t.id === params.get('tab')) ? params.get('tab') : 'dashboard';
   const setTab = (id) => setParams((p) => { const n = new URLSearchParams(p); n.set('tab', id); return n; }, { replace: true });
 
@@ -41,11 +42,14 @@ export default function TradeHub() {
           <Suspense fallback={<div className="py-12 text-center text-gray-400">Loading traders…</div>}><TradeAccounts embedded /></Suspense>
         </TabsContent>
         <TabsContent value="credit" className="mt-6"><TradeCreditTab /></TabsContent>
-        {isSuperAdmin && (
-          <TabsContent value="settings" className="mt-6">
-            <Suspense fallback={<div className="py-12 text-center text-gray-400">Loading settings…</div>}><TradeAccountSettings /></Suspense>
-          </TabsContent>
-        )}
+        <TabsContent value="settings" className="mt-6 space-y-6">
+          <ShowroomIpEditor />
+          {isSuperAdmin ? (
+            <Suspense fallback={<div className="py-12 text-center text-gray-400">Loading website settings…</div>}><TradeAccountSettings /></Suspense>
+          ) : (
+            <p className="text-sm text-gray-400" data-testid="settings-super-admin-note">Trade page & banner settings are managed by a super admin.</p>
+          )}
+        </TabsContent>
       </Tabs>
     </div>
   );

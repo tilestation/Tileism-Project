@@ -243,3 +243,38 @@ class TestTimelineAndNotes:
 
     def test_unauthenticated_blocked(self, trader):
         assert requests.get(f"{BASE_URL}/api/trade-hub/summary", timeout=30).status_code in (401, 403)
+
+
+class TestShowroomIps:
+    def test_showroom_ip_marks_registration_in_store(self, admin, staff, db):
+        me = admin.get(f"{BASE_URL}/api/trade-hub/my-ip", timeout=30)
+        assert me.status_code == 200 and me.json()["ip"]
+        my_ip = me.json()["ip"]
+        original = admin.get(f"{BASE_URL}/api/trade-hub/showroom-ips", timeout=30).json()["ips"]
+        try:
+            # invalid IP rejected
+            bad = admin.put(f"{BASE_URL}/api/trade-hub/showroom-ips", json={"ips": [{"ip": "not-an-ip", "showroom_name": "Sydenham"}]}, timeout=30)
+            assert bad.status_code == 400
+            # staff (not super admin) may register this computer
+            r = staff.put(f"{BASE_URL}/api/trade-hub/showroom-ips",
+                          json={"ips": original + [{"ip": my_ip, "showroom_name": "QA Showroom", "label": "pytest runner"}]}, timeout=30)
+            assert r.status_code == 200, r.text
+            saved = r.json()["ips"]
+            mine = next(e for e in saved if e["ip"] == my_ip)
+            assert mine["id"] and mine["added_by"] and mine["showroom_name"] == "QA Showroom"
+            assert admin.get(f"{BASE_URL}/api/trade-hub/my-ip", timeout=30).json()["matched_showroom"] == "QA Showroom"
+
+            email = f"hub_ipreg_{UNIQ}@example.com"
+            reg = requests.post(f"{BASE_URL}/api/shop/auth/trade-register", json={
+                "email": email, "password": "IpPass123!", "contact_name": "IP Reg", "phone": "07700900791",
+                "business_name": "IP Reg Ltd", "trade_type": "Tiler", "address_line1": "4 Till St", "city": "London", "postcode": "SE26 5EQ",
+            }, timeout=60)
+            assert reg.status_code == 200, reg.text
+            try:
+                src = db.shop_customers.find_one({"email": email})["registration_source"]
+                assert src["channel"] == "in_store" and src["detected_by"] == "showroom_ip" and src["showroom_name"] == "QA Showroom"
+            finally:
+                db.shop_customers.delete_many({"email": email})
+        finally:
+            admin.put(f"{BASE_URL}/api/trade-hub/showroom-ips", json={"ips": original}, timeout=30)
+        assert admin.get(f"{BASE_URL}/api/trade-hub/my-ip", timeout=30).json()["matched_showroom"] is None
