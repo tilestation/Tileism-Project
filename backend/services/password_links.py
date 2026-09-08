@@ -34,13 +34,22 @@ def login_path_for(account_type: str, is_trade: bool) -> str:
     return TRADE_LOGIN_PATH if is_trade else SHOP_LOGIN_PATH
 
 
-async def find_account(db, email: str):
-    """Returns (account_type, doc) for whichever collection owns the email."""
+async def find_account(db, email: str, prefer: str = None):
+    """Returns (account_type, doc). The same email can be a staff login AND a
+    storefront/trade customer, so callers pass `prefer` ('shop' | 'staff')
+    from the page the request came from. With no preference and a match in
+    both collections the caller gets ('both', shop_doc) so BOTH get reset."""
     q = email_query(email)
     staff = await db.users.find_one(q, {"_id": 0, "password": 0})
+    customer = await db.shop_customers.find_one(q, {"_id": 0, "password": 0})
+    if prefer == "shop" and customer:
+        return "shop", customer
+    if prefer == "staff" and staff:
+        return "staff", staff
+    if staff and customer:
+        return "both", customer
     if staff:
         return "staff", staff
-    customer = await db.shop_customers.find_one(q, {"_id": 0, "password": 0})
     if customer:
         return "shop", customer
     return None, None

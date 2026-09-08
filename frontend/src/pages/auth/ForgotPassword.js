@@ -38,7 +38,9 @@ const ForgotPassword = () => {
 
     setLoading(true);
     try {
-      await api.forgotPassword(email.trim());
+      // Tell the server which account this page belongs to — the same email can
+      // be both a staff login and a trade account.
+      await api.forgotPassword(email.trim(), isShop ? 'shop' : 'staff');
       setSubmitted(true);
       toast.success('Password reset instructions sent!');
     } catch (error) {

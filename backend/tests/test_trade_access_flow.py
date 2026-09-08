@@ -164,6 +164,58 @@ class TestAdminSendLoginLink:
         assert admin.post(f"{BASE_URL}/api/trade-accounts/nope/send-login-link", timeout=30).status_code == 404
 
 
+class TestDualAccountEmail:
+    """Same email as a staff login AND a trade account — the reset must hit
+    the account the page was opened from (or both when unknown)."""
+
+    STAFF_PW = "StaffOld123!"
+    TRADE_PW = "TradeOld123!"
+
+    @pytest.fixture(scope="class")
+    def dual(self, db):
+        import bcrypt
+        email = f"dual_{UNIQ}@example.com"
+        db.users.insert_one({"id": str(uuid.uuid4()), "email": email, "name": "Dual Staff", "role": "staff", "is_active": True,
+                             "password": bcrypt.hashpw(self.STAFF_PW.encode(), bcrypt.gensalt()).decode()})
+        db.shop_customers.insert_one({"id": str(uuid.uuid4()), "email": email, "name": "Dual Trader", "is_trade": True,
+                                      "trade_account_number": "T-DUAL", "credit_balance": 0,
+                                      "password": bcrypt.hashpw(self.TRADE_PW.encode(), bcrypt.gensalt()).decode()})
+        yield email
+        db.users.delete_many({"email": email})
+        db.shop_customers.delete_many({"email": email})
+        db.password_resets.delete_many({"email": email})
+
+    def _reset_with(self, db, email, account_type, new_pw):
+        r = requests.post(f"{BASE_URL}/api/auth/forgot-password", json={"email": email, "account_type": account_type}, timeout=30)
+        assert r.status_code == 200
+        rec = db.password_resets.find_one({"email": email})
+        assert rec, "no reset record"
+        r2 = requests.post(f"{BASE_URL}/api/auth/reset-password", json={"token": rec["token"], "new_password": new_pw}, timeout=30)
+        assert r2.status_code == 200, r2.text
+        return rec, r2.json()
+
+    def test_shop_page_resets_trade_not_staff(self, db, dual):
+        rec, body = self._reset_with(db, dual, "shop", "TradeNew123!")
+        assert rec["account_type"] == "shop" and body["login_path"] == "/shop/trade/login" and body.get("token")
+        assert requests.post(f"{BASE_URL}/api/shop/auth/login", json={"email": dual, "password": "TradeNew123!"}, timeout=30).status_code == 200
+        assert requests.post(f"{BASE_URL}/api/shop/auth/login", json={"email": dual, "password": self.TRADE_PW}, timeout=30).status_code == 401
+        # staff login untouched
+        assert requests.post(f"{BASE_URL}/api/auth/login", json={"email": dual, "password": self.STAFF_PW}, timeout=30).status_code == 200
+
+    def test_staff_page_resets_staff_not_trade(self, db, dual):
+        rec, body = self._reset_with(db, dual, "staff", "StaffNew123!")
+        assert rec["account_type"] == "staff" and body["login_path"] == "/admin/login"
+        assert requests.post(f"{BASE_URL}/api/auth/login", json={"email": dual, "password": "StaffNew123!"}, timeout=30).status_code == 200
+        assert requests.post(f"{BASE_URL}/api/shop/auth/login", json={"email": dual, "password": "TradeNew123!"}, timeout=30).status_code == 200
+
+    def test_no_hint_resets_both(self, db, dual):
+        rec, body = self._reset_with(db, dual, None, "BothNew123!")
+        assert rec["account_type"] == "both"
+        assert requests.post(f"{BASE_URL}/api/auth/login", json={"email": dual, "password": "BothNew123!"}, timeout=30).status_code == 200
+        assert requests.post(f"{BASE_URL}/api/shop/auth/login", json={"email": dual, "password": "BothNew123!"}, timeout=30).status_code == 200
+
+
+
 class TestTradeOrderLinking:
     """Checkout orders placed with the storefront token belong to the trade
     account: dashboard orders, T-number on the order, credit-back on paid."""

@@ -1873,6 +1873,7 @@ async def revoke_device(device_id: str, current_user: dict = Depends(get_current
 # Password Reset Models
 class ForgotPasswordRequest(BaseModel):
     email: str
+    account_type: Optional[str] = None  # 'shop' (storefront/trade page) | 'staff' (admin page)
 
 class ResetPasswordRequest(BaseModel):
     token: str
@@ -1890,7 +1891,8 @@ async def forgot_password(data: ForgotPasswordRequest):
     if not email or "@" not in email:
         return generic
 
-    account_type, account = await find_account(db, email)
+    prefer = data.account_type if data.account_type in ("shop", "staff") else None
+    account_type, account = await find_account(db, email, prefer=prefer)
     if not account:
         return generic
 
@@ -1928,25 +1930,31 @@ async def reset_password(data: ResetPasswordRequest):
         raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
 
     account_type = reset_record.get("account_type") or "staff"
-    collection = db.shop_customers if account_type == "shop" else db.users
+    # 'both' = the email is a staff login AND a customer account — the person
+    # proved they own the inbox, so the new password applies to both.
+    collections = {"shop": [db.shop_customers], "staff": [db.users], "both": [db.shop_customers, db.users]}[account_type]
     new_hashed_password = hash_password(data.new_password)
-    result = await collection.update_one(
-        email_query(reset_record["email"]),
-        {"$set": {"password": new_hashed_password,
-                  "password_set_at": datetime.now(timezone.utc).isoformat()}}
-    )
-    if result.matched_count == 0:
+    matched = 0
+    for coll in collections:
+        result = await coll.update_one(
+            email_query(reset_record["email"]),
+            {"$set": {"password": new_hashed_password,
+                      "password_set_at": datetime.now(timezone.utc).isoformat()}}
+        )
+        matched += result.matched_count
+    if matched == 0:
         raise HTTPException(status_code=404, detail="User not found")
 
     await db.password_resets.delete_one({"token": data.token})
 
+    collection = db.users if account_type == "staff" else db.shop_customers
     account = await collection.find_one(email_query(reset_record["email"]), {"_id": 0, "password": 0})
     is_trade = bool(account and (account.get("is_trade") or account.get("trade_account_status") == "approved"))
     response = {
         "message": "Password set successfully. You can now log in with your new password.",
         "account_type": account_type,
         "is_trade": is_trade,
-        "login_path": login_path_for(account_type, is_trade),
+        "login_path": login_path_for("staff" if account_type == "staff" else "shop", is_trade),
         "purpose": reset_record.get("purpose") or "reset",
     }
 
@@ -1960,6 +1968,7 @@ async def reset_password(data: ResetPasswordRequest):
             details="Password reset via email link"
         )
     elif account:
+        # shop or both → hand back a storefront session
         response["token"] = create_access_token({"sub": account["email"], "type": "shop_customer"})
         response["customer"] = {
             "id": account.get("id"),
@@ -1990,7 +1999,7 @@ async def verify_reset_token(token: str):
         "account_type": account_type,
         "is_trade": is_trade,
         "purpose": reset_record.get("purpose") or "reset",
-        "login_path": login_path_for(account_type, is_trade),
+        "login_path": login_path_for("staff" if account_type == "staff" else "shop", is_trade),
     }
 
 

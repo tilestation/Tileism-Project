@@ -43,8 +43,8 @@ export const api = {
   changePassword: (data) =>
     axios.post(`${API}/auth/change-password`, data, { headers: getAuthHeader() }),
   
-  forgotPassword: (email) =>
-    axios.post(`${API}/auth/forgot-password`, { email }),
+  forgotPassword: (email, account_type) =>
+    axios.post(`${API}/auth/forgot-password`, { email, account_type }),
   
   resetPassword: (token, new_password) =>
     axios.post(`${API}/auth/reset-password`, { token, new_password }),
