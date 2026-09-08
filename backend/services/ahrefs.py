@@ -185,6 +185,7 @@ DEFAULT_COMPETITORS = [
     "tilegiant.co.uk",
     "mandarinstone.com",
     "ctdtiles.co.uk",
+    "righttiles.co.uk",
 ]
 
 YOUR_DOMAIN = "tilestation.co.uk"
