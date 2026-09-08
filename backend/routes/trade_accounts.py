@@ -121,6 +121,18 @@ LOGIN_STATUS_QUERY = {
 NO_LOGIN_QUERY = {"$and": [_NOT_ACTIVE, _NO_OWN_PASSWORD]}
 
 
+async def _logins_30d(db, ids: list, since_iso: str) -> dict:
+    """{customer_id: sign-ins in the window} from customer_logins."""
+    if not ids:
+        return {}
+    out = {}
+    async for r in db.customer_logins.aggregate([
+            {"$match": {"customer_id": {"$in": ids}, "at": {"$gte": since_iso}}},
+            {"$group": {"_id": "$customer_id", "n": {"$sum": 1}}}]):
+        out[r["_id"]] = r["n"]
+    return out
+
+
 def normalize_shop_customer(doc: dict) -> dict:
     """Convert shop_customers document to trade-accounts format for the frontend"""
     address = doc.get("address", {})
@@ -156,6 +168,8 @@ def normalize_shop_customer(doc: dict) -> dict:
         "last_order_at": doc.get("last_order_at"),
         "last_nudge_at": doc.get("last_nudge_at"),
         "has_password": doc.get("has_password"),
+        "logins_30d": doc.get("logins_30d", 0),
+        "first_login_email_sent_at": doc.get("first_login_email_sent_at"),
         "login_status": _login_status(doc),
         "registration_source": doc.get("registration_source") or {},
         "registration_channel": (doc.get("registration_source") or {}).get("channel") or ("staff_created" if doc.get("created_by_staff") else "unknown"),
@@ -185,6 +199,7 @@ async def get_trade_accounts(
     activity: Optional[str] = None,
     credit: Optional[str] = None,
     active_only: bool = False,
+    sort: str = "recent",
     skip: int = 0,
     limit: int = 100
 ):
@@ -192,7 +207,8 @@ async def get_trade_accounts(
 
     Extra filters (Trade Hub): `login_status` never|link_sent|ready|active,
     `channel` online|in_store|staff_created, `activity` dormant|new|never_purchased,
-    `credit` has_balance|expiring."""
+    `credit` has_balance|expiring. `sort` recent (newest first) | engaged (most
+    sign-ins in the last 30 days, then most recent sign-in)."""
     from server import db
     from services.trade_engagement import dormant_cutoff
 
@@ -251,11 +267,22 @@ async def get_trade_accounts(
     if ands:
         query["$and"] = ands
 
-    docs = await db.shop_customers.find(
-        query, {"_id": 0}
-    ).sort("created_at", -1).skip(skip).limit(limit).to_list(limit)
+    since_30 = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
+    if sort == "engaged":
+        docs = await db.shop_customers.find(query, {"_id": 0}).to_list(5000)
+        counts = await _logins_30d(db, [d["id"] for d in docs], since_30)
+        docs.sort(key=lambda d: (counts.get(d["id"], 0), d.get("last_login_at") or ""), reverse=True)
+        docs = docs[skip:skip + limit]
+    else:
+        docs = await db.shop_customers.find(
+            query, {"_id": 0}
+        ).sort("created_at", -1).skip(skip).limit(limit).to_list(limit)
+        counts = await _logins_30d(db, [d["id"] for d in docs], since_30)
 
-    accounts = [normalize_shop_customer(strip_password(doc)) for doc in docs]
+    accounts = []
+    for doc in docs:
+        doc["logins_30d"] = counts.get(doc["id"], 0)
+        accounts.append(normalize_shop_customer(strip_password(doc)))
     total = await db.shop_customers.count_documents(query)
 
     return {

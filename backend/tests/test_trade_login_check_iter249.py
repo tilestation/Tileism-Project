@@ -55,6 +55,7 @@ def ctx():
     yield {"trader": trader, "dup_id": dup_id, "bad_id": bad_id, "staff_id": staff_id, "nopw_id": nopw_id, "admin": _admin_token()}
     db.shop_customers.delete_many({"id": {"$in": [trader["id"], dup_id, bad_id, staff_id, nopw_id]}})
     db.customer_logins.delete_many({"customer_id": trader["id"]})
+    db.trade_engagement_log.delete_many({"customer_id": trader["id"]})
     db.password_resets.delete_many({"email": {"$regex": f"iter249.*{TAG}", "$options": "i"}})
 
 
@@ -155,3 +156,43 @@ def test_summary_counts_no_login_correctly(ctx):
 def test_telegram_event_registered():
     from services.telegram_notify import _default_config
     assert _default_config()["events"]["trade_login"] is True
+
+
+def test_first_login_welcome_logged_once(ctx):
+    import time
+    for _ in range(20):
+        doc = db.shop_customers.find_one({"id": ctx["trader"]["id"]})
+        if doc.get("first_login_email_sent_at"):
+            break
+        time.sleep(0.5)
+    assert doc.get("first_login_email_sent_at"), "first sign-in must claim first_login_email_sent_at"
+    # second sign-in → no second welcome
+    r = requests.post(f"{API}/shop/auth/login", json={"email": EMAIL, "password": PASSWORD}, timeout=30)
+    assert r.status_code == 200
+    time.sleep(1.5)
+    events = list(db.trade_engagement_log.find({"customer_id": ctx["trader"]["id"], "kind": "first_login_welcome"}))
+    assert len(events) == 1, f"expected exactly one first_login_welcome event, got {len(events)}"
+    assert events[0]["meta"]["returning"] is False  # registered after tracking began
+    assert "trade ref" in events[0]["summary"].lower()
+
+
+def test_logins_30d_and_engaged_sort(ctx):
+    H = {"Authorization": f"Bearer {ctx['admin']}"}
+    r = requests.get(f"{API}/trade-accounts", params={"search": "iter249", "sort": "engaged", "limit": 50}, headers=H, timeout=30)
+    assert r.status_code == 200, r.text
+    rows = r.json()["accounts"]
+    ids = [x["id"] for x in rows]
+    assert ids[0] == ctx["trader"]["id"], "trader with sign-ins must sort first under 'engaged'"
+    me = rows[0]
+    assert me["logins_30d"] >= 2 and me["last_login_at"]
+    assert all(x["logins_30d"] == 0 for x in rows if x["id"] in (ctx["staff_id"], ctx["nopw_id"]))
+    r = requests.get(f"{API}/trade-accounts", params={"search": "iter249", "limit": 50}, headers=H, timeout=30)
+    assert "logins_30d" in r.json()["accounts"][0]
+
+
+def test_timeline_shows_first_login_welcome(ctx):
+    H = {"Authorization": f"Bearer {ctx['admin']}"}
+    r = requests.get(f"{API}/trade-hub/traders/{ctx['trader']['id']}/timeline", headers=H, timeout=30)
+    assert r.status_code == 200, r.text
+    kinds = [e["kind"] for e in r.json()["events"]]
+    assert "first_login_welcome" in kinds and "login" in kinds

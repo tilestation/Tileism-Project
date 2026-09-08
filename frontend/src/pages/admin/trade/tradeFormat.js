@@ -52,5 +52,14 @@ export const loginStatusOf = (account) => {
   return account?.login_link_sent_at ? 'link_sent' : 'never';
 };
 
+export const seenBucket = (lastLoginAt) => {
+  const d = daysSince(lastLoginAt);
+  if (d == null) return null;
+  if (d < 1) return { key: 'today', label: 'Seen today', cls: 'bg-emerald-600 text-white border-emerald-600' };
+  if (d <= 7) return { key: 'week', label: 'Seen this week', cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' };
+  if (d <= 30) return { key: 'month', label: 'Seen this month', cls: 'bg-gray-100 text-gray-600 border-gray-200' };
+  return null;
+};
+
 export const channelOf = (account) =>
   account?.registration_channel || account?.registration_source?.channel || 'unknown';

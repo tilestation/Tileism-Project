@@ -1196,6 +1196,35 @@ async def trade_customer_register(request: Request, input: TradeCustomerRegister
     }
 
 
+LOGIN_TRACKING_SINCE = "2026-09-08"
+
+
+async def _first_login_welcome(db, customer: dict):
+    """Once per trader, on the first sign-in we have on record: email their trade
+    ref + credit balance. The claim on `first_login_email_sent_at` makes this
+    idempotent even if two sign-ins race."""
+    try:
+        now_iso = datetime.now(timezone.utc).isoformat()
+        claim = await db.shop_customers.update_one(
+            {"id": customer["id"], "first_login_email_sent_at": {"$in": [None, ""]}},
+            {"$set": {"first_login_email_sent_at": now_iso}})
+        if claim.matched_count == 0:
+            return
+        returning = str(customer.get("created_at") or "")[:10] < LOGIN_TRACKING_SINCE
+        from services.email import send_trade_first_login_email
+        from services.trade_engagement import log_event
+        result = await send_trade_first_login_email(customer, returning=returning)
+        await log_event(db, customer["id"], "first_login_welcome",
+                        f"First sign-in email {'sent' if result.get('success') else 'failed'} — trade ref {customer.get('trade_account_number') or '—'}, "
+                        f"credit £{float(customer.get('credit_balance') or 0):.2f}",
+                        meta={"returning": returning, "email": customer.get("email"), "success": bool(result.get("success")),
+                              "error": result.get("error")})
+        if not result.get("success"):
+            await db.shop_customers.update_one({"id": customer["id"]}, {"$set": {"first_login_email_error": result.get("error")}})
+    except Exception as e:  # noqa: BLE001 — never let a welcome email break a sign-in
+        logging.warning(f"first-login welcome failed for {customer.get('id')}: {e}")
+
+
 def _alert_trade_login(customer: dict, previous_login, ip: str, device: str):
     """Telegram ping so the owner sees which traders are engaging. Deduped per trader per hour."""
     try:
@@ -1252,6 +1281,8 @@ async def shop_customer_login(request: Request, input: ShopCustomerLogin):
             "at": now_iso, "ip": ip, "device": device,
         })
         _alert_trade_login(customer, previous_login, ip, device)
+        if not previous_login:
+            asyncio.create_task(_first_login_welcome(db, customer))
 
     # Token subject must match the stored address exactly — /auth/me looks it up verbatim.
     token = create_access_token({"sub": customer["email"], "type": "shop_customer"})

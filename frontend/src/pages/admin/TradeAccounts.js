@@ -33,7 +33,7 @@ import { toast } from 'sonner';
 import { api } from '../../lib/api';
 import CreditStatementPreviewButton from '../../components/admin/CreditStatementPreviewButton';
 import { TraderDrawer } from './trade/TraderDrawer';
-import { ChannelBadge, LoginStatusBadge } from './trade/TradeBadges';
+import { ChannelBadge, LoginStatusBadge, SeenBadge } from './trade/TradeBadges';
 
 // Tier badge component
 const TierBadge = ({ tier, tierInfo }) => {
@@ -439,6 +439,7 @@ const TradeAccounts = ({ embedded = false }) => {
   const [filterLogin, setFilterLogin] = useState('');
   const [filterChannel, setFilterChannel] = useState('');
   const [filterActivity, setFilterActivity] = useState('');
+  const [sortBy, setSortBy] = useState('recent');
   const [showFilters, setShowFilters] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [editingAccount, setEditingAccount] = useState(null);
@@ -497,7 +498,7 @@ const TradeAccounts = ({ embedded = false }) => {
     setLoading(true);
     try {
       const [accountsRes, typesRes, tiersRes] = await Promise.all([
-        api.getTradeAccounts({ search, trade_type: filterTradeType, tier: filterTier, login_status: filterLogin, channel: filterChannel, activity: filterActivity, limit: 300 }),
+        api.getTradeAccounts({ search, trade_type: filterTradeType, tier: filterTier, login_status: filterLogin, channel: filterChannel, activity: filterActivity, sort: sortBy, limit: 300 }),
         api.getTradeTypes(),
         api.getPricingTiers()
       ]);
@@ -510,7 +511,7 @@ const TradeAccounts = ({ embedded = false }) => {
     } finally {
       setLoading(false);
     }
-  }, [search, filterTradeType, filterTier, filterLogin, filterChannel, filterActivity]);
+  }, [search, filterTradeType, filterTier, filterLogin, filterChannel, filterActivity, sortBy]);
   
   useEffect(() => {
     fetchData();
@@ -841,12 +842,20 @@ const TradeAccounts = ({ embedded = false }) => {
             </Button>
           </div>
           
-          <div className="mt-3 flex flex-wrap gap-1.5" data-testid="login-status-chips">
+          <div className="mt-3 flex flex-wrap items-center gap-1.5" data-testid="login-status-chips">
             {[['', 'All'], ['never', 'No login yet'], ['link_sent', 'Link sent · not activated'], ['ready', 'Has password · no sign-in tracked'], ['active', 'Signed in online']].map(([v, label]) => (
               <button key={v || 'all'} type="button" onClick={() => setFilterLogin(v)}
                 className={`text-xs px-2.5 py-1 rounded-full border transition-colors ${filterLogin === v ? 'bg-gray-900 text-white border-gray-900' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
                 data-testid={`login-chip-${v || 'all'}`}>{label}</button>
             ))}
+            <span className="ml-auto flex items-center gap-1 text-xs text-gray-500" data-testid="sort-chips">
+              Sort:
+              {[['recent', 'Newest'], ['engaged', 'Most engaged']].map(([v, label]) => (
+                <button key={v} type="button" onClick={() => setSortBy(v)}
+                  className={`px-2.5 py-1 rounded-full border transition-colors ${sortBy === v ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
+                  data-testid={`sort-${v}`}>{label}</button>
+              ))}
+            </span>
           </div>
 
           {showFilters && (
@@ -942,6 +951,7 @@ const TradeAccounts = ({ embedded = false }) => {
                         )}
                         <ChannelBadge account={account} />
                         <LoginStatusBadge account={account} />
+                        <SeenBadge account={account} />
                         {Number(account.credit_balance) > 0 && (
                           <span className="text-xs font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full" data-testid={`credit-badge-${account.id}`}>
                             £{Number(account.credit_balance).toFixed(2)} credit{account.credit_expires_at ? ` · exp ${new Date(account.credit_expires_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}` : ''}

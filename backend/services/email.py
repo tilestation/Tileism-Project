@@ -2331,6 +2331,66 @@ async def send_trade_welcome_email(customer: dict) -> dict:
         return {"success": False, "error": str(e)}
 
 
+async def send_trade_first_login_email(customer: dict, *, returning: bool) -> dict:
+    """One-off note the first time a trader signs in (tracked since 8 Sep 2026):
+    their trade ref + current credit balance. `returning` = account predates
+    tracking, so we greet them as an existing customer, not a newcomer."""
+    if not RESEND_AVAILABLE or not RESEND_API_KEY:
+        return {"success": False, "error": "Email service not available"}
+    to = customer.get("email") or ""
+    if "@" not in to:
+        return {"success": False, "error": "No email"}
+    first = (customer.get("name") or "").strip().split(" ")[0] or "there"
+    ref = customer.get("trade_account_number") or "—"
+    credit = float(customer.get("credit_balance") or 0)
+    rate = customer.get("credit_rate") or 5
+    heading = f"Good to see you online, {first}" if returning else f"Welcome to Tile Station Trade, {first}"
+    intro = ("Thanks for signing in to your trade account — here's everything you need at a glance."
+             if returning else "Your trade account is live and you're signed in — here's everything you need at a glance.")
+    credit_line = (f"You have <strong>£{credit:.2f}</strong> trade credit ready to use on your next order."
+                   if credit > 0 else f"You earn <strong>{rate}% credit back</strong> on every order — it builds up here automatically.")
+    html = f"""
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #f9fafb;">
+        <div style="background: #333333; padding: 26px 20px; text-align: center;">
+            <h1 style="color: #F7EA1C; margin: 0; font-size: 24px;">Tile Station</h1>
+            <p style="color: #ccc; margin: 8px 0 0; font-size: 14px;">Trade Account</p>
+        </div>
+        <div style="background: white; padding: 28px 20px;">
+            <h2 style="color: #333; margin: 0 0 10px;">{heading}</h2>
+            <p style="color: #666; line-height: 1.6;">{intro}</p>
+            <div style="display:flex; gap:12px; margin: 20px 0;">
+                <div style="flex:1; background:#f3f4f6; border-radius:8px; padding:16px; text-align:center;">
+                    <div style="font-size:11px; letter-spacing:1px; color:#6b7280; text-transform:uppercase;">Your trade ref</div>
+                    <div style="font-size:22px; font-weight:bold; color:#111; margin-top:4px; font-family:monospace;">{ref}</div>
+                </div>
+                <div style="flex:1; background:#f0fdf4; border:1px solid #bbf7d0; border-radius:8px; padding:16px; text-align:center;">
+                    <div style="font-size:11px; letter-spacing:1px; color:#166534; text-transform:uppercase;">Credit balance</div>
+                    <div style="font-size:22px; font-weight:bold; color:#166534; margin-top:4px;">£{credit:.2f}</div>
+                </div>
+            </div>
+            <p style="color: #666; line-height: 1.6;">{credit_line} Quote your trade ref <strong>{ref}</strong> in any showroom and your account, prices and credit follow you.</p>
+            <div style="text-align: center; margin: 24px 0 8px;">
+                <a href="{COMPANY_WEBSITE}/shop/trade/account" style="background: #333333; color: #F7EA1C; padding: 13px 30px; text-decoration: none; border-radius: 8px; font-weight: bold; display: inline-block;">Open my trade dashboard</a>
+            </div>
+            <p style="color: #999; font-size: 13px; margin-top: 20px;">Questions? Reply to this email or call 01732 424242.</p>
+        </div>
+        <div style="background: #f3f4f6; padding: 16px; text-align: center;">
+            <p style="color: #9ca3af; font-size: 12px; margin: 0;">&copy; {datetime.now().year} {COMPANY_NAME}. All rights reserved.</p>
+        </div>
+    </div>"""
+    try:
+        resend.api_key = RESEND_API_KEY
+        result = await asyncio.to_thread(resend.Emails.send, {
+            "from": f"{COMPANY_NAME} <{SENDER_EMAIL}>", "to": [to],
+            "subject": f"{'Good to see you online' if returning else 'Welcome to Tile Station Trade'} — your trade ref is {ref}",
+            "html": html,
+        })
+        return {"success": True, "email_id": (result or {}).get("id")}
+    except Exception as e:
+        logging.error(f"Failed to send trade first-login email: {e}")
+        return {"success": False, "error": str(e)}
+
+
 async def send_trade_admin_notification(customer: dict) -> dict:
     """Send notification email to admin when a new trade account is registered"""
     if not RESEND_AVAILABLE or not RESEND_API_KEY:

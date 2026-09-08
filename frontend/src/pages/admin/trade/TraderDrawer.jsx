@@ -12,7 +12,7 @@ import { Textarea } from '../../../components/ui/textarea';
 import { api } from '../../../lib/api';
 import { useAuth } from '../../../contexts/AuthContext';
 import { fmtGBP, fmtDate, daysSince } from './tradeFormat';
-import { ChannelBadge, LoginStatusBadge } from './TradeBadges';
+import { ChannelBadge, LoginStatusBadge, SeenBadge } from './TradeBadges';
 import { TradeLedgerTable } from './TradeLedgerTable';
 import { CreditAdjustDialog } from './CreditAdjustDialog';
 import { CreditExpiryControls } from './CreditExpiryControls';
@@ -22,7 +22,7 @@ const KIND_ICON = {
   online_order: ShoppingBag, in_store_invoice: Store, refund: RotateCcw, credit: Coins, login: LogIn,
   whatsapp: MessageCircle, sample_order: Beaker, quote: FileText, login_link: KeyRound, password_set: KeyRound,
   registered: UserPlus, credit_expiry_reminder: Mail, dormant_nudge: Sparkles, credit_adjusted: Coins,
-  credit_expired: Coins, credit_expiry_set: Coins, trade_rep_assigned: Pencil,
+  credit_expired: Coins, credit_expiry_set: Coins, trade_rep_assigned: Pencil, first_login_welcome: Mail,
 };
 const KIND_CLASS = {
   online_order: 'bg-sky-100 text-sky-700', in_store_invoice: 'bg-violet-100 text-violet-700', refund: 'bg-rose-100 text-rose-700',
@@ -35,8 +35,8 @@ const FILTERS = [
 const FILTER_KINDS = {
   purchases: ['online_order', 'in_store_invoice', 'refund', 'sample_order', 'quote'],
   credit: ['credit', 'credit_adjusted', 'credit_expired', 'credit_expiry_set', 'credit_expiry_reminder'],
-  contact: ['whatsapp', 'credit_expiry_reminder', 'dormant_nudge', 'login_link'],
-  access: ['login', 'login_link', 'password_set', 'registered'],
+  contact: ['whatsapp', 'credit_expiry_reminder', 'dormant_nudge', 'login_link', 'first_login_welcome'],
+  access: ['login', 'login_link', 'password_set', 'registered', 'first_login_welcome'],
 };
 
 const Stat = ({ label, value, sub, testId }) => (
@@ -175,6 +175,7 @@ export const TraderDrawer = ({ traderId, open, onOpenChange, onChanged }) => {
                 {trader.trade_account_number && <span className="text-xs font-mono font-semibold bg-gray-100 border px-2 py-0.5 rounded">#{trader.trade_account_number}</span>}
                 <ChannelBadge account={{ ...trader, id: trader.id }} showDetail />
                 <LoginStatusBadge account={trader} />
+                <SeenBadge account={{ ...trader, logins_30d: data.events?.filter((e) => e.kind === 'login' && daysSince(e.at) <= 30).length }} />
               </div>
               <SheetDescription className="text-sm">
                 {trader.name} · {trader.email} · {trader.phone || 'no phone'}
