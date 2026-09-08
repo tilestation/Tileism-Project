@@ -31,15 +31,25 @@ export const CHANNEL_CLASS = {
 };
 
 export const LOGIN_STATUS_LABEL = {
-  never: 'Never logged in',
+  never: 'No login yet',
   link_sent: 'Link sent · not activated',
-  active: 'Active online',
+  ready: 'Has password · no sign-in tracked yet',
+  active: 'Signed in online',
 };
 
 export const LOGIN_STATUS_CLASS = {
   never: 'bg-rose-50 text-rose-700 border-rose-200',
   link_sent: 'bg-amber-50 text-amber-700 border-amber-200',
+  ready: 'bg-sky-50 text-sky-700 border-sky-200',
   active: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+};
+
+export const loginStatusOf = (account) => {
+  if (account?.login_status) return account.login_status;
+  if (account?.last_login_at || account?.password_set_at) return 'active';
+  const staffCreated = channelOf(account) === 'staff_created';
+  if (!staffCreated && account?.has_password !== false) return 'ready';
+  return account?.login_link_sent_at ? 'link_sent' : 'never';
 };
 
 export const channelOf = (account) =>

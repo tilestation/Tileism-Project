@@ -76,20 +76,49 @@ def get_tier_from_spend(total_spend: float) -> dict:
     return tier
 
 
+def looks_hashed(pw) -> bool:
+    return bool(pw) and str(pw).startswith("$2")
+
+
+def strip_password(doc: dict) -> dict:
+    """Never let a hash leave the API — but remember whether one exists."""
+    pw = doc.pop("password", None)
+    doc["has_password"] = looks_hashed(pw)
+    doc["password_format_ok"] = pw is None or pw == "" or looks_hashed(pw)
+    return doc
+
+
+def is_staff_created(doc: dict) -> bool:
+    return (doc.get("registration_source") or {}).get("channel") == "staff_created" or bool(doc.get("created_by_staff"))
+
+
 def _login_status(doc: dict) -> str:
-    """never | link_sent | active — drives the Trade Account Health chips."""
+    """active | ready | link_sent | never — drives the Trade Account Health chips.
+
+    active    – has signed in (tracked since 8 Sep 2026) or set a password via link
+    ready     – registered themselves with their own password, no sign-in tracked yet
+    link_sent – staff-created (random password) or no usable password; link emailed
+    never     – staff-created / no usable password and no link sent yet"""
     if doc.get("last_login_at") or doc.get("password_set_at"):
         return "active"
-    if doc.get("login_link_sent_at"):
-        return "link_sent"
-    return "never"
+    own_password = doc.get("has_password", True) and not is_staff_created(doc)
+    if own_password:
+        return "ready"
+    return "link_sent" if doc.get("login_link_sent_at") else "never"
 
 
+_NOT_ACTIVE = {"last_login_at": {"$in": [None, ""]}, "password_set_at": {"$in": [None, ""]}}
+_STAFF_CREATED = {"$or": [{"registration_source.channel": "staff_created"}, {"created_by_staff": True}]}
+_NO_OWN_PASSWORD = {"$or": [{"registration_source.channel": "staff_created"}, {"created_by_staff": True},
+                            {"password": {"$in": [None, ""]}}, {"password": {"$not": {"$regex": r"^\$2"}}}]}
 LOGIN_STATUS_QUERY = {
     "active": {"$or": [{"last_login_at": {"$nin": [None, ""]}}, {"password_set_at": {"$nin": [None, ""]}}]},
-    "link_sent": {"login_link_sent_at": {"$nin": [None, ""]}, "last_login_at": {"$in": [None, ""]}, "password_set_at": {"$in": [None, ""]}},
-    "never": {"login_link_sent_at": {"$in": [None, ""]}, "last_login_at": {"$in": [None, ""]}, "password_set_at": {"$in": [None, ""]}},
+    "ready": {**_NOT_ACTIVE, "registration_source.channel": {"$ne": "staff_created"}, "created_by_staff": {"$ne": True},
+              "password": {"$regex": r"^\$2"}},
+    "link_sent": {"$and": [_NOT_ACTIVE, {"login_link_sent_at": {"$nin": [None, ""]}}, _NO_OWN_PASSWORD]},
+    "never": {"$and": [_NOT_ACTIVE, {"login_link_sent_at": {"$in": [None, ""]}}, _NO_OWN_PASSWORD]},
 }
+NO_LOGIN_QUERY = {"$and": [_NOT_ACTIVE, _NO_OWN_PASSWORD]}
 
 
 def normalize_shop_customer(doc: dict) -> dict:
@@ -126,6 +155,7 @@ def normalize_shop_customer(doc: dict) -> dict:
         "last_login_at": doc.get("last_login_at"),
         "last_order_at": doc.get("last_order_at"),
         "last_nudge_at": doc.get("last_nudge_at"),
+        "has_password": doc.get("has_password"),
         "login_status": _login_status(doc),
         "registration_source": doc.get("registration_source") or {},
         "registration_channel": (doc.get("registration_source") or {}).get("channel") or ("staff_created" if doc.get("created_by_staff") else "unknown"),
@@ -160,7 +190,7 @@ async def get_trade_accounts(
 ):
     """Get all trade accounts from shop_customers.
 
-    Extra filters (Trade Hub): `login_status` never|link_sent|active,
+    Extra filters (Trade Hub): `login_status` never|link_sent|ready|active,
     `channel` online|in_store|staff_created, `activity` dormant|new|never_purchased,
     `credit` has_balance|expiring."""
     from server import db
@@ -222,10 +252,10 @@ async def get_trade_accounts(
         query["$and"] = ands
 
     docs = await db.shop_customers.find(
-        query, {"_id": 0, "password": 0}
+        query, {"_id": 0}
     ).sort("created_at", -1).skip(skip).limit(limit).to_list(limit)
 
-    accounts = [normalize_shop_customer(doc) for doc in docs]
+    accounts = [normalize_shop_customer(strip_password(doc)) for doc in docs]
     total = await db.shop_customers.count_documents(query)
 
     return {
@@ -277,12 +307,12 @@ async def get_trade_account(account_id: str):
     from server import db
 
     doc = await db.shop_customers.find_one(
-        {"id": account_id, "is_trade": True}, {"_id": 0, "password": 0}
+        {"id": account_id, "is_trade": True}, {"_id": 0}
     )
     if not doc:
         raise HTTPException(status_code=404, detail="Trade account not found")
 
-    account = normalize_shop_customer(doc)
+    account = normalize_shop_customer(strip_password(doc))
 
     orders = await db.shop_orders.find(
         {"customer_id": account_id},

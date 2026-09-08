@@ -16,6 +16,7 @@ import { ChannelBadge, LoginStatusBadge } from './TradeBadges';
 import { TradeLedgerTable } from './TradeLedgerTable';
 import { CreditAdjustDialog } from './CreditAdjustDialog';
 import { CreditExpiryControls } from './CreditExpiryControls';
+import { LoginCheckPanel } from './LoginCheckPanel';
 
 const KIND_ICON = {
   online_order: ShoppingBag, in_store_invoice: Store, refund: RotateCcw, credit: Coins, login: LogIn,
@@ -185,7 +186,7 @@ export const TraderDrawer = ({ traderId, open, onOpenChange, onChanged }) => {
               <Stat label="Credit balance" value={fmtGBP(trader.credit_balance)} sub={trader.credit_expires_at ? `expires ${fmtDate(trader.credit_expires_at)}` : 'no expiry'} testId="trader-stat-balance" />
               <Stat label="Total spend" value={fmtGBP(trader.total_spent)} sub={`${trader.order_count || 0} online orders`} testId="trader-stat-spend" />
               <Stat label="Last purchase" value={lastPurchase ? fmtDate(lastPurchase) : '—'} sub={purchaseDays != null ? `${purchaseDays} days ago` : 'never'} testId="trader-stat-purchase" />
-              <Stat label="Last login" value={trader.last_login_at ? fmtDate(trader.last_login_at) : 'Never'} sub={trader.login_link_sent_at ? `link sent ${fmtDate(trader.login_link_sent_at)}` : ''} testId="trader-stat-login" />
+              <Stat label="Last sign-in" value={trader.last_login_at ? fmtDate(trader.last_login_at) : trader.login_status === 'ready' ? 'Not tracked yet' : 'Never'} sub={trader.login_link_sent_at ? `link sent ${fmtDate(trader.login_link_sent_at)}` : trader.login_status === 'ready' ? 'has own password' : ''} testId="trader-stat-login" />
             </div>
 
             <div className="flex flex-wrap gap-2 mt-4">
@@ -208,13 +209,18 @@ export const TraderDrawer = ({ traderId, open, onOpenChange, onChanged }) => {
             </div>
 
             <Tabs defaultValue="timeline" className="mt-5">
-              <TabsList className="grid grid-cols-3 w-full">
+              <TabsList className="grid grid-cols-4 w-full">
                 <TabsTrigger value="timeline" data-testid="drawer-tab-timeline">Timeline</TabsTrigger>
                 <TabsTrigger value="ledger" data-testid="drawer-tab-ledger">Credit ledger</TabsTrigger>
+                <TabsTrigger value="login" data-testid="drawer-tab-login"><KeyRound className="h-3.5 w-3.5 mr-1" />Login check</TabsTrigger>
                 <TabsTrigger value="notes" data-testid="drawer-tab-notes"><StickyNote className="h-3.5 w-3.5 mr-1" />Notes</TabsTrigger>
               </TabsList>
               <TabsContent value="timeline" className="mt-4">
                 <Timeline events={data.events || []} />
+              </TabsContent>
+              <TabsContent value="login" className="mt-4">
+                <LoginCheckPanel traderId={trader.id} busy={busy}
+                  onSendLink={() => act('link', () => api.sendTradeLoginLink(trader.id), (d) => d.email_sent ? 'Login link emailed' : `Link created — email not sent (${d.email_error || 'email unavailable'})`)} />
               </TabsContent>
               <TabsContent value="ledger" className="mt-4 space-y-4">
                 {ledger && (

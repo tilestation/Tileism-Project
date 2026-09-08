@@ -17,11 +17,13 @@ from services.trade_engagement import (
     log_event, parse_date, send_credit_expiry_reminder, send_dormant_nudge,
     expire_customer_credit, dormant_cutoff,
 )
+from routes.trade_accounts import strip_password, _login_status, looks_hashed, is_staff_created
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/trade-hub", tags=["trade-hub"], dependencies=[Depends(get_current_user)])
 
 DORMANT_DAYS = 60
+LOGIN_TRACKING_SINCE = "2026-09-08"
 
 # Ledger type → human label, and whether it is a "clawback" style movement
 LEDGER_LABELS = {
@@ -53,9 +55,11 @@ def _actor(user: dict) -> str:
 
 
 async def _trader(db, account_id: str) -> dict:
-    doc = await db.shop_customers.find_one({"id": account_id, "is_trade": True}, {"_id": 0, "password": 0})
+    doc = await db.shop_customers.find_one({"id": account_id, "is_trade": True}, {"_id": 0})
     if not doc:
         raise HTTPException(status_code=404, detail="Trade account not found")
+    strip_password(doc)
+    doc["login_status"] = _login_status(doc)
     return doc
 
 
@@ -471,11 +475,17 @@ async def summary(days: int = 30):
     dormant_since = dormant_cutoff(DORMANT_DAYS)
     expiring_by = (now + timedelta(days=30)).date().isoformat()
 
-    traders = await db.shop_customers.find({"is_trade": True}, {"_id": 0, "password": 0}).to_list(5000)
+    traders = await db.shop_customers.find({"is_trade": True}, {"_id": 0}).to_list(5000)
+    for t in traders:
+        strip_password(t)
+        t["login_status"] = _login_status(t)
     total = len(traders)
     active_status = sum(1 for t in traders if (t.get("status") or "active") == "active")
-    never_logged_in = sum(1 for t in traders if not t.get("last_login_at") and not t.get("password_set_at"))
-    link_sent_not_activated = sum(1 for t in traders if t.get("login_link_sent_at") and not t.get("last_login_at") and not t.get("password_set_at"))
+    no_login = [t for t in traders if t["login_status"] in ("never", "link_sent")]
+    never_logged_in = len(no_login)
+    link_sent_not_activated = sum(1 for t in no_login if t["login_status"] == "link_sent")
+    login_ready = sum(1 for t in traders if t["login_status"] == "ready")
+    logged_in = sum(1 for t in traders if t["login_status"] == "active")
     new_this_month = sum(1 for t in traders if _ts(t.get("created_at")) >= month_start)
     credit_liability = round(sum(_f(t.get("credit_balance")) for t in traders), 2)
     expiring = [t for t in traders if _f(t.get("credit_balance")) > 0 and t.get("credit_expires_at") and _ts(t["credit_expires_at"])[:10] <= expiring_by]
@@ -544,13 +554,16 @@ async def summary(days: int = 30):
                 "email": t.get("email"), "phone": t.get("phone"), "trade_account_number": t.get("trade_account_number"),
                 "credit_balance": round(_f(t.get("credit_balance")), 2), "credit_expires_at": t.get("credit_expires_at"),
                 "last_purchase_at": last_purchase.get(t["id"]), "last_login_at": t.get("last_login_at"),
-                "last_nudge_at": t.get("last_nudge_at"), "login_link_sent_at": t.get("login_link_sent_at")}
+                "last_nudge_at": t.get("last_nudge_at"), "login_link_sent_at": t.get("login_link_sent_at"),
+                "login_status": t.get("login_status"), "has_password": t.get("has_password")}
 
     return {
         "days": days,
+        "login_tracking_since": LOGIN_TRACKING_SINCE,
         "kpis": {
             "total_traders": total, "active_traders": active_status, "new_this_month": new_this_month,
             "never_logged_in": never_logged_in, "link_sent_not_activated": link_sent_not_activated,
+            "login_ready": login_ready, "logged_in": logged_in,
             "dormant": len(dormant), "never_purchased": never_purchased,
             "online_revenue": online_rev, "online_orders": online_n, "online_revenue_90d": online_rev_90,
             "in_store_revenue": store_rev, "in_store_invoices": store_n, "in_store_revenue_90d": store_rev_90,
@@ -562,7 +575,70 @@ async def summary(days: int = 30):
         "top_traders": top_traders,
         "dormant": sorted([_brief(t) for t in dormant], key=lambda b: _ts(b.get("last_purchase_at")))[:100],
         "expiring": sorted([_brief(t) for t in expiring], key=lambda b: _ts(b.get("credit_expires_at")))[:100],
-        "never_logged_in": [_brief(t) for t in traders if not t.get("last_login_at") and not t.get("password_set_at")][:200],
+        "never_logged_in": [_brief(t) for t in no_login][:200],
+    }
+
+
+# ───────────────────────────── login check ─────────────────────────────
+
+def _login_verdict(has_pw: bool, fmt_ok: bool, staff_created: bool, dup_with_pw: int, logged_in: bool) -> tuple:
+    """(level, headline, advice) — plain English for the drawer."""
+    if not has_pw and not fmt_ok:
+        return ("red", "Password is stored in an unreadable format",
+                "Sign-in can never succeed with it. Send a set-password link (or the trader uses Forgot password).")
+    if not has_pw:
+        return ("red", "No password on this account",
+                "This account was never given a password the trader knows. The only fix is a set-password link — sign-in cannot work without it.")
+    if staff_created and not logged_in:
+        return ("amber", "Staff-created account — random password until the link is used",
+                "The trader has never chosen a password. They must use the set-password link (resend if it expired — links last 7 days).")
+    if dup_with_pw:
+        return ("amber", f"{dup_with_pw} other account(s) share this email",
+                "Sign-in now tries every matching account, so the right password gets in — but tidy the duplicates so credit and orders land on one account.")
+    return ("green", "Password is present and readable — sign-in works with the password the trader chose",
+            ("We never store readable passwords, so nobody can see or 'restore' it. If they still get 'Invalid email or password' they are typing a "
+             "different password (or a different email spelling) from the one used at registration — Forgot password / a login link is the only way to set a new one."))
+
+
+@router.get("/traders/{account_id}/login-check")
+async def login_check(account_id: str):
+    """Read-only diagnosis of why a trader can or cannot sign in. Never reveals the hash."""
+    from server import db
+    from services.password_links import email_query
+    raw = await db.shop_customers.find_one({"id": account_id, "is_trade": True}, {"_id": 0})
+    if not raw:
+        raise HTTPException(status_code=404, detail="Trade account not found")
+    pw = raw.get("password")
+    has_pw, fmt_ok = looks_hashed(pw), (not pw or looks_hashed(pw))
+    email = raw.get("email") or ""
+    staff_created = is_staff_created(raw)
+    trader = strip_password(dict(raw))
+    trader["login_status"] = _login_status(trader)
+
+    duplicates = []
+    if email:
+        for d in await db.shop_customers.find({**email_query(email), "id": {"$ne": account_id}}, {"_id": 0}).to_list(10):
+            duplicates.append({"id": d.get("id"), "email": d.get("email"), "is_trade": bool(d.get("is_trade")),
+                               "has_password": looks_hashed(d.get("password")), "created_at": d.get("created_at"),
+                               "trade_account_number": d.get("trade_account_number"), "status": d.get("status"),
+                               "last_login_at": d.get("last_login_at")})
+    staff_same_email = bool(email and await db.users.find_one(email_query(email), {"_id": 0, "id": 1}))
+    recent_logins = await db.customer_logins.find({"customer_id": account_id}, {"_id": 0}).sort("at", -1).to_list(5)
+    online_orders = await db.shop_orders.count_documents({"customer_id": account_id})
+    pending_links = await db.password_resets.count_documents({**email_query(email), "expires_at": {"$gt": datetime.now(timezone.utc).isoformat()}}) if email else 0
+
+    dup_with_pw = sum(1 for d in duplicates if d["has_password"])
+    level, headline, advice = _login_verdict(has_pw, fmt_ok, staff_created, dup_with_pw, bool(raw.get("last_login_at") or raw.get("password_set_at")))
+    return {
+        "trader_id": account_id, "email": email, "login_status": trader["login_status"],
+        "has_password": has_pw, "password_format_ok": fmt_ok, "staff_created": staff_created,
+        "registration_channel": (raw.get("registration_source") or {}).get("channel") or "unknown",
+        "registered_at": raw.get("created_at"), "password_set_at": raw.get("password_set_at"),
+        "last_login_at": raw.get("last_login_at"), "login_link_sent_at": raw.get("login_link_sent_at"),
+        "active_links": pending_links, "recent_logins": recent_logins, "online_orders": online_orders,
+        "duplicates": duplicates, "staff_account_same_email": staff_same_email,
+        "login_tracking_since": LOGIN_TRACKING_SINCE,
+        "verdict": {"level": level, "headline": headline, "advice": advice},
     }
 
 

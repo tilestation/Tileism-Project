@@ -109,7 +109,7 @@ export const TradeDashboardTab = ({ onOpenTrader }) => {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <Kpi icon={Users} label="Trade accounts" value={k.total_traders} sub={`${k.active_traders} active`} tone="blue" testId="kpi-total" />
         <Kpi icon={UserPlus} label="New this month" value={k.new_this_month} sub={`Online ${ch.online || 0} · In store ${(ch.in_store || 0) + (ch.staff_created || 0)} · Untracked ${ch.unknown || 0}`} tone="emerald" testId="kpi-new" />
-        <Kpi icon={KeyRound} label="Never logged in" value={k.never_logged_in} sub={`${k.link_sent_not_activated} link sent, not activated`} tone="rose" testId="kpi-never" />
+        <Kpi icon={KeyRound} label="No login yet" value={k.never_logged_in} sub={`${k.link_sent_not_activated} link sent, not activated · ${k.login_ready ?? 0} have a password, no sign-in tracked yet`} tone="rose" testId="kpi-never" />
         <Kpi icon={MoonStar} label="Dormant (60d+)" value={k.dormant} sub={`${k.never_purchased} never purchased`} tone="amber" testId="kpi-dormant" />
         <Kpi icon={Globe} label={`Online revenue (${days}d)`} value={fmtGBP(k.online_revenue)} sub={`${k.online_orders} orders · ${fmtGBP(k.online_revenue_90d)} in 90d`} tone="sky" testId="kpi-online-rev" />
         <Kpi icon={Store} label={`In-store revenue (${days}d)`} value={fmtGBP(k.in_store_revenue)} sub={`${k.in_store_invoices} invoices · ${fmtGBP(k.in_store_revenue_90d)} in 90d`} tone="violet" testId="kpi-store-rev" />
@@ -118,9 +118,9 @@ export const TradeDashboardTab = ({ onOpenTrader }) => {
       </div>
 
       <div className="grid lg:grid-cols-2 gap-4">
-        <TraderList title="Never logged in — send login links" icon={KeyRound} rows={data.never_logged_in} testId="list-never-logged-in"
-          empty="Every trade account has been online. 🎉" onOpen={open}
-          renderMeta={(t) => `${t.email || 'no email'} · ${t.login_link_sent_at ? `link sent ${fmtDate(t.login_link_sent_at)}` : 'no link sent yet'}`}
+        <TraderList title="No login yet — send login links" icon={KeyRound} rows={data.never_logged_in} testId="list-never-logged-in"
+          empty={`Every trade account has a usable login. Sign-ins have only been tracked since ${fmtDate(data.login_tracking_since)} — traders who registered before then show as "Has password" until they next sign in.`} onOpen={open}
+          renderMeta={(t) => `${t.email || 'no email'} · ${t.has_password === false ? 'no password on record' : 'staff-created, password never chosen'} · ${t.login_link_sent_at ? `link sent ${fmtDate(t.login_link_sent_at)}` : 'no link sent yet'}`}
           actions={<Button size="sm" disabled={busy === 'links' || !data.never_logged_in.length}
             onClick={() => { if (window.confirm(`Email set-password links to ${data.never_logged_in.length} trader(s)?`)) bulk('links', () => api.bulkSendTradeLoginLinks(data.never_logged_in.map((t) => t.id)), (d) => `Sent ${d.sent} · failed ${d.failed.length}`); }}
             data-testid="bulk-send-login-links"><Send className="h-3.5 w-3.5 mr-1" />Send to all</Button>} />

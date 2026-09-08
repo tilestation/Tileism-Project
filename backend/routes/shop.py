@@ -1196,28 +1196,62 @@ async def trade_customer_register(request: Request, input: TradeCustomerRegister
     }
 
 
+def _alert_trade_login(customer: dict, previous_login, ip: str, device: str):
+    """Telegram ping so the owner sees which traders are engaging. Deduped per trader per hour."""
+    try:
+        from services.telegram_notify import fire_and_forget
+        if previous_login:
+            seen = f"last seen {str(previous_login)[:16].replace('T', ' ')}"
+        else:
+            seen = "first sign-in since login tracking began"
+        text = (
+            "<b>🔑 Trade customer signed in</b>\n"
+            f"<b>Business:</b> {customer.get('business_name') or '—'}\n"
+            f"<b>Contact:</b> {customer.get('name') or '—'}\n"
+            f"<b>Trade ref:</b> {customer.get('trade_account_number') or '—'}\n"
+            f"<b>Email:</b> {customer.get('email')}\n"
+            f"<b>Spend:</b> £{float(customer.get('total_spent') or 0):.2f} · <b>Credit:</b> £{float(customer.get('credit_balance') or 0):.2f}\n"
+            f"<b>Device:</b> {device or 'unknown'} · {ip or '—'}\n"
+            f"<i>{seen}</i>"
+        )
+        fire_and_forget("trade_login", text, dedupe_key=f"trade-login:{customer.get('id')}")
+    except Exception:  # noqa: BLE001 — never let an alert break a sign-in
+        pass
+
+
 @router.post("/auth/login")
 async def shop_customer_login(request: Request, input: ShopCustomerLogin):
-    """Login shop customer (email is case-insensitive)"""
+    """Login shop customer (email is case-insensitive). If several records share
+    the email (legacy duplicates), the one whose password matches wins."""
     from services.password_links import email_query
     db = get_db()
     
-    customer = await db.shop_customers.find_one(email_query(input.email))
-    if not customer or not customer.get("password"):
+    customer = None
+    for candidate in await db.shop_customers.find(email_query(input.email)).to_list(10):
+        stored = candidate.get("password")
+        if not stored or not str(stored).startswith("$2"):
+            continue
+        try:
+            if verify_password(input.password, stored):
+                customer = candidate
+                break
+        except ValueError:
+            logging.warning(f"shop login: unreadable password hash on customer {candidate.get('id')}")
+    if not customer:
         raise HTTPException(status_code=401, detail="Invalid email or password")
     
-    if not verify_password(input.password, customer["password"]):
-        raise HTTPException(status_code=401, detail="Invalid email or password")
-    
+    now_iso = datetime.now(timezone.utc).isoformat()
+    previous_login = customer.get("last_login_at")
     await db.shop_customers.update_one(
         {"id": customer["id"]},
-        {"$set": {"last_login_at": datetime.now(timezone.utc).isoformat()}})
+        {"$set": {"last_login_at": now_iso}})
     if customer.get("is_trade"):
+        ip, device = _client_ip(request), _device_from_ua(request.headers.get("user-agent", ""))
         await db.customer_logins.insert_one({
             "id": str(uuid.uuid4()), "customer_id": customer["id"],
-            "at": datetime.now(timezone.utc).isoformat(),
-            "ip": _client_ip(request), "device": _device_from_ua(request.headers.get("user-agent", "")),
+            "at": now_iso, "ip": ip, "device": device,
         })
+        _alert_trade_login(customer, previous_login, ip, device)
 
     # Token subject must match the stored address exactly — /auth/me looks it up verbatim.
     token = create_access_token({"sub": customer["email"], "type": "shop_customer"})

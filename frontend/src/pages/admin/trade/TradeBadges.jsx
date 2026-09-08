@@ -1,5 +1,5 @@
 import React from 'react';
-import { CHANNEL_LABEL, CHANNEL_CLASS, LOGIN_STATUS_LABEL, LOGIN_STATUS_CLASS, channelOf } from './tradeFormat';
+import { CHANNEL_LABEL, CHANNEL_CLASS, LOGIN_STATUS_LABEL, LOGIN_STATUS_CLASS, channelOf, loginStatusOf } from './tradeFormat';
 
 export const ChannelBadge = ({ account, showDetail = false }) => {
   const ch = channelOf(account);
@@ -18,7 +18,7 @@ export const ChannelBadge = ({ account, showDetail = false }) => {
 };
 
 export const LoginStatusBadge = ({ account }) => {
-  const st = account?.login_status || (account?.last_login_at || account?.password_set_at ? 'active' : account?.login_link_sent_at ? 'link_sent' : 'never');
+  const st = loginStatusOf(account);
   return (
     <span
       className={`inline-flex items-center text-[11px] font-medium px-2 py-0.5 rounded-full border ${LOGIN_STATUS_CLASS[st]}`}

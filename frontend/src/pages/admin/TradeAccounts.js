@@ -663,7 +663,7 @@ const TradeAccounts = ({ embedded = false }) => {
   // Summary stats
   const totalAccounts = accounts.length;
   const totalSpend = accounts.reduce((sum, a) => sum + (a.total_spend || 0), 0);
-  const neverLoggedIn = accounts.filter((a) => (a.login_status || 'never') === 'never').length;
+  const neverLoggedIn = accounts.filter((a) => ['never', 'link_sent'].includes(a.login_status || 'never')).length;
   const activeFilterCount = [filterTradeType, filterLogin, filterChannel, filterActivity].filter(Boolean).length;
   
   return (
@@ -782,7 +782,7 @@ const TradeAccounts = ({ embedded = false }) => {
               </div>
               <div>
                 <p className="text-2xl font-bold">{neverLoggedIn}</p>
-                <p className="text-xs text-gray-500">Never logged in</p>
+                <p className="text-xs text-gray-500">No usable login yet</p>
               </div>
             </div>
           </CardContent>
@@ -842,7 +842,7 @@ const TradeAccounts = ({ embedded = false }) => {
           </div>
           
           <div className="mt-3 flex flex-wrap gap-1.5" data-testid="login-status-chips">
-            {[['', 'All'], ['never', 'Never logged in'], ['link_sent', 'Link sent · not activated'], ['active', 'Active online']].map(([v, label]) => (
+            {[['', 'All'], ['never', 'No login yet'], ['link_sent', 'Link sent · not activated'], ['ready', 'Has password · no sign-in tracked'], ['active', 'Signed in online']].map(([v, label]) => (
               <button key={v || 'all'} type="button" onClick={() => setFilterLogin(v)}
                 className={`text-xs px-2.5 py-1 rounded-full border transition-colors ${filterLogin === v ? 'bg-gray-900 text-white border-gray-900' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
                 data-testid={`login-chip-${v || 'all'}`}>{label}</button>
@@ -1009,12 +1009,14 @@ const TradeAccounts = ({ embedded = false }) => {
                         size="sm"
                         onClick={() => sendLoginLink(account)}
                         disabled={sendingLinkTo === account.id}
-                        className={account.password_set_at || account.last_login_at ? 'text-gray-600' : 'text-amber-700 border-amber-300 bg-amber-50 hover:bg-amber-100'}
+                        className={account.login_status === 'never' || account.login_status === 'link_sent' ? 'text-amber-700 border-amber-300 bg-amber-50 hover:bg-amber-100' : 'text-gray-600'}
                         title={account.last_login_at
                           ? `Send login / reset link (last login ${new Date(account.last_login_at).toLocaleDateString('en-GB')})`
-                          : account.login_link_sent_at
-                            ? `Resend login link (sent ${new Date(account.login_link_sent_at).toLocaleDateString('en-GB')}) — customer has not logged in yet`
-                            : 'Customer has never logged in online — send them a set-password link'}
+                          : account.login_status === 'ready'
+                            ? 'Registered with their own password — only send a link if they have forgotten it'
+                            : account.login_link_sent_at
+                              ? `Resend login link (sent ${new Date(account.login_link_sent_at).toLocaleDateString('en-GB')}) — customer has not activated yet`
+                              : 'No usable password on this account — send them a set-password link'}
                         data-testid={`send-login-link-${account.id}`}
                       >
                         {sendingLinkTo === account.id ? (

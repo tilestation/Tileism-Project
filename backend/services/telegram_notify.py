@@ -101,6 +101,9 @@ def _default_config() -> dict:
             # extension's "Send report to Tile Station" button posts a
             # self-check, so support sees the failure without chasing.
             "extension_report": True,
+            # 🔑 Trade login — a trade customer signed in on the storefront.
+            # Deduped per trader per hour so a flaky session doesn't spam.
+            "trade_login": True,
         },
         # Silent-mode events — 22 Jun 2026
         # ─────────────────────────────────

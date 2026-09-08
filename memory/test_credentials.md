@@ -75,3 +75,9 @@
 - Trade tiers are DISABLED (website_settings trade_account_settings.tiers_enabled=false; frontend treats missing as disabled). New accounts: trade_discount 0, trade_tier null.
 - Registration source: X-Staff-Token header (admin JWT) on /api/shop/auth/trade-register → channel in_store; else showroom IP list (Trade Hub → Settings → Showroom computers; GET/PUT /api/trade-hub/showroom-ips, GET /api/trade-hub/my-ip) → in_store; else online + device from UA; admin-created → staff_created.
 - Pytest: backend/tests/test_trade_hub.py (creates a temporary staff user hub_staff_*@example.com / StaffPass123! and deletes it).
+
+## Trade login check (Sep 8, 2026 — iteration 249)
+- `GET /api/trade-hub/traders/{id}/login-check` (staff JWT) — read-only verdict; drawer tab "Login check" at /admin/trade?tab=traders → 360° → Login check.
+- Login statuses: active | ready | link_sent | never (`?login_status=` on GET /api/trade-accounts).
+- Production probe (read-only) uses owner admin `qasim@tilestation.co.uk` + `TILESTATION_ADMIN_PASSWORD` from backend/.env against `https://tile-station-production.up.railway.app` — never create data there.
+- Pytest: backend/tests/test_trade_login_check_iter249.py (self-cleaning fixtures `iter249.*@example.com`).

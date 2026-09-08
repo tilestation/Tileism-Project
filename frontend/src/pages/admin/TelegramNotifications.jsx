@@ -33,6 +33,7 @@ const EVENT_LABELS = {
   hot_session:     ['🔥 Hot session (high buying intent)', 'Fires once per session when a visitor views ≥3 product pages AND stays >2 min. Filters out drive-by visits — only genuine buying intent. Default ON.'],
   new_customer:    ['New customer / Trade account', 'Fires when someone signs up — both retail customers and Trade accounts. Default ON.'],
   extension_report:['🧩 Verona extension report received', 'Fires the moment someone presses "Send report to Tile Station" in the Verona Chrome extension — engine / server / page checks and the last problem, so nobody has to chase. Default ON.'],
+  trade_login:     ['🔑 Trade customer signed in', 'Fires when a trade account signs in on the website — business, trade ref, spend, credit and device — so you can see who is engaging. One ping per trader per hour. Default ON.'],
 };
 
 export default function TelegramNotifications({ onConfigChange } = {}) {
