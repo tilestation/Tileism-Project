@@ -332,11 +332,10 @@ export const Layout = () => {
       icon: Contact,
       hubLink: '/admin/customers-hub',
       items: [
-        { to: '/admin/trade-accounts', icon: Building2, label: 'Trade Accounts', permission: 'trade_accounts', legacyPermission: 'customers' },
+        { to: '/admin/trade', icon: Building2, label: 'Trade Hub', permission: 'trade_accounts', legacyPermission: 'customers' },
         { to: '/admin/pricing', icon: Users, label: 'Customer Pricing', permission: 'customer_pricing', legacyPermission: 'customer_pricing' },
         { to: '/admin/invites', icon: UserPlus, label: 'Invite Customers', permission: 'customer_invites', legacyPermission: 'customer_invites' },
         { to: '/admin/inquiries', icon: MessageSquare, label: 'Bulk Inquiries', permission: 'bulk_inquiries', legacyPermission: 'bulk_inquiries' },
-        { to: '/admin/trade-list', icon: Handshake, label: 'Trade List (Legacy)', permission: 'trade_list', legacyPermission: 'customers' },
       ]
     },
     {
@@ -368,7 +367,6 @@ export const Layout = () => {
         { to: '/admin/marketing/pending-emails', icon: Mail, label: 'Pending Marketing Emails', permission: 'marketing', legacyPermission: 'marketing' },
         { to: '/admin/email-hub', icon: Mail, label: 'Email Hub', permission: 'marketing', legacyPermission: 'marketing' },
         { to: '/admin/pinterest-pack', icon: ImageIcon, label: 'Pinterest Pack', permission: 'marketing', legacyPermission: 'marketing' },
-        { to: '/admin/trade-credit-emails', icon: Mail, label: 'Trade Credit Emails', permission: 'marketing', legacyPermission: 'marketing' },
         { to: '/admin/failed-payments', icon: AlertTriangle, label: 'Failed Payments', permission: 'marketing', legacyPermission: 'marketing' },
         { to: '/admin/stripe-reconcile', icon: ShieldAlert, label: 'Stripe Reconcile', permission: 'marketing', legacyPermission: 'marketing' },
         { to: '/admin/seo-autopilot-v2', icon: ShieldCheck, label: 'SEO Autopilot (Full)', permission: 'marketing', legacyPermission: 'marketing' },
@@ -417,7 +415,7 @@ export const Layout = () => {
         { to: '/admin/website-preview', icon: Eye, label: 'Preview Website', permission: 'website_preview', legacyPermission: 'products', superAdminOnly: true },
         { to: '/admin/homepage-content', icon: Home, label: 'Homepage', permission: 'homepage_content', legacyPermission: 'products', superAdminOnly: true },
         { to: '/admin/collections', icon: Layers, label: 'Collections', permission: 'collections', legacyPermission: 'products', superAdminOnly: true },
-        { to: '/admin/trade-account-settings', icon: Building2, label: 'Trade Account', permission: 'trade_account_settings', legacyPermission: 'products', superAdminOnly: true },
+        { to: '/admin/trade', icon: Building2, label: 'Trade Hub', permission: 'trade_accounts', legacyPermission: 'customers', superAdminOnly: true },
         { to: '/admin/customer-account-settings', icon: User, label: 'Customer Account', permission: 'customer_account_settings', legacyPermission: 'products', superAdminOnly: true },
         { to: '/admin/checkout-settings', icon: ShoppingCart, label: 'Checkout Page', permission: 'checkout_settings', legacyPermission: 'products', superAdminOnly: true },
         { to: '/admin/navigation-menu', icon: MenuIcon, label: 'Navigation Menu', permission: 'navigation_menu', legacyPermission: 'products', superAdminOnly: true },

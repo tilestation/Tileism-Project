@@ -1011,12 +1011,66 @@ async def shop_customer_register(input: ShopCustomerRegister):
     }
 
 
+def _client_ip(request: Request) -> str:
+    fwd = request.headers.get("x-forwarded-for") or request.headers.get("x-real-ip") or ""
+    if fwd:
+        return fwd.split(",")[0].strip()
+    return request.client.host if request.client else ""
+
+
+def _device_from_ua(ua: str) -> str:
+    u = (ua or "").lower()
+    if "ipad" in u or "tablet" in u:
+        return "tablet"
+    if "mobi" in u or "android" in u or "iphone" in u:
+        return "mobile"
+    return "desktop" if u else "unknown"
+
+
+async def _detect_registration_source(db, request: Request) -> dict:
+    """Work out whether a trade sign-up happened on a showroom computer or
+    from the customer's own device. Signals, strongest first:
+      1. `X-Staff-Token` header — the browser also holds a staff/admin login
+         (the register page sends it automatically on showroom machines).
+      2. Request IP matches a showroom IP configured in Trade settings.
+      3. Otherwise: online, with device type from the user-agent."""
+    ip = _client_ip(request)
+    ua = request.headers.get("user-agent", "")
+    source = {"channel": "online", "detected_by": "none", "device": _device_from_ua(ua),
+              "ip": ip, "user_agent": ua[:200], "at": datetime.now(timezone.utc).isoformat()}
+    staff_token = request.headers.get("x-staff-token")
+    if staff_token:
+        try:
+            import jwt as _jwt
+            from config import JWT_SECRET
+            payload = _jwt.decode(staff_token, JWT_SECRET, algorithms=["HS256"])
+            staff = await db.users.find_one({"email": payload.get("sub")}, {"_id": 0, "name": 1, "email": 1, "showroom_id": 1, "showroom_name": 1, "store_id": 1})
+            if staff:
+                source.update({"channel": "in_store", "detected_by": "staff_session",
+                               "staff_name": staff.get("name") or staff.get("email"),
+                               "showroom_name": staff.get("showroom_name") or staff.get("store_id") or staff.get("showroom_id")})
+                return source
+        except Exception:  # noqa: BLE001 — a bad staff token just means "not a showroom machine"
+            pass
+    try:
+        settings = await db.website_settings.find_one({"_id": "trade_account_settings"}, {"_id": 0, "settings": 1})
+        for entry in ((settings or {}).get("settings") or {}).get("showroom_ips") or []:
+            if isinstance(entry, dict) and entry.get("ip") and entry["ip"].strip() == ip:
+                source.update({"channel": "in_store", "detected_by": "showroom_ip", "showroom_name": entry.get("showroom") or entry.get("name")})
+                return source
+    except Exception:  # noqa: BLE001
+        pass
+    return source
+
+
+
 @router.post("/auth/trade-register")
-async def trade_customer_register(input: TradeCustomerRegister):
+async def trade_customer_register(request: Request, input: TradeCustomerRegister):
     """Register new trade customer account"""
     from services.password_links import normalize_email, email_query
     db = get_db()
     input.email = normalize_email(input.email)
+    registration_source = await _detect_registration_source(db, request)
     
     # Check if email exists
     existing = await db.shop_customers.find_one(email_query(input.email))
@@ -1053,10 +1107,11 @@ async def trade_customer_register(input: TradeCustomerRegister):
         },
         "is_trade": True,
         "trade_account_number": trade_account_number,
-        "trade_tier": "bronze",
+        "trade_tier": None,
         "trade_discount": 0,
         "credit_balance": 0.0,
-        "credit_rate": 5,  # 5% credit back for bronze
+        "credit_rate": 5,
+        "registration_source": registration_source,
         "total_spent": 0.0,
         "estimated_monthly_spend": input.estimated_monthly_spend,
         "how_heard": input.how_heard,
@@ -1141,7 +1196,7 @@ async def trade_customer_register(input: TradeCustomerRegister):
 
 
 @router.post("/auth/login")
-async def shop_customer_login(input: ShopCustomerLogin):
+async def shop_customer_login(request: Request, input: ShopCustomerLogin):
     """Login shop customer (email is case-insensitive)"""
     from services.password_links import email_query
     db = get_db()
@@ -1156,6 +1211,12 @@ async def shop_customer_login(input: ShopCustomerLogin):
     await db.shop_customers.update_one(
         {"id": customer["id"]},
         {"$set": {"last_login_at": datetime.now(timezone.utc).isoformat()}})
+    if customer.get("is_trade"):
+        await db.customer_logins.insert_one({
+            "id": str(uuid.uuid4()), "customer_id": customer["id"],
+            "at": datetime.now(timezone.utc).isoformat(),
+            "ip": _client_ip(request), "device": _device_from_ua(request.headers.get("user-agent", "")),
+        })
 
     # Token subject must match the stored address exactly — /auth/me looks it up verbatim.
     token = create_access_token({"sub": customer["email"], "type": "shop_customer"})
@@ -4750,7 +4811,7 @@ async def update_order_status(order_id: str, status_update: OrderStatusUpdate, c
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
     
-    valid_statuses = ["confirmed", "processing", "shipped", "delivered", "ready_for_collection", "collected", "cancelled"]
+    valid_statuses = ["confirmed", "processing", "shipped", "delivered", "ready_for_collection", "collected", "cancelled", "refunded"]
     if status_update.status not in valid_statuses:
         raise HTTPException(status_code=400, detail=f"Invalid status. Must be one of: {valid_statuses}")
     
@@ -4791,10 +4852,11 @@ async def update_order_status(order_id: str, status_update: OrderStatusUpdate, c
     # Idempotent via the `credits_reversed` flag we stamp on the order doc.
     prior_status = order.get("status")
     new_status = status_update.status
-    if new_status == "cancelled" and prior_status != "cancelled":
-        await reverse_shop_order_credits(db, order, reason="order_cancelled")
-    elif prior_status == "cancelled" and new_status != "cancelled":
-        await reapply_shop_order_credits(db, order, reason="order_uncancelled")
+    CLAWBACK_STATUSES = ("cancelled", "refunded")
+    if new_status in CLAWBACK_STATUSES and prior_status not in CLAWBACK_STATUSES:
+        await reverse_shop_order_credits(db, order, reason=f"order_{new_status}")
+    elif prior_status in CLAWBACK_STATUSES and new_status not in CLAWBACK_STATUSES:
+        await reapply_shop_order_credits(db, order, reason="order_reinstated")
     
     # Send email notification to customer about status update
     # Fetch updated order for email
@@ -5358,14 +5420,16 @@ async def get_trade_credit_history_detailed(request: Request):
         {"_id": 0},
     ).sort("created_at", -1).to_list(200)
 
-    # ── In-store EPOS pipeline ──────────────────────────────────────────
+    # ── In-store EPOS pipeline + manual/expiry movements ────────────────
+    # Every movement is shown — including refund claw-backs, manual
+    # adjustments and expiries — so the trader's statement always
+    # reconciles to their balance.
     epos_rows = await db.credit_transactions.find(
-        {
-            "customer_id": cust_id,
-            "type": {"$in": ["earned_in_store", "redeemed_in_store"]},
-        },
+        {"$or": [{"customer_id": cust_id}] + (
+            [{"trade_account_number": customer.get("trade_account_number")}]
+            if customer.get("trade_account_number") else [])},
         {"_id": 0},
-    ).sort("created_at", -1).to_list(200)
+    ).sort("created_at", -1).to_list(300)
 
     # Pull breakdown + showroom from invoices for the EPOS rows (both earn
     # and redeem benefit from showroom back-fill for legacy txns missing it).
@@ -5380,15 +5444,18 @@ async def get_trade_credit_history_detailed(request: Request):
             breakdown_by_invoice[inv["id"]] = inv
 
     events = []
+    ONLINE_LABELS = {"reverse_earn": "Clawed back — order cancelled/refunded",
+                     "reverse_redeem": "Returned to balance — order cancelled"}
     for r in online_rows:
+        rtype = r.get("type")
         events.append({
             "id": r.get("id"),
-            "type": "earn" if r.get("type") == "earn" else "redeem",
+            "type": "earn" if rtype == "earn" else ("redeem" if rtype == "redeem" else "adjust"),
             "channel": "online",
             "amount": float(r.get("amount") or 0),
             "balance_after": float(r.get("balance_after") or 0),
             "at": r.get("created_at"),
-            "source_label": r.get("order_number") or r.get("description") or "Online order",
+            "source_label": (ONLINE_LABELS.get(rtype) or r.get("order_number") or r.get("description") or "Online order"),
             "source_ref": r.get("order_id"),
             "source_link": (
                 f"/shop/track?order={r.get('order_number')}&email={customer.get('email','')}"
@@ -5399,8 +5466,21 @@ async def get_trade_credit_history_detailed(request: Request):
             # the savings_meta on the order doc is the closest equivalent.
             "breakdown": None,
         })
+    EPOS_LABELS = {
+        "reversed_earned_in_store": "Clawed back — invoice edited",
+        "reversed_redeemed_in_store": "Returned to balance — invoice edited",
+        "reapplied_earned_in_store": "Re-applied — invoice edited",
+        "reapplied_redeemed_in_store": "Re-applied redemption",
+        "reversed_earned_via_refund": "Clawed back — refund",
+        "reversed_redeemed_via_refund": "Returned to balance — refund",
+        "reversed_earned_via_invoice_edit": "Clawed back — invoice edited",
+        "manual_adjustment": "Adjustment by Tile Station",
+        "expired": "Credit expired",
+    }
     for r in epos_rows:
-        is_earn = r.get("type") == "earned_in_store"
+        rtype = r.get("type")
+        is_earn = rtype == "earned_in_store"
+        is_redeem = rtype == "redeemed_in_store"
         inv_doc = breakdown_by_invoice.get(r.get("invoice_id"))
         # Showroom: prefer the stamp on the txn, else fall back to the
         # linked invoice (legacy rows pre-24-Feb-2026 didn't carry the
@@ -5409,13 +5489,14 @@ async def get_trade_credit_history_detailed(request: Request):
         showroom_id = r.get("showroom_id") or (inv_doc or {}).get("showroom_id")
         events.append({
             "id": r.get("id"),
-            "type": "earn" if is_earn else "redeem",
-            "channel": "in_store",
+            "type": "earn" if is_earn else ("redeem" if is_redeem else "adjust"),
+            "channel": "in_store" if (is_earn or is_redeem or r.get("invoice_no") or r.get("refund_no")) else "account",
             "amount": float(r.get("amount") or 0),
             "balance_after": float(r.get("balance_after") or 0),
             "at": r.get("created_at"),
-            "source_label": r.get("invoice_no") or "In-store invoice",
-            "source_ref": r.get("invoice_id"),
+            "source_label": (EPOS_LABELS.get(rtype) or r.get("invoice_no") or "In-store invoice")
+                            + (f" · {r.get('refund_no') or r.get('invoice_no')}" if (rtype in EPOS_LABELS and (r.get('refund_no') or r.get('invoice_no'))) else ""),
+            "source_ref": r.get("invoice_id") or r.get("refund_id"),
             "source_link": None,  # in-store invoices don't have a public URL
             "description": r.get("description"),
             "showroom_name": showroom_name,
@@ -5429,14 +5510,17 @@ async def get_trade_credit_history_detailed(request: Request):
 
     total_earned = round(sum(e["amount"] for e in events if e["type"] == "earn"), 2)
     total_redeemed = round(sum(abs(e["amount"]) for e in events if e["type"] == "redeem"), 2)
+    total_adjustments = round(sum(e["amount"] for e in events if e["type"] == "adjust"), 2)
 
     return {
         "is_trade": True,
         "credit_balance": float(customer.get("credit_balance") or 0),
+        "credit_expires_at": customer.get("credit_expires_at"),
         "credit_rate": float(customer.get("credit_rate") or TRADE_CREDIT_BACK_RATE),
         "events": events,
         "total_earned": total_earned,
         "total_redeemed": total_redeemed,
+        "total_adjustments": total_adjustments,
     }
 
 
@@ -7491,7 +7575,16 @@ async def _send_shop_order_alert_fanout(order: dict) -> None:
         # ── Telegram ──
         try:
             from services.telegram_notify import notify_event
+            trade_line = ""
+            if order.get("is_trade") or order.get("trade_account_number"):
+                credit = float(order.get("credits_awarded") or 0)
+                trade_line = (
+                    f"🏗️ <b>TRADE · {order.get('trade_account_number') or 'T-?'}"
+                    f"{' · ' + order['trade_business_name'] if order.get('trade_business_name') else ''}</b>"
+                    f"{' · £' + format(credit, '.2f') + ' credit earned' if credit else ''}\n"
+                )
             tg_text = (
+                f"{trade_line}"
                 f"💰 <b>New order — #{order_number}</b>\n"
                 f"<b>£{total:.2f}</b> · {len(items)} item(s)\n\n"
                 f"<b>Customer:</b> {customer_name}\n"
@@ -7537,7 +7630,16 @@ async def _send_shop_order_alert_fanout(order: dict) -> None:
                     addr.get("county"), addr.get("postcode"),
                 ] if l
             ) or "(Collection / no address)"
+            trade_html = ""
+            if order.get("is_trade") or order.get("trade_account_number"):
+                trade_html = (
+                    f"<p style=\"background:#fef3c7;border-left:4px solid #d97706;padding:8px 12px;\"><strong>🏗️ TRADE ORDER · "
+                    f"{order.get('trade_account_number') or 'T-?'}"
+                    f"{' · ' + order['trade_business_name'] if order.get('trade_business_name') else ''}</strong>"
+                    f"{' · £' + format(float(order.get('credits_awarded') or 0), '.2f') + ' credit earned' if order.get('credits_awarded') else ''}</p>"
+                )
             admin_html = (
+                f"{trade_html}"
                 f"<p><strong>New paid order ready to process.</strong></p>"
                 f"<p><strong>Order:</strong> #{order_number}<br/>"
                 f"<strong>Total:</strong> £{total:.2f}<br/>"
@@ -7553,7 +7655,8 @@ async def _send_shop_order_alert_fanout(order: dict) -> None:
             if send_fn and admin_recipients:
                 send_result = await send_fn(
                     admin_recipients,
-                    f"💰 New order #{order_number} · £{total:.2f}",
+                    (f"🏗️ TRADE {order.get('trade_account_number') or ''} · " if (order.get("is_trade") or order.get("trade_account_number")) else "")
+                    + f"💰 New order #{order_number} · £{total:.2f}",
                     admin_html,
                     from_override="Tile Station Alerts <notifications@tilestation.co.uk>",
                 )

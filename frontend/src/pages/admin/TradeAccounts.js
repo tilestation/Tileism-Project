@@ -23,7 +23,8 @@ import {
   Loader2,
   Clock,
   XCircle,
-  KeyRound
+  KeyRound,
+  History
 } from 'lucide-react';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
@@ -31,6 +32,8 @@ import { Card, CardHeader, CardTitle, CardContent } from '../../components/ui/ca
 import { toast } from 'sonner';
 import { api } from '../../lib/api';
 import CreditStatementPreviewButton from '../../components/admin/CreditStatementPreviewButton';
+import { TraderDrawer } from './trade/TraderDrawer';
+import { ChannelBadge, LoginStatusBadge } from './trade/TradeBadges';
 
 // Tier badge component
 const TierBadge = ({ tier, tierInfo }) => {
@@ -361,28 +364,15 @@ const TradeAccountModal = ({ isOpen, onClose, account, tradeTypes, onSave }) => 
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium mb-1">Pricing Tier</label>
-                  <select
-                    value={formData.pricing_tier}
-                    onChange={(e) => setFormData({...formData, pricing_tier: e.target.value})}
-                    className="w-full px-3 py-2 border rounded-md"
-                    data-testid="pricing-tier-select"
-                  >
-                    <option value="bronze">Bronze</option>
-                    <option value="silver">Silver</option>
-                    <option value="gold">Gold</option>
-                    <option value="platinum">Platinum</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">Current Discount</label>
+                  <label className="block text-sm font-medium mb-1">Current account discount</label>
                   <p className="px-3 py-2 bg-gray-50 border rounded-md text-gray-700 font-medium">
-                    {account.trade_discount}% off
+                    {account.trade_discount || 0}% off
                   </p>
+                  <p className="text-[11px] text-gray-500 mt-1">Used by EPOS "apply trade pricing". Website trade prices are set per product in the Pricing Hub.</p>
                 </div>
               </div>
 
-              {/* Custom Discount Override */}
+              {/* Manual discount — no tiers, you decide per tradesman */}
               <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
                 <label className="flex items-center gap-2 cursor-pointer mb-3">
                   <input
@@ -397,8 +387,8 @@ const TradeAccountModal = ({ isOpen, onClose, account, tradeTypes, onSave }) => 
                     className="w-4 h-4 text-amber-500 rounded"
                     data-testid="custom-discount-toggle"
                   />
-                  <span className="font-medium text-amber-800">Special Custom Discount</span>
-                  <span className="text-xs text-amber-600">(Override standard tier discount)</span>
+                  <span className="font-medium text-amber-800">Manual trade discount</span>
+                  <span className="text-xs text-amber-600">(set individually — there are no automatic tiers)</span>
                 </label>
                 {useCustomDiscount && (
                   <div className="flex items-center gap-3">
@@ -416,7 +406,7 @@ const TradeAccountModal = ({ isOpen, onClose, account, tradeTypes, onSave }) => 
                       />
                       <span className="absolute right-3 top-1/2 -translate-y-1/2 text-amber-600 font-bold">%</span>
                     </div>
-                    <span className="text-sm text-amber-700">This tradesman gets a special rate regardless of their tier.</span>
+                    <span className="text-sm text-amber-700">This tradesman gets this rate on EPOS trade pricing.</span>
                   </div>
                 )}
               </div>
@@ -437,8 +427,8 @@ const TradeAccountModal = ({ isOpen, onClose, account, tradeTypes, onSave }) => 
   );
 };
 
-// Main Trade Accounts Page
-const TradeAccounts = () => {
+// Main Trade Accounts Page (also rendered as the "Traders" tab inside Trade Hub)
+const TradeAccounts = ({ embedded = false }) => {
   const [accounts, setAccounts] = useState([]);
   const [tradeTypes, setTradeTypes] = useState([]);
   const [pricingTiers, setPricingTiers] = useState({});
@@ -446,10 +436,15 @@ const TradeAccounts = () => {
   const [search, setSearch] = useState('');
   const [filterTradeType, setFilterTradeType] = useState('');
   const [filterTier, setFilterTier] = useState('');
+  const [filterLogin, setFilterLogin] = useState('');
+  const [filterChannel, setFilterChannel] = useState('');
+  const [filterActivity, setFilterActivity] = useState('');
   const [showFilters, setShowFilters] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [editingAccount, setEditingAccount] = useState(null);
   const [expandedAccount, setExpandedAccount] = useState(null);
+  const [drawerId, setDrawerId] = useState(null);
+  const [bulkLinksSending, setBulkLinksSending] = useState(false);
   // WhatsApp states
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [sendingTo, setSendingTo] = useState(null); // customer ID currently sending to
@@ -502,7 +497,7 @@ const TradeAccounts = () => {
     setLoading(true);
     try {
       const [accountsRes, typesRes, tiersRes] = await Promise.all([
-        api.getTradeAccounts({ search, trade_type: filterTradeType, tier: filterTier }),
+        api.getTradeAccounts({ search, trade_type: filterTradeType, tier: filterTier, login_status: filterLogin, channel: filterChannel, activity: filterActivity, limit: 300 }),
         api.getTradeTypes(),
         api.getPricingTiers()
       ]);
@@ -515,7 +510,7 @@ const TradeAccounts = () => {
     } finally {
       setLoading(false);
     }
-  }, [search, filterTradeType, filterTier]);
+  }, [search, filterTradeType, filterTier, filterLogin, filterChannel, filterActivity]);
   
   useEffect(() => {
     fetchData();
@@ -547,6 +542,9 @@ const TradeAccounts = () => {
     setSearch('');
     setFilterTradeType('');
     setFilterTier('');
+    setFilterLogin('');
+    setFilterChannel('');
+    setFilterActivity('');
   };
 
   // WhatsApp handlers
@@ -583,6 +581,27 @@ const TradeAccounts = () => {
       toast.error(err.response?.data?.detail || 'Failed to send login link');
     } finally {
       setSendingLinkTo(null);
+    }
+  };
+
+  const bulkSendLoginLinks = async () => {
+    const targets = selectedIds.size > 0 ? [...selectedIds] : accounts.map((a) => a.id);
+    if (targets.length === 0) { toast.error('No accounts to send to'); return; }
+    const scope = selectedIds.size > 0 ? `${targets.length} selected` : `all ${targets.length} shown`;
+    if (!window.confirm(`Email set-password login links to ${scope} trade account(s)?`)) return;
+    setBulkLinksSending(true);
+    try {
+      const { data } = await api.bulkSendTradeLoginLinks(targets);
+      toast.success(`Login links: sent ${data.sent}, failed ${data.failed.length}`, {
+        description: data.failed.length ? data.failed.slice(0, 3).map((f) => `${f.email || f.id}: ${f.error}`).join(' · ') : 'Links are valid for 7 days.',
+        duration: 10000,
+      });
+      setSelectedIds(new Set());
+      fetchData();
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Bulk send failed');
+    } finally {
+      setBulkLinksSending(false);
     }
   };
 
@@ -644,26 +663,29 @@ const TradeAccounts = () => {
   // Summary stats
   const totalAccounts = accounts.length;
   const totalSpend = accounts.reduce((sum, a) => sum + (a.total_spend || 0), 0);
-  const tierCounts = accounts.reduce((acc, a) => {
-    const tier = a.pricing_tier || 'bronze';
-    acc[tier] = (acc[tier] || 0) + 1;
-    return acc;
-  }, {});
+  const neverLoggedIn = accounts.filter((a) => (a.login_status || 'never') === 'never').length;
+  const activeFilterCount = [filterTradeType, filterLogin, filterChannel, filterActivity].filter(Boolean).length;
   
   return (
     <div className="space-y-6" data-testid="trade-accounts-page">
       {/* Header */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
-            <Building2 className="h-7 w-7" />
-            Trade Accounts
-          </h1>
+          {!embedded && (
+            <h1 className="text-2xl font-bold flex items-center gap-2">
+              <Building2 className="h-7 w-7" />
+              Trade Accounts
+            </h1>
+          )}
           <p className="text-gray-500 text-sm mt-1">
-            Manage builder and tradesperson accounts with tiered pricing
+            Every trade account, online and in store — trade prices are set per product in the Pricing Hub, credit back is earned on every purchase
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
+          <Button variant="outline" onClick={bulkSendLoginLinks} disabled={bulkLinksSending} className="text-amber-700 border-amber-300 hover:bg-amber-50" data-testid="bulk-login-links-btn">
+            {bulkLinksSending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <KeyRound className="h-4 w-4 mr-2" />}
+            Send login links {selectedIds.size > 0 ? `(${selectedIds.size})` : '(all shown)'}
+          </Button>
           <Button variant="outline" onClick={() => { if (selectedIds.size > 0) setShowCustomMsg(true); else toast.error('Select customers first'); }} data-testid="custom-msg-btn">
             <MessageCircle className="h-4 w-4 mr-2" />
             Custom Message
@@ -755,12 +777,12 @@ const TradeAccounts = () => {
         <Card>
           <CardContent className="pt-4">
             <div className="flex items-center gap-3">
-              <div className="p-2 bg-yellow-100 rounded-lg">
-                <Award className="h-5 w-5 text-yellow-600" />
+              <div className="p-2 bg-rose-100 rounded-lg">
+                <KeyRound className="h-5 w-5 text-rose-600" />
               </div>
               <div>
-                <p className="text-2xl font-bold">{tierCounts.gold || 0}</p>
-                <p className="text-xs text-gray-500">Gold+ Accounts</p>
+                <p className="text-2xl font-bold">{neverLoggedIn}</p>
+                <p className="text-xs text-gray-500">Never logged in</p>
               </div>
             </div>
           </CardContent>
@@ -811,14 +833,22 @@ const TradeAccounts = () => {
             >
               <Filter className="h-4 w-4 mr-2" />
               Filters
-              {(filterTradeType || filterTier) && (
+              {activeFilterCount > 0 && (
                 <span className="ml-2 bg-primary text-white rounded-full px-2 py-0.5 text-xs">
-                  {(filterTradeType ? 1 : 0) + (filterTier ? 1 : 0)}
+                  {activeFilterCount}
                 </span>
               )}
             </Button>
           </div>
           
+          <div className="mt-3 flex flex-wrap gap-1.5" data-testid="login-status-chips">
+            {[['', 'All'], ['never', 'Never logged in'], ['link_sent', 'Link sent · not activated'], ['active', 'Active online']].map(([v, label]) => (
+              <button key={v || 'all'} type="button" onClick={() => setFilterLogin(v)}
+                className={`text-xs px-2.5 py-1 rounded-full border transition-colors ${filterLogin === v ? 'bg-gray-900 text-white border-gray-900' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
+                data-testid={`login-chip-${v || 'all'}`}>{label}</button>
+            ))}
+          </div>
+
           {showFilters && (
             <div className="mt-4 pt-4 border-t flex flex-wrap gap-4 items-end">
               <div>
@@ -835,20 +865,24 @@ const TradeAccounts = () => {
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium mb-1">Pricing Tier</label>
-                <select
-                  value={filterTier}
-                  onChange={(e) => setFilterTier(e.target.value)}
-                  className="px-3 py-2 border rounded-md min-w-[150px]"
-                >
-                  <option value="">All Tiers</option>
-                  <option value="bronze">Bronze</option>
-                  <option value="silver">Silver</option>
-                  <option value="gold">Gold</option>
-                  <option value="platinum">Platinum</option>
+                <label className="block text-sm font-medium mb-1">Registered</label>
+                <select value={filterChannel} onChange={(e) => setFilterChannel(e.target.value)} className="px-3 py-2 border rounded-md min-w-[170px]" data-testid="filter-channel">
+                  <option value="">Anywhere</option>
+                  <option value="online">Online (own device)</option>
+                  <option value="in_store">In store (showroom)</option>
+                  <option value="staff_created">Staff created</option>
                 </select>
               </div>
-              {(filterTradeType || filterTier) && (
+              <div>
+                <label className="block text-sm font-medium mb-1">Activity</label>
+                <select value={filterActivity} onChange={(e) => setFilterActivity(e.target.value)} className="px-3 py-2 border rounded-md min-w-[170px]" data-testid="filter-activity">
+                  <option value="">Everyone</option>
+                  <option value="new">New (last 30 days)</option>
+                  <option value="dormant">Dormant (60+ days)</option>
+                  <option value="never_purchased">Never purchased</option>
+                </select>
+              </div>
+              {activeFilterCount > 0 && (
                 <Button variant="ghost" onClick={clearFilters} size="sm">
                   <X className="h-4 w-4 mr-1" />
                   Clear
@@ -897,7 +931,6 @@ const TradeAccounts = () => {
                     <div className="flex-1">
                       <div className="flex items-center gap-3 flex-wrap">
                         <h3 className="font-semibold text-lg">{account.business_name}</h3>
-                        <TierBadge tier={account.pricing_tier} tierInfo={account.pricing_tier_info} />
                         {(account.trade_account_number || account.account_number) && (
                           <span
                             className="text-xs font-mono font-semibold text-gray-700 bg-gray-100 border border-gray-200 px-2 py-0.5 rounded select-all"
@@ -905,6 +938,13 @@ const TradeAccounts = () => {
                             data-testid={`account-number-${account.id}`}
                           >
                             #{account.trade_account_number || account.account_number}
+                          </span>
+                        )}
+                        <ChannelBadge account={account} />
+                        <LoginStatusBadge account={account} />
+                        {Number(account.credit_balance) > 0 && (
+                          <span className="text-xs font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full" data-testid={`credit-badge-${account.id}`}>
+                            £{Number(account.credit_balance).toFixed(2)} credit{account.credit_expires_at ? ` · exp ${new Date(account.credit_expires_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}` : ''}
                           </span>
                         )}
                       </div>
@@ -955,6 +995,15 @@ const TradeAccounts = () => {
                       <p className="text-xs text-gray-400">{account.order_count || 0} orders</p>
                     </div>
                     <div className="flex items-center gap-2">
+                      <Button
+                        variant="default"
+                        size="sm"
+                        onClick={() => setDrawerId(account.id)}
+                        title="Open 360° view — timeline, credit ledger, notes"
+                        data-testid={`open-360-${account.id}`}
+                      >
+                        <History className="h-4 w-4 mr-1" /> 360°
+                      </Button>
                       <Button
                         variant="outline"
                         size="sm"
@@ -1036,20 +1085,12 @@ const TradeAccounts = () => {
                       <p className="text-sm">{account.postcode}</p>
                     </div>
                     <div>
-                      <h4 className="font-medium text-sm text-gray-500 mb-2">Pricing Tier Progress</h4>
-                      <div className="space-y-1">
-                        {Object.entries(pricingTiers).map(([key, tier]) => (
-                          <div key={key} className="flex items-center gap-2 text-xs">
-                            <div 
-                              className={`w-3 h-3 rounded-full ${account.pricing_tier === key ? 'ring-2 ring-offset-1 ring-primary' : ''}`}
-                              style={{ backgroundColor: tier.color }}
-                            />
-                            <span className={account.pricing_tier === key ? 'font-semibold' : ''}>
-                              {tier.name} (£{tier.min_spend.toLocaleString()}+)
-                            </span>
-                            <span className="text-gray-400">{tier.discount}% off</span>
-                          </div>
-                        ))}
+                      <h4 className="font-medium text-sm text-gray-500 mb-2">Account & credit</h4>
+                      <div className="space-y-1 text-xs text-gray-600">
+                        <p>Manual discount: <span className="font-semibold">{account.trade_discount || 0}%</span> (EPOS)</p>
+                        <p>Credit balance: <span className="font-semibold">£{Number(account.credit_balance || 0).toFixed(2)}</span>{account.credit_expires_at ? ` · expires ${new Date(account.credit_expires_at).toLocaleDateString('en-GB')}` : ''}</p>
+                        <p>Registered: {account.registration_source?.channel === 'in_store' ? `In store${account.registration_source?.showroom_name ? ` · ${account.registration_source.showroom_name}` : ''}${account.registration_source?.staff_name ? ` · by ${account.registration_source.staff_name}` : ''}` : account.registration_source?.channel === 'staff_created' ? `Staff created${account.registration_source?.staff_name ? ` by ${account.registration_source.staff_name}` : ''}` : account.registration_source?.channel === 'online' ? `Online · ${account.registration_source?.device || 'device unknown'}` : 'Unknown (before tracking)'}</p>
+                        <p>Last login: {account.last_login_at ? new Date(account.last_login_at).toLocaleDateString('en-GB') : 'never'}{account.trade_rep ? ` · Rep: ${account.trade_rep}` : ''}</p>
                       </div>
                     </div>
                     {account.notes && (
@@ -1172,6 +1213,7 @@ const TradeAccounts = () => {
         tradeTypes={tradeTypes}
         onSave={fetchData}
       />
+      <TraderDrawer traderId={drawerId} open={!!drawerId} onOpenChange={(o) => !o && setDrawerId(null)} onChanged={fetchData} />
     </div>
   );
 };

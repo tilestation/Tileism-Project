@@ -78,7 +78,7 @@ const TradeRegisterPage = () => {
   }, []);
 
   const benefits = (settings?.benefits || []).filter(b => b.enabled !== false);
-  const tiersEnabled = settings?.tiers_enabled !== false;
+  const tiersEnabled = settings?.tiers_enabled === true; // tiers are opt-in — discounts are set manually per trader
   // When tiers are globally disabled, also hide any benefit that talks about
   // tiers / Bronze-Platinum so the registration page doesn't mention them.
   const tierKeywords = /(tier|bronze|silver|gold|platinum)/i;
@@ -148,12 +148,13 @@ const TradeRegisterPage = () => {
       // accept extra fields cleanly so strip it before sending.
       const { confirmPassword: _ignore, ...body } = formData;
       // 15 May 2026 — axios instead of fetch (Sentry-body-drain).
+      // Showroom computers are signed into the admin — pass that session so the
+      // account is recorded as "registered in store (assisted by <staff>)".
+      const staffToken = localStorage.getItem('token');
       await axios.post(`${API_URL}/api/shop/auth/trade-register`, {
         ...body,
         is_trade: true,
-        trade_tier: 'bronze',
-        trade_discount: tiers[0]?.discount || 1,
-      });
+      }, { headers: staffToken ? { 'X-Staff-Token': staffToken } : {} });
       setSubmitted(true);
       toast.success('Trade account application submitted!');
     } catch (error) {

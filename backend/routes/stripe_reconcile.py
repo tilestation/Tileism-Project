@@ -436,23 +436,31 @@ async def admin_refund(
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=502, detail=f"Stripe refund failed: {exc}")
 
-    # Mark any matching order as refunded
+    # Mark any matching order as refunded — and claw back any trade credit
+    # the shop order earned (same as cancelling it would).
     db = get_db()
     now_iso = datetime.now(timezone.utc).isoformat()
+    order_match = {"$or": [
+        {"stripe_payment_intent_id": pi_id},
+        {"stripe_session_id": body.session_id} if body.session_id else {"stripe_payment_intent_id": pi_id},
+    ]}
     for coll in ("sample_orders", "shop_orders"):
         await db[coll].update_one(
-            {"$or": [
-                {"stripe_payment_intent_id": pi_id},
-                {"stripe_session_id": body.session_id} if body.session_id else {"stripe_payment_intent_id": pi_id},
-            ]},
+            order_match,
             {"$set": {"status": "refunded", "refunded_at": now_iso, "stripe_refund_id": refund.id}},
         )
+    credit_reversed = {}
+    shop_order = await db.shop_orders.find_one(order_match, {"_id": 0})
+    if shop_order and shop_order.get("customer_id"):
+        from routes.shop import reverse_shop_order_credits
+        credit_reversed = await reverse_shop_order_credits(db, shop_order, reason="order_refunded")
 
     return {
         "refunded": True,
         "refund_id": refund.id,
         "amount": (refund.amount or 0) / 100.0,
         "status": refund.status,
+        "trade_credit_reversed": credit_reversed,
     }
 
 

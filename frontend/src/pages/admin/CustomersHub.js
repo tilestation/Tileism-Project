@@ -2,17 +2,17 @@ import React from 'react';
 import HubPage from '../../components/HubPage';
 import { 
   Users, Building2, Tag, UserPlus, MessageSquare, 
-  Handshake, CreditCard, History
+  CreditCard, History
 } from 'lucide-react';
 
 export default function CustomersHub() {
   const cards = [
     {
-      title: 'Trade Accounts',
-      description: 'Manage business customer accounts',
+      title: 'Trade Hub',
+      description: 'Trade accounts, activity, credit ledger & login links — all in one place',
       icon: Building2,
-      link: '/admin/trade-accounts',
-      color: 'bg-blue-600',
+      link: '/admin/trade',
+      color: 'bg-amber-600',
       permission: 'trade_accounts', legacyPermission: 'customers',
     },
     {
@@ -38,14 +38,6 @@ export default function CustomersHub() {
       link: '/admin/inquiries',
       color: 'bg-orange-600',
       permission: 'bulk_inquiries', legacyPermission: 'bulk_inquiries',
-    },
-    {
-      title: 'Trade List (Legacy)',
-      description: 'Legacy trade customer list',
-      icon: Handshake,
-      link: '/admin/trade-list',
-      color: 'bg-slate-500',
-      permission: 'trade_list', legacyPermission: 'customers',
     },
     {
       title: 'Customer Orders',

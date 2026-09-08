@@ -280,6 +280,32 @@ export const api = {
 
   sendTradeLoginLink: (id) =>
     axios.post(`${API}/trade-accounts/${id}/send-login-link`, {}, { headers: getAuthHeader() }),
+  bulkSendTradeLoginLinks: (ids) =>
+    axios.post(`${API}/trade-accounts/send-login-links`, { ids }, { headers: getAuthHeader() }),
+
+  // Trade Hub — dashboard, 360 timeline, unified credit ledger, adjustments, expiry, nudges
+  getTradeHubSummary: (days = 30) =>
+    axios.get(`${API}/trade-hub/summary`, { params: { days }, headers: getAuthHeader() }),
+  getTraderTimeline: (id) =>
+    axios.get(`${API}/trade-hub/traders/${id}/timeline`, { headers: getAuthHeader() }),
+  getTraderLedger: (id) =>
+    axios.get(`${API}/trade-hub/traders/${id}/ledger`, { headers: getAuthHeader() }),
+  adjustTraderCredit: (id, body) =>
+    axios.post(`${API}/trade-hub/traders/${id}/credit-adjust`, body, { headers: getAuthHeader() }),
+  setTraderCreditExpiry: (id, expires_at) =>
+    axios.put(`${API}/trade-hub/traders/${id}/credit-expiry`, { expires_at }, { headers: getAuthHeader() }),
+  bulkSetTraderCreditExpiry: (ids, expires_at) =>
+    axios.post(`${API}/trade-hub/credit-expiry/set-bulk`, { ids, expires_at }, { headers: getAuthHeader() }),
+  remindTraderCreditExpiry: (id) =>
+    axios.post(`${API}/trade-hub/traders/${id}/credit-expiry/remind`, {}, { headers: getAuthHeader() }),
+  expireTraderCreditNow: (id) =>
+    axios.post(`${API}/trade-hub/traders/${id}/credit-expiry/expire-now`, {}, { headers: getAuthHeader() }),
+  sendDormantNudge: (ids) =>
+    axios.post(`${API}/trade-hub/engagement/dormant-nudge`, { ids }, { headers: getAuthHeader() }),
+  setTraderNotes: (id, body) =>
+    axios.put(`${API}/trade-hub/traders/${id}/notes`, body, { headers: getAuthHeader() }),
+  getCreditMovements: (days = 30, limit = 300) =>
+    axios.get(`${API}/trade-hub/credit/movements`, { params: { days, limit }, headers: getAuthHeader() }),
   
   getTradeTypes: () =>
     axios.get(`${API}/trade-accounts/trade-types`, { headers: getAuthHeader() }),

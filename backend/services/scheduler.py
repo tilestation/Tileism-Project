@@ -718,6 +718,28 @@ async def initialize_scheduler():
         except Exception as ac_err:
             logger.warning(f"Could not add abandoned-cart reminder job: {ac_err}")
 
+        # Trade credit expiry: remind at 30/7 days, expire on the day (daily 08:30 UK)
+        try:
+            from services.trade_engagement import run_trade_credit_expiry_job
+
+            async def _trade_credit_expiry_tick():
+                try:
+                    await run_trade_credit_expiry_job()
+                except Exception as e:
+                    logger.warning(f"trade credit expiry tick failed: {e}")
+
+            sched.add_job(
+                _trade_credit_expiry_tick,
+                trigger=CronTrigger(hour=8, minute=30, timezone="Europe/London"),
+                id="trade_credit_expiry",
+                name="Trade credit expiry reminders / expiry",
+                replace_existing=True,
+                misfire_grace_time=3600,
+            )
+            logger.info("Added trade credit expiry job (daily 08:30 Europe/London)")
+        except Exception as tce_err:
+            logger.warning(f"Could not add trade credit expiry job: {tce_err}")
+
         # Add weekly-digest job (Mon 09:00 UTC by default; honours per-tick settings)
         try:
             from routes.weekly_digest import send_digest_now, _load_settings as load_digest_settings

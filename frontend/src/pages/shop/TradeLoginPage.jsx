@@ -20,7 +20,7 @@ const TradeLoginPage = () => {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [tiersEnabled, setTiersEnabled] = useState(true);
+  const [tiersEnabled, setTiersEnabled] = useState(false);
   // Mirror of the register-page hint: when login fails AND email isn't
   // registered, show "No account found — Register instead →" rather than
   // making the customer guess "wrong password or no account?".
@@ -35,9 +35,7 @@ const TradeLoginPage = () => {
     fetch(`${API_URL}/api/website-admin/public/trade-account-settings`)
       .then(r => r.ok ? r.json() : null)
       .then(d => {
-        if (d?.settings && d.settings.tiers_enabled === false) {
-          setTiersEnabled(false);
-        }
+        setTiersEnabled(d?.settings?.tiers_enabled === true);
       })
       .catch(() => {});
   }, []);

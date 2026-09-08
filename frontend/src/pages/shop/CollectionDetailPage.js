@@ -134,6 +134,7 @@ const CollectionDetailPage = () => {
   const seriesName = params['*'] || params.seriesName || '';
   const [searchParams] = useSearchParams();
   const productSlugParam = searchParams.get('product'); // From /tiles/:slug redirect
+  const skuParam = searchParams.get('sku'); // Direct product link → opens that exact tile
   const { addToCart } = useCart();
   const { addSample, isInSamples, sampleCount, maxSamples } = useSampleCart();
   const { isInWishlist, toggleWishlist } = useWishlist();
@@ -471,6 +472,11 @@ const CollectionDetailPage = () => {
           if (productSlugParam) {
             targetProduct = fetchedProducts.find(p => p.slug === productSlugParam);
           }
+          // Direct product link: ?sku=P14790 (admin previews, quotes, WhatsApp links)
+          if (!targetProduct && skuParam) {
+            const want = skuParam.trim().toLowerCase();
+            targetProduct = fetchedProducts.find(p => [p.sku, p.supplier_code, p.id].some(v => v && String(v).toLowerCase() === want));
+          }
           
           // Otherwise find the cheapest product
           if (!targetProduct) {
@@ -724,11 +730,14 @@ const CollectionDetailPage = () => {
     return 'Pattern';
   }, [products, isMaterialCollection]);
 
-  // Auto-select first material product when collection loads
+  // Auto-select first material product when collection loads (or the ?sku= one)
   useEffect(() => {
     if (isMaterialCollection && !selectedMaterialProduct && products.length > 0) {
-      setSelectedMaterialProduct(0);
-      setSelectedProduct({ ...products[0], _isPreview: false });
+      const want = (skuParam || '').trim().toLowerCase();
+      const idx = want ? products.findIndex(p => [p.sku, p.supplier_code, p.id].some(v => v && String(v).toLowerCase() === want)) : -1;
+      const start = idx >= 0 ? idx : 0;
+      setSelectedMaterialProduct(start);
+      setSelectedProduct({ ...products[start], _isPreview: false });
     }
   }, [isMaterialCollection, products]);
 

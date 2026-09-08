@@ -32,7 +32,6 @@ const GoogleSearchConsole = React.lazy(() => import('./pages/admin/GoogleSearchC
 const VisualizerAdmin = React.lazy(() => import('./pages/admin/VisualizerAdmin'));
 const MarketingStudio = React.lazy(() => import('./pages/admin/MarketingStudio'));
 const RadioStudio = React.lazy(() => import('./pages/admin/RadioStudio'));
-const TradeCreditEmails = React.lazy(() => import('./pages/admin/TradeCreditEmails'));
 const EmailHub = React.lazy(() => import('./pages/admin/EmailHub'));
 const PinterestPack = React.lazy(() => import('./pages/admin/PinterestPack'));
 const StripeReconcile = React.lazy(() => import('./pages/admin/StripeReconcile'));
@@ -80,9 +79,7 @@ const ShowroomEpos = React.lazy(() => import('./pages/admin/ShowroomEpos').then(
 const ShowroomInvoiceHistory = React.lazy(() => import('./pages/admin/ShowroomInvoiceHistory').then(m => ({ default: m.ShowroomInvoiceHistory })));
 const StaffChat = React.lazy(() => import('./pages/admin/StaffChat').then(m => ({ default: m.StaffChat })));
 const TilesInfo = React.lazy(() => import('./pages/admin/TilesInfo').then(m => ({ default: m.TilesInfo })));
-const TradeList = React.lazy(() => import('./pages/admin/TradeList').then(m => ({ default: m.TradeList })));
-const TradeAccounts = React.lazy(() => import('./pages/admin/TradeAccounts'));
-const TradeAccountSettings = React.lazy(() => import('./pages/admin/TradeAccountSettings'));
+const TradeHub = React.lazy(() => import('./pages/admin/trade/TradeHub'));
 const CheckoutSettings = React.lazy(() => import('./pages/admin/CheckoutSettings'));
 const OnlineOrders = React.lazy(() => import('./pages/admin/OnlineOrders'));
 const SampleOrders = React.lazy(() => import('./pages/admin/SampleOrders'));
@@ -517,7 +514,7 @@ function App() {
             <Route path="visualizer" element={<VisualizerAdmin />} />
             <Route path="marketing-studio" element={<MarketingStudio />} />
             <Route path="radio-studio" element={<RadioStudio />} />
-            <Route path="trade-credit-emails" element={<TradeCreditEmails />} />
+            <Route path="trade-credit-emails" element={<Navigate to="/admin/trade?tab=credit" replace />} />
             <Route path="email-hub" element={<EmailHub />} />
             <Route path="pinterest-pack" element={<PinterestPack />} />
             <Route path="stripe-reconcile" element={<StripeReconcile />} />
@@ -570,8 +567,10 @@ function App() {
             <Route path="stock-cost" element={<StockCostReport />} />
             <Route path="chat" element={<StaffChat />} />
             <Route path="tiles-info" element={<TilesInfo />} />
-            <Route path="trade-list" element={<TradeList />} />
-            <Route path="trade-accounts" element={<TradeAccounts />} />
+            {/* Trade Hub — every trade screen lives here; old URLs redirect into the right tab */}
+            <Route path="trade" element={<TradeHub />} />
+            <Route path="trade-list" element={<Navigate to="/admin/trade?tab=traders" replace />} />
+            <Route path="trade-accounts" element={<Navigate to="/admin/trade?tab=traders" replace />} />
             <Route path="quote-requests" element={<QuoteRequests />} />
             <Route path="tasks" element={<TasksNotes />} />
             <Route path="training-booklet" element={<TrainingBookletEditor />} />
@@ -639,7 +638,7 @@ function App() {
             <Route path="collection-detail-settings" element={<CollectionDetailSettings />} />
             <Route path="collections-page-settings" element={<CollectionsPageSettings />} />
             <Route path="collections" element={<CollectionsHub />} />
-            <Route path="trade-account-settings" element={<TradeAccountSettings />} />
+            <Route path="trade-account-settings" element={<Navigate to="/admin/trade?tab=settings" replace />} />
             <Route path="checkout-settings" element={<CheckoutSettings />} />
             <Route path="online-orders" element={<OnlineOrders />} />
             <Route path="sample-orders" element={<SampleOrders />} />

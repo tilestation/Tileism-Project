@@ -4,8 +4,8 @@ Now reads from shop_customers collection (is_trade: True) for web-registered acc
 """
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel, Field
-from typing import Optional
-from datetime import datetime, timezone
+from typing import Optional, List
+from datetime import datetime, timezone, timedelta
 import secrets
 import uuid
 
@@ -76,6 +76,22 @@ def get_tier_from_spend(total_spend: float) -> dict:
     return tier
 
 
+def _login_status(doc: dict) -> str:
+    """never | link_sent | active — drives the Trade Account Health chips."""
+    if doc.get("last_login_at") or doc.get("password_set_at"):
+        return "active"
+    if doc.get("login_link_sent_at"):
+        return "link_sent"
+    return "never"
+
+
+LOGIN_STATUS_QUERY = {
+    "active": {"$or": [{"last_login_at": {"$nin": [None, ""]}}, {"password_set_at": {"$nin": [None, ""]}}]},
+    "link_sent": {"login_link_sent_at": {"$nin": [None, ""]}, "last_login_at": {"$in": [None, ""]}, "password_set_at": {"$in": [None, ""]}},
+    "never": {"login_link_sent_at": {"$in": [None, ""]}, "last_login_at": {"$in": [None, ""]}, "password_set_at": {"$in": [None, ""]}},
+}
+
+
 def normalize_shop_customer(doc: dict) -> dict:
     """Convert shop_customers document to trade-accounts format for the frontend"""
     address = doc.get("address", {})
@@ -108,10 +124,18 @@ def normalize_shop_customer(doc: dict) -> dict:
         "password_set_at": doc.get("password_set_at"),
         "login_link_sent_at": doc.get("login_link_sent_at"),
         "last_login_at": doc.get("last_login_at"),
+        "last_order_at": doc.get("last_order_at"),
+        "last_nudge_at": doc.get("last_nudge_at"),
+        "login_status": _login_status(doc),
+        "registration_source": doc.get("registration_source") or {},
+        "registration_channel": (doc.get("registration_source") or {}).get("channel") or ("staff_created" if doc.get("created_by_staff") else "unknown"),
+        "credit_expires_at": doc.get("credit_expires_at"),
+        "trade_rep": doc.get("trade_rep", ""),
+        "internal_notes": doc.get("internal_notes", ""),
         "total_spend": total_spend,
         "order_count": doc.get("order_count", 0) or 0,
         "credit_balance": doc.get("credit_balance", 0) or 0,
-        "trade_discount": doc.get("trade_discount", 5),
+        "trade_discount": doc.get("trade_discount") or 0,
         "status": doc.get("status", "active"),
         "active": doc.get("status", "active") == "active",
         "source": "web_registration",
@@ -126,14 +150,24 @@ async def get_trade_accounts(
     search: Optional[str] = None,
     trade_type: Optional[str] = None,
     tier: Optional[str] = None,
+    login_status: Optional[str] = None,
+    channel: Optional[str] = None,
+    activity: Optional[str] = None,
+    credit: Optional[str] = None,
     active_only: bool = False,
     skip: int = 0,
     limit: int = 100
 ):
-    """Get all trade accounts from shop_customers"""
+    """Get all trade accounts from shop_customers.
+
+    Extra filters (Trade Hub): `login_status` never|link_sent|active,
+    `channel` online|in_store|staff_created, `activity` dormant|new|never_purchased,
+    `credit` has_balance|expiring."""
     from server import db
+    from services.trade_engagement import dormant_cutoff
 
     query = {"is_trade": True}
+    ands = []
 
     if active_only:
         query["status"] = "active"
@@ -163,6 +197,30 @@ async def get_trade_accounts(
     if tier:
         query["trade_tier"] = tier
 
+    if login_status in LOGIN_STATUS_QUERY:
+        ands.append(LOGIN_STATUS_QUERY[login_status])
+
+    if channel:
+        ands.append({"registration_source.channel": channel})
+
+    if activity == "dormant":
+        cutoff = dormant_cutoff()
+        ands.append({"$or": [{"last_order_at": {"$lt": cutoff, "$nin": [None, ""]}},
+                             {"last_order_at": {"$in": [None, ""]}, "created_at": {"$lt": cutoff}}]})
+    elif activity == "new":
+        ands.append({"created_at": {"$gte": (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()}})
+    elif activity == "never_purchased":
+        ands.append({"last_order_at": {"$in": [None, ""]}, "order_count": {"$in": [None, 0]}})
+
+    if credit == "has_balance":
+        ands.append({"credit_balance": {"$gt": 0}})
+    elif credit == "expiring":
+        ands.append({"credit_balance": {"$gt": 0}, "credit_expires_at": {"$nin": [None, ""],
+                     "$lte": (datetime.now(timezone.utc) + timedelta(days=30)).date().isoformat()}})
+
+    if ands:
+        query["$and"] = ands
+
     docs = await db.shop_customers.find(
         query, {"_id": 0, "password": 0}
     ).sort("created_at", -1).skip(skip).limit(limit).to_list(limit)
@@ -176,6 +234,31 @@ async def get_trade_accounts(
         "skip": skip,
         "limit": limit
     }
+
+
+class BulkIds(BaseModel):
+    ids: List[str]
+
+
+@router.post("/send-login-links")
+async def send_trade_login_links_bulk(body: BulkIds):
+    """One sweep: email set-password links to every selected trade account."""
+    from server import db
+    from routes.shop import _ensure_trade_account_number
+
+    sent, failed = 0, []
+    for cid in body.ids[:300]:
+        customer = await db.shop_customers.find_one({"id": cid, "is_trade": True}, {"_id": 0, "password": 0})
+        if not customer or not customer.get("email") or "@" not in customer["email"]:
+            failed.append({"id": cid, "error": "no valid email"})
+            continue
+        customer = await _ensure_trade_account_number(db, customer)
+        result = await _issue_login_link(db, customer)
+        if result.get("email_sent"):
+            sent += 1
+        else:
+            failed.append({"id": cid, "email": customer["email"], "error": result.get("email_error") or "not sent"})
+    return {"success": True, "sent": sent, "failed": failed, "attempted": len(body.ids[:300])}
 
 
 @router.get("/trade-types")
@@ -230,7 +313,7 @@ async def _issue_login_link(db, customer: dict) -> dict:
 
 
 @router.post("")
-async def create_trade_account(account: TradeAccountCreate):
+async def create_trade_account(account: TradeAccountCreate, user: dict = Depends(get_current_user)):
     """Create a new trade account (staff-created via admin). The customer gets
     a set-your-password email so they can order online straight away."""
     from server import db
@@ -270,20 +353,29 @@ async def create_trade_account(account: TradeAccountCreate):
         "company_reg_number": account.company_reg_number,
         "notes": account.notes,
         "is_trade": True,
-        "trade_tier": "bronze",
-        "trade_discount": 5,
+        "trade_tier": None,
+        "trade_discount": 0,
+        "credit_rate": 5,
         "credit_balance": 0.0,
         "total_spent": 0.0,
         "order_count": 0,
         "status": "active",
+        "registration_source": {
+            "channel": "staff_created", "detected_by": "admin_form",
+            "staff_name": user.get("name") or user.get("email"),
+            "showroom_name": user.get("showroom_name") or user.get("store_id") or user.get("showroom_id"),
+            "at": now.isoformat(),
+        },
         "created_at": now.isoformat(),
         "wishlist": [],
         "cart": [],
     }
 
     await db.shop_customers.insert_one(doc)
+    link = await _issue_login_link(db, doc)
+    doc["login_link_sent_at"] = datetime.now(timezone.utc).isoformat()
     result = normalize_shop_customer(doc)
-    result["login_link"] = await _issue_login_link(db, doc)
+    result["login_link"] = link
     return result
 
 
@@ -349,12 +441,8 @@ async def update_trade_account(account_id: str, account: TradeAccountUpdate):
             update_data[f"address.{addr_key}"] = value
         elif key in field_map:
             update_data[field_map[key]] = value
-            if key == "pricing_tier":
-                # Only auto-set discount if no custom discount
-                if "custom_discount" not in data:
-                    update_data["pricing_tier_override"] = True
-                    tier_info = PRICING_TIERS.get(value, PRICING_TIERS["bronze"])
-                    update_data["trade_discount"] = tier_info["discount"]
+            # Tiers are display-only now — trade pricing is set per product in
+            # the Pricing Hub, so changing a tier never touches trade_discount.
         else:
             update_data[key] = value
 

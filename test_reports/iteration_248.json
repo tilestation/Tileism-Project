@@ -1,0 +1,31 @@
+{
+  "summary": "Frontend E2E for Trade Hub merge. Admin: /admin/trade loads with all 4 tabs; Dashboard renders 8 KPIs, range chips, 4 lists (never-logged-in / dormant / expiring / top), bulk buttons, dormant expiry controls; Traders tab shows login-status chips, channel/activity filters (no Pricing Tier), badges, single send-login-link works with expected 'not sent' toast (example.com rejected by Resend), bulk button label updates; Trader 360 drawer on Smoke Trade Ltd shows all stat cards + action buttons + tabs, timeline filters, credit-expiry controls incl. super-admin expire-now, ledger table renders. Manual credit adjust dialog: add £7.25 (balance £12.50 → £19.75), remove £7.25 (back to £12.50), overflow attempt shows client-side toast \"Balance can't go below £0 (currently £12.50)\". Notes tab saves 'QA Rep' + 'qa note' with 'Saved' toast. Credit tab shows ledger table, search + range chips. Settings tab renders. All 4 legacy trade routes (/admin/trade-accounts, /trade-list, /trade-account-settings, /trade-credit-emails) redirect to /admin/trade with correct tab. Website hub (/admin/website-hub) shows Trade Hub card after Sample Orders; Customers hub (/admin/customers-hub) shows Trade Hub card and no 'Legacy'. Storefront: no Bronze/Silver/Gold text on /shop/trade/login, /shop/trade/account, /shop/trade/register or /. Trade account /shop/trade/account no longer shows a tier badge or 'Discount Rate' tier copy; T-00024 and £12.50 credit render correctly. Discount tab shows credit history with 'Adjustment by Tile Station' entries (from admin QA test + earlier tests). CartSaveBanner correctly hidden for logged-in trade (/shop/tile-cart) and reappears for guest after clearing tile_shop_token. Direct product link works: /shop/collection/Dolomite%20Onyx?sku=LP-3631 pre-selects 'Dolomite Onyx Blanco 30x60cm Polished' (different from default 120x120cm Matt).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "/shop/trade/account (Discount tab)", "issues": ["Legacy 'How Discount Tiers Work' section still references 'tier' language ('Get a discount on every order based on your tier'). No Bronze/Silver/Gold names remain, but the copy should be reviewed since tiers are disabled."]},
+      {"screen": "CreditAdjustDialog", "issues": ["Radix DialogContent a11y warning: missing DialogTitle. Wrap the dialog title text in a DialogTitle (or VisuallyHidden) to avoid the console warning."]},
+      {"screen": "AdminDashboard (unrelated to Trade Hub)", "issues": ["Pre-existing React warning: 'Each child in a list should have a unique key prop' in AdminDashboard render — not blocking."]}
+    ]
+  },
+  "test_report_links": [],
+  "action_items": [
+    "(Nit) Rewrite the 'How Discount Tiers Work' explainer on /shop/trade/account Discount tab to remove 'based on your tier' wording, since tiers are disabled.",
+    "(Nit) Add DialogTitle inside CreditAdjustDialog to silence Radix a11y warning."
+  ],
+  "critical_code_review_comments": [
+    "TradeHub tabs, redirects, and role-gating (super-admin only Settings tab / expire-now / adjust-credit) render correctly end-to-end.",
+    "CreditAdjustDialog client-side validation prevents negative balances with a clean toast — good UX.",
+    "CartSaveBanner correctly returns null for isTrade — verified live for both authenticated trade session and guest fallback.",
+    "?sku= handling in CollectionDetailPage correctly overrides the default cheapest/first product selection."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a (skipped per request)", "frontend": "100% of tested flows passed"},
+  "test_credentials": "admin@test.com / admin123 (super_admin); smoke.trade@example.com / SmokePass123! (T-00024)",
+  "seed_data_creation": "No new seed data. Manual credit adjustments (+£7.25 then -£7.25) added and reverted; balance restored to £12.50. Trader notes/rep set to 'QA Rep' / 'qa note' on Smoke Trade Ltd (persist across drawer reopens).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Trade Hub feature is stable in preview. Actual hub routes are /admin/website-hub and /admin/customers-hub (not /admin/website /admin/customers as noted in the task prompt). Storefront trade session uses localStorage tile_shop_token / tile_shop_customer. Discount tab of /shop/trade/account still contains a legacy 'How Discount Tiers Work' subsection referencing 'tier' — cosmetic only."
+}

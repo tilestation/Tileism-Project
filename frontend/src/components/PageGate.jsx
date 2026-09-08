@@ -93,6 +93,7 @@ const ROUTE_PERMISSIONS = {
   '/admin/stock-analytics': 'analytics',
 
   // Customers
+  '/admin/trade': 'trade_accounts',
   '/admin/trade-accounts': 'trade_accounts',
   '/admin/pricing': 'customer_pricing',
   '/admin/invites': 'customer_invites',

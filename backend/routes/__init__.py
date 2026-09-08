@@ -23,6 +23,7 @@ from .chat import router as chat_router
 from .tiles_info import router as tiles_info_router
 from .trade_list import router as trade_list_router
 from .trade_accounts import router as trade_accounts_router
+from .trade_hub import router as trade_hub_router
 from .historical_sales import router as historical_sales_router
 from .shop import router as shop_router
 from .import_routes import router as import_router
@@ -175,6 +176,7 @@ api_router.include_router(chat_router)
 api_router.include_router(tiles_info_router)
 api_router.include_router(trade_list_router)
 api_router.include_router(trade_accounts_router)
+api_router.include_router(trade_hub_router)
 api_router.include_router(historical_sales_router)
 api_router.include_router(shop_router)
 api_router.include_router(import_router)

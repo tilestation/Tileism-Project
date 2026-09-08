@@ -28,9 +28,11 @@ const BulkPreviewModal = ({ open, onOpenChange, selectedProducts = [] }) => {
     const map = new Map();
     selectedProducts.forEach(p => {
       const series = (getSeriesName(p) || '').trim();
+      // Jump straight to the exact tile that was selected (first SKU wins per series)
+      const skuQ = (p.sku || p.supplier_code) ? `&sku=${encodeURIComponent(p.sku || p.supplier_code)}` : '';
       if (series) {
         const key = `c:${series.toLowerCase()}`;
-        if (!map.has(key)) map.set(key, { name: series, slug: key, path: `/shop/collection/${encodeURIComponent(series)}?preview=1` });
+        if (!map.has(key)) map.set(key, { name: series, slug: key, path: `/shop/collection/${encodeURIComponent(series)}?preview=1${skuQ}` });
       } else if (p.live_slug) {
         const key = `p:${p.live_slug}`;
         const nm = (p.product_name || p.display_name || p.our_product_name || p.name || p.live_slug).trim();
@@ -39,7 +41,7 @@ const BulkPreviewModal = ({ open, onOpenChange, selectedProducts = [] }) => {
         const nm = (p.product_name || p.display_name || p.our_product_name || p.name || '').trim();
         if (nm) {
           const key = `c:${nm.toLowerCase()}`;
-          if (!map.has(key)) map.set(key, { name: nm, slug: key, path: `/shop/collection/${encodeURIComponent(nm)}?preview=1` });
+          if (!map.has(key)) map.set(key, { name: nm, slug: key, path: `/shop/collection/${encodeURIComponent(nm)}?preview=1${skuQ}` });
         }
       }
     });

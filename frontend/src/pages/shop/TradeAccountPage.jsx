@@ -178,14 +178,14 @@ const TradeAccountPage = () => {
   };
 
   const tiers = settings?.tiers?.length > 0 ? settings.tiers : DEFAULT_TIERS;
-  const tiersEnabled = settings?.tiers_enabled !== false;
+  const tiersEnabled = settings?.tiers_enabled === true; // tiers are opt-in — discounts are set manually per trader
   const dashboard = settings?.dashboard || {};
   const stats = (dashboard.stats || []).filter(s => s.enabled !== false);
   const quickActions = (dashboard.quick_actions || []).filter(a => a.enabled !== false);
   const creditSteps = dashboard.credit_steps || [
-    { title: 'Make a Purchase', description: 'Shop any products from our trade catalogue' },
-    { title: 'Earn Discount', description: 'Get a discount on every order based on your tier' },
-    { title: 'Use on Future Orders', description: 'Apply your credit balance at checkout to save more' },
+    { title: 'Make a Purchase', description: 'Shop online or in any showroom — quote your trade reference at the till' },
+    { title: 'Earn Credit Back', description: 'A percentage of every purchase comes back to you as trade credit' },
+    { title: 'Use on Future Orders', description: 'Apply your credit balance at checkout or in store to save more' },
   ];
   // When tiers are globally disabled, the master switch wins over the
   // per-card dashboard sub-settings — hide the tier pill, progress bar
@@ -1328,7 +1328,7 @@ const TradeAccountPage = () => {
                 <div className="bg-white rounded-2xl shadow-sm p-6">
                   <h3 className="font-bold text-gray-900 mb-4 flex items-center gap-2">
                     <Gift className="w-5 h-5 text-[#F7EA1C]" />
-                    How Discount Tiers Work
+                    {tiersEnabled ? 'How Discount Tiers Work' : 'How Trade Credit Works'}
                   </h3>
                   <div className="space-y-4">
                     {creditSteps.map((step, idx) => (

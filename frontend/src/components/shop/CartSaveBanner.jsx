@@ -3,6 +3,7 @@ import axios from 'axios';
 import { Gift, Sparkles, X } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
+import { useTradeUser } from '../../hooks/useTradeUser';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 const DISMISSED_KEY = 'tilestation_cart_save_dismissed';
@@ -13,6 +14,7 @@ const DISMISSED_KEY = 'tilestation_cart_save_dismissed';
  * the discount % / expiry settings stay in one place.
  */
 export default function CartSaveBanner() {
+  const { isTrade } = useTradeUser();
   const [enabled, setEnabled] = useState(false);
   const [percent, setPercent] = useState(10);
   const [email, setEmail] = useState('');
@@ -57,7 +59,8 @@ export default function CartSaveBanner() {
     finally { setSubmitting(false); }
   };
 
-  if (!enabled || dismissed) return null;
+  // Trade customers already get trade prices — never dangle a retail coupon at them.
+  if (!enabled || dismissed || isTrade) return null;
 
   if (submitted) {
     return (

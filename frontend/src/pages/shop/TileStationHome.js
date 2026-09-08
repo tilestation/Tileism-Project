@@ -1329,7 +1329,7 @@ const TradeCtaBanner = () => {
   const ctaSecondary = banner.cta_secondary_text || 'Already have an account? Sign In';
   const ctaSecLink = banner.cta_secondary_link || '/shop/login';
 
-  const pricingEnabled = s?.tiers_enabled !== false;
+  const pricingEnabled = s?.tiers_enabled === true;
   const tp = s?.trade_pricing || {};
   const saleDiscount = tp.sale_discount ?? 20;
   const stdDiscount = tp.standard_discount ?? 40;

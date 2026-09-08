@@ -88,6 +88,14 @@ export default function WebsiteHub() {
           tabs: ['Paid', 'Ready', 'Shipped', 'Delivered']
         },
         {
+          title: 'Trade Hub',
+          description: 'Every tradesman in one place — accounts, activity, credit ledger & expiry, login links, trade pages',
+          icon: Building2,
+          link: '/admin/trade',
+          color: 'bg-amber-600',
+          tabs: ['Dashboard', 'Traders', 'Credit', 'Website settings']
+        },
+        {
           title: 'Live Visitors',
           description: 'Real-time who\'s on your site & what page they\'re on',
           icon: MessageCircle,
@@ -156,14 +164,6 @@ export default function WebsiteHub() {
           link: '/admin/bathroom-page',
           color: 'bg-cyan-600',
           tabs: ['Hero', 'Catalogue', 'Pricing', 'How to Order', 'Analytics']
-        },
-        {
-          title: 'Trade Account',
-          description: 'Trade banner, benefits & credit back tiers',
-          icon: Building2,
-          link: '/admin/trade-account-settings',
-          color: 'bg-teal-600',
-          tabs: ['Homepage Banner', 'Benefits List', 'Trade Pricing', 'Account Tiers', 'Account Dashboard']
         },
         {
           title: 'Customer Account',
