@@ -1,4 +1,4 @@
-import React, { Suspense } from 'react';
+import React, { Suspense, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Building2, LayoutDashboard, Users, Coins, Settings } from 'lucide-react';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '../../../components/ui/tabs';
@@ -6,6 +6,8 @@ import { useAuth } from '../../../contexts/AuthContext';
 import { TradeDashboardTab } from './TradeDashboardTab';
 import { TradeCreditTab } from './TradeCreditTab';
 import { ShowroomIpEditor } from './ShowroomIpEditor';
+import { TradeLivePulse } from './TradeLivePulse';
+import { TraderDrawer } from './TraderDrawer';
 
 const TradeAccounts = React.lazy(() => import('../TradeAccounts'));
 const TradeAccountSettings = React.lazy(() => import('../TradeAccountSettings'));
@@ -24,6 +26,7 @@ export default function TradeHub() {
   const tabs = TABS;
   const current = tabs.some((t) => t.id === params.get('tab')) ? params.get('tab') : 'dashboard';
   const setTab = (id) => setParams((p) => { const n = new URLSearchParams(p); n.set('tab', id); return n; }, { replace: true });
+  const [pulseTrader, setPulseTrader] = useState(null);
 
   return (
     <div className="space-y-6" data-testid="trade-hub-page">
@@ -31,6 +34,8 @@ export default function TradeHub() {
         <h1 className="text-2xl font-bold flex items-center gap-2"><Building2 className="h-7 w-7" />Trade Hub</h1>
         <p className="text-gray-500 text-sm mt-1">One place for every tradesman: accounts, activity, credit, expiry and the trade pages on the website.</p>
       </div>
+      <TradeLivePulse onOpenTrader={setPulseTrader} />
+      <TraderDrawer traderId={pulseTrader} open={!!pulseTrader} onOpenChange={(o) => !o && setPulseTrader(null)} />
       <Tabs value={current} onValueChange={setTab}>
         <TabsList className="flex w-full sm:w-auto overflow-x-auto justify-start">
           {tabs.map(({ id, label, icon: Icon }) => (

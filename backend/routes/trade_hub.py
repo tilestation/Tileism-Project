@@ -8,6 +8,7 @@ import logging
 import uuid
 from datetime import datetime, timezone, timedelta
 from typing import Optional, List
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, HTTPException, Depends, Request
 from pydantic import BaseModel, Field
@@ -576,6 +577,71 @@ async def summary(days: int = 30):
         "dormant": sorted([_brief(t) for t in dormant], key=lambda b: _ts(b.get("last_purchase_at")))[:100],
         "expiring": sorted([_brief(t) for t in expiring], key=lambda b: _ts(b.get("credit_expires_at")))[:100],
         "never_logged_in": [_brief(t) for t in no_login][:200],
+    }
+
+
+# ───────────────────────────── live pulse ─────────────────────────────
+
+LIVE_WINDOW_MIN = 5
+UK = ZoneInfo("Europe/London")
+
+
+@router.get("/logins/activity")
+async def login_activity(days: int = 14):
+    """Who is on the website right now, today's sign-ins, and a per-day strip.
+    'Live' = heartbeat from the storefront within the last 5 minutes. Days are UK-local."""
+    from server import db
+    days = max(1, min(days, 60))
+    now = datetime.now(timezone.utc)
+    live_since = (now - timedelta(minutes=LIVE_WINDOW_MIN)).isoformat()
+    today_local = now.astimezone(UK).date()
+    start_local = datetime.combine(today_local - timedelta(days=days - 1), datetime.min.time(), tzinfo=UK)
+    since = start_local.astimezone(timezone.utc).isoformat()
+
+    proj = {"_id": 0, "id": 1, "business_name": 1, "name": 1, "trade_account_number": 1, "credit_balance": 1,
+            "last_seen_at": 1, "last_seen_path": 1, "last_seen_device": 1, "last_login_at": 1, "first_login_email_sent_at": 1}
+    live = await db.shop_customers.find({"is_trade": True, "last_seen_at": {"$gte": live_since}}, proj).sort("last_seen_at", -1).to_list(100)
+
+    logins = await db.customer_logins.find({"at": {"$gte": since}}, {"_id": 0}).sort("at", -1).to_list(5000)
+    ids = {lg.get("customer_id") for lg in logins}
+    traders = {t["id"]: t for t in await db.shop_customers.find({"id": {"$in": list(ids)}}, proj).to_list(5000)} if ids else {}
+
+    def _local_day(iso: str) -> str:
+        try:
+            return datetime.fromisoformat(str(iso).replace("Z", "+00:00")).astimezone(UK).date().isoformat()
+        except Exception:  # noqa: BLE001
+            return ""
+
+    buckets = {(today_local - timedelta(days=i)).isoformat(): {"sign_ins": 0, "traders": set()} for i in range(days)}
+    today_rows = []
+    for lg in logins:
+        t = traders.get(lg.get("customer_id"))
+        if not t:
+            continue  # account since deleted (test fixtures / merged) — not a real trader
+        day = _local_day(lg.get("at"))
+        if day in buckets:
+            buckets[day]["sign_ins"] += 1
+            buckets[day]["traders"].add(lg.get("customer_id"))
+        if day == today_local.isoformat():
+            today_rows.append({"id": lg.get("id"), "at": lg.get("at"), "customer_id": lg.get("customer_id"),
+                               "business_name": t.get("business_name") or t.get("name") or "Unknown trader",
+                               "trade_account_number": t.get("trade_account_number"), "device": lg.get("device"), "ip": lg.get("ip"),
+                               "first_time": bool(t.get("first_login_email_sent_at") and _local_day(t.get("first_login_email_sent_at")) == today_local.isoformat())})
+
+    def _brief(t):
+        return {"id": t["id"], "business_name": t.get("business_name") or t.get("name"), "name": t.get("name"),
+                "trade_account_number": t.get("trade_account_number"), "credit_balance": round(_f(t.get("credit_balance")), 2),
+                "last_seen_at": t.get("last_seen_at"), "last_seen_path": t.get("last_seen_path") or "", "device": t.get("last_seen_device") or ""}
+
+    today = buckets[today_local.isoformat()]
+    return {
+        "now": now.isoformat(), "live_window_minutes": LIVE_WINDOW_MIN, "today": today_local.isoformat(),
+        "live": [_brief(t) for t in live],
+        "today_summary": {"sign_ins": today["sign_ins"], "unique_traders": len(today["traders"]),
+                          "first_time": sum(1 for r in today_rows if r["first_time"]),
+                          "distinct_first_time": len({r["customer_id"] for r in today_rows if r["first_time"]})},
+        "today_rows": today_rows,
+        "days": [{"date": d, "sign_ins": b["sign_ins"], "unique_traders": len(b["traders"])} for d, b in sorted(buckets.items())],
     }
 
 

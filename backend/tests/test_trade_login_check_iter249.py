@@ -196,3 +196,32 @@ def test_timeline_shows_first_login_welcome(ctx):
     assert r.status_code == 200, r.text
     kinds = [e["kind"] for e in r.json()["events"]]
     assert "first_login_welcome" in kinds and "login" in kinds
+
+
+def test_heartbeat_and_live_activity(ctx):
+    r = requests.post(f"{API}/shop/auth/login", json={"email": EMAIL, "password": PASSWORD}, timeout=30)
+    tok = r.json()["token"]
+    hb = requests.post(f"{API}/shop/auth/heartbeat", json={"path": "/shop/collection/Opaco"},
+                       headers={"Authorization": f"Bearer {tok}", "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)"}, timeout=30)
+    assert hb.status_code == 200 and hb.json()["tracked"] is True
+    doc = db.shop_customers.find_one({"id": ctx["trader"]["id"]})
+    assert doc.get("last_seen_at") and doc.get("last_seen_path") == "/shop/collection/Opaco"
+    assert requests.post(f"{API}/shop/auth/heartbeat", timeout=30).status_code in (401, 403)
+
+    H = {"Authorization": f"Bearer {ctx['admin']}"}
+    a = requests.get(f"{API}/trade-hub/logins/activity", params={"days": 14}, headers=H, timeout=30)
+    assert a.status_code == 200, a.text
+    d = a.json()
+    live_ids = {t["id"] for t in d["live"]}
+    assert ctx["trader"]["id"] in live_ids
+    me = next(t for t in d["live"] if t["id"] == ctx["trader"]["id"])
+    assert me["last_seen_path"] == "/shop/collection/Opaco" and me["device"] == "mobile"
+    assert len(d["days"]) == 14 and d["days"][-1]["date"] == d["today"]
+    assert d["today_summary"]["sign_ins"] >= 1 and d["today_summary"]["unique_traders"] >= 1
+    assert d["days"][-1]["sign_ins"] == d["today_summary"]["sign_ins"]
+    rows = [x for x in d["today_rows"] if x["customer_id"] == ctx["trader"]["id"]]
+    assert len(rows) >= 1 and rows[0]["business_name"].startswith("Iter249") and rows[0]["first_time"] is True
+    # stale heartbeat drops the trader out of "live"
+    db.shop_customers.update_one({"id": ctx["trader"]["id"]}, {"$set": {"last_seen_at": "2026-01-01T00:00:00+00:00"}})
+    d2 = requests.get(f"{API}/trade-hub/logins/activity", headers=H, timeout=30).json()
+    assert ctx["trader"]["id"] not in {t["id"] for t in d2["live"]}

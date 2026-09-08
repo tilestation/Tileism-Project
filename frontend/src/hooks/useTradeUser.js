@@ -2,6 +2,26 @@ import { useState, useEffect, useCallback } from 'react';
 
 const DEFAULT_TRADE_DISCOUNT = 0; // % — no blanket trade discount; admin sets per product
 
+// One heartbeat per tab (module-level) so the many components using this hook
+// never stack timers. Tells Trade Hub a trader is "live now" while a tab is open.
+const HEARTBEAT_MS = 120000;
+let heartbeatTimer = null;
+const sendHeartbeat = () => {
+  const token = localStorage.getItem('tile_shop_token');
+  if (!token || typeof document === 'undefined' || document.visibilityState === 'hidden') return;
+  fetch(`${process.env.REACT_APP_BACKEND_URL}/api/shop/auth/heartbeat`, {
+    method: 'POST', keepalive: true,
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path: window.location.pathname }),
+  }).catch(() => {});
+};
+const ensureHeartbeat = () => {
+  if (heartbeatTimer) return;
+  sendHeartbeat();
+  heartbeatTimer = setInterval(sendHeartbeat, HEARTBEAT_MS);
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') sendHeartbeat(); });
+};
+
 export function useTradeUser() {
   const [isTrade, setIsTrade] = useState(false);
   const [tradeDiscount, setTradeDiscount] = useState(DEFAULT_TRADE_DISCOUNT);
@@ -26,6 +46,7 @@ export function useTradeUser() {
           setIsTrade(true);
           setTradeDiscount(customer.trade_discount || DEFAULT_TRADE_DISCOUNT);
           setTradeCompanyName(customer.business_name || customer.name || 'Trade');
+          ensureHeartbeat();
           return;
         }
       }

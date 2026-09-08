@@ -290,6 +290,8 @@ export const api = {
     axios.get(`${API}/trade-hub/traders/${id}/timeline`, { headers: getAuthHeader() }),
   getTraderLoginCheck: (id) =>
     axios.get(`${API}/trade-hub/traders/${id}/login-check`, { headers: getAuthHeader() }),
+  getTradeLoginActivity: (days = 14) =>
+    axios.get(`${API}/trade-hub/logins/activity`, { params: { days }, headers: getAuthHeader() }),
   getTraderLedger: (id) =>
     axios.get(`${API}/trade-hub/traders/${id}/ledger`, { headers: getAuthHeader() }),
   adjustTraderCredit: (id, body) =>

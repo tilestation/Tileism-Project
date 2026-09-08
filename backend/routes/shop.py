@@ -1273,7 +1273,7 @@ async def shop_customer_login(request: Request, input: ShopCustomerLogin):
     previous_login = customer.get("last_login_at")
     await db.shop_customers.update_one(
         {"id": customer["id"]},
-        {"$set": {"last_login_at": now_iso}})
+        {"$set": {"last_login_at": now_iso, "last_seen_at": now_iso}})
     if customer.get("is_trade"):
         ip, device = _client_ip(request), _device_from_ua(request.headers.get("user-agent", ""))
         await db.customer_logins.insert_one({
@@ -1387,6 +1387,26 @@ async def get_shop_customer_profile(request: Request):
     """Get current shop customer profile"""
     customer = await get_shop_customer(request)
     return customer
+
+
+@router.post("/auth/heartbeat")
+async def shop_customer_heartbeat(request: Request):
+    """Storefront pings this every ~2 min while a signed-in trader has a tab open —
+    powers the 'Live now' panel in Trade Hub. Retail customers are a no-op."""
+    customer = await get_shop_customer(request)
+    if not customer.get("is_trade"):
+        return {"ok": True, "tracked": False}
+    path = ""
+    try:
+        body = await request.json()
+        path = str((body or {}).get("path") or "")[:200]
+    except Exception:  # noqa: BLE001 — empty body is fine
+        pass
+    db = get_db()
+    await db.shop_customers.update_one({"id": customer["id"]}, {"$set": {
+        "last_seen_at": datetime.now(timezone.utc).isoformat(), "last_seen_path": path,
+        "last_seen_device": _device_from_ua(request.headers.get("user-agent", ""))}})
+    return {"ok": True, "tracked": True}
 
 
 @router.put("/auth/profile")
