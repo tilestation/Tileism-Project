@@ -292,19 +292,24 @@ export const Layout = () => {
       label: 'Products & Suppliers',
       icon: Package,
       hubLink: '/admin/products-hub',
+      // 21 Sep 2026 — owner request: all "Managers" (product/supplier
+      // catalogue editing tools) are Super Admin only. Staff/showroom
+      // accounts must not see or reach these, same treatment as the
+      // Website group below.
+      superAdminOnly: true,
       items: [
-        { to: '/admin/supplier-products', icon: Layers, label: 'All Products', permission: 'supplier_products', legacyPermission: 'products' },
-        { to: '/admin/tiles', icon: Grid3X3, label: 'Tiles Manager', badge: 'NEW', permission: 'supplier_products', legacyPermission: 'products' },
-        { to: '/admin/materials', icon: Package, label: 'Materials Manager', badge: 'NEW', permission: 'supplier_products', legacyPermission: 'products' },
-        { to: '/admin/flooring', icon: Grid3X3, label: 'Flooring Manager', badge: 'NEW', permission: 'supplier_products', legacyPermission: 'products' },
-        { to: '/admin/bathroom', icon: Grid3X3, label: 'Bathroom Manager', badge: 'NEW', permission: 'supplier_products', legacyPermission: 'products' },
-        { to: '/admin/underfloor-heating', icon: Grid3X3, label: 'Underfloor Heat', badge: 'NEW', permission: 'supplier_products', legacyPermission: 'products' },
-        { to: '/admin/tools', icon: Grid3X3, label: 'Tools Manager', badge: 'NEW', permission: 'supplier_products', legacyPermission: 'products' },
-        { to: '/admin/clearance', icon: Flame, label: 'Clearance Hub', badge: 'NEW', permission: 'supplier_products', legacyPermission: 'products' },
-        { to: '/admin/price-tickets', icon: Tag, label: 'Price Tickets', permission: 'supplier_products', legacyPermission: 'products' },
-        { to: '/admin/supplier-health', icon: Activity, label: 'Supplier Health', permission: 'supplier_health', legacyPermission: 'products' },
-        { to: '/admin/sync-hub', icon: RefreshCw, label: 'Sync Hub', permission: 'sync_hub', legacyPermission: 'products' },
-        { to: '/admin/suppliers', icon: Building2, label: 'Supplier Contacts', permission: 'suppliers', legacyPermission: 'products' },
+        { to: '/admin/supplier-products', icon: Layers, label: 'All Products', permission: 'supplier_products', legacyPermission: 'products', superAdminOnly: true },
+        { to: '/admin/tiles', icon: Grid3X3, label: 'Tiles Manager', badge: 'NEW', permission: 'supplier_products', legacyPermission: 'products', superAdminOnly: true },
+        { to: '/admin/materials', icon: Package, label: 'Materials Manager', badge: 'NEW', permission: 'supplier_products', legacyPermission: 'products', superAdminOnly: true },
+        { to: '/admin/flooring', icon: Grid3X3, label: 'Flooring Manager', badge: 'NEW', permission: 'supplier_products', legacyPermission: 'products', superAdminOnly: true },
+        { to: '/admin/bathroom', icon: Grid3X3, label: 'Bathroom Manager', badge: 'NEW', permission: 'supplier_products', legacyPermission: 'products', superAdminOnly: true },
+        { to: '/admin/underfloor-heating', icon: Grid3X3, label: 'Underfloor Heat', badge: 'NEW', permission: 'supplier_products', legacyPermission: 'products', superAdminOnly: true },
+        { to: '/admin/tools', icon: Grid3X3, label: 'Tools Manager', badge: 'NEW', permission: 'supplier_products', legacyPermission: 'products', superAdminOnly: true },
+        { to: '/admin/clearance', icon: Flame, label: 'Clearance Hub', badge: 'NEW', permission: 'supplier_products', legacyPermission: 'products', superAdminOnly: true },
+        { to: '/admin/price-tickets', icon: Tag, label: 'Price Tickets', permission: 'supplier_products', legacyPermission: 'products', superAdminOnly: true },
+        { to: '/admin/supplier-health', icon: Activity, label: 'Supplier Health', permission: 'supplier_health', legacyPermission: 'products', superAdminOnly: true },
+        { to: '/admin/sync-hub', icon: RefreshCw, label: 'Sync Hub', permission: 'sync_hub', legacyPermission: 'products', superAdminOnly: true },
+        { to: '/admin/suppliers', icon: Building2, label: 'Supplier Contacts', permission: 'suppliers', legacyPermission: 'products', superAdminOnly: true },
       ]
     },
     {

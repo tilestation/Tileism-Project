@@ -166,6 +166,29 @@ const resolveRequiredPermission = (pathname) => {
   return null;
 };
 
+// 21 Sep 2026 — owner request: the "Managers" catalogue/supplier tools
+// (Products & Suppliers sidebar group) are Super Admin only — not just
+// hidden from Staff/Showroom in the sidebar, but blocked on direct URL
+// too, since those roles are still granted `supplier_products` etc. via
+// SYSTEM_ROLE_DEFAULTS for other reasons (e.g. viewing stock). This is a
+// role check, independent of the granular permission system above.
+const SUPER_ADMIN_ONLY_ROUTES = [
+  '/admin/supplier-products',
+  '/admin/tiles',
+  '/admin/materials',
+  '/admin/flooring',
+  '/admin/bathroom',
+  '/admin/underfloor-heating',
+  '/admin/tools',
+  '/admin/clearance',
+  '/admin/price-tickets',
+  '/admin/supplier-health',
+  '/admin/sync-hub',
+  '/admin/suppliers',
+];
+const isSuperAdminOnlyRoute = (pathname) =>
+  SUPER_ADMIN_ONLY_ROUTES.some((r) => pathname === r || pathname.startsWith(`${r}/`));
+
 export default function PageGate({ children }) {
   const { user } = useAuth();
   const { hasPage, loading: permsLoading } = usePermissions();
@@ -173,6 +196,24 @@ export default function PageGate({ children }) {
 
   const isSuperAdmin = user?.role === 'super_admin';
   if (isSuperAdmin) return children;
+
+  if (isSuperAdminOnlyRoute(pathname)) {
+    return (
+      <div className="max-w-2xl mx-auto mt-12 p-8 bg-amber-50 border border-amber-200 rounded-xl text-center" data-testid="page-gate-denied-super-admin">
+        <ShieldOff className="h-14 w-14 text-amber-500 mx-auto mb-4" />
+        <h2 className="text-2xl font-semibold text-slate-900 mb-2">Super Admin access only</h2>
+        <p className="text-slate-600 mb-6">
+          This catalogue manager is restricted to Super Admin accounts.
+        </p>
+        <Link
+          to="/admin"
+          className="inline-flex items-center gap-2 px-4 py-2 bg-slate-900 text-white rounded-md hover:bg-slate-800 transition-colors"
+        >
+          <ArrowLeft className="h-4 w-4" /> Back to Dashboard
+        </Link>
+      </div>
+    );
+  }
 
   // While perms are loading on first paint, render the children
   // optimistically. The gate kicks in once /me responds — if the user
