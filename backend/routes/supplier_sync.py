@@ -5954,6 +5954,20 @@ def quick_update_supplier_product(data: QuickUpdateRequest):
             fresh_sp = db.supplier_products.find_one(update_filter, {"_id": 0})
             if fresh_sp:
                 _mirror_pricing_to_tiles(db, fresh_sp)
+
+        # 29 Sep 2026 — same gap as pricing above, but for the product name.
+        # Renaming a product here only updated `supplier_products` (what the
+        # admin manager tables read); the live `tiles` doc — what
+        # serialize_tile_for_shop() actually sends to the storefront — kept
+        # the old/raw supplier name forever, since nothing mirrored the
+        # rename across. Reported by owner: PDP showed "Moonlight Ivory
+        # 30X60" (derived from the supplier's raw name) instead of the
+        # admin-renamed "Moonstone Ivory ...".
+        _NAME_KEYS = {"display_name", "name", "product_name", "display_code"}
+        if _NAME_KEYS & set(update_fields):
+            fresh_sp = db.supplier_products.find_one(update_filter, {"_id": 0})
+            if fresh_sp:
+                _mirror_name_to_tiles(db, fresh_sp)
         
         # If category is provided, add to master categories list and update products collection
         if data.category is not None and data.category.strip():
@@ -7093,6 +7107,29 @@ def _mirror_pricing_to_tiles(db, sp: dict) -> int:
     return db.tiles.update_many(_tiles_query_for(sku), update).matched_count
 
 
+def _mirror_name_to_tiles(db, sp: dict) -> int:
+    """Push the admin draft's product name onto its live tile(s).
+
+    `tiles.display_name` (via serialize_tile_for_shop) is what the storefront
+    actually renders — `supplier_products` is only the admin's staging copy.
+    Without this, a rename in Tiles/Materials/etc Manager "sticks" in the
+    admin table but the PDP keeps showing the old/raw supplier name forever.
+    """
+    sku = sp.get("sku") or sp.get("supplier_code")
+    name = sp.get("display_name") or sp.get("product_name") or sp.get("name")
+    if not sku or not name:
+        return 0
+    set_fields = {
+        "name": name,
+        "display_name": name,
+        "website_name": name,
+        "updated_at": datetime.now(timezone.utc),
+    }
+    if sp.get("display_code"):
+        set_fields["display_code"] = sp["display_code"]
+    return db.tiles.update_many(_tiles_query_for(sku), {"$set": set_fields}).matched_count
+
+
 def _live_pricing_report(db, skus: List[str]) -> List[dict]:
     items = []
     for sku in skus:
@@ -7129,6 +7166,43 @@ def get_live_pricing(skus: str = ""):
         "mismatch_count": sum(1 for i in items if i["mismatches"]),
         "not_live_count": sum(1 for i in items if not i["live"]),
     }
+
+
+class ReconcileLiveNamesRequest(BaseModel):
+    skus: Optional[List[str]] = None  # omit to scan every published product
+    limit: int = 5000
+
+
+@router.post("/products/reconcile-live-names")
+def reconcile_live_names(data: ReconcileLiveNamesRequest):
+    """One-off backfill for the name-drift bug fixed 29 Sep 2026: renames made
+    before that fix only landed in `supplier_products` (admin manager tables),
+    never on the live `tiles` doc the storefront actually renders. Re-mirrors
+    every drafted name onto its live tile so the PDP matches the admin name."""
+    db = get_db()
+    query: dict = {"display_name": {"$exists": True, "$ne": ""}}
+    if data.skus:
+        wanted = [s for s in data.skus if s][:5000]
+        query = {"$and": [query, {"$or": [{"sku": {"$in": wanted}}, {"supplier_code": {"$in": wanted}}]}]}
+    checked = 0
+    fixed = 0
+    fixed_examples = []
+    for sp in db.supplier_products.find(query, {"_id": 0}).limit(data.limit):
+        checked += 1
+        sku = sp.get("sku") or sp.get("supplier_code")
+        target_name = sp.get("display_name") or sp.get("product_name") or sp.get("name")
+        if not sku or not target_name:
+            continue
+        tile = db.tiles.find_one(_tiles_query_for(sku), {"display_name": 1, "name": 1})
+        if not tile:
+            continue
+        live_name = tile.get("display_name") or tile.get("name") or ""
+        if live_name != target_name:
+            _mirror_name_to_tiles(db, sp)
+            fixed += 1
+            if len(fixed_examples) < 20:
+                fixed_examples.append({"sku": sku, "was": live_name, "now": target_name})
+    return {"checked": checked, "fixed": fixed, "examples": fixed_examples}
 
 
 class PushLivePricingRequest(BaseModel):
