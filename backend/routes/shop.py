@@ -4609,7 +4609,11 @@ async def admin_download_online_order_vat_invoice(order_id: str, current_user: d
 
 
 @router.get("/admin/online-orders/{order_id}/delivery-note.pdf")
-async def admin_download_online_order_delivery_note(order_id: str, current_user: dict = Depends(get_current_user)):
+async def admin_download_online_order_delivery_note(
+    order_id: str,
+    current_user: dict = Depends(get_current_user),
+    delivery_date: Optional[str] = Query(None, description="Staff-chosen delivery date/time shown on the note (ISO string)"),
+):
     if current_user.get("role") not in ["super_admin", "admin", "manager"]:
         raise HTTPException(status_code=403, detail="Not authorized")
 
@@ -4618,7 +4622,10 @@ async def admin_download_online_order_delivery_note(order_id: str, current_user:
 
     db = get_db()
     order = await _load_online_order_or_404(db, order_id)
-    pdf_buffer = generate_note_pdf(_shop_order_to_note_data(order), "delivery")
+    note_data = _shop_order_to_note_data(order)
+    if delivery_date:
+        note_data["delivery_date"] = delivery_date
+    pdf_buffer = generate_note_pdf(note_data, "delivery")
     filename = f"delivery_note_{order.get('order_number') or order_id}.pdf"
     return StreamingResponse(
         pdf_buffer,
@@ -4628,7 +4635,11 @@ async def admin_download_online_order_delivery_note(order_id: str, current_user:
 
 
 @router.get("/admin/online-orders/{order_id}/collection-note.pdf")
-async def admin_download_online_order_collection_note(order_id: str, current_user: dict = Depends(get_current_user)):
+async def admin_download_online_order_collection_note(
+    order_id: str,
+    current_user: dict = Depends(get_current_user),
+    collection_date: Optional[str] = Query(None, description="Staff-chosen collection date/time shown on the note (ISO string)"),
+):
     if current_user.get("role") not in ["super_admin", "admin", "manager"]:
         raise HTTPException(status_code=403, detail="Not authorized")
 
@@ -4637,7 +4648,10 @@ async def admin_download_online_order_collection_note(order_id: str, current_use
 
     db = get_db()
     order = await _load_online_order_or_404(db, order_id)
-    pdf_buffer = generate_note_pdf(_shop_order_to_note_data(order, order.get("collect_store")), "collection")
+    note_data = _shop_order_to_note_data(order, order.get("collect_store"))
+    if collection_date:
+        note_data["delivery_date"] = collection_date
+    pdf_buffer = generate_note_pdf(note_data, "collection")
     filename = f"collection_note_{order.get('order_number') or order_id}.pdf"
     return StreamingResponse(
         pdf_buffer,

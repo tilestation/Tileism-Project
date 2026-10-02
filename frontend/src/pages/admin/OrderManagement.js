@@ -85,12 +85,15 @@ const OrderManagement = () => {
   const [rescheduleNotes, setRescheduleNotes] = useState('');
   const [editStatus, setEditStatus] = useState('');
   const [editNotes, setEditNotes] = useState('');
-
+  // 2 Oct 2026 — one-off date/time picker shown before a Delivery/Collection
+  // note PDF downloads, so staff can set the date printed on it without it
+  // being tied to the order's actual scheduled delivery_date.
+  const [noteDatePicker, setNoteDatePicker] = useState({ open: false, noteType: '', value: '' });
   // Fetch showrooms
   useEffect(() => {
     const fetchStores = async () => {
       try {
-        const res = await api.get('/api/showrooms');
+        const res = await api.get('/showrooms');
         setStores(res.data);
       } catch (err) {
         console.error('Error fetching showrooms:', err);
@@ -103,7 +106,7 @@ const OrderManagement = () => {
   useEffect(() => {
     const fetchStatuses = async () => {
       try {
-        const res = await api.get('/api/orders/statuses');
+        const res = await api.get('/orders/statuses');
         setStatuses(res.data);
       } catch (err) {
         console.error('Error fetching statuses:', err);
@@ -116,7 +119,7 @@ const OrderManagement = () => {
   const fetchSummary = useCallback(async () => {
     try {
       const params = selectedStore !== 'all' ? { showroom_id: selectedStore } : {};
-      const res = await api.get('/api/orders/summary', { params });
+      const res = await api.get('/orders/summary', { params });
       setSummary(res.data);
     } catch (err) {
       console.error('Error fetching summary:', err);
@@ -156,7 +159,7 @@ const OrderManagement = () => {
         params.status = selectedStatus;
       }
 
-      const res = await api.get('/api/orders/calendar', { params });
+      const res = await api.get('/orders/calendar', { params });
       
       // Convert to calendar events
       const calendarEvents = res.data.map(order => ({
@@ -183,7 +186,7 @@ const OrderManagement = () => {
   const fetchOverdueOrders = useCallback(async () => {
     try {
       const params = selectedStore !== 'all' ? { showroom_id: selectedStore } : {};
-      const res = await api.get('/api/orders/overdue/list', { params });
+      const res = await api.get('/orders/overdue/list', { params });
       setOverdueOrders(res.data);
     } catch (err) {
       console.error('Error fetching overdue orders:', err);
@@ -197,7 +200,7 @@ const OrderManagement = () => {
   // Handle event click
   const handleSelectEvent = async (event) => {
     try {
-      const res = await api.get(`/api/orders/${event.id}`);
+      const res = await api.get(`/orders/${event.id}`);
       setSelectedOrder(res.data);
       setEditStatus(res.data.status || 'pending');
       setEditNotes(res.data.notes || '');
@@ -212,7 +215,7 @@ const OrderManagement = () => {
     if (!selectedOrder) return;
     
     try {
-      await api.put(`/api/orders/${selectedOrder.id}`, {
+      await api.put(`/orders/${selectedOrder.id}`, {
         status: editStatus,
         notes: editNotes,
       });
@@ -231,7 +234,7 @@ const OrderManagement = () => {
     if (!selectedOrder || !rescheduleDate) return;
     
     try {
-      await api.post(`/api/orders/${selectedOrder.id}/reschedule`, {
+      await api.post(`/orders/${selectedOrder.id}/reschedule`, {
         delivery_date: new Date(rescheduleDate).toISOString(),
         notes: rescheduleNotes,
       });
@@ -247,10 +250,11 @@ const OrderManagement = () => {
   };
 
   // Download Collection Note PDF
-  const handleDownloadCollectionNote = async (orderId) => {
+  const handleDownloadCollectionNote = async (orderId, dateTimeValue) => {
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch(`${API_URL}/api/orders/${orderId}/collection-note`, {
+      const qs = dateTimeValue ? `?collection_date=${encodeURIComponent(dateTimeValue)}` : '';
+      const response = await fetch(`${API_URL}/api/orders/${orderId}/collection-note${qs}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       
@@ -272,10 +276,11 @@ const OrderManagement = () => {
   };
 
   // Download Delivery Note PDF
-  const handleDownloadDeliveryNote = async (orderId) => {
+  const handleDownloadDeliveryNote = async (orderId, dateTimeValue) => {
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch(`${API_URL}/api/orders/${orderId}/delivery-note`, {
+      const qs = dateTimeValue ? `?delivery_date_override=${encodeURIComponent(dateTimeValue)}` : '';
+      const response = await fetch(`${API_URL}/api/orders/${orderId}/delivery-note${qs}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       
@@ -295,6 +300,21 @@ const OrderManagement = () => {
       toast.error('Failed to download Delivery Note');
     }
   };
+
+  // 2 Oct 2026 — opens the date/time picker; the actual download fires once
+  // staff confirms a value.
+  const openNoteDatePicker = (noteType) => {
+    const d = new Date();
+    d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+    setNoteDatePicker({ open: true, noteType, value: d.toISOString().slice(0, 16) });
+  };
+  const confirmNoteDatePicker = () => {
+    const { noteType, value } = noteDatePicker;
+    setNoteDatePicker({ open: false, noteType: '', value: '' });
+    if (noteType === 'collection') handleDownloadCollectionNote(selectedOrder?.id, value);
+    else handleDownloadDeliveryNote(selectedOrder?.id, value);
+  };
+
 
   // Custom event styling
   const eventStyleGetter = (event) => {
@@ -648,7 +668,7 @@ const OrderManagement = () => {
               <Button 
                 variant="outline" 
                 size="sm"
-                onClick={() => handleDownloadCollectionNote(selectedOrder?.id)}
+                onClick={() => openNoteDatePicker('collection')}
                 data-testid="download-collection-note"
               >
                 <ClipboardList className="w-4 h-4 mr-2" />
@@ -657,7 +677,7 @@ const OrderManagement = () => {
               <Button 
                 variant="outline" 
                 size="sm"
-                onClick={() => handleDownloadDeliveryNote(selectedOrder?.id)}
+                onClick={() => openNoteDatePicker('delivery')}
                 data-testid="download-delivery-note"
               >
                 <Truck className="w-4 h-4 mr-2" />
@@ -677,6 +697,41 @@ const OrderManagement = () => {
             <Button onClick={handleUpdateStatus}>
               <Check className="w-4 h-4 mr-2" />
               Save Changes
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Collection/Delivery date picker — opens before the note PDF downloads */}
+      <Dialog open={noteDatePicker.open} onOpenChange={(open) => !open && setNoteDatePicker({ open: false, noteType: '', value: '' })}>
+        <DialogContent data-testid="note-date-picker-dialog">
+          <DialogHeader>
+            <DialogTitle>{noteDatePicker.noteType === 'collection' ? 'Collection date' : 'Delivery date'}</DialogTitle>
+            <DialogDescription>
+              Set the {noteDatePicker.noteType} date/time shown on the PDF.
+            </DialogDescription>
+          </DialogHeader>
+          <Input
+            type="datetime-local"
+            autoFocus
+            value={noteDatePicker.value}
+            onChange={(e) => setNoteDatePicker((p) => ({ ...p, value: e.target.value }))}
+            data-testid="note-date-picker-input"
+          />
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setNoteDatePicker({ open: false, noteType: '', value: '' })}
+              data-testid="note-date-picker-cancel-btn"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={confirmNoteDatePicker}
+              disabled={!noteDatePicker.value}
+              data-testid="note-date-picker-confirm-btn"
+            >
+              Download
             </Button>
           </DialogFooter>
         </DialogContent>

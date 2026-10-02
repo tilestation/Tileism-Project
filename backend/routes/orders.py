@@ -136,6 +136,8 @@ async def get_orders_for_calendar(
         event_date = order.get("delivery_date") or order.get("created_at")
         if isinstance(event_date, str):
             event_date = datetime.fromisoformat(event_date.replace("Z", "+00:00"))
+            if event_date.tzinfo is None:
+                event_date = event_date.replace(tzinfo=timezone.utc)
         
         status_info = ORDER_STATUSES.get(order.get("status", "pending"), ORDER_STATUSES["pending"])
         
@@ -210,6 +212,11 @@ async def get_orders_for_calendar(
                 try:
                     if "T" in event_date:
                         event_date = datetime.fromisoformat(event_date.replace("Z", "+00:00"))
+                        # Naive datetime (no offset in the string) — assume UTC,
+                        # same convention used everywhere else in this endpoint,
+                        # so the comparison below doesn't crash.
+                        if event_date.tzinfo is None:
+                            event_date = event_date.replace(tzinfo=timezone.utc)
                     elif "/" in event_date:
                         # Handle DD/MM/YYYY format
                         event_date = datetime.strptime(event_date, "%d/%m/%Y").replace(tzinfo=timezone.utc)
@@ -366,7 +373,14 @@ async def get_order_details(order_id: str, current_user: dict = Depends(get_curr
     
     db = get_db()
     order = await db.orders.find_one({"id": order_id}, {"_id": 0})
-    
+
+    # Calendar events also come from Special Order invoices (source="invoice")
+    # — same fallback pattern used by the collection-note/delivery-note
+    # endpoints below. Without this, every invoice-sourced calendar event is
+    # unclickable (404) even though it's visibly sitting on the calendar.
+    if not order:
+        order = await db.invoices.find_one({"id": order_id}, {"_id": 0})
+
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
     
@@ -820,7 +834,11 @@ def generate_note_pdf(data: dict, note_type: str = "collection") -> io.BytesIO:
 
 
 @router.get("/{order_id}/collection-note")
-async def generate_collection_note(order_id: str, current_user: dict = Depends(get_current_user)):
+async def generate_collection_note(
+    order_id: str,
+    current_user: dict = Depends(get_current_user),
+    collection_date: Optional[str] = Query(None, description="Staff-chosen collection date/time override (ISO string)"),
+):
     """Generate Collection Note PDF for an order or invoice"""
     if not is_admin_user(current_user):
         raise HTTPException(status_code=403, detail="Admin access required")
@@ -839,6 +857,12 @@ async def generate_collection_note(order_id: str, current_user: dict = Depends(g
     if not data:
         raise HTTPException(status_code=404, detail="Order/Invoice not found")
     
+    # 2 Oct 2026 — staff can pick the collection date/time shown on the PDF
+    # at download time (e.g. the slot just got rebooked) instead of being
+    # stuck with whatever the record already has.
+    if collection_date:
+        data = {**data, "delivery_date": collection_date}
+    
     # Generate PDF
     pdf_buffer = generate_note_pdf(data, "collection")
     
@@ -853,7 +877,11 @@ async def generate_collection_note(order_id: str, current_user: dict = Depends(g
 
 
 @router.get("/{order_id}/delivery-note")
-async def generate_delivery_note(order_id: str, current_user: dict = Depends(get_current_user)):
+async def generate_delivery_note(
+    order_id: str,
+    current_user: dict = Depends(get_current_user),
+    delivery_date_override: Optional[str] = Query(None, description="Staff-chosen delivery date/time override (ISO string)"),
+):
     """Generate Delivery Note PDF for an order or invoice"""
     if not is_admin_user(current_user):
         raise HTTPException(status_code=403, detail="Admin access required")
@@ -871,6 +899,10 @@ async def generate_delivery_note(order_id: str, current_user: dict = Depends(get
     
     if not data:
         raise HTTPException(status_code=404, detail="Order/Invoice not found")
+    
+    # 2 Oct 2026 — same override as the collection note above.
+    if delivery_date_override:
+        data = {**data, "delivery_date": delivery_date_override}
     
     # Generate PDF
     pdf_buffer = generate_note_pdf(data, "delivery")

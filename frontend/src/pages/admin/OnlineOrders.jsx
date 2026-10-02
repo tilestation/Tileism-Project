@@ -225,12 +225,16 @@ function OrderDetailModal({ orderId, onClose, onStatusChanged, onDeleted }) {
   // customer could pull their own VAT invoice, and delivery/collection
   // notes existed only for in-store EPOS orders.
   const [downloadingDoc, setDownloadingDoc] = useState('');
-  const handleDownloadOrderDoc = async (docType, label) => {
+  const handleDownloadOrderDoc = async (docType, label, dateTimeValue) => {
     if (!order?.id) return;
     setDownloadingDoc(docType);
     try {
+      // 2 Oct 2026 — delivery/collection notes let staff pick the date/time
+      // shown on the PDF (the query param name matches the backend route).
+      const dateParam = docType === 'delivery-note' ? 'delivery_date' : docType === 'collection-note' ? 'collection_date' : null;
+      const qs = dateParam && dateTimeValue ? `?${dateParam}=${encodeURIComponent(dateTimeValue)}` : '';
       const res = await axios.get(
-        `${API_URL}/api/shop/admin/online-orders/${order.id}/${docType}.pdf`,
+        `${API_URL}/api/shop/admin/online-orders/${order.id}/${docType}.pdf${qs}`,
         { ...auth, responseType: 'blob' }
       );
       const url = window.URL.createObjectURL(new Blob([res.data], { type: 'application/pdf' }));
@@ -248,6 +252,24 @@ function OrderDetailModal({ orderId, onClose, onStatusChanged, onDeleted }) {
       setDownloadingDoc('');
     }
   };
+
+  // 2 Oct 2026 — small popup so staff can set the Collection/Delivery Date
+  // shown on the note before it downloads, instead of it being fixed.
+  const nowForPicker = () => {
+    const d = new Date();
+    d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+    return d.toISOString().slice(0, 16);
+  };
+  const [noteDatePicker, setNoteDatePicker] = useState({ open: false, docType: '', label: '', value: '' });
+  const openNoteDatePicker = (docType, label) => {
+    setNoteDatePicker({ open: true, docType, label, value: nowForPicker() });
+  };
+  const confirmNoteDatePicker = () => {
+    const { docType, label, value } = noteDatePicker;
+    setNoteDatePicker({ open: false, docType: '', label: '', value: '' });
+    handleDownloadOrderDoc(docType, label, value);
+  };
+
 
   // Fetch the curated quick-reply templates once when the modal opens —
   // the backend seeds sensible defaults on first call so we never get a
@@ -381,7 +403,7 @@ function OrderDetailModal({ orderId, onClose, onStatusChanged, onDeleted }) {
                   VAT Invoice
                 </button>
                 <button
-                  onClick={() => handleDownloadOrderDoc('delivery-note', 'Delivery Note')}
+                  onClick={() => openNoteDatePicker('delivery-note', 'Delivery Note')}
                   disabled={downloadingDoc === 'delivery-note'}
                   className="px-3 py-1.5 text-xs font-medium rounded-md text-sky-700 bg-sky-50 hover:bg-sky-100 border border-sky-200 transition-colors flex items-center gap-1.5 disabled:opacity-50"
                   data-testid="download-delivery-note-btn"
@@ -391,7 +413,7 @@ function OrderDetailModal({ orderId, onClose, onStatusChanged, onDeleted }) {
                   Delivery Note
                 </button>
                 <button
-                  onClick={() => handleDownloadOrderDoc('collection-note', 'Collection Note')}
+                  onClick={() => openNoteDatePicker('collection-note', 'Collection Note')}
                   disabled={downloadingDoc === 'collection-note'}
                   className="px-3 py-1.5 text-xs font-medium rounded-md text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 transition-colors flex items-center gap-1.5 disabled:opacity-50"
                   data-testid="download-collection-note-btn"
@@ -822,6 +844,52 @@ function OrderDetailModal({ orderId, onClose, onStatusChanged, onDeleted }) {
                 data-testid="delete-confirm-btn"
               >
                 {deleting ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Delete order'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Collection/Delivery date picker — opens before the note PDF downloads */}
+      {noteDatePicker.open && (
+        <div
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[60] flex items-center justify-center p-4"
+          onClick={() => setNoteDatePicker({ open: false, docType: '', label: '', value: '' })}
+          data-testid="note-date-picker-overlay"
+        >
+          <div
+            className="bg-white rounded-xl shadow-2xl w-full max-w-sm p-6"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-base font-bold text-gray-900 mb-1">
+              {noteDatePicker.docType === 'collection-note' ? 'Collection date' : 'Delivery date'}
+            </h3>
+            <p className="text-xs text-gray-500 mb-4">
+              Set the {noteDatePicker.docType === 'collection-note' ? 'collection' : 'delivery'} date/time shown on the {noteDatePicker.label}.
+            </p>
+            <input
+              type="datetime-local"
+              autoFocus
+              value={noteDatePicker.value}
+              onChange={(e) => setNoteDatePicker((p) => ({ ...p, value: e.target.value }))}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-sky-400"
+              data-testid="note-date-picker-input"
+            />
+            <div className="flex gap-2 justify-end mt-5">
+              <Button
+                onClick={() => setNoteDatePicker({ open: false, docType: '', label: '', value: '' })}
+                variant="outline"
+                data-testid="note-date-picker-cancel-btn"
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={confirmNoteDatePicker}
+                disabled={!noteDatePicker.value}
+                className="bg-sky-600 hover:bg-sky-700 text-white"
+                data-testid="note-date-picker-confirm-btn"
+              >
+                Download
               </Button>
             </div>
           </div>
