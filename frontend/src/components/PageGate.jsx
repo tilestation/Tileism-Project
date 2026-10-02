@@ -166,25 +166,19 @@ const resolveRequiredPermission = (pathname) => {
   return null;
 };
 
-// 21 Sep 2026 — owner request: the "Managers" catalogue/supplier tools
-// (Products & Suppliers sidebar group) are Super Admin only — not just
-// hidden from Staff/Showroom in the sidebar, but blocked on direct URL
-// too, since those roles are still granted `supplier_products` etc. via
-// SYSTEM_ROLE_DEFAULTS for other reasons (e.g. viewing stock). This is a
-// role check, independent of the granular permission system above.
+// 2 Oct 2026 — owner narrowed this down: only the catalogue "Manager" tools
+// + the sync pipeline (Sync Hub, Supplier Health) are Super Admin only now.
+// All Products, Clearance Hub, Price Tickets, Supplier Contacts were walked
+// back to normal staff/showroom access (see Layout.js `products` group).
 const SUPER_ADMIN_ONLY_ROUTES = [
-  '/admin/supplier-products',
   '/admin/tiles',
   '/admin/materials',
   '/admin/flooring',
   '/admin/bathroom',
   '/admin/underfloor-heating',
   '/admin/tools',
-  '/admin/clearance',
-  '/admin/price-tickets',
   '/admin/supplier-health',
   '/admin/sync-hub',
-  '/admin/suppliers',
 ];
 const isSuperAdminOnlyRoute = (pathname) =>
   SUPER_ADMIN_ONLY_ROUTES.some((r) => pathname === r || pathname.startsWith(`${r}/`));

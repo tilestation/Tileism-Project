@@ -17,6 +17,14 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Backend**: FastAPI, MongoDB (deployed on Railway)
 - **Deployment**: Railway (production), Emergent (preview)
 
+### [Oct 2, 2026] 🟢 Walked back the full "Products & Suppliers" group hide — scope corrected to just Manager tools + Sync
+Owner flagged the 21 Sep fix went too far — staff/showroom lost access to everyday tools (All Products, Clearance Hub, Price Tickets, Supplier Contacts) that have nothing to do with the catalogue "Manager" editing tools. Corrected scope:
+- **Super Admin only**: Tiles/Materials/Flooring/Bathroom/Underfloor Heating/Tools Manager + Sync Hub + Supplier Health (sync-pipeline monitoring, same family as Sync Hub).
+- **Back to normal staff/showroom access**: All Products, Clearance Hub, Price Tickets, Supplier Contacts.
+- `Layout.js`: removed `superAdminOnly` from the `products` GROUP itself and from the 4 items above; kept it on the 6 Manager routes + Sync Hub + Supplier Health.
+- `PageGate.jsx`: trimmed `SUPER_ADMIN_ONLY_ROUTES` to the same 8 routes (was 12).
+- **Verified**: staff account (`toast-debug@example.com`) now sees All Products/Clearance Hub/Price Tickets/Supplier Contacts in the sidebar and can open them directly; Tiles Manager and Sync Hub still show "Super Admin access only" on direct URL. Super admin (`admin@test.com`) unaffected — full access confirmed on Tiles Manager.
+
 ### [Oct 2, 2026] 🟢 Feature: changeable Collection/Delivery Date on notes + 3 pre-existing Order Management bugs fixed along the way
 Owner asked to make the date/time on Collection/Delivery notes editable for both showroom and online orders, via a popup pre-filled with "now" at download time (not a persisted field).
 - **Backend**: `orders.py` (`/{order_id}/collection-note`, `/delivery-note`) and `shop.py` (`/admin/online-orders/{order_id}/collection-note.pdf`, `/delivery-note.pdf`) now accept an optional `collection_date`/`delivery_date` query param that overrides the note's "Collection/Delivery Date:" line only — everything else on the PDF stays as before.
