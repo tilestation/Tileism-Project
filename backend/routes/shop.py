@@ -4510,6 +4510,142 @@ async def admin_get_online_order(order_id: str, current_user: dict = Depends(get
     return order
 
 
+async def _online_contact_supplier_override(db) -> dict:
+    """Generic online contact info (never a specific showroom) for documents
+    issued against a website order — per owner request: online VAT invoices
+    must show only the business's online contact details, never a store
+    address. Sourced from Website Settings (`/admin/website-settings` →
+    Contact), falling back to the PDF generator's own env-var defaults."""
+    settings = await db.website_settings.find_one({"key": "main"}, {"_id": 0}) or {}
+    override = {}
+    if settings.get("contact_email"):
+        override["email"] = settings["contact_email"]
+    if settings.get("contact_phone"):
+        override["telephone"] = settings["contact_phone"]
+    if settings.get("address"):
+        override["address_line_1"] = settings["address"]
+        override["address_line_2"] = ""
+    return override
+
+
+def _shop_order_to_note_data(order: dict, collect_store: Optional[dict] = None) -> dict:
+    """Adapt a `shop_orders` doc into the dict shape `generate_note_pdf()`
+    (routes/orders.py) expects — that generator was built for the in-store
+    `orders`/`invoices` collections, this is the online-orders equivalent."""
+    addr = order.get("delivery_address") or ""
+    if isinstance(addr, dict):
+        addr = ", ".join(
+            str(addr.get(k)) for k in ("line_1", "line_2", "city", "postcode") if addr.get(k)
+        )
+    items = []
+    for it in (order.get("items") or []):
+        items.append({
+            "product_name": it.get("name") or it.get("product_name") or "Item",
+            "sku": it.get("sku") or it.get("product_id") or "-",
+            "quantity": it.get("quantity") or it.get("qty") or 0,
+            "m2": it.get("m2") or it.get("area_m2") or 0,
+        })
+    # Collection notes name the actual pickup store (necessary info, not a
+    # "store detail leak") — delivery notes stay generic since nothing ships
+    # from a single branch.
+    showroom_name = (collect_store or {}).get("name") or "Tile Station"
+    return {
+        "id": order.get("id", ""),
+        "invoice_no": order.get("order_number"),
+        "date": order.get("created_at"),
+        "customer_name": order.get("customer_name"),
+        "customer_phone": order.get("customer_phone"),
+        "customer_email": order.get("customer_email"),
+        "customer_address": addr,
+        "delivery_address": addr,
+        "items": items,
+        "notes": order.get("notes") or order.get("order_notes") or "",
+        "showroom_name": showroom_name,
+    }
+
+
+async def _load_online_order_or_404(db, order_id: str) -> dict:
+    order = await db.shop_orders.find_one({"id": order_id}, {"_id": 0})
+    if not order:
+        order = await db.shop_orders.find_one({"order_number": order_id}, {"_id": 0})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    collect_store_id = order.get("collect_store_id") or order.get("collect_showroom_id")
+    if collect_store_id:
+        store = await db.showrooms.find_one(
+            {"id": collect_store_id}, {"_id": 0, "id": 1, "name": 1, "address": 1, "phone": 1, "email": 1}
+        )
+        if store:
+            order["collect_store"] = store
+    return order
+
+
+@router.get("/admin/online-orders/{order_id}/vat-invoice.pdf")
+async def admin_download_online_order_vat_invoice(order_id: str, current_user: dict = Depends(get_current_user)):
+    """Admin-side VAT invoice download for an online order — staff no longer
+    have to ask the customer to log in and pull their own copy."""
+    if current_user.get("role") not in ["super_admin", "admin", "manager"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    from fastapi.responses import StreamingResponse  # noqa: PLC0415
+    from io import BytesIO  # noqa: PLC0415
+    from services.vat_invoice_pdf import REPORTLAB_AVAILABLE, generate_vat_invoice_pdf_bytes  # noqa: PLC0415
+
+    if not REPORTLAB_AVAILABLE:
+        raise HTTPException(status_code=500, detail="PDF generation is currently unavailable")
+
+    db = get_db()
+    order = await _load_online_order_or_404(db, order_id)
+    customer = await db.shop_customers.find_one({"id": order.get("customer_id")}, {"_id": 0}) or {}
+    supplier_override = await _online_contact_supplier_override(db)
+
+    pdf_bytes = generate_vat_invoice_pdf_bytes(order=order, customer=customer, supplier=supplier_override)
+    filename = f"VAT_Invoice_{order.get('order_number') or order_id}.pdf"
+    return StreamingResponse(
+        BytesIO(pdf_bytes),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get("/admin/online-orders/{order_id}/delivery-note.pdf")
+async def admin_download_online_order_delivery_note(order_id: str, current_user: dict = Depends(get_current_user)):
+    if current_user.get("role") not in ["super_admin", "admin", "manager"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    from fastapi.responses import StreamingResponse  # noqa: PLC0415
+    from routes.orders import generate_note_pdf  # noqa: PLC0415
+
+    db = get_db()
+    order = await _load_online_order_or_404(db, order_id)
+    pdf_buffer = generate_note_pdf(_shop_order_to_note_data(order), "delivery")
+    filename = f"delivery_note_{order.get('order_number') or order_id}.pdf"
+    return StreamingResponse(
+        pdf_buffer,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get("/admin/online-orders/{order_id}/collection-note.pdf")
+async def admin_download_online_order_collection_note(order_id: str, current_user: dict = Depends(get_current_user)):
+    if current_user.get("role") not in ["super_admin", "admin", "manager"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    from fastapi.responses import StreamingResponse  # noqa: PLC0415
+    from routes.orders import generate_note_pdf  # noqa: PLC0415
+
+    db = get_db()
+    order = await _load_online_order_or_404(db, order_id)
+    pdf_buffer = generate_note_pdf(_shop_order_to_note_data(order, order.get("collect_store")), "collection")
+    filename = f"collection_note_{order.get('order_number') or order_id}.pdf"
+    return StreamingResponse(
+        pdf_buffer,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @router.post("/admin/online-orders/{order_id}/resend-confirmation")
 async def admin_resend_order_confirmation(
     order_id: str,

@@ -17,6 +17,7 @@ import {
   Package, Search, Eye, RefreshCw, Truck, Store, MapPin,
   Receipt, CreditCard, ChevronLeft, ChevronRight, ArrowLeft, X,
   CheckCircle2, Clock, AlertCircle, Mail, Phone, Loader2, Trash2, MessageSquare, Send,
+  ClipboardList,
 } from 'lucide-react';
 import axios from 'axios';
 import { Button } from '../../components/ui/button';
@@ -219,6 +220,35 @@ function OrderDetailModal({ orderId, onClose, onStatusChanged, onDeleted }) {
 
   useEffect(() => { fetchOrder(); }, [fetchOrder]);
 
+  // 29 Sep 2026 — admin-side document downloads for online orders (VAT
+  // invoice / delivery note / collection note). Previously only the
+  // customer could pull their own VAT invoice, and delivery/collection
+  // notes existed only for in-store EPOS orders.
+  const [downloadingDoc, setDownloadingDoc] = useState('');
+  const handleDownloadOrderDoc = async (docType, label) => {
+    if (!order?.id) return;
+    setDownloadingDoc(docType);
+    try {
+      const res = await axios.get(
+        `${API_URL}/api/shop/admin/online-orders/${order.id}/${docType}.pdf`,
+        { ...auth, responseType: 'blob' }
+      );
+      const url = window.URL.createObjectURL(new Blob([res.data], { type: 'application/pdf' }));
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${docType}_${order.order_number || order.id.slice(0, 8)}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+      toast.success(`${label} downloaded`);
+    } catch (err) {
+      toast.error(`Failed to download ${label}`);
+    } finally {
+      setDownloadingDoc('');
+    }
+  };
+
   // Fetch the curated quick-reply templates once when the modal opens —
   // the backend seeds sensible defaults on first call so we never get a
   // blank dropdown.
@@ -338,6 +368,40 @@ function OrderDetailModal({ orderId, onClose, onStatusChanged, onDeleted }) {
             {order?.created_at && <p className="text-xs text-gray-500 mt-0.5">{formatDate(order.created_at)}</p>}
           </div>
           <div className="flex items-center gap-2">
+            {order && (
+              <div className="flex items-center gap-1.5 mr-1" data-testid="order-documents-actions">
+                <button
+                  onClick={() => handleDownloadOrderDoc('vat-invoice', 'VAT Invoice')}
+                  disabled={downloadingDoc === 'vat-invoice'}
+                  className="px-3 py-1.5 text-xs font-medium rounded-md text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 transition-colors flex items-center gap-1.5 disabled:opacity-50"
+                  data-testid="download-vat-invoice-btn"
+                  title="Download VAT invoice PDF"
+                >
+                  {downloadingDoc === 'vat-invoice' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Receipt className="w-3.5 h-3.5" />}
+                  VAT Invoice
+                </button>
+                <button
+                  onClick={() => handleDownloadOrderDoc('delivery-note', 'Delivery Note')}
+                  disabled={downloadingDoc === 'delivery-note'}
+                  className="px-3 py-1.5 text-xs font-medium rounded-md text-sky-700 bg-sky-50 hover:bg-sky-100 border border-sky-200 transition-colors flex items-center gap-1.5 disabled:opacity-50"
+                  data-testid="download-delivery-note-btn"
+                  title="Download delivery note PDF"
+                >
+                  {downloadingDoc === 'delivery-note' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Truck className="w-3.5 h-3.5" />}
+                  Delivery Note
+                </button>
+                <button
+                  onClick={() => handleDownloadOrderDoc('collection-note', 'Collection Note')}
+                  disabled={downloadingDoc === 'collection-note'}
+                  className="px-3 py-1.5 text-xs font-medium rounded-md text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 transition-colors flex items-center gap-1.5 disabled:opacity-50"
+                  data-testid="download-collection-note-btn"
+                  title="Download collection note PDF"
+                >
+                  {downloadingDoc === 'collection-note' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ClipboardList className="w-3.5 h-3.5" />}
+                  Collection Note
+                </button>
+              </div>
+            )}
             {isSuperAdmin && order && (
               <button
                 onClick={() => setDeleteOpen(true)}
