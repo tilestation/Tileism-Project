@@ -25,6 +25,8 @@ import {
   Legend, ResponsiveContainer, ReferenceLine
 } from 'recharts';
 import AutoExportSchedulerCard from '../../components/AutoExportSchedulerCard';
+import { useAuth } from '../../contexts/AuthContext';
+import { Tabs, TabsList, TabsTrigger } from '../../components/ui/tabs';
 
 // Small trend indicator pill used under revenue cards.
 // Renders "▲ £420 (+8.7%) vs yesterday", "▼ £60 (-3%)", "— new (no prior)", etc.
@@ -62,6 +64,15 @@ const TrendPill = ({ current, prior, label, testId }) => {
 export const InvoiceHistory = () => {
   const navigate = useNavigate();
   const location = useLocation();
+  // 2 Oct 2026 — owner request: the Revenue Summary cards can switch
+  // between stores, but only Super Admin may switch/see cross-store
+  // numbers. Staff/Showroom always see their own store's revenue only —
+  // see getShowroomFilteredInvoices/Refunds below. `isSuperAdmin` (role)
+  // already exists further down (derived from the JWT-decoded
+  // `currentUser`); `useAuth()` is only needed here for `showroom_id`,
+  // which isn't in that decoded payload.
+  const { user: authUser } = useAuth();
+  const userStoreId = authUser?.showroom_id;
   const [invoices, setInvoices] = useState([]);
   const [staffList, setStaffList] = useState([]);
   const [showrooms, setStores] = useState([]);
@@ -470,15 +481,20 @@ export const InvoiceHistory = () => {
   // All revenue calculations now use getDepositAmount() which correctly calculates
   // gross_total - amount_outstanding
 
-  // Get invoices filtered by showroom (for calculations)
+  // Get invoices filtered by showroom (for calculations). Super Admin uses
+  // whatever store is selected (dropdown or the new tabs); every other
+  // role is always locked to their own store, regardless of `showroomFilter`.
   const getShowroomFilteredInvoices = () => {
-    console.log('[getShowroomFilteredInvoices] showroomFilter:', showroomFilter, 'allInvoices.length:', allInvoices.length);
-    if (showroomFilter) {
-      const filtered = allInvoices.filter(inv => inv.showroom_id === showroomFilter);
+    const effectiveStoreId = isSuperAdmin ? showroomFilter : userStoreId;
+    console.log('[getShowroomFilteredInvoices] effectiveStoreId:', effectiveStoreId, 'allInvoices.length:', allInvoices.length);
+    if (effectiveStoreId) {
+      const filtered = allInvoices.filter(inv => inv.showroom_id === effectiveStoreId);
       console.log('[getShowroomFilteredInvoices] Filtered by showroom:', filtered.length);
       return filtered;
     }
-    return allInvoices;
+    // Non-super-admin with no store assigned — show nothing rather than
+    // leaking every store's revenue.
+    return isSuperAdmin ? allInvoices : [];
   };
 
   // Get refunds filtered by showroom (for calculations) — mirrors
@@ -491,10 +507,11 @@ export const InvoiceHistory = () => {
   // helper everywhere we subtract refunds keeps the books matching the
   // Super-Admin Store Performance card to the penny.
   const getShowroomFilteredRefunds = () => {
-    if (showroomFilter) {
-      return allRefunds.filter(r => r.showroom_id === showroomFilter);
+    const effectiveStoreId = isSuperAdmin ? showroomFilter : userStoreId;
+    if (effectiveStoreId) {
+      return allRefunds.filter(r => r.showroom_id === effectiveStoreId);
     }
-    return allRefunds;
+    return isSuperAdmin ? allRefunds : [];
   };
 
   // Helper function to calculate actual deposit amount (money actually received)
@@ -2768,6 +2785,32 @@ export const InvoiceHistory = () => {
       </Dialog>
 
       {/* Revenue Summary */}
+      {/* 2 Oct 2026 — Super-Admin-only store tabs above the revenue cards.
+          Staff/Showroom never see this — they're hard-locked to their own
+          store inside getShowroomFilteredInvoices/Refunds above, no
+          switching possible. */}
+      {isSuperAdmin && showrooms.length > 0 && (
+        <Tabs
+          value={showroomFilter || 'all'}
+          onValueChange={(v) => setStoreFilter(v === 'all' ? '' : v)}
+          className="mb-3"
+          data-testid="revenue-store-tabs"
+        >
+          <TabsList className="flex-wrap h-auto">
+            <TabsTrigger value="all" data-testid="revenue-store-tab-all">All Stores</TabsTrigger>
+            {showrooms.map((s) => (
+              <TabsTrigger key={s.id} value={s.id} data-testid={`revenue-store-tab-${s.id}`}>
+                {s.name}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </Tabs>
+      )}
+      {!isSuperAdmin && userStoreId && (
+        <p className="text-xs text-muted-foreground mb-3" data-testid="revenue-own-store-label">
+          Showing revenue for {showrooms.find((s) => s.id === userStoreId)?.name || 'your store'} only
+        </p>
+      )}
       {/* 22 Jun 2026 — Reconciliation badge sits above the revenue
           cards. Renders only when a specific store is selected AND
           the date filter is today; otherwise it's a no-op. See the

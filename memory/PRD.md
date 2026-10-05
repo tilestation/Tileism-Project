@@ -17,6 +17,13 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Backend**: FastAPI, MongoDB (deployed on Railway)
 - **Deployment**: Railway (production), Emergent (preview)
 
+### [Oct 5, 2026] 🟢 Invoice History: per-store Revenue tabs (Super Admin only) + staff locked to own store
+Owner asked for store tabs above the Daily/Weekly/Monthly Revenue cards, with cross-store switching restricted to Super Admin.
+- `InvoiceHistory.js`: added a Tabs row ("All Stores" + one per showroom) above the Revenue Summary cards, visible to `super_admin` only — sets the existing `showroomFilter` state (same mechanism the old dropdown already used).
+- `getShowroomFilteredInvoices()` / `getShowroomFilteredRefunds()`: now hard-locked for any non-super-admin to their own `showroom_id` (from `useAuth()`), ignoring `showroomFilter` entirely — so Staff/Showroom can never see another store's numbers, tabs or no tabs. Added a small "Showing revenue for {store} only" label for them instead.
+- Scope: only the revenue block, per owner's confirmation — the rest of the page (invoice list, bulk export, transfer tools) is unchanged.
+- **Verified**: super_admin sees 5 tabs (All Stores/Chingford/Tonbridge/Gravesend/Sydenham), clicking "Gravesend" scopes the cards (confirmed via the existing reconciliation badge switching to "Gravesend"). Staff account (assigned to Chingford for the test) sees no tabs and the label "Showing revenue for Chingford only".
+
 ### [Oct 2, 2026] 🟢 Walked back the full "Products & Suppliers" group hide — scope corrected to just Manager tools + Sync
 Owner flagged the 21 Sep fix went too far — staff/showroom lost access to everyday tools (All Products, Clearance Hub, Price Tickets, Supplier Contacts) that have nothing to do with the catalogue "Manager" editing tools. Corrected scope:
 - **Super Admin only**: Tiles/Materials/Flooring/Bathroom/Underfloor Heating/Tools Manager + Sync Hub + Supplier Health (sync-pipeline monitoring, same family as Sync Hub).
