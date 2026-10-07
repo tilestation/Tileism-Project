@@ -7114,9 +7114,16 @@ def _mirror_name_to_tiles(db, sp: dict) -> int:
     actually renders — `supplier_products` is only the admin's staging copy.
     Without this, a rename in Tiles/Materials/etc Manager "sticks" in the
     admin table but the PDP keeps showing the old/raw supplier name forever.
+
+    Field priority matches the "All Products" admin list (SupplierProducts.js:
+    `product_name || name`) — NOT `our_product_name`. 7 Oct 2026: discovered
+    `our_product_name` can hold a STALE, independently-drifted value (e.g. a
+    cleaned-up supplier name from an older import) while `product_name` holds
+    the actual admin-approved rename. Checking `display_name`/`our_product_name`
+    first was the bug — it silently won over the correct `product_name`.
     """
     sku = sp.get("sku") or sp.get("supplier_code")
-    name = sp.get("display_name") or sp.get("product_name") or sp.get("name")
+    name = sp.get("product_name") or sp.get("display_name") or sp.get("name")
     if not sku or not name:
         return 0
     set_fields = {
@@ -7178,9 +7185,23 @@ def reconcile_live_names(data: ReconcileLiveNamesRequest):
     """One-off backfill for the name-drift bug fixed 29 Sep 2026: renames made
     before that fix only landed in `supplier_products` (admin manager tables),
     never on the live `tiles` doc the storefront actually renders. Re-mirrors
-    every drafted name onto its live tile so the PDP matches the admin name."""
+    every drafted name onto its live tile so the PDP matches the admin name.
+
+    7 Oct 2026 fix: the query only matched docs with `display_name` set, but
+    the REAL admin-approved name usually lives in `product_name` instead
+    (`display_name` is often null/missing) — e.g. SGSP16 had
+    `product_name="Moonstone Ivory 30x60cm Matt"` (correct, shown in the
+    "All Products" admin list) but `display_name=None`, so the old query
+    skipped it entirely and the live PDP kept showing the stale
+    `our_product_name`/`name` value ("Moonlight Ivory 30X60"). Query + name
+    priority now both match `product_name || display_name || name`, the same
+    order SupplierProducts.js uses for the admin list.
+    """
     db = get_db()
-    query: dict = {"display_name": {"$exists": True, "$ne": ""}}
+    query: dict = {"$or": [
+        {"product_name": {"$exists": True, "$ne": ""}},
+        {"display_name": {"$exists": True, "$ne": ""}},
+    ]}
     if data.skus:
         wanted = [s for s in data.skus if s][:5000]
         query = {"$and": [query, {"$or": [{"sku": {"$in": wanted}}, {"supplier_code": {"$in": wanted}}]}]}
@@ -7190,7 +7211,7 @@ def reconcile_live_names(data: ReconcileLiveNamesRequest):
     for sp in db.supplier_products.find(query, {"_id": 0}).limit(data.limit):
         checked += 1
         sku = sp.get("sku") or sp.get("supplier_code")
-        target_name = sp.get("display_name") or sp.get("product_name") or sp.get("name")
+        target_name = sp.get("product_name") or sp.get("display_name") or sp.get("name")
         if not sku or not target_name:
             continue
         tile = db.tiles.find_one(_tiles_query_for(sku), {"display_name": 1, "name": 1})
