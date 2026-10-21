@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../../lib/api';
 import { toast } from 'sonner';
-import { Building2, Plus, Edit2, Trash2, Phone, Mail, MapPin } from 'lucide-react';
+import { Building2, Plus, Edit2, Trash2, Phone, Mail, MapPin, Eye, EyeOff } from 'lucide-react';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
 import { Card } from '../../components/ui/card';
@@ -36,12 +36,22 @@ export const Showrooms = () => {
 
   const fetchStores = async () => {
     try {
-      const res = await api.getStores();
+      const res = await api.getStores(true); // include inactive so admins can manage/reactivate closed stores
       setStores(res.data);
     } catch (error) {
       toast.error('Failed to fetch showrooms');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const toggleActive = async (showroom) => {
+    try {
+      await api.setStoreStatus(showroom.id, !(showroom.is_active !== false));
+      toast.success(showroom.is_active !== false ? `${showroom.name} deactivated` : `${showroom.name} reactivated`);
+      fetchStores();
+    } catch (error) {
+      toast.error('Failed to update store status');
     }
   };
 
@@ -140,18 +150,35 @@ export const Showrooms = () => {
       {/* Stores Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-6">
         {showrooms.map((showroom) => (
-          <Card key={showroom.id} className="p-6" data-testid={`showroom-card-${showroom.id}`}>
+          <Card key={showroom.id} className={`p-6 ${showroom.is_active === false ? 'opacity-60 bg-gray-50' : ''}`} data-testid={`showroom-card-${showroom.id}`}>
             <div className="flex items-start justify-between mb-4">
               <div className="flex items-center gap-3">
                 <div className="p-3 bg-primary/10 rounded-lg">
                   <Building2 className="h-6 w-6 text-primary" />
                 </div>
                 <div>
-                  <h3 className="text-xl font-bold">{showroom.name}</h3>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-xl font-bold">{showroom.name}</h3>
+                    {showroom.is_active === false && (
+                      <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-gray-200 text-gray-600" data-testid={`inactive-badge-${showroom.id}`}>
+                        Closed
+                      </span>
+                    )}
+                  </div>
                   <p className="text-sm text-muted-foreground">Tile Station</p>
                 </div>
               </div>
               <div className="flex gap-1">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => toggleActive(showroom)}
+                  title={showroom.is_active === false ? 'Reactivate store' : 'Deactivate store (hides from EPOS & website, keeps history)'}
+                  className={showroom.is_active === false ? 'text-gray-400 hover:text-gray-600' : 'text-green-600 hover:text-green-700 hover:bg-green-50'}
+                  data-testid={`toggle-active-showroom-${showroom.id}`}
+                >
+                  {showroom.is_active === false ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </Button>
                 <Button 
                   variant="ghost" 
                   size="sm" 
@@ -285,6 +312,8 @@ export const Showrooms = () => {
             <DialogDescription>
               Are you sure you want to delete &ldquo;{deletingStore?.name}&rdquo;? This action cannot be undone.
               Staff members and customers associated with this showroom will be unassigned.
+              <br /><br />
+              <strong>Tip:</strong> If this store has past invoices/orders, use the &ldquo;eye&rdquo; icon to deactivate it instead — this hides it from EPOS and the website while keeping all historical financial data intact.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>

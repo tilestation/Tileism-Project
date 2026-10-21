@@ -14,11 +14,18 @@ router = APIRouter(prefix="/showrooms", tags=["Stores"])
 
 
 @router.get("", response_model=List[dict])
-async def get_showrooms(current_user: dict = Depends(get_current_user)):
-    """Get all showrooms (all authenticated users can view)"""
-    # All authenticated users can view showrooms (needed for day lock feature)
+async def get_showrooms(include_inactive: bool = False, current_user: dict = Depends(get_current_user)):
+    """Get showrooms (all authenticated users can view).
+
+    By default only ACTIVE showrooms are returned — closed/deactivated
+    showrooms (e.g. permanently closed stores) are hidden from EPOS
+    dropdowns, order assignment, stock transfers, etc. Pass
+    `include_inactive=true` for admin/reporting screens that need to
+    display historical data for closed showrooms.
+    """
     db = get_db()
-    raw = await db.showrooms.find({}).to_list(100000)
+    query = {} if include_inactive else {"is_active": {"$ne": False}}
+    raw = await db.showrooms.find(query).to_list(100000)
     # Normalise: every showroom MUST expose a stable `id` (frontend uses it as
     # React list key). A handful of legacy records lack `id`, so fall back to
     # the Mongo `_id`. Strip `_id` before returning (not JSON-serialisable).
@@ -90,7 +97,8 @@ async def update_showroom(showroom_id: str, input: StoreCreate, current_user: di
             "phone": input.phone,
             "email": input.email,
             "lat": input.lat,
-            "lng": input.lng
+            "lng": input.lng,
+            "is_active": input.is_active
         }}
     )
     
@@ -106,6 +114,40 @@ async def update_showroom(showroom_id: str, input: StoreCreate, current_user: di
         details=f"Store updated: {existing.get('name')} -> {input.name}"
     )
     
+    showroom = await db.showrooms.find_one({"id": showroom_id}, {"_id": 0})
+    return showroom
+
+
+@router.patch("/{showroom_id}/status")
+async def set_showroom_status(showroom_id: str, payload: dict, current_user: dict = Depends(get_current_user)):
+    """Activate/deactivate a showroom without deleting it (soft-delete).
+
+    Deactivating hides the showroom from EPOS dropdowns, order assignment,
+    stock transfers and the website store finder/checkout, while keeping
+    all historical invoices and revenue reporting fully intact.
+    """
+    if not is_admin_user(current_user):
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    db = get_db()
+    existing = await db.showrooms.find_one({"id": showroom_id}, {"_id": 0})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Store not found")
+
+    is_active = bool(payload.get("is_active", True))
+    await db.showrooms.update_one({"id": showroom_id}, {"$set": {"is_active": is_active}})
+
+    await log_audit(
+        action="UPDATE",
+        entity_type="store",
+        user=current_user,
+        entity_id=showroom_id,
+        entity_name=existing.get("name"),
+        before_data={"is_active": existing.get("is_active", True)},
+        after_data={"is_active": is_active},
+        details=f"Store {'reactivated' if is_active else 'deactivated'}: {existing.get('name')}"
+    )
+
     showroom = await db.showrooms.find_one({"id": showroom_id}, {"_id": 0})
     return showroom
 

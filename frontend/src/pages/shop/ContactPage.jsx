@@ -173,7 +173,7 @@ export default function ContactPage() {
           `/shop/contact` EXACT entry. */}
       <SeoHead
         title="Contact Us · Tile Station Tile Showrooms"
-        description="Visit our Tonbridge, Chingford, Gravesend or Sydenham tile showrooms, or contact our trade team for project quotes and UK-wide delivery pricing."
+        description="Visit our Tonbridge, Gravesend or Sydenham tile showrooms, or contact our trade team for project quotes and UK-wide delivery pricing."
         canonical="/shop/contact"
       />
       {/* Hero Section */}

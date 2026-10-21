@@ -1262,7 +1262,7 @@ export const InvoiceHistory = () => {
       const [invoicesRes, staffRes, showroomsRes, refundsRes] = await Promise.all([
         api.getInvoices(),
         api.getStaffPins().catch(() => ({ data: [] })),
-        api.getStores().catch(() => ({ data: [] })),
+        api.getStores(true).catch(() => ({ data: [] })), // include inactive (e.g. closed Chingford) so historical revenue/tabs still show
         api.getRefunds().catch(() => ({ data: [] }))
       ]);
       // Sort all invoices by date/time
@@ -3188,7 +3188,7 @@ export const InvoiceHistory = () => {
                             data-testid={`showroom-select-${invoice.id}`}
                           >
                             <option value="">Unassigned</option>
-                            {showrooms.map(showroom => (
+                            {showrooms.filter(s => s.is_active !== false).map(showroom => (
                               <option key={showroom.id} value={showroom.id}>
                                 {showroom.name}
                               </option>
@@ -4635,7 +4635,7 @@ export const InvoiceHistory = () => {
               data-testid="target-showroom-select"
             >
               <option value="">Select target showroom...</option>
-              {showrooms.map(showroom => (
+              {showrooms.filter(s => s.is_active !== false).map(showroom => (
                 <option key={showroom.id} value={showroom.id}>
                   {showroom.name}
                 </option>

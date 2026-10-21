@@ -223,17 +223,20 @@ export const api = {
     axios.post(`${API}/invites/send-email`, data, { headers: getAuthHeader() }),
 
   // Stores
-  getStores: () =>
-    axios.get(`${API}/showrooms`, { headers: getAuthHeader() }),
+  getStores: (includeInactive = false) =>
+    axios.get(`${API}/showrooms${includeInactive ? '?include_inactive=true' : ''}`, { headers: getAuthHeader() }),
   
-  getShowrooms: () =>
-    axios.get(`${API}/showrooms`, { headers: getAuthHeader() }),
+  getShowrooms: (includeInactive = false) =>
+    axios.get(`${API}/showrooms${includeInactive ? '?include_inactive=true' : ''}`, { headers: getAuthHeader() }),
   
   createStore: (data) =>
     axios.post(`${API}/showrooms`, data, { headers: getAuthHeader() }),
   
   updateStore: (id, data) =>
     axios.put(`${API}/showrooms/${id}`, data, { headers: getAuthHeader() }),
+  
+  setStoreStatus: (id, isActive) =>
+    axios.patch(`${API}/showrooms/${id}/status`, { is_active: isActive }, { headers: getAuthHeader() }),
   
   deleteStore: (id) =>
     axios.delete(`${API}/showrooms/${id}`, { headers: getAuthHeader() }),
