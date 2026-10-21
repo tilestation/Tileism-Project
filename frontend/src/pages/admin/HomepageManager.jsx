@@ -3015,7 +3015,7 @@ function PageBannersEditor({
 
 // ============ FOOTER EDITOR ============
 const DEFAULT_FOOTER = {
-  description: 'Premium quality tiles for your home. Visit our showrooms in Tonbridge, Gravesend, Chingford and Sydenham.',
+  description: 'Premium quality tiles for your home. Visit our showrooms in Tonbridge, Gravesend and Sydenham.',
   phone: '01732 424242',
   email: 'info@tilestation.co.uk',
   quickLinks: [
@@ -3035,7 +3035,7 @@ const DEFAULT_FOOTER = {
   showrooms: [
     { name: 'Tonbridge', hours: 'Open 7 days a week' },
     { name: 'Gravesend', hours: 'Open 7 days a week' },
-    { name: 'Chingford', hours: 'Open 7 days a week' },
+    { name: 'Sydenham', hours: 'Open 7 days a week' },
   ],
   copyrightText: 'Tile Station Ltd. All rights reserved.',
   legalLinks: [

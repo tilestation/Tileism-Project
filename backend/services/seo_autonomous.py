@@ -58,16 +58,6 @@ SHOWROOMS = [
         "phone": "+441474352525",
         "lat": 51.4419, "lon": 0.3712,
     },
-    {
-        "id": "chingford",
-        "name": "Tile Station Chingford",
-        "street": "Unit 1, Chingford Industrial Centre, Hall Lane",
-        "locality": "Chingford",
-        "region": "London",
-        "postcode": "E4 8DJ",
-        "phone": "+442085274747",
-        "lat": 51.6307, "lon": 0.0072,
-    },
 ]
 
 

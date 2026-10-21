@@ -122,7 +122,6 @@ const DEFAULT_PAGES = [
         cards: [
           { title: 'Tonbridge', description: 'Open 7 days a week\nMonday - Saturday: 9am - 5:30pm\nSunday: 10am - 4pm', icon: 'MapPin' },
           { title: 'Gravesend', description: 'Open 7 days a week\nMonday - Saturday: 9am - 5:30pm\nSunday: 10am - 4pm', icon: 'MapPin' },
-          { title: 'Chingford', description: 'Open 7 days a week\nMonday - Saturday: 9am - 5:30pm\nSunday: 10am - 4pm', icon: 'MapPin' },
         ]
       }
     ]

@@ -731,8 +731,8 @@ async def send_sample_followup_email(
                     <strong>Prefer to chat or see more samples in person?</strong>
                 </p>
                 <p style="font-size:13px;color:#666;line-height:1.5;margin:0 0 6px 0">
-                    Pop into any of our showrooms — Tonbridge, Gravesend,
-                    Chingford or Sydenham. Trade-quality advice, no appointment
+                    Pop into any of our showrooms — Tonbridge or Gravesend.
+                    Trade-quality advice, no appointment
                     needed, and showroom sample collection is always free.
                 </p>
             </div>

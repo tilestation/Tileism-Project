@@ -32,11 +32,11 @@ const defaultContent = {
   detail2: "Mid-size tiles ship as approx. 10×10 cm cut samples — free of charge",
   detail3: "Large-format tiles (≥600×600 mm) also offer a 300×600 mm Full Size Sample for £5",
   detail4: "Maximum 3 FREE samples per order. Full Size Samples are unlimited.",
-  detail5: "£2.99 Royal Mail delivery — or collect free from Tonbridge / Gravesend / Chingford / Sydenham",
+  detail5: "£2.99 Royal Mail delivery — or collect free from Tonbridge / Gravesend / Sydenham",
   cta_title: "Ready to Start?",
   cta_text: "Browse our collection and start selecting your samples today.",
   cta_button: "Browse Tiles",
-  showroom_text: "Prefer to see tiles in person? Visit one of our showrooms in Tonbridge, Gravesend, Chingford or Sydenham — sample collection is always free."
+  showroom_text: "Prefer to see tiles in person? Visit one of our showrooms in Tonbridge, Gravesend or Sydenham — sample collection is always free."
 };
 
 const TileSampleServicePage = () => {

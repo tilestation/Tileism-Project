@@ -7286,7 +7286,7 @@ async def create_sample_order(data: SampleOrderCreate):
             detail={
                 "message": (
                     "We don't post samples for clearance tiles — please visit any "
-                    "of our showrooms (Tonbridge, Gravesend, Chingford, Sydenham) "
+                    "of our showrooms (Tonbridge, Gravesend) "
                     "to view the tile in person."
                 ),
                 "blocked_clearance_product_ids": blocked_clearance_ids,

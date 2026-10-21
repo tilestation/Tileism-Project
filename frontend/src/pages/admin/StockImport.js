@@ -15,7 +15,6 @@ const API_URL = process.env.REACT_APP_BACKEND_URL;
 const SHOWROOMS = [
   { value: 'gravesend', label: 'Gravesend' },
   { value: 'tonbridge', label: 'Tonbridge' },
-  { value: 'chingford', label: 'Chingford' },
   { value: 'sydenham', label: 'Sydenham' },
 ];
 

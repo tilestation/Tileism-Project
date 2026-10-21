@@ -48,7 +48,10 @@ const StockTransfers = () => {
 
   const fetchShowrooms = async () => {
     try {
-      const res = await fetch(`${API_URL}/api/showrooms`);
+      const token = localStorage.getItem('token');
+      const res = await fetch(`${API_URL}/api/showrooms`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
       if (res.ok) {
         const data = await res.json();
         setShowrooms(data || []);

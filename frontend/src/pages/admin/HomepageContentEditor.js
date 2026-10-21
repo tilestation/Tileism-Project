@@ -25,7 +25,7 @@ const defaultContent = {
   banner_text: "Premium Quality Tiles",
   banner_link: "",
   about_title: "About Tile Station",
-  about_text: "Premium quality tiles for your home. Visit our showrooms in Tonbridge, Gravesend, Chingford and Sydenham.",
+  about_text: "Premium quality tiles for your home. Visit our showrooms in Tonbridge, Gravesend and Sydenham.",
   about_image: ""
 };
 

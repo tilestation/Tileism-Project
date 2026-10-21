@@ -8,9 +8,19 @@ from fastapi import APIRouter, HTTPException, Depends
 
 from config import get_db
 from models import Store, StoreCreate
-from services import get_current_user, is_admin_user, log_audit
+from services import get_current_user, log_audit
 
 router = APIRouter(prefix="/showrooms", tags=["Stores"])
+
+
+def _can_manage_showrooms(user: dict) -> bool:
+    """Only super_admin/admin can create, edit, (de)activate or delete showrooms.
+
+    Stricter than the general `is_admin_user` helper (which also treats
+    'manager'/'staff' as admin) because opening/closing a store is a
+    business-critical action, not a day-to-day staff task.
+    """
+    return user.get("role") in ["super_admin", "admin"]
 
 
 @router.get("", response_model=List[dict])
@@ -41,7 +51,7 @@ async def get_showrooms(include_inactive: bool = False, current_user: dict = Dep
 @router.post("")
 async def create_showroom(input: StoreCreate, current_user: dict = Depends(get_current_user)):
     """Create a new showroom (admin only)"""
-    if not is_admin_user(current_user):
+    if not _can_manage_showrooms(current_user):
         raise HTTPException(status_code=403, detail="Admin access required")
     
     db = get_db()
@@ -79,7 +89,7 @@ async def create_showroom(input: StoreCreate, current_user: dict = Depends(get_c
 @router.put("/{showroom_id}")
 async def update_showroom(showroom_id: str, input: StoreCreate, current_user: dict = Depends(get_current_user)):
     """Update a showroom (admin only)"""
-    if not is_admin_user(current_user):
+    if not _can_manage_showrooms(current_user):
         raise HTTPException(status_code=403, detail="Admin access required")
     
     db = get_db()
@@ -126,7 +136,7 @@ async def set_showroom_status(showroom_id: str, payload: dict, current_user: dic
     stock transfers and the website store finder/checkout, while keeping
     all historical invoices and revenue reporting fully intact.
     """
-    if not is_admin_user(current_user):
+    if not _can_manage_showrooms(current_user):
         raise HTTPException(status_code=403, detail="Admin access required")
 
     db = get_db()
@@ -155,7 +165,7 @@ async def set_showroom_status(showroom_id: str, payload: dict, current_user: dic
 @router.delete("/{showroom_id}")
 async def delete_showroom(showroom_id: str, current_user: dict = Depends(get_current_user)):
     """Delete a showroom (admin only)"""
-    if not is_admin_user(current_user):
+    if not _can_manage_showrooms(current_user):
         raise HTTPException(status_code=403, detail="Admin access required")
     
     db = get_db()

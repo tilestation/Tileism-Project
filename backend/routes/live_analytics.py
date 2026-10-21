@@ -440,7 +440,6 @@ async def _build_showroom_coords_cache(db) -> List[dict]:
         showrooms_in_db = [
             {"id": "tonbridge", "name": "Tonbridge", "address": "Unit 2, Cannon Business Park, Cannon Lane, Tonbridge, TN9 1PP", "phone": "01732 424242"},
             {"id": "gravesend", "name": "Gravesend", "address": "Unit 1-2, Imperial Business Estate, Gravesend, DA12 5ND", "phone": "01474 352525"},
-            {"id": "chingford", "name": "Chingford", "address": "Unit 1, Chingford Industrial Centre, Hall Lane, London, E4 8DJ", "phone": "020 8527 4747"},
             {"id": "sydenham", "name": "Sydenham", "address": "329-331 Sydenham Road, London, SE26 5EQ", "phone": "020 8778 9797"},
         ]
 

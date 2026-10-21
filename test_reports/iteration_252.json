@@ -1,0 +1,51 @@
+{
+  "summary": "Tested the Chingford soft-deactivation in the backend (10 pytest cases) and the UI (Playwright, admin + public site). Working: GET /api/showrooms hides Chingford by default; ?include_inactive=true returns it with is_active=false and no _id. The PATCH status endpoint works for admin (200, saved), returns 404 for an unknown id and 401/403 without a token. /api/shop/stores and /api/website-admin/showrooms/public list only Tonbridge/Gravesend/Sydenham, and the warehouse is not in shop/stores. Stores admin page: Chingford shows the 'Closed' badge, is dimmed (opacity-60), and the eye toggle reactivates and deactivates it; both survive a page reload. Invoice History revenue tabs still show Chingford. Chingford is absent from the EPOS, HR, Users and Order Management store dropdowns. The Chingford document still exists with is_active=false (left that way after testing). FAILED: a 'staff' role user can PATCH the status (200, expected 403). Also found: the Stock Transfers create dialog has empty showroom dropdowns (403), and the public site footer, a homepage card and other copy still name Chingford.",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "PATCH /api/showrooms/{id}/status (also POST/PUT/DELETE /api/showrooms)", "issue": "A staff-role JWT gets 200 instead of 403. Cause: services/auth.py is_admin_user() returns True for ['super_admin','admin','manager','staff'], so any staff member can deactivate, edit or hard-delete stores. Use a stricter check (e.g. role in ['super_admin','admin'] or a has_permission check) for the showroom write endpoints.", "priority": "HIGH"}
+    ],
+    "minor": [
+      {"endpoint": "GET /api/website-admin/showrooms", "issue": "Works with no auth token and returns every showroom, including Chingford with is_active=false. It is an admin list, so it should require auth (it may be pre-existing)."},
+      {"endpoint": "GET /api/deliveries (map endpoint, deliveries.py:432)", "issue": "Uses db.showrooms.find({}) with no is_active filter, so Chingford may still show as a depot pin on the delivery map."},
+      {"endpoint": "business_config/showrooms.py:109-113", "issue": "The nearest-showroom map still sends london/croydon/basildon/southend to 'chingford', so customers in those areas get pointed at the closed store."},
+      {"endpoint": "services/seo_autonomous.py:62, services/email.py:28/120/735, routes/shop.py:7289, routes/website_admin.py:1807/1926/5317 (seed defaults)", "issue": "Hardcoded Chingford store data and copy remain in the SEO LocalBusiness schema, email templates/footers, a shop prompt text and the website seed defaults."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "StockTransfers.js fetchShowrooms (line 51)", "issue": "Calls fetch(`${API_URL}/api/showrooms`) without an Authorization header, so it gets 403 and the From/To dropdowns in the 'Create Stock Transfer' dialog are empty. New transfers cannot be created at all (probably pre-existing). Fix: use api.getStores() or add the auth header.", "selector": "Create Stock Transfer dialog select", "priority": "HIGH"}
+    ],
+    "integration_issues": [
+      {"flow": "Public website footer (every /shop page, /tiles, homepage, checkout)", "issue": "The footer 'Our Showrooms' list reads Tonbridge / Gravesend / Chingford and does not include Sydenham. The data comes from the DB website_settings.footer_settings plus the TileStationHome.js:1223 fallback.", "affected_selectors": ["footer"]},
+      {"flow": "Homepage feature card + meta description", "issue": "The DB feature_cards text says 'Tonbridge, Gravesend & Chingford stores' and links to /shop/stores. The TileStationHome.js:1153 and 1512 fallbacks and the homepage meta description also mention Chingford.", "affected_selectors": ["homepage feature cards"]},
+      {"flow": "Sample service / OrderSampleButton / city landing pages", "issue": "TileSampleServicePage.js:35/39, OrderSampleButton.jsx:78/177, SampleServiceContent.js:45, HomepageContentEditor.js:28, HomepageManager.jsx:3018/3038 and InfoPagesEditor.jsx:125 still name Chingford. The DB city_landing_pages (tile-shop-london, kitchen-tiles-london, buy-tiles-online-uk) tell customers to visit the Chingford showroom. StockImport.js:18 still has a hardcoded 'chingford' option.", "affected_selectors": []},
+      {"flow": "Stock Transfers list", "issue": "11 PENDING transfers from Tonbridge Warehouse to Chingford still offer Dispatch/Direct Receive actions. Cancel or flag them so stock is not dispatched to the closed store.", "affected_selectors": ["Dispatch", "Direct Receive"]}
+    ],
+    "design_issues": [
+      {"screen": "Invoice History", "issues": ["The date filters use the browser's native date input instead of the shadcn calendar (pre-existing)"]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_showroom_deactivation.py", "/app/test_reports/pytest/pytest_showroom_deactivation.xml"],
+  "action_items": [
+    "HIGH: Restrict the showroom status/create/update/delete endpoints to super_admin/admin. is_admin_user currently includes the 'staff' role.",
+    "HIGH: StockTransfers.js should fetch showrooms with the auth header (api.getStores()); the create-transfer dropdowns are currently empty because of a 403.",
+    "Remove Chingford from the public footer (DB website_settings.footer_settings plus the TileStationHome.js fallback) and add Sydenham, which is missing.",
+    "Update the DB feature_cards and city_landing_pages content, plus the hardcoded strings in TileStationHome.js, TileSampleServicePage.js, OrderSampleButton.jsx, SampleServiceContent.js, HomepageContentEditor.js, HomepageManager.jsx and InfoPagesEditor.jsx.",
+    "Update business_config/showrooms.py nearest-showroom mapping (london/croydon/basildon/southend currently resolve to chingford), the seo_autonomous.py LocalBusiness schema, the services/email.py templates and the website_admin.py seed defaults.",
+    "Decide how to handle the 11 pending stock transfers to Chingford (cancel or flag).",
+    "Optional: filter is_active in deliveries.py:432 (map); require auth on GET /api/website-admin/showrooms."
+  ],
+  "critical_code_review_comments": [
+    "is_admin_user() treats 'staff' as admin, so every endpoint guarded by it is open to staff. Review this broadly.",
+    "Reporting and name-lookup code paths (analytics, reports, orders maps) correctly still use find({}), so historical Chingford names resolve. Good.",
+    "Showrooms.js toggle has no confirmation dialog before deactivating a store. Consider adding one, since it immediately hides the store from EPOS and checkout."
+  ],
+  "updated_files": ["/app/backend/tests/test_showroom_deactivation.py"],
+  "success_rate": {"backend": "89% (8/9 run, 1 skipped)", "frontend": "~75% (requested flows pass; Stock Transfers dropdown broken; public footer/copy still mention Chingford)"},
+  "seed_data_creation": "Temporary staff user TEST_showroom_staff_* is created and deleted on each test run. Chingford was toggled active then inactive again during tests and left as is_active=false.",
+  "test_credentials": "admin@test.com / admin123 (super_admin)",
+  "retest_needed": true,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Run pytest tests/test_showroom_deactivation.py; test_staff_forbidden should pass after the RBAC fix. Chingford id is cd750826-40f2-441e-89a0-af966a0df9be and must stay is_active=false. Admin routes: /admin/showrooms, /admin/stock-transfers, /admin/invoice-history (revenue-store-tab-*), /admin/order-management. /shop/stores redirects to /shop/contact. Checkout Click & Collect was verified only at the API level (/api/shop/stores) because the cart was empty.",
+  "rca of the issue": "Staff 403: the PATCH endpoint reuses is_admin_user, which whitelists the 'staff' role. Stock Transfers empty dropdown: the plain fetch() has no Bearer token, and /api/showrooms requires auth (returns 403). Leftover Chingford text: much of the public copy lives in DB CMS docs (website_settings, feature_cards, city_landing_pages) and hardcoded fallbacks, which were outside the showroom-collection filter change."
+}

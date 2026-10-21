@@ -1150,7 +1150,7 @@ const ShoppingWithUs = () => {
         setUsps([
           { icon: iconMap['Palette'], title: 'Design Your Dream Room', description: 'Tap into your creativity with help from our online visualiser tool.', link: '/shop/visualiser' },
           { icon: iconMap['Package'], title: 'Free Samples', description: 'Order free samples delivered to your door free of charge.', link: '/shop/sample-service' },
-          { icon: iconMap['MapPin'], title: 'Our Showrooms', description: 'Chat with our specialists at our Tonbridge, Gravesend, Chingford & Sydenham stores.', link: '/shop/contact' },
+          { icon: iconMap['MapPin'], title: 'Our Showrooms', description: 'Chat with our specialists at our Tonbridge, Gravesend & Sydenham stores.', link: '/shop/contact' },
           { icon: iconMap['Truck'], title: 'Free Delivery', description: 'Free delivery on qualifying orders, or collect from store.', link: '/shop/info/delivery' },
           { icon: iconMap['Star'], title: 'Loved By Customers', description: 'Rated 4.9 stars from thousands of happy customers.', link: '/shop/reviews' },
         ]);
@@ -1201,7 +1201,7 @@ const ShopFooter = () => {
       .catch(() => {});
   }, []);
 
-  const desc = footer?.description || 'Premium quality tiles for your home. Visit our showrooms in Tonbridge, Gravesend, Chingford and Sydenham.';
+  const desc = footer?.description || 'Premium quality tiles for your home. Visit our showrooms in Tonbridge, Gravesend and Sydenham.';
   const phone = footer?.phone || '01732 424242';
   const email = footer?.email || 'info@tilestation.co.uk';
   const quickLinks = footer?.quickLinks || [
@@ -1220,7 +1220,7 @@ const ShopFooter = () => {
   const showrooms = footer?.showrooms || [
     { name: 'Tonbridge', hours: 'Open 7 days a week' },
     { name: 'Gravesend', hours: 'Open 7 days a week' },
-    { name: 'Chingford', hours: 'Open 7 days a week' },
+    { name: 'Sydenham', hours: 'Open 7 days a week' },
   ];
   const copyrightText = footer?.copyrightText || 'Tile Station Ltd. All rights reserved.';
   const legalLinks = footer?.legalLinks || [
@@ -1509,7 +1509,7 @@ const TileStationHome = () => {
     <div className="min-h-screen bg-white">
       <SeoHead
         title="Tile Station — Premium Kitchen, Bathroom & Floor Tiles · Free UK Delivery"
-        description="Shop premium kitchen, bathroom and floor tiles online with free UK delivery on orders over £500. Visit our Kent, Essex and London showrooms — Gravesend, Tonbridge, Chingford, Sydenham. Trade pricing, free samples, expert advice."
+        description="Shop premium kitchen, bathroom and floor tiles online with free UK delivery on orders over £500. Visit our Kent and London showrooms — Gravesend, Tonbridge, Sydenham. Trade pricing, free samples, expert advice."
         canonical="/"
         keywords="tiles uk, kitchen tiles, bathroom tiles, porcelain tiles, floor tiles, tile shop kent, tile shop london"
       />

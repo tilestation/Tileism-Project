@@ -428,8 +428,8 @@ async def get_map_data(
     db = get_db()
     today = date or datetime.now(timezone.utc).strftime("%Y-%m-%d")
     
-    # Get showrooms with coordinates
-    showrooms = await db.showrooms.find({}, {"_id": 0}).to_list(100)
+    # Get showrooms with coordinates (exclude closed/inactive showrooms from the map)
+    showrooms = await db.showrooms.find({"is_active": {"$ne": False}}, {"_id": 0}).to_list(100)
     
     # Get deliveries
     query = {"delivery_date": today}

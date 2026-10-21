@@ -1804,7 +1804,7 @@ async def get_feature_cards():
             {
                 "icon": "MapPin",
                 "title": "Our Showrooms",
-                "description": "Chat with our specialists at our Tonbridge, Gravesend, Chingford & Sydenham stores.",
+                "description": "Chat with our specialists at our Tonbridge, Gravesend & Sydenham stores.",
                 "link": "/shop/stores",
                 "display_order": 2,
                 "is_active": True
@@ -1923,7 +1923,7 @@ async def get_public_feature_cards():
         return [
             {"icon": "Palette", "title": "Design Your Dream Room", "description": "Tap into your creativity with help from our online visualiser tool.", "link": "/shop/visualiser"},
             {"icon": "Package", "title": "Free Samples", "description": "Add up to 3 free samples delivered to your door free of charge.", "link": "/shop/sample-service"},
-            {"icon": "MapPin", "title": "Our Showrooms", "description": "Chat with our specialists at our Tonbridge, Gravesend, Chingford & Sydenham stores.", "link": "/shop/stores"},
+            {"icon": "MapPin", "title": "Our Showrooms", "description": "Chat with our specialists at our Tonbridge, Gravesend & Sydenham stores.", "link": "/shop/stores"},
             {"icon": "Truck", "title": "Free Delivery", "description": "Free delivery for orders over £499, or collect from store.", "link": "/shop/info/delivery"},
             {"icon": "Star", "title": "Loved By Customers", "description": "Rated 4.9 stars from thousands of happy customers.", "link": "/shop/reviews"},
         ]
@@ -4614,8 +4614,8 @@ async def get_uk_holidays():
 
 
 @router.get("/showrooms")
-async def get_all_showrooms():
-    """Get all showrooms for the contact page"""
+async def get_all_showrooms(current_user: dict = Depends(get_current_user)):
+    """Get all showrooms for the contact page (admin only — includes inactive)"""
     try:
         showrooms = await db.showrooms.find({}).sort("display_order", 1).to_list(50)
         

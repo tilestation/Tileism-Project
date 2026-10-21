@@ -42,7 +42,7 @@ const defaultContent = {
   cta_title: "Ready to Start?",
   cta_text: "Browse our collection and start selecting your free samples today.",
   cta_button: "Browse Tiles",
-  showroom_text: "Prefer to see tiles in person? Visit one of our showrooms in Tonbridge, Gravesend, Chingford or Sydenham where our expert team can help you find the perfect tiles."
+  showroom_text: "Prefer to see tiles in person? Visit one of our showrooms in Tonbridge, Gravesend or Sydenham where our expert team can help you find the perfect tiles."
 };
 
 const SampleServiceContent = () => {

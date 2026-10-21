@@ -75,7 +75,7 @@ const OrderSampleButton = ({
         <Package className="w-4 h-4 mt-0.5 flex-shrink-0" />
         <span>
           <strong>No samples for clearance tiles.</strong> Visit any showroom
-          (Tonbridge / Gravesend / Chingford / Sydenham) to view this tile in person.
+          (Tonbridge / Gravesend / Sydenham) to view this tile in person.
         </span>
       </div>
     );
@@ -174,7 +174,7 @@ const OrderSampleButton = ({
             />
           )}
           <p className="px-3 py-2 text-[11px] text-gray-500 border-t border-gray-100 mt-1">
-            All samples free to collect from any showroom (Tonbridge / Gravesend / Chingford / Sydenham).
+            All samples free to collect from any showroom (Tonbridge / Gravesend / Sydenham).
           </p>
         </div>
       )}

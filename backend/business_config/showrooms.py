@@ -52,7 +52,7 @@ SHOWROOMS: dict[str, dict] = {
         "hours": "Mon-Fri 07:30-17:30, Sat 08:30-17:30, Sun 10:00-16:00",
         "lat": 51.6276,
         "lng": 0.0026,
-        "is_open": True,
+        "is_open": False,  # permanently closed — kept for historical data lookups only
     },
     "sydenham": {
         "name": "Tile Station Sydenham",
@@ -106,11 +106,9 @@ TOWN_NEAREST_SHOWROOM: dict[str, str] = {
     "eastbourne": "tonbridge",
     "hastings": "tonbridge",
 
-    # Chingford catchment — North/East London + South Essex
-    "london": "chingford",
-    "croydon": "chingford",
-    "basildon": "chingford",
-    "southend-on-sea": "chingford",
+    # North/East London + South Essex — Chingford showroom permanently
+    # closed; routed to Gravesend (head office) via the default fallback
+    # in get_nearest_showroom() below.
 }
 
 
