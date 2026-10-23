@@ -4,6 +4,7 @@ Public-facing routes for the online store
 """
 import uuid
 import os
+import stripe
 import logging
 
 logger = logging.getLogger(__name__)
@@ -3320,7 +3321,7 @@ async def create_klarna_express_session(request: Request, data: KlarnaExpressReq
     # Create a placeholder shop_orders doc — customer details filled in by webhook
     now = datetime.now(timezone.utc)
     order_id = str(uuid.uuid4())
-    order_number = f"KE-{int(now.timestamp())}"[-12:]  # KE = Klarna Express
+    order_number = f"KE-{str(int(now.timestamp()))[-10:]}"  # KE = Klarna Express
     order_doc = {
         "id": order_id,
         "order_number": order_number,
@@ -3348,43 +3349,69 @@ async def create_klarna_express_session(request: Request, data: KlarnaExpressReq
     await _attach_trade_metadata(db, order_doc, order_doc.get("customer_id"))
     await db.shop_orders.insert_one(order_doc)
     
-    # Build Stripe session — Klarna only, Stripe collects address via Klarna flow
+    # Build Stripe session — Klarna only. We call stripe.checkout.Session.create
+    # directly (bypassing the emergentintegrations wrapper, which doesn't
+    # support shipping/billing address collection) so the customer's address
+    # and phone are actually captured on the session — previously this was
+    # silently never collected, leaving paid orders with blank customer/
+    # delivery/billing data.
     webhook_url = _resolve_webhook_url(request)
-    stripe_checkout = StripeCheckout(api_key=stripe_api_key, webhook_url=webhook_url)
-    
+    stripe_checkout = StripeCheckout(api_key=stripe_api_key, webhook_url=webhook_url)  # sets stripe.api_key (+ emergent proxy base if applicable)
+
     success_url = f"{data.origin_url}/shop/order-success?session_id={{CHECKOUT_SESSION_ID}}&order_id={order_id}"
     cancel_url = f"{data.origin_url}/shop/tile-cart?express_cancelled=1"
-    
-    checkout_request = CheckoutSessionRequest(
-        amount=total,
-        currency="gbp",
-        payment_methods=["klarna"],  # Express = Klarna only
-        success_url=success_url,
-        cancel_url=cancel_url,
-        metadata={
-            "order_id": order_id,
-            "order_number": order_number,
-            "source": "klarna_express",
+
+    stripe_line_items = [{
+        "price_data": {
+            "currency": "gbp",
+            "product_data": {"name": item.get("name") or item.get("display_name") or "Tile order item"},
+            "unit_amount": int(round(item["price"] * 100)),
         },
-    )
-    
+        "quantity": max(1, int(item["quantity"])),
+    } for item in cleaned_items]
+    if delivery_fee > 0:
+        stripe_line_items.append({
+            "price_data": {
+                "currency": "gbp",
+                "product_data": {"name": "Delivery"},
+                "unit_amount": int(round(delivery_fee * 100)),
+            },
+            "quantity": 1,
+        })
+
     try:
-        session = await stripe_checkout.create_checkout_session(checkout_request)
+        session = stripe.checkout.Session.create(
+            payment_method_types=["klarna"],  # Express = Klarna only
+            line_items=stripe_line_items,
+            mode="payment",
+            success_url=success_url,
+            cancel_url=cancel_url,
+            customer_email=data.customer_email or None,
+            shipping_address_collection={"allowed_countries": ["GB"]},
+            billing_address_collection="required",
+            phone_number_collection={"enabled": True},
+            metadata={
+                "order_id": order_id,
+                "order_number": order_number,
+                "source": "klarna_express",
+                "webhook_url": webhook_url or "",
+            },
+        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Klarna session failed: {str(e)}")
-    
+
     # Persist session ID on the order for webhook reconciliation
     await db.shop_orders.update_one(
         {"id": order_id},
         {"$set": {
-            "stripe_session_id": session.session_id,
+            "stripe_session_id": session.id,
             "payment_status": "initiated",
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }},
     )
-    
+
     return {
-        "session_id": session.session_id,
+        "session_id": session.id,
         "url": session.url,
         "order_id": order_id,
         "total": total,
@@ -3439,7 +3466,7 @@ async def create_paypal_express_session(request: Request, data: PaypalExpressReq
     # Create a placeholder shop_orders doc — customer details filled in by webhook
     now = datetime.now(timezone.utc)
     order_id = str(uuid.uuid4())
-    order_number = f"PE-{int(now.timestamp())}"[-12:]  # PE = PayPal Express
+    order_number = f"PE-{str(int(now.timestamp()))[-10:]}"  # PE = PayPal Express
     order_doc = {
         "id": order_id,
         "order_number": order_number,
@@ -3467,28 +3494,49 @@ async def create_paypal_express_session(request: Request, data: PaypalExpressReq
     await _attach_trade_metadata(db, order_doc, order_doc.get("customer_id"))
     await db.shop_orders.insert_one(order_doc)
 
-    # Build Stripe session — PayPal only
+    # Build Stripe session — PayPal only (direct Stripe call, same reasoning as Klarna Express above)
     webhook_url = _resolve_webhook_url(request)
-    stripe_checkout = StripeCheckout(api_key=stripe_api_key, webhook_url=webhook_url)
+    stripe_checkout = StripeCheckout(api_key=stripe_api_key, webhook_url=webhook_url)  # sets stripe.api_key (+ emergent proxy base if applicable)
 
     success_url = f"{data.origin_url}/shop/order-success?session_id={{CHECKOUT_SESSION_ID}}&order_id={order_id}"
     cancel_url = f"{data.origin_url}/shop/tile-cart?express_cancelled=1"
 
-    checkout_request = CheckoutSessionRequest(
-        amount=total,
-        currency="gbp",
-        payment_methods=["paypal"],
-        success_url=success_url,
-        cancel_url=cancel_url,
-        metadata={
-            "order_id": order_id,
-            "order_number": order_number,
-            "source": "paypal_express",
+    stripe_line_items = [{
+        "price_data": {
+            "currency": "gbp",
+            "product_data": {"name": item.get("name") or item.get("display_name") or "Tile order item"},
+            "unit_amount": int(round(item["price"] * 100)),
         },
-    )
+        "quantity": max(1, int(item["quantity"])),
+    } for item in cleaned_items]
+    if delivery_fee > 0:
+        stripe_line_items.append({
+            "price_data": {
+                "currency": "gbp",
+                "product_data": {"name": "Delivery"},
+                "unit_amount": int(round(delivery_fee * 100)),
+            },
+            "quantity": 1,
+        })
 
     try:
-        session = await stripe_checkout.create_checkout_session(checkout_request)
+        session = stripe.checkout.Session.create(
+            payment_method_types=["paypal"],
+            line_items=stripe_line_items,
+            mode="payment",
+            success_url=success_url,
+            cancel_url=cancel_url,
+            customer_email=data.customer_email or None,
+            shipping_address_collection={"allowed_countries": ["GB"]},
+            billing_address_collection="required",
+            phone_number_collection={"enabled": True},
+            metadata={
+                "order_id": order_id,
+                "order_number": order_number,
+                "source": "paypal_express",
+                "webhook_url": webhook_url or "",
+            },
+        )
     except Exception as e:
         logger.exception(f"[paypal-express] Stripe session failed | order={order_id} total={total}")
         raise HTTPException(status_code=502, detail=f"PayPal session failed: {str(e)[:200]}")
@@ -3496,14 +3544,14 @@ async def create_paypal_express_session(request: Request, data: PaypalExpressReq
     await db.shop_orders.update_one(
         {"id": order_id},
         {"$set": {
-            "stripe_session_id": session.session_id,
+            "stripe_session_id": session.id,
             "payment_status": "initiated",
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }},
     )
 
     return {
-        "session_id": session.session_id,
+        "session_id": session.id,
         "url": session.url,
         "order_id": order_id,
         "total": total,

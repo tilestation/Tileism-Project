@@ -9064,17 +9064,52 @@ async def stripe_webhook(request: Request):
                             )
                         if fallback_order and fallback_order.get("payment_status") != "paid":
                             now = datetime.now(timezone.utc).isoformat()
+
+                            # Stripe's hosted Klarna/PayPal flow collects the
+                            # customer's name/email/phone + shipping address
+                            # itself (Tile Station's own checkout form is
+                            # skipped for Express orders) — pull it from the
+                            # checkout.session payload so the order isn't left
+                            # with blank customer/address fields forever.
+                            cust_details = session.get("customer_details") or {}
+                            ship_details = session.get("shipping_details") or session.get("shipping") or {}
+                            ship_addr = ship_details.get("address") or cust_details.get("address") or {}
+
+                            def _addr_from_stripe(a):
+                                if not a:
+                                    return {}
+                                return {
+                                    "address1": a.get("line1") or "",
+                                    "address2": a.get("line2") or "",
+                                    "city": a.get("city") or "",
+                                    "county": a.get("state") or "",
+                                    "postcode": a.get("postal_code") or "",
+                                    "country": a.get("country") or "",
+                                }
+
+                            fallback_update = {
+                                "status": "confirmed",
+                                "payment_status": "paid",
+                                "paid_at": now,
+                                "updated_at": now,
+                                "webhook_paid": True,
+                                "webhook_event_id": event.get("id"),
+                                "stripe_session_id": session_id,
+                            }
+                            if cust_details.get("email") and not fallback_order.get("customer_email"):
+                                fallback_update["customer_email"] = cust_details["email"]
+                            if (cust_details.get("name") or ship_details.get("name")) and not fallback_order.get("customer_name"):
+                                fallback_update["customer_name"] = cust_details.get("name") or ship_details.get("name")
+                            if cust_details.get("phone") and not fallback_order.get("customer_phone"):
+                                fallback_update["customer_phone"] = cust_details["phone"]
+                            if ship_addr and not fallback_order.get("delivery_address"):
+                                fallback_update["delivery_address"] = _addr_from_stripe(ship_addr)
+                            if cust_details.get("address") and not fallback_order.get("billing_address"):
+                                fallback_update["billing_address"] = _addr_from_stripe(cust_details["address"])
+
                             await db.shop_orders.update_one(
                                 {"id": fallback_order["id"]},
-                                {"$set": {
-                                    "status": "confirmed",
-                                    "payment_status": "paid",
-                                    "paid_at": now,
-                                    "updated_at": now,
-                                    "webhook_paid": True,
-                                    "webhook_event_id": event.get("id"),
-                                    "stripe_session_id": session_id,
-                                }},
+                                {"$set": fallback_update},
                             )
                             # Deduct stock
                             for item in fallback_order.get("items", []):
