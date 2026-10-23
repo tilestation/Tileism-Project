@@ -3253,6 +3253,54 @@ async def create_guest_payment_session(request: Request, data: dict):
 
 # ============ PAYMENT (STRIPE) ============
 
+def extract_stripe_customer_fields(session: dict) -> dict:
+    """Pull customer name/email/phone + delivery/billing address out of a
+    Stripe Checkout Session payload (works for both the raw webhook event
+    object and a `stripe.checkout.Session.retrieve()` response).
+
+    Handles both the legacy session shape (`shipping_details`/`shipping`
+    at the top level) and the Stripe API 2025-03-31+ ("basil") shape where
+    it moved to `collected_information.shipping_details`.
+
+    Returns only the fields that were actually present — callers decide
+    whether to apply them (e.g. only fill blanks, don't overwrite).
+    """
+    cust_details = session.get("customer_details") or {}
+    ship_details = (
+        (session.get("collected_information") or {}).get("shipping_details")
+        or session.get("shipping_details")
+        or session.get("shipping")
+        or {}
+    )
+    ship_addr = ship_details.get("address") or cust_details.get("address") or {}
+
+    def _addr_from_stripe(a):
+        if not a:
+            return {}
+        return {
+            "address1": a.get("line1") or "",
+            "address2": a.get("line2") or "",
+            "city": a.get("city") or "",
+            "county": a.get("state") or "",
+            "postcode": a.get("postal_code") or "",
+            "country": a.get("country") or "",
+        }
+
+    fields = {}
+    if cust_details.get("email"):
+        fields["customer_email"] = cust_details["email"]
+    name = cust_details.get("name") or ship_details.get("name")
+    if name:
+        fields["customer_name"] = name
+    if cust_details.get("phone"):
+        fields["customer_phone"] = cust_details["phone"]
+    if ship_addr:
+        fields["delivery_address"] = _addr_from_stripe(ship_addr)
+    if cust_details.get("address"):
+        fields["billing_address"] = _addr_from_stripe(cust_details["address"])
+    return fields
+
+
 @router.post("/klarna-express/create-session")
 async def create_klarna_express_session(request: Request, data: KlarnaExpressRequest):
     """
@@ -3365,9 +3413,13 @@ async def create_klarna_express_session(request: Request, data: KlarnaExpressReq
         "price_data": {
             "currency": "gbp",
             "product_data": {"name": item.get("name") or item.get("display_name") or "Tile order item"},
-            "unit_amount": int(round(item["price"] * 100)),
+            # quantity is often fractional (m²), e.g. 12.5 — Stripe line item
+            # quantity must be a whole number, so bake the full line total
+            # (price * qty) into unit_amount at quantity=1 instead of
+            # truncating qty, which previously undercharged the customer.
+            "unit_amount": int(round(item["price"] * item["quantity"] * 100)),
         },
-        "quantity": max(1, int(item["quantity"])),
+        "quantity": 1,
     } for item in cleaned_items]
     if delivery_fee > 0:
         stripe_line_items.append({
@@ -3505,9 +3557,11 @@ async def create_paypal_express_session(request: Request, data: PaypalExpressReq
         "price_data": {
             "currency": "gbp",
             "product_data": {"name": item.get("name") or item.get("display_name") or "Tile order item"},
-            "unit_amount": int(round(item["price"] * 100)),
+            # see klarna-express above: qty may be fractional (m²), so bake
+            # price*qty into unit_amount at quantity=1 rather than truncating.
+            "unit_amount": int(round(item["price"] * item["quantity"] * 100)),
         },
-        "quantity": max(1, int(item["quantity"])),
+        "quantity": 1,
     } for item in cleaned_items]
     if delivery_fee > 0:
         stripe_line_items.append({
@@ -3606,11 +3660,36 @@ async def get_guest_checkout_status(session_id: str):
         checkout_status = await stripe_checkout.get_checkout_status(session_id)
         now = datetime.now(timezone.utc).isoformat()
         if checkout_status.payment_status == "paid":
+            # For Express (Klarna/PayPal) orders, Stripe collected the
+            # customer's name/email/phone/address itself — this poll often
+            # reaches "paid" before the webhook does, so without this the
+            # webhook's fallback block below would see payment_status
+            # already 'paid' and the order would be left with blank
+            # customer/address fields forever (see 23 Oct 2026 incident).
+            customer_fields = {}
+            if order.get("source") in ("klarna_express", "paypal_express"):
+                try:
+                    full_session = stripe.checkout.Session.retrieve(session_id)
+                    found = extract_stripe_customer_fields(full_session)
+                    for key in ("customer_email", "customer_name", "customer_phone", "delivery_address", "billing_address"):
+                        if found.get(key) and not order.get(key):
+                            customer_fields[key] = found[key]
+                except Exception:
+                    logger.exception(f"Failed to fetch Stripe customer details for session {session_id}")
+
+            update_fields = {"status": "confirmed", "payment_status": "paid", "paid_at": now, "updated_at": now, **customer_fields}
             # Update order — only if not already paid (prevent double processing)
             result = await db.shop_orders.update_one(
                 {"id": order["id"], "payment_status": {"$ne": "paid"}},
-                {"$set": {"status": "confirmed", "payment_status": "paid", "paid_at": now, "updated_at": now}}
+                {"$set": update_fields}
             )
+            if customer_fields and result.modified_count == 0:
+                # Order was already flipped to paid by the webhook first —
+                # still backfill any blank customer/address fields.
+                await db.shop_orders.update_one(
+                    {"id": order["id"]},
+                    {"$set": {k: v for k, v in customer_fields.items()}},
+                )
             if result.modified_count > 0:
                 # Also update payment transaction
                 await db.payment_transactions.update_one(

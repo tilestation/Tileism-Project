@@ -1,0 +1,44 @@
+{
+  "summary": "E2E retest of the Klarna/PayPal Express customer-data fix. The fixes themselves work: the cart sends the real tile name, orders get KE-/PE- prefixes, the Stripe-hosted page now asks for email, shipping address, full name and phone and has a 'Billing same as shipping' option, and a simulated checkout.session.completed webhook (legacy shipping_details shape) fills customer_name/email/phone/delivery_address/billing_address. The admin Online Orders modal shows all of them and the real item name. The standard checkout (TileCheckoutPage) still redirects to Stripe with the right total (£617.37). However, testing found 1 NEW revenue regression caused by this fix and 2 remaining data-loss paths that mean production Express orders can still end up with no name or address.",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "POST /api/shop/klarna-express/create-session & /paypal-express/create-session", "issue": "NEW REGRESSION (introduced by this fix): Stripe line items use quantity=max(1,int(item['quantity'])), so fractional m2 quantities are truncated. Cart with 12.5 m2 x £46.99: the order doc total is £637.37 but Stripe charges £613.87 (Stripe page shows 'Qty 12'), so the customer is undercharged £23.50. Tile quantities are almost always fractional m2. The old wrapper charged one 'Payment' line for the exact total. Fix: one line per item with unit_amount=round(price*qty*100) and quantity=1 (name like 'Alabaster ... - 12.5 m²'), OR assert sum(line_items)==total*100 before creating the session.", "priority": "CRITICAL"},
+      {"endpoint": "GET /api/shop/guest-checkout/status/{session_id} + POST /api/webhook/stripe", "issue": "Race condition loses customer data. After paying, the customer is sent to /shop/order-success, which calls guest-checkout/status. That call flips the order to payment_status=paid WITHOUT copying customer_details/shipping_details. When the webhook arrives later, the fallback block is skipped (condition `fallback_order.get('payment_status') != 'paid'`), so name/address are never saved. Reproduced: I set the order to paid before sending the webhook, and customer_name stayed ''. In production the success-page poll will often win. Fix: (a) in guest-checkout/status, for source in (klarna_express, paypal_express), call stripe.checkout.Session.retrieve and save the customer/address fields; and (b) in the webhook, fill blank customer/address fields even when the order is already paid (keep the paid-flip/stock/email side-effects behind the != paid guard).", "priority": "CRITICAL"},
+      {"endpoint": "POST /api/webhook/stripe", "issue": "The installed stripe lib pins API version 2025-12-15.clover. Since API 2025-03-31.basil the Checkout Session no longer has a top-level `shipping_details`; it moved to `collected_information.shipping_details`. The webhook only reads session['shipping_details'] / session['shipping'], so on a modern webhook endpoint delivery_address silently becomes the BILLING address (verified: a payload with collected_information.shipping_details saved '1 Billing St' as the delivery address). Fix: ship_details = session.get('collected_information',{}).get('shipping_details') or session.get('shipping_details') or session.get('shipping') or {}.", "priority": "HIGH"}
+    ],
+    "minor": [
+      {"endpoint": "POST /api/shop/*-express/create-session", "issue": "Delivery fee mismatch: express reads delivery.standard_fee (missing in settings, so the hardcoded £49.99 is used) and ignores the configured default_fee £79.99 and the postcode zones. The cart page showed £79.99 delivery / total £667.37, but Stripe charged £49.99 delivery. This existed before the fix but is visible to customers."},
+      {"endpoint": "POST /api/shop/*-express/create-session", "issue": "Charged amount ignores the price logic used on the cart page (getEffectiveSubtotal: tier discounts, trade ex-VAT + 20% VAT). The backend uses raw c.price x qty, so trade users could be charged ex-VAT via Express. Not verified with a trade account. Recommend computing the total server-side the same way the cart does."},
+      {"endpoint": "POST /api/webhook/stripe", "issue": "The Telegram alert in the fallback block uses the stale fallback_order.customer_name (read before the update), so it always says 'Customer'. Use fallback_update.get('customer_name')."},
+      {"endpoint": "services/stripe_pm_sync.py", "issue": "Environment note: on every backend (hot-)reload, the startup sync resets paypal_enabled=False because PayPal is not shown as active on the preview Stripe account. Tests toggling this flag must re-set it right before each call. This also explains the old test test_launch_checkout_billing_admin_orders::test_payments_flags_enabled failing."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {"flow": "Cart -> Klarna Express", "issue": "The cart page shows a total of £667.37, but the Stripe Klarna page charges £613.87 for the same basket (12.5 m² truncated to qty 12, plus a different delivery fee). The order record says £637.37, so three different totals exist for one order.", "affected_selectors": ["[data-testid='klarna-express-btn']", "[data-testid='total-regular']"]}
+    ],
+    "design_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_express_checkout_customer_capture.py", "/app/test_reports/pytest/express_capture.xml"],
+  "action_items": [
+    "CRITICAL: Fix the fractional-quantity truncation in the Stripe line items for both express endpoints, so the Stripe charge equals the order total (e.g. one line per item with unit_amount=round(price*qty*100), quantity=1).",
+    "CRITICAL: Save customer_details/shipping_details in /api/shop/guest-checkout/status for express orders, and let the webhook fill blank customer/address fields even when payment_status is already 'paid'.",
+    "HIGH: Read shipping from session.collected_information.shipping_details (Stripe API basil and later) before falling back to shipping_details/shipping.",
+    "Align the express delivery fee with the cart's delivery calculation (default_fee / zones) and the cart's tier/trade/VAT pricing.",
+    "Use the updated customer_name in the webhook Telegram alert."
+  ],
+  "critical_code_review_comments": [
+    "shop.py ~3364/3504: the stripe_line_items list is duplicated between the Klarna and PayPal endpoints (the whole ~120-line endpoint bodies are near-identical). Extract a shared _create_express_session(method, data, request) helper.",
+    "shop.py ~3359/3499: StripeCheckout(...) is created only for its side effect of setting stripe.api_key/api_base (global state). Set stripe.api_key explicitly instead of relying on the wrapper's side effect.",
+    "server.py webhook: the customer/address extraction happens only inside the != 'paid' branch. Move it outside so it is idempotent.",
+    "shop.py and server.py are each far over 700 lines (8.5k and 10.9k)."
+  ],
+  "updated_files": ["/app/backend/tests/test_express_checkout_customer_capture.py"],
+  "success_rate": {"backend": "75% (6/8 in new suite; the 2 failures are the real bugs above)", "frontend": "100% of flows render and redirect (Klarna, PayPal, standard checkout, admin modal), but the Klarna charge amount is wrong"},
+  "seed_data_creation": "Temporarily set website_settings.checkout_settings.value.payments.{klarna,paypal}_enabled=true and then reverted it (unset; it did not exist originally). Deleted all test orders created, including older shop_orders whose customer_email starts with 'test_' or whose items start with 'TEST_' (43 docs, all test data).",
+  "retest_needed": true,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Run pytest tests/test_express_checkout_customer_capture.py. test_webhook_new_api_collected_information and test_webhook_after_success_page_flip should pass once fixed. Add an assertion that the Stripe amount equals the order total for a 12.5 m² basket. Direct stripe.checkout.Session.retrieve through the emergent proxy returns 'No such checkout.session', so verify the session contents via the Stripe-hosted page in Playwright instead. paypal_enabled is reset by stripe_pm_sync on every backend reload.",
+  "rca of the issue": "Undercharge: int(12.5)=12 in the line-item quantity. Lost customer data: the success-page poll (guest-checkout/status) marks the order paid first, and the webhook then skips the customer-data block. Wrong delivery address: Stripe API 2025-03-31 and later moved shipping_details under collected_information."
+}
