@@ -4636,6 +4636,80 @@ async def admin_get_online_order(order_id: str, current_user: dict = Depends(get
     return order
 
 
+class OnlineOrderItemEdit(BaseModel):
+    product_id: Optional[str] = None
+    name: str
+    quantity: float
+    price: float
+    sku: Optional[str] = ""
+    image: Optional[str] = ""
+
+
+class OnlineOrderEditRequest(BaseModel):
+    """Fields an admin can manually correct on an online order — built for
+    orders where Stripe/Klarna never collected (or the webhook never
+    saved) the customer's name/address/phone, so staff can key in what the
+    customer gave them over phone/email instead of the order staying
+    permanently blank."""
+    customer_name: Optional[str] = None
+    customer_email: Optional[str] = None
+    customer_phone: Optional[str] = None
+    delivery_address: Optional[dict] = None
+    billing_address: Optional[dict] = None
+    items: Optional[List[OnlineOrderItemEdit]] = None
+
+
+@router.put("/admin/online-orders/{order_id}")
+async def admin_update_online_order(order_id: str, payload: OnlineOrderEditRequest, current_user: dict = Depends(get_current_user)):
+    """Manually correct customer/address/item details on an online order
+    (admin only). Used to recover orders where Stripe never collected the
+    customer's details (e.g. Klarna/PayPal Express before the Oct 2026
+    fix) — admin looks the real details up in Stripe/Klarna and keys them
+    in here so the order can actually be fulfilled."""
+    if current_user.get("role") not in ["super_admin", "admin", "manager"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    db = get_db()
+    order = await db.shop_orders.find_one({"id": order_id}, {"_id": 0})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    update = {}
+    if payload.customer_name is not None:
+        update["customer_name"] = payload.customer_name.strip()
+    if payload.customer_email is not None:
+        update["customer_email"] = payload.customer_email.strip()
+    if payload.customer_phone is not None:
+        update["customer_phone"] = payload.customer_phone.strip()
+    if payload.delivery_address is not None:
+        update["delivery_address"] = payload.delivery_address
+    if payload.billing_address is not None:
+        update["billing_address"] = payload.billing_address
+    if payload.items is not None:
+        items = [i.model_dump() for i in payload.items]
+        subtotal = round(sum(i["price"] * i["quantity"] for i in items), 2)
+        update["items"] = items
+        update["subtotal"] = subtotal
+        update["total"] = round(
+            subtotal
+            + float(order.get("delivery_fee") or 0)
+            + float(order.get("congestion_charge") or 0)
+            + float(order.get("express_fee") or 0),
+            2,
+        )
+
+    if not update:
+        raise HTTPException(status_code=400, detail="No fields to update")
+
+    now = datetime.now(timezone.utc).isoformat()
+    update["updated_at"] = now
+    update["manually_edited_at"] = now
+    update["manually_edited_by"] = current_user.get("email") or current_user.get("name")
+
+    await db.shop_orders.update_one({"id": order_id}, {"$set": update})
+    return await db.shop_orders.find_one({"id": order_id}, {"_id": 0})
+
+
 async def _online_contact_supplier_override(db) -> dict:
     """Generic online contact info (never a specific showroom) for documents
     issued against a website order — per owner request: online VAT invoices

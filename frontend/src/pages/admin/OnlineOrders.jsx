@@ -101,6 +101,13 @@ function OrderDetailModal({ orderId, onClose, onStatusChanged, onDeleted }) {
   const [loading, setLoading] = useState(true);
   const [savingStatus, setSavingStatus] = useState(false);
   const [newStatus, setNewStatus] = useState('');
+  // Manual edit mode — lets admin fix orders where Stripe/Klarna never
+  // captured (or a bug never saved) the customer's name/address/phone or
+  // the real product name. Admin looks the real details up in Stripe's
+  // dashboard and keys them in here.
+  const [editMode, setEditMode] = useState(false);
+  const [editDraft, setEditDraft] = useState(null);
+  const [savingEdit, setSavingEdit] = useState(false);
   // Delete-with-password state — only super_admin sees this UI.
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deletePassword, setDeletePassword] = useState('');
@@ -371,6 +378,62 @@ function OrderDetailModal({ orderId, onClose, onStatusChanged, onDeleted }) {
 
   if (!orderId) return null;
 
+  const blankAddr = { address1: '', address2: '', city: '', county: '', postcode: '' };
+  const startEdit = () => {
+    setEditDraft({
+      customer_name: order.customer_name || '',
+      customer_email: order.customer_email || '',
+      customer_phone: order.customer_phone || '',
+      delivery_address: { ...blankAddr, ...(order.delivery_address || {}) },
+      billing_address: { ...blankAddr, ...(order.billing_address || {}) },
+      items: (order.items || []).map(it => ({
+        name: it.name || it.product_id || '',
+        quantity: Number(it.quantity || 0),
+        price: Number(it.price || 0),
+        product_id: it.product_id || '',
+        sku: it.sku || '',
+      })),
+    });
+    setEditMode(true);
+  };
+
+  const updateDraftItem = (idx, field, value) => {
+    setEditDraft(d => {
+      const items = [...d.items];
+      items[idx] = { ...items[idx], [field]: field === 'quantity' || field === 'price' ? Number(value) : value };
+      return { ...d, items };
+    });
+  };
+  const removeDraftItem = (idx) => {
+    setEditDraft(d => ({ ...d, items: d.items.filter((_, i) => i !== idx) }));
+  };
+  const addDraftItem = () => {
+    setEditDraft(d => ({ ...d, items: [...d.items, { name: '', quantity: 1, price: 0, product_id: '', sku: '' }] }));
+  };
+
+  const saveEdit = async () => {
+    setSavingEdit(true);
+    try {
+      const payload = {
+        customer_name: editDraft.customer_name,
+        customer_email: editDraft.customer_email,
+        customer_phone: editDraft.customer_phone,
+        delivery_address: editDraft.delivery_address,
+        billing_address: editDraft.billing_address,
+        items: editDraft.items.filter(it => it.name.trim()),
+      };
+      await axios.put(`${API_URL}/api/shop/admin/online-orders/${order.id}`, payload, auth);
+      toast.success('Order details saved');
+      setEditMode(false);
+      setEditDraft(null);
+      await fetchOrder();
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || 'Failed to save order details');
+    } finally {
+      setSavingEdit(false);
+    }
+  };
+
   return (
     <div
       className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto"
@@ -435,6 +498,16 @@ function OrderDetailModal({ orderId, onClose, onStatusChanged, onDeleted }) {
                 Delete order
               </button>
             )}
+            {order && !editMode && (
+              <button
+                onClick={startEdit}
+                className="px-3 py-1.5 text-xs font-medium rounded-md text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 transition-colors flex items-center gap-1.5"
+                data-testid="edit-order-details-btn"
+                title="Manually fix customer, address or item details"
+              >
+                Edit details
+              </button>
+            )}
             <button onClick={onClose} className="p-2 rounded-md hover:bg-gray-100" aria-label="Close" data-testid="modal-close">
               <X className="w-5 h-5 text-gray-500" />
             </button>
@@ -475,12 +548,39 @@ function OrderDetailModal({ orderId, onClose, onStatusChanged, onDeleted }) {
                 </div>
               </div>
 
+              {/* Manual edit toolbar */}
+              {editMode && (
+                <div className="flex items-center justify-between bg-indigo-50 border border-indigo-200 rounded-xl p-3" data-testid="edit-order-toolbar">
+                  <p className="text-xs text-indigo-800 font-medium">Editing order details — fix customer, address and item info, then save.</p>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => { setEditMode(false); setEditDraft(null); }}
+                      disabled={savingEdit}
+                      data-testid="cancel-edit-order-btn"
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      size="sm"
+                      className="bg-indigo-600 hover:bg-indigo-700 text-white"
+                      onClick={saveEdit}
+                      disabled={savingEdit}
+                      data-testid="save-edit-order-btn"
+                    >
+                      {savingEdit ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Save Changes'}
+                    </Button>
+                  </div>
+                </div>
+              )}
+
               {/* Customer + Payment */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="border border-gray-200 rounded-xl p-4">
                   <div className="flex items-start justify-between gap-2 mb-3">
                     <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2">Customer</h3>
-                    {order.customer_email && (() => {
+                    {order.customer_email && !editMode && (() => {
                       // "Last contacted X ago" hint on the Send-email button —
                       // helps admins avoid double-messaging during a busy
                       // afternoon. Computed from the most recent successful
@@ -514,20 +614,45 @@ function OrderDetailModal({ orderId, onClose, onStatusChanged, onDeleted }) {
                     })()}
                   </div>
                   <div className="text-sm space-y-1.5 text-gray-700">
-                    <div className="font-medium text-gray-900">{order.customer_name || '—'}</div>
-                    {order.customer_email && <div className="flex items-center gap-1.5"><Mail className="w-3.5 h-3.5 text-gray-400" /><a href={`mailto:${order.customer_email}`} className="text-emerald-700 hover:underline">{order.customer_email}</a></div>}
-                    {order.customer_phone && (
-                      <div className="flex items-center gap-2">
-                        <Phone className="w-3.5 h-3.5 text-gray-400" />
-                        <a href={`tel:${order.customer_phone}`} className="hover:underline font-mono">
-                          {order.customer_phone}
-                        </a>
-                        <ClickToCallButton
-                          number={order.customer_phone}
-                          variant="icon"
-                          customerName={order.customer_name}
+                    {editMode ? (
+                      <div className="space-y-2" data-testid="edit-customer-fields">
+                        <Input
+                          placeholder="Customer name"
+                          value={editDraft.customer_name}
+                          onChange={(e) => setEditDraft(d => ({ ...d, customer_name: e.target.value }))}
+                          data-testid="edit-customer-name-input"
+                        />
+                        <Input
+                          placeholder="Email"
+                          value={editDraft.customer_email}
+                          onChange={(e) => setEditDraft(d => ({ ...d, customer_email: e.target.value }))}
+                          data-testid="edit-customer-email-input"
+                        />
+                        <Input
+                          placeholder="Phone"
+                          value={editDraft.customer_phone}
+                          onChange={(e) => setEditDraft(d => ({ ...d, customer_phone: e.target.value }))}
+                          data-testid="edit-customer-phone-input"
                         />
                       </div>
+                    ) : (
+                      <>
+                        <div className="font-medium text-gray-900">{order.customer_name || '—'}</div>
+                        {order.customer_email && <div className="flex items-center gap-1.5"><Mail className="w-3.5 h-3.5 text-gray-400" /><a href={`mailto:${order.customer_email}`} className="text-emerald-700 hover:underline">{order.customer_email}</a></div>}
+                        {order.customer_phone && (
+                          <div className="flex items-center gap-2">
+                            <Phone className="w-3.5 h-3.5 text-gray-400" />
+                            <a href={`tel:${order.customer_phone}`} className="hover:underline font-mono">
+                              {order.customer_phone}
+                            </a>
+                            <ClickToCallButton
+                              number={order.customer_phone}
+                              variant="icon"
+                              customerName={order.customer_name}
+                            />
+                          </div>
+                        )}
+                      </>
                     )}
                   </div>
                 </div>
@@ -548,7 +673,22 @@ function OrderDetailModal({ orderId, onClose, onStatusChanged, onDeleted }) {
                     {order.delivery_method === 'collect' ? <Store className="w-4 h-4 text-gray-400" /> : <Truck className="w-4 h-4 text-gray-400" />}
                     {order.delivery_method === 'collect' ? 'Collection' : 'Delivery Address'}
                   </h3>
-                  {order.delivery_method === 'collect' ? (
+                  {editMode && order.delivery_method !== 'collect' ? (
+                    <div className="space-y-2" data-testid="edit-delivery-address-fields">
+                      <Input placeholder="Address line 1" value={editDraft.delivery_address.address1}
+                        onChange={(e) => setEditDraft(d => ({ ...d, delivery_address: { ...d.delivery_address, address1: e.target.value } }))} />
+                      <Input placeholder="Address line 2" value={editDraft.delivery_address.address2}
+                        onChange={(e) => setEditDraft(d => ({ ...d, delivery_address: { ...d.delivery_address, address2: e.target.value } }))} />
+                      <div className="grid grid-cols-2 gap-2">
+                        <Input placeholder="City" value={editDraft.delivery_address.city}
+                          onChange={(e) => setEditDraft(d => ({ ...d, delivery_address: { ...d.delivery_address, city: e.target.value } }))} />
+                        <Input placeholder="County" value={editDraft.delivery_address.county}
+                          onChange={(e) => setEditDraft(d => ({ ...d, delivery_address: { ...d.delivery_address, county: e.target.value } }))} />
+                      </div>
+                      <Input placeholder="Postcode" value={editDraft.delivery_address.postcode}
+                        onChange={(e) => setEditDraft(d => ({ ...d, delivery_address: { ...d.delivery_address, postcode: e.target.value } }))} />
+                    </div>
+                  ) : order.delivery_method === 'collect' ? (
                     <div className="space-y-1" data-testid="collect-store-block">
                       <p className="text-xs uppercase tracking-wider text-gray-400 font-semibold">Click &amp; Collect from</p>
                       {order.collect_store ? (
@@ -581,7 +721,23 @@ function OrderDetailModal({ orderId, onClose, onStatusChanged, onDeleted }) {
                 </div>
                 <div className="border border-gray-200 rounded-xl p-4" data-testid="billing-address-block">
                   <h3 className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2"><Receipt className="w-4 h-4 text-gray-400" /> Billing Address</h3>
-                  {!order.billing_address ? (
+                  {editMode ? (
+                    <div className="space-y-2" data-testid="edit-billing-address-fields">
+                      <Input placeholder="Address line 1" value={editDraft.billing_address.address1}
+                        onChange={(e) => setEditDraft(d => ({ ...d, billing_address: { ...d.billing_address, address1: e.target.value } }))} />
+                      <Input placeholder="Address line 2" value={editDraft.billing_address.address2}
+                        onChange={(e) => setEditDraft(d => ({ ...d, billing_address: { ...d.billing_address, address2: e.target.value } }))} />
+                      <div className="grid grid-cols-2 gap-2">
+                        <Input placeholder="City" value={editDraft.billing_address.city}
+                          onChange={(e) => setEditDraft(d => ({ ...d, billing_address: { ...d.billing_address, city: e.target.value } }))} />
+                        <Input placeholder="County" value={editDraft.billing_address.county}
+                          onChange={(e) => setEditDraft(d => ({ ...d, billing_address: { ...d.billing_address, county: e.target.value } }))} />
+                      </div>
+                      <Input placeholder="Postcode" value={editDraft.billing_address.postcode}
+                        onChange={(e) => setEditDraft(d => ({ ...d, billing_address: { ...d.billing_address, postcode: e.target.value } }))} />
+                      <p className="text-[11px] text-gray-400">Leave blank if same as delivery address.</p>
+                    </div>
+                  ) : !order.billing_address ? (
                     <p className="text-xs text-gray-400 italic">Not captured (legacy order)</p>
                   ) : order.billing_address.same_as_delivery ? (
                     <p className="text-sm text-gray-600 italic">Same as delivery address</p>
@@ -611,10 +767,35 @@ function OrderDetailModal({ orderId, onClose, onStatusChanged, onDeleted }) {
                       <th className="text-right px-4 py-2 font-medium">Qty</th>
                       <th className="text-right px-4 py-2 font-medium">Price</th>
                       <th className="text-right px-4 py-2 font-medium">Line Total</th>
+                      {editMode && <th className="px-2 py-2"></th>}
                     </tr>
                   </thead>
                   <tbody>
-                    {(order.items || []).map((item, idx) => {
+                    {editMode ? editDraft.items.map((item, idx) => (
+                      <tr key={idx} className="border-b last:border-b-0 border-gray-100" data-testid={`edit-item-row-${idx}`}>
+                        <td className="px-4 py-2">
+                          <Input value={item.name} placeholder="Product name"
+                            onChange={(e) => updateDraftItem(idx, 'name', e.target.value)}
+                            data-testid={`edit-item-name-${idx}`} />
+                        </td>
+                        <td className="px-2 py-2 w-24">
+                          <Input type="number" step="0.01" value={item.quantity}
+                            onChange={(e) => updateDraftItem(idx, 'quantity', e.target.value)}
+                            className="text-right" data-testid={`edit-item-qty-${idx}`} />
+                        </td>
+                        <td className="px-2 py-2 w-28">
+                          <Input type="number" step="0.01" value={item.price}
+                            onChange={(e) => updateDraftItem(idx, 'price', e.target.value)}
+                            className="text-right" data-testid={`edit-item-price-${idx}`} />
+                        </td>
+                        <td className="px-4 py-2.5 text-right tabular-nums font-medium">£{(Number(item.quantity || 0) * Number(item.price || 0)).toFixed(2)}</td>
+                        <td className="px-2 py-2">
+                          <button type="button" onClick={() => removeDraftItem(idx)} className="text-rose-500 hover:text-rose-700 p-1" data-testid={`remove-item-${idx}`}>
+                            <X className="w-4 h-4" />
+                          </button>
+                        </td>
+                      </tr>
+                    )) : (order.items || []).map((item, idx) => {
                       const qty = Number(item.quantity || 0);
                       const price = Number(item.price || 0);
                       return (
@@ -629,6 +810,15 @@ function OrderDetailModal({ orderId, onClose, onStatusChanged, onDeleted }) {
                         </tr>
                       );
                     })}
+                    {editMode && (
+                      <tr>
+                        <td colSpan={5} className="px-4 py-2">
+                          <button type="button" onClick={addDraftItem} className="text-xs font-medium text-indigo-600 hover:text-indigo-800" data-testid="add-item-row-btn">
+                            + Add item
+                          </button>
+                        </td>
+                      </tr>
+                    )}
                   </tbody>
                   <tfoot className="bg-gray-50">
                     <tr className="text-sm">
