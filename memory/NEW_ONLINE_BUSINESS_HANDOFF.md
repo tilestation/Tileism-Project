@@ -68,9 +68,6 @@ ever reaches the live site. The real pipeline has **4 stages**, each a separate 
 Supporting pieces that belong to this same pipeline — keep these too:
 - `frontend/src/pages/admin/SupplierProducts.js` (17,000+ lines — the main admin catalog
   browser: margin calc, image management, SKU↔product mapping, per-supplier filtering).
-  This is huge; if the new business starts with 1-2 suppliers, consider having the new
-  project's agent build a trimmed single-supplier version first rather than porting the
-  whole file, then grow it back out.
 - `routes/stock_sync.py`, `services/sync/stock_sync_service.py`,
   `services/sync/resilient_sync_service.py` — stock-quantity reconciliation + retry logic.
 - `routes/live_sync.py`, `routes/nightly_sync.py` — scheduled re-sync jobs.
@@ -78,6 +75,41 @@ Supporting pieces that belong to this same pipeline — keep these too:
   `SupplierSyncDashboard.js` — monitors stale/failed syncs per supplier.
 - `routes/suppliers.py` + `frontend/src/pages/admin/Suppliers.js` — supplier contact/
   credential records.
+
+### All current suppliers, flagged by actual onboarding method (checked against the live DB)
+Every one of these should come across — per your instruction, don't trim to a subset.
+They split into two genuinely different mechanisms, which matters for what the new
+project's agent actually has to port:
+
+**A) Live scraper-synced (the full 4-stage pipeline above applies)**
+| Supplier | Scraper file | Live products today |
+|---|---|---|
+| Verona | `services/scrapers/verona_scraper.py` + Chrome extension receiver | 1 |
+| Splendour | `services/scrapers/splendour_scraper.py` (server-side) | 1 |
+| Ceramica Impex | `services/scrapers/ceramica_impex_scraper.py` (server-side) | 0 (onboarded, not actively syncing) |
+| Wallcano | `services/scrapers/wallcano_scraper.py` (server-side, Cloudflare-blocked — see known issue in section 5) | 0 (blocked) |
+| Tile Rite | listed as a tab in Sync Hub, no scraper built yet | 0 |
+
+**B) Bulk/one-off imported (no live scraper — onboarded via one-time import functions in
+`backend/routes/supplier_import.py`, e.g. `_build_rsa_tiles()`, `_build_thermosphere()`,
+plus `_import_all_new_suppliers()`). These still flow through the same `supplier_products`
+→ Sync Hub apply → Publish-to-website stages 3-4 once imported — they just skip stage 1-2
+(no live re-scraping; re-importing means re-running these functions with fresh data, or
+building a proper recurring importer if you want them to auto-refresh).**
+| Supplier | Live products today |
+|---|---|
+| Canopy | 246 |
+| LEPORCE | 223 |
+| ThermoSphere | 136 |
+| Ultra Tile | 81 |
+| RSA Tiles | 28 |
+| Plus39 | 3 |
+
+**Action for the new project's agent**: port `supplier_import.py` alongside the scraper
+files — it's much smaller and is how roughly 700 of Tile Station's ~726 live products
+actually got there, so it's at least as important as the scrapers themselves, not an
+afterthought. Also port `services/custom_mappings.py` (SKU/attribute mapping helper
+these imports rely on).
 
 **For dropshipping specifically**: keep stages 1-4 exactly as the "what products exist,
 at what price/stock, on the website" engine — that doesn't change. The **new** dropship
@@ -129,9 +161,13 @@ lean online-only dropship shop — revisit later if the business grows into need
 ## 7. Suggested first build order for the new project's agent
 1. Strip the repo down per sections 1/2/3/5 above (remove excluded modules first — makes
    the codebase much easier to reason about).
-2. Get basic product catalog + storefront browsing working with a handful of seeded
-   products — including the trimmed single-supplier version of the sync pipeline
-   (sections 2 + 3) so stock/price updates actually flow end-to-end from day one.
+2. Port the full supplier sync pipeline (section 2) for **all 11 current suppliers**
+   (Verona, Splendour, Ceramica Impex, Wallcano, Tile Rite, Canopy, LEPORCE,
+   ThermoSphere, Ultra Tile, RSA Tiles, Plus39) — both the scraper-based and the
+   bulk-import-based ones — so stock/price updates flow end-to-end from day one and no
+   supplier's catalog is missing on launch.
 3. Wire up Stripe checkout (reusing the hardened Klarna/PayPal Express logic).
-4. Build the dropship order-routing flow for your first 1–2 suppliers.
+4. Build the dropship order-routing flow, starting with whichever 1-2 suppliers are
+   fastest to set up a purchase-order process with — this part is genuinely new work
+   regardless of how many suppliers' catalogs you bring in at once.
 5. Re-skin the storefront with the new business's name/branding once decided.
