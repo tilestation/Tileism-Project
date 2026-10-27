@@ -8,8 +8,10 @@ keep, adapt, strip and build fresh — so it doesn't have to rediscover any of t
 This codebase was imported from "Tile Station" — a multi-showroom tiles & bathroom
 e-commerce + EPOS platform. We are building a **second, fully independent business**:
 an **online-only** tile shop (no showrooms, no EPOS, no in-store staff), using the
-**same suppliers** as Tile Station, fulfilled via **dropshipping to start, with the option
-to hold our own stock later**. Payments via **Stripe**.
+**same suppliers** as Tile Station, fulfilled via **dropshipping to start (orders are
+forwarded to suppliers manually by phone/email — no automated order-routing needed),
+with the option to hold our own stock later**. Payments via **Stripe**. SEO Autopilot
+(including Ahrefs) is being ported too — see sections 5-6.
 
 ## 1. Keep as-is (core commerce — safe to reuse directly)
 - `backend/models/product.py`, `backend/models/order.py`, `backend/models/user.py`,
@@ -87,7 +89,7 @@ project's agent actually has to port:
 | Verona | `services/scrapers/verona_scraper.py` + Chrome extension receiver | 1 |
 | Splendour | `services/scrapers/splendour_scraper.py` (server-side) | 1 |
 | Ceramica Impex | `services/scrapers/ceramica_impex_scraper.py` (server-side) | 0 (onboarded, not actively syncing) |
-| Wallcano | `services/scrapers/wallcano_scraper.py` (server-side, Cloudflare-blocked — see known issue in section 5) | 0 (blocked) |
+| Wallcano | `services/scrapers/wallcano_scraper.py` (server-side, blocked by Cloudflare — known unresolved issue, same blocker affects Tile Station today) | 0 (blocked) |
 | Tile Rite | listed as a tab in Sync Hub, no scraper built yet | 0 |
 
 **B) Bulk/one-off imported (no live scraper — onboarded via one-time import functions in
@@ -112,10 +114,9 @@ afterthought. Also port `services/custom_mappings.py` (SKU/attribute mapping hel
 these imports rely on).
 
 **For dropshipping specifically**: keep stages 1-4 exactly as the "what products exist,
-at what price/stock, on the website" engine — that doesn't change. The **new** dropship
-logic (section 4 below) plugs in at **order time**, not sync time: when a customer buys
-a product that's mapped to a dropship supplier, the order-routing logic looks up that
-same `supplier_products` mapping to know which supplier to forward the order to.
+at what price/stock, on the website" engine — that doesn't change. Orders are forwarded
+to suppliers **manually** (not automated — see section 4), so no order-routing logic
+plugs into this pipeline; it only needs to clearly show which supplier each product maps to.
 
 ## 3. Reuse with real adaptation (don't copy blindly)
 - `backend/routes/products.py` / Tiles Manager-style admin catalog pages — reuse the
@@ -126,40 +127,99 @@ same `supplier_products` mapping to know which supplier to forward the order to.
   price overrides (`business_config/business_rules.py`, `pallet_pricing_admin.py`).
   Review this for just the plain-retail-pricing parts; strip showroom-tier pricing.
 
-## 4. Build new (doesn't exist in Tile Station — it's a stock-holding business)
-- **Dropship order routing**: when an order is placed, auto-generate and send a
-  purchase order / email / API call to the relevant supplier with the customer's
-  delivery address, instead of decrementing your own stock. Needs a per-supplier
-  "how do we place an order with them" integration (email-based PO is the simplest MVP;
-  API-based is a later upgrade if a supplier offers one).
+## 4. Order handling (manual, by design)
+You're forwarding orders to suppliers manually (by phone/email) rather than automating
+purchase orders — so there's no order-routing integration to build. The one thing worth
+adding: an admin order view that clearly shows **which supplier** each line item maps to
+(using the same `supplier_products` mapping from section 2) so whoever is manually
+calling/emailing suppliers doesn't have to cross-reference anything — reuse the "Edit
+details" pattern just added to Tile Station's `OnlineOrders.jsx` (23 Oct 2026) as a
+starting point, since it already shows customer + item + address in one view.
 - **Margin/markup logic**: since you don't hold stock, your retail price needs to be
   supplier cost + your markup, calculated live or synced — not a manually-set shelf price.
 - **Delivery expectation messaging**: dropship lead times vary by supplier, so the
   product page/checkout needs supplier-specific delivery estimates instead of the
   "same-day from our warehouse" messaging Tile Station uses.
-- A lightweight **order status sync** from supplier → your admin (even manual status
-  updates to start) so customers can be told when their dropshipped order has shipped.
 
-## 5. Explicitly exclude (Tile Station-specific, out of scope for this MVP)
+## 5. SEO Autopilot — KEEP (reclassified from "exclude" per your latest request)
+This is a genuinely large, multi-piece system — worth understanding before porting:
+
+- **Self-crawler + auto-fixer** (`services/seo_self_crawler.py`, `services/seo_auto_fixer.py`):
+  crawls your own site, finds issues (missing/short titles & descriptions, missing
+  canonical/JSON-LD, duplicate titles, 404s), auto-generates fixes, and writes them to
+  `seo_overrides`/`seo_redirects`/`seo_noindex_flags` collections.
+- **Express SSR injector** (`server-seo.js`): polls those override collections every
+  5 minutes and injects the fixed title/description/JSON-LD/canonical straight into the
+  server-rendered HTML — no code deploy needed per fix.
+- **Autonomous page generation** (`services/seo_autonomous.py`): auto-generates new
+  landing pages (e.g. city/collection pages), auto-approves/A-B-promotes them, builds
+  internal links between pages so PageRank flows around the site, generates
+  LocalBusiness/Article JSON-LD, resubmits the sitemap to Google Search Console the
+  moment a page goes live, and emails a daily "what the autopilot did today" digest.
+- **Ahrefs integration** (`services/ahrefs.py`) — see section 6 below, this is what feeds
+  keyword/competitor data into the page-generation decisions above.
+- **Stealth-keyword system** (`routes/stealth_seo*.py`): injects long-tail keyword
+  variants into collection pages, tracks which variants actually perform, and
+  auto-promotes winners.
+- Dashboards/digests: `seo_command.py`, `seo_dashboard_snapshot.py`, `seo_digest.py`,
+  `seo_pnl_digest.py`, `seo_quality_digest.py`, `seo_activity_feed.py`,
+  `seo_self_audit.py`, `seo_health_status.py`, `seo_recrawl.py`, `seo_drafts.py`,
+  `seo_public.py`.
+
+**What needs re-doing for the new domain (not a pure code copy):**
+- A fresh `AHREFS_API_KEY` target-domain config (section 6) — Ahrefs tracks your new
+  domain separately from Tile Station's.
+- New Google Search Console property + verification for the new domain (sitemap
+  resubmission needs this to work).
+- The LocalBusiness JSON-LD generator assumes a showroom — since the new business has
+  none, this should emit an `OnlineStore`/`Organization` schema instead for the new site.
+- No historical crawl/ranking data carries over — the self-crawler and autopilot start
+  from zero on a brand-new domain, same as any new site (domain age/trust has to build
+  regardless of how good the on-page SEO is).
+
+## 6. How your Ahrefs membership helps the new website once it launches
+Ahrefs' value here is actually already wired into the autopilot above — it's not a
+separate manual task once ported. Concretely, once the new domain is added to Ahrefs:
+- **Keyword gap analysis** (`services/ahrefs.py: keyword_gap()`) — compares your new
+  domain against competitors (e.g. toppstiles.co.uk) and surfaces keywords they rank for
+  that you don't yet have a page for. The autonomous page generator can turn these
+  straight into new landing pages.
+- **Organic keyword + top-pages tracking** (`organic_keywords()`, `top_pages()`) — shows
+  which of your new pages are gaining traction, feeding the "what to double down on"
+  decisions (internal linking, content expansion) instead of guessing.
+- **Domain Rating tracking** (`domain_rating()`) — a new domain starts at/near 0; this is
+  the metric to watch as a trust signal while backlinks build up. Realistically, a brand
+  new domain takes months to compete with an established one like Tile Station's even
+  with perfect on-page SEO — Ahrefs just makes that progress visible and prioritizable,
+  it doesn't shortcut the time factor.
+- **Backlink monitoring** — worth checking whether Tile Station's existing backlink
+  profile has any links you could ethically earn for the new site too (e.g. supplier
+  directories, trade association listings that don't care which of your sites they list).
+- Practical first move once live: run `organic_competitors()` + `keyword_gap()` against
+  2-3 known competitors to get an initial list of pages to generate, rather than waiting
+  for the self-crawler to discover gaps organically.
+
+## 7. Explicitly exclude (Tile Station-specific, out of scope for this MVP)
 Showrooms/EPOS (`routes/showrooms.py`, `Epos.js`, `ShowroomEpos.js`, cash counter,
 stock transfers between stores), HR/staff (`hr_*`, `StaffChat.js`, time tracking,
-staff leaderboard/competition), the SEO Autopilot/Ahrefs/stealth-SEO automation suite
-(`seo_autopilot*.py`, `stealth_seo*.py`, `seo_autonomous.py`), Marketing Studio/Radio
-Studio/video generation, Room Visualizer, Trade Credit Accounts, WhatsApp/Telegram ops
-tooling. All of this is real cost to carry over and none of it is needed to launch a
-lean online-only dropship shop — revisit later if the business grows into needing it.
+staff leaderboard/competition), Marketing Studio/Radio Studio/video generation, Room
+Visualizer, Trade Credit Accounts, WhatsApp/Telegram ops tooling. All of this is real
+cost to carry over and none of it is needed to launch a lean online-only dropship shop
+— revisit later if the business grows into needing it.
 
-## 6. Secrets you'll need to re-enter in the new project (not exported from GitHub)
+## 8. Secrets you'll need to re-enter in the new project (not exported from GitHub)
 - `STRIPE_API_KEY` (your own Stripe account — do **not** reuse Tile Station's, for
   separate bookkeeping/payouts)
 - Resend API key (for order emails) — can be a new sender domain/account
 - Supplier credentials for whichever suppliers you're reusing from Tile Station
   (API keys or scraper logins) — ask in chat for these and the new project's agent will
   collect them securely
+- `AHREFS_API_KEY` — same Ahrefs account can track multiple domains, so this may just be
+  a matter of adding the new domain inside Ahrefs rather than a new key
 - `MONGO_URL`/`DB_NAME` are auto-provisioned per project — nothing to do there
 
-## 7. Suggested first build order for the new project's agent
-1. Strip the repo down per sections 1/2/3/5 above (remove excluded modules first — makes
+## 9. Suggested first build order for the new project's agent
+1. Strip the repo down per sections 1/2/3/7 above (remove excluded modules first — makes
    the codebase much easier to reason about).
 2. Port the full supplier sync pipeline (section 2) for **all 11 current suppliers**
    (Verona, Splendour, Ceramica Impex, Wallcano, Tile Rite, Canopy, LEPORCE,
@@ -167,7 +227,6 @@ lean online-only dropship shop — revisit later if the business grows into need
    bulk-import-based ones — so stock/price updates flow end-to-end from day one and no
    supplier's catalog is missing on launch.
 3. Wire up Stripe checkout (reusing the hardened Klarna/PayPal Express logic).
-4. Build the dropship order-routing flow, starting with whichever 1-2 suppliers are
-   fastest to set up a purchase-order process with — this part is genuinely new work
-   regardless of how many suppliers' catalogs you bring in at once.
-5. Re-skin the storefront with the new business's name/branding once decided.
+4. Build the manual-order-forwarding admin view (section 4).
+5. Port SEO Autopilot (section 5) and re-point Ahrefs/GSC at the new domain (section 6).
+6. Re-skin the storefront with the new business's name/branding once decided.
