@@ -615,6 +615,10 @@ class InvoiceStoreUpdate(BaseModel):
     showroom_id: Optional[str] = None
     showroom_name: Optional[str] = None
 
+class InvoiceStaffUpdate(BaseModel):
+    staff_id: Optional[str] = None
+    staff_name: Optional[str] = None
+
 class BulkInvoiceTransfer(BaseModel):
     invoice_ids: List[str]
     target_showroom_id: str
@@ -2664,6 +2668,59 @@ async def update_invoice_showroom(
         "invoice_id": invoice_id,
         "old_showroom": old_showroom_name,
         "new_showroom": data.showroom_name
+    }
+
+
+@router.patch("/{invoice_id}/staff")
+async def update_invoice_staff(
+    invoice_id: str,
+    data: InvoiceStaffUpdate,
+    current_user: dict = Depends(get_current_user)
+):
+    """Reassign which staff member a sale is credited to (Super Admin only).
+
+    Lets a Super Admin correct mis-attributed sales (e.g. a cashier forgot
+    to switch their PIN at the till) without needing the invoice's original
+    PIN — unlike the general invoice edit flow, which requires PIN auth to
+    change staff info."""
+    if current_user.get("role") != "super_admin":
+        raise HTTPException(status_code=403, detail="Super Admin access required to reassign staff")
+
+    db = get_db()
+    invoice = await db.invoices.find_one({"id": invoice_id})
+    if not invoice:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+
+    old_staff_id = invoice.get("staff_id")
+    old_staff_name = invoice.get("staff_name") or invoice.get("sales_person") or "Unassigned"
+
+    await db.invoices.update_one(
+        {"id": invoice_id},
+        {"$set": {
+            "staff_id": data.staff_id,
+            "staff_name": data.staff_name,
+            "sales_person": data.staff_name,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "updated_by": current_user["email"]
+        }}
+    )
+
+    await log_audit(
+        action="TRANSFER",
+        entity_type="invoice",
+        user=current_user,
+        entity_id=invoice_id,
+        entity_name=invoice.get("invoice_no"),
+        before_data={"staff_id": old_staff_id, "staff_name": old_staff_name},
+        after_data={"staff_id": data.staff_id, "staff_name": data.staff_name},
+        details=f"Invoice {invoice.get('invoice_no')} sale reassigned: {old_staff_name} -> {data.staff_name or 'Unassigned'}"
+    )
+
+    return {
+        "message": f"Sale reassigned to {data.staff_name or 'Unassigned'}",
+        "invoice_id": invoice_id,
+        "old_staff": old_staff_name,
+        "new_staff": data.staff_name
     }
 
 

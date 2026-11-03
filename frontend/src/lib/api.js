@@ -409,6 +409,9 @@ export const api = {
   updateInvoiceStore: (id, data) =>
     axios.patch(`${API}/invoices/${id}/showroom`, data, { headers: getAuthHeader() }),
   
+  updateInvoiceStaff: (id, data) =>
+    axios.patch(`${API}/invoices/${id}/staff`, data, { headers: getAuthHeader() }),
+  
   bulkTransferInvoices: (data) =>
     axios.post(`${API}/invoices/bulk-transfer`, data, { headers: getAuthHeader() }),
   

@@ -2244,6 +2244,26 @@ export const InvoiceHistory = () => {
     }
   };
 
+  const handleStaffChange = async (invoiceId, staffId) => {
+    // Only Super Admin can reassign which staff member a sale is credited to
+    if (!isSuperAdmin) {
+      toast.error('Super Admin access required to reassign sales');
+      return;
+    }
+    try {
+      const staff = staffList.find(s => s.id === staffId);
+      await api.updateInvoiceStaff(invoiceId, {
+        staff_id: staffId || null,
+        staff_name: staff?.name || null
+      });
+      toast.success(staffId ? `Sale reassigned to ${staff?.name}` : 'Sale unassigned from staff');
+      fetchData();
+    } catch (error) {
+      toast.error('Failed to reassign sale');
+      console.error(error);
+    }
+  };
+
   // Filter invoices by status and showroom
   let filteredInvoices = invoices;
   
@@ -3169,11 +3189,27 @@ export const InvoiceHistory = () => {
                       <td className="px-4 py-3">
                         {invoice.customer_name || <span className="text-muted-foreground italic">No customer</span>}
                       </td>
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-2">
-                          <User className="h-4 w-4 text-muted-foreground" />
-                          <span>{invoice.staff_name || invoice.sales_person || '-'}</span>
-                        </div>
+                      <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                        {isSuperAdmin ? (
+                          <select
+                            value={invoice.staff_id || ''}
+                            onChange={(e) => handleStaffChange(invoice.id, e.target.value)}
+                            className="w-full px-2 py-1 rounded text-xs font-medium border cursor-pointer bg-slate-50 border-slate-200 text-slate-700"
+                            data-testid={`staff-select-${invoice.id}`}
+                          >
+                            <option value="">Unassigned</option>
+                            {staffList.map(staff => (
+                              <option key={staff.id} value={staff.id}>
+                                {staff.name}
+                              </option>
+                            ))}
+                          </select>
+                        ) : (
+                          <div className="flex items-center gap-2">
+                            <User className="h-4 w-4 text-muted-foreground" />
+                            <span>{invoice.staff_name || invoice.sales_person || '-'}</span>
+                          </div>
+                        )}
                       </td>
                       <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
                         {isSuperAdmin ? (
