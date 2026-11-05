@@ -1,0 +1,44 @@
+{
+  "summary": "I tested the Product Name Sanity fix for independent 'New name' and 'Supplier name' editing, on both the backend and the frontend. Backend pytest: 10 of 11 passed. The 1 failure is a real bug: the custom_mappings doc saves supplier=null for products with no `supplier` field. UI: every requested flow passed. The Supplier name column is an editable input pre-filled from the stored supplier_product_name. Tested and working: name-only save, supplier-only save, saving both, 'Save all edited' with a mix of edits (toast 'Saved 3 names'), Wand2 (leaves supplier untouched), Fix ALL-CAPS (only touches New name), Skip (no API call), Rescan, and the Series Rename tab plus series-products API. The SAME saved values show on All Products (/admin/supplier-products) and in the Materials Manager row and Quick Edit drawer (quick-edit-display-name and quick-edit-supplier-name). SKU 355POL6060 has product_group=materials, so it appears in the Materials Manager, not Tiles. 355POL6060 was restored to its original values and its custom_mappings doc deleted. The 6 seeded TEST_PNS_* docs and their mappings were deleted.",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "POST /api/product-name-sanity/apply", "issue": "322 of 1580 supplier_products docs have no `supplier` field; they use `supplier_name`, e.g. 355POL6060 = 'Ceramica Impex'. For these, row.supplier is null, so the custom_mappings doc is upserted with supplier=None. single_product_sync looks up get_custom_mapping(db, final_supplier='Ceramica Impex', sku), which never matches. The 'protect manual edit from re-sync' guarantee silently does NOT work for these products. Fix: in /apply, resolve supplier as item.supplier or doc.supplier or doc.supplier_name (add supplier_name to the find_one projection). Also return supplier = doc.supplier or doc.supplier_name in _serialize_row.", "priority": "HIGH"}
+    ],
+    "minor": [
+      {"endpoint": "POST /api/product-name-sanity/apply", "issue": "When supplier is null, the query matches on sku/supplier_code only, and update_one changes just the first match. If two suppliers share a SKU, the wrong doc may be renamed."},
+      {"endpoint": "POST /api/product-name-sanity/apply", "issue": "A supplier-only edit also writes custom_mappings.custom_name = the current product_name. This locks the display name even though the admin did not edit it. Probably acceptable, but it is a side effect."},
+      {"endpoint": "POST /api/product-name-sanity/apply", "issue": "supplier_product_name cannot be cleared: empty or whitespace input is ignored on both the frontend and the backend."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "ProductNameSanity 'Current name' column", "issue": "This column (and the backend _serialize_row) uses product_name || name, but All Products and the Managers display our_product_name || display_name || product_name || name. 225 products have our_product_name != product_name. Example: 355POL6060 shows 'Premium Polished Porcelain 60x60' in Name Sanity but 'Premium Polished Porcelain 60x60 Grey TEST' in All Products and Managers. This is exactly the 'doesn't reflect the same way' confusion the user reported. Fix: use the same priority chain in _serialize_row (and in series-products) so the Current name / pre-filled New name match what All Products and Managers show.", "selector": "[data-testid^='pns-row-'] td:nth-child(2)", "priority": "HIGH"},
+      {"component": "ProductNameSanity single-row Save", "issue": "If the supplier input is cleared, the Save button is enabled (supplierWillChange is true), but clicking it shows 'Nothing to change'. The button state and the save logic disagree.", "selector": "[data-testid^='pns-apply-']", "priority": "LOW"},
+      {"component": "Supplier filter", "issue": "Rows with a null supplier are counted under 'unknown'. Choosing 'unknown' in the filter sends supplier=unknown, which returns 0 rows.", "selector": "[data-testid='pns-filter-supplier']", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Product Name Sanity table", "issues": ["The Supplier name input column is very narrow (~95px) and truncates values (e.g. 'TEST Orig Sup'). Give it a min-width of about 220px."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_name_sanity_supplier_field.py", "/app/test_reports/pytest/pytest_iter255.xml"],
+  "action_items": [
+    "In /apply, resolve the custom_mappings supplier from doc.supplier or doc.supplier_name so it is never null; also expose supplier = supplier or supplier_name in _serialize_row.",
+    "Make the Name Sanity 'Current name' / product_name use the same priority chain as All Products and Managers (our_product_name > display_name > product_name > name).",
+    "Widen the Supplier name input column.",
+    "Optional: align the single-row Save enabled state with applyOne when the supplier input is cleared."
+  ],
+  "critical_code_review_comments": [
+    "single_product_sync.py: the mapping lookup is keyed by final_supplier, which does not match null-supplier mappings written by /apply (see critical issue).",
+    "routes/product_name_sanity.py is 1065 lines; split it (ghost-sweep and series rename into their own modules).",
+    "The existing tests/test_product_name_sanity.py has a hardcoded default BASE_URL, which goes against the env-only rule.",
+    "The custom_mappings upsert is wrapped in a bare `except: pass`, so failures are silent; at least log them."
+  ],
+  "updated_files": ["/app/backend/tests/test_name_sanity_supplier_field.py"],
+  "success_rate": {"backend": "91% (10/11)", "frontend": "100% of requested flows (3 minor UI/design issues)"},
+  "seed_data_creation": "Temporarily inserted 6 supplier_products docs (sku TEST_PNS_A..F, supplier TEST_PNS_SUP) for the UI tests; they and their custom_mappings were deleted afterwards. 355POL6060 was restored (product_name, our_product_name, display_name, supplier_product_name, updated_at, plus tiles name/display_name/website_name) and its custom_mappings doc deleted.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Run: pytest /app/backend/tests/test_name_sanity_supplier_field.py with REACT_APP_BACKEND_URL exported. It uses 355POL6060 and restores it in module teardown. test_05 fails until the null-supplier mapping bug is fixed. 355POL6060 is in the Materials Manager (/admin/materials); the manager Edit drawer has testids quick-edit-display-name and quick-edit-supplier-name. To see test rows in Name Sanity, set the limit to 5000 first; supplier filter options only come from the scanned rows.",
+  "rca of the issue": "The user's consistency problem has a second cause besides the two the main agent fixed. Name Sanity displays and edits `product_name`, while All Products and Managers display `our_product_name` first, so the two screens show different 'current names' for 225 products until a save syncs them. Separately, the re-sync protection is ineffective for products with no `supplier` field, because the mapping is saved with supplier=null."
+}

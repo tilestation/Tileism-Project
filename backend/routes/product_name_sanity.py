@@ -155,11 +155,13 @@ def _supplier_original_name(doc: dict) -> str:
 
 
 def _serialize_row(doc: dict, issues: List[str]) -> dict:
-    ours = str(doc.get("product_name") or doc.get("name") or "").strip()
+    # Same priority chain as All Products / Managers (our_product_name wins),
+    # so this tool's "Current name" always matches what's shown everywhere else.
+    ours = str(doc.get("our_product_name") or doc.get("display_name") or doc.get("product_name") or doc.get("name") or "").strip()
     return {
         "id": str(doc.get("id") or doc.get("_id") or ""),
         "sku": doc.get("sku") or doc.get("supplier_code"),
-        "supplier": doc.get("supplier"),
+        "supplier": doc.get("supplier") or doc.get("supplier_name"),
         "product_name": ours,
         "supplier_name": _supplier_original_name(doc),
         "color": _first(doc.get("color") or doc.get("colors")),
@@ -186,11 +188,17 @@ async def sanity_report(
         raise HTTPException(403, "You need the Supplier Products permission to view this report")
 
     db = get_db()
-    filt: dict = {
-        "$or": [{"deleted_at": {"$exists": False}}, {"deleted_at": None}],
-    }
+    and_conditions: list = [{"$or": [{"deleted_at": {"$exists": False}}, {"deleted_at": None}]}]
     if supplier:
-        filt["supplier"] = supplier
+        if supplier == "unknown":
+            # Buckets products with no `supplier` AND no `supplier_name` field —
+            # match both missing and explicitly empty/null so the "unknown"
+            # filter option actually returns rows instead of 0.
+            and_conditions.append({"supplier": {"$in": [None, ""]}})
+            and_conditions.append({"$or": [{"supplier_name": {"$exists": False}}, {"supplier_name": {"$in": [None, ""]}}]})
+        else:
+            and_conditions.append({"supplier": supplier})
+    filt: dict = {"$and": and_conditions}
 
     issue_counts: dict[str, int] = {}
     rows: list[dict] = []
@@ -212,7 +220,8 @@ async def sanity_report(
             continue
         for i in issues:
             issue_counts[i] = issue_counts.get(i, 0) + 1
-        supplier_counts[str(doc.get("supplier") or "unknown")] = supplier_counts.get(str(doc.get("supplier") or "unknown"), 0) + 1
+        resolved_supplier_key = str(doc.get("supplier") or doc.get("supplier_name") or "unknown")
+        supplier_counts[resolved_supplier_key] = supplier_counts.get(resolved_supplier_key, 0) + 1
         rows.append(_serialize_row(doc, issues))
         if len(rows) >= limit:
             break
@@ -330,7 +339,8 @@ async def apply_new_names(
         if new_supplier_name:
             set_data["supplier_product_name"] = new_supplier_name
 
-        doc = await db.supplier_products.find_one(query, {"name": 1, "supplier": 1})
+        doc = await db.supplier_products.find_one(query, {"name": 1, "supplier": 1, "supplier_name": 1})
+        resolved_supplier = item.supplier or (doc or {}).get("supplier") or (doc or {}).get("supplier_name")
         res = await db.supplier_products.update_one(query, {"$set": set_data})
         if res.matched_count == 0:
             failed.append({"sku": item.sku, "reason": "not_found"})
@@ -340,9 +350,13 @@ async def apply_new_names(
         # sync/scrape refresh — those paths check `custom_mappings` first
         # (see services/custom_mappings.py). Written directly here (not via
         # the sync helper) because this router uses the async Motor client.
+        # `resolved_supplier` falls back to `supplier_name` because ~20% of
+        # supplier_products docs only have that field, not `supplier` — a
+        # null supplier here means the lookup in single_product_sync.py
+        # (keyed by supplier) would never match, silently breaking protection.
         try:
             mapping_set = {
-                "supplier": item.supplier or (doc or {}).get("supplier"),
+                "supplier": resolved_supplier,
                 "sku": item.sku,
                 "original_name": (doc or {}).get("name") or clean_name,
                 "custom_name": clean_name,

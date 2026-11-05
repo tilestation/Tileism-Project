@@ -305,7 +305,7 @@ const ProductNameSanity = () => {
                 <tr className="text-left text-gray-500">
                   <th className="px-3 py-2 font-medium w-24">SKU</th>
                   <th className="px-3 py-2 font-medium">Current name</th>
-                  <th className="px-3 py-2 font-medium text-sky-700">Supplier name</th>
+                  <th className="px-3 py-2 font-medium text-sky-700 min-w-[220px]">Supplier name</th>
                   <th className="px-3 py-2 font-medium w-56">Issues</th>
                   <th className="px-3 py-2 font-medium w-48">Fields</th>
                   <th className="px-3 py-2 font-medium min-w-[320px]">New name (edit &amp; save)</th>
@@ -318,7 +318,10 @@ const ProductNameSanity = () => {
                   const currentEdit = suggestedEdits[row.sku] ?? row.product_name;
                   const currentSupplierEdit = supplierEdits[row.sku] ?? row.supplier_name ?? '';
                   const nameWillChange = currentEdit && currentEdit !== row.product_name;
-                  const supplierWillChange = currentSupplierEdit !== (row.supplier_name || '');
+                  // Clearing the field entirely isn't a save-able change — saving
+                  // an empty supplier name is ignored by the backend, so keep the
+                  // Save button's enabled state in sync with that.
+                  const supplierWillChange = currentSupplierEdit.trim() !== '' && currentSupplierEdit !== (row.supplier_name || '');
                   const willChange = nameWillChange || supplierWillChange;
                   return (
                     <tr key={row.sku} className={busy ? 'opacity-50' : ''} data-testid={`pns-row-${row.sku}`}>
@@ -327,7 +330,7 @@ const ProductNameSanity = () => {
                         <div className="text-[10px] text-gray-400">{row.supplier}</div>
                       </td>
                       <td className="px-3 py-2 text-slate-800">{row.product_name || <span className="text-gray-300">— empty —</span>}</td>
-                      <td className="px-3 py-2" data-testid={`pns-suppliername-${row.sku}`}>
+                      <td className="px-3 py-2 min-w-[220px]" data-testid={`pns-suppliername-${row.sku}`}>
                         <Input
                           value={currentSupplierEdit}
                           onChange={(e) => setSupplierEdits(prev => ({ ...prev, [row.sku]: e.target.value }))}
