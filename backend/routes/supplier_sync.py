@@ -4262,7 +4262,11 @@ def _build_group_or_filter(group: str):
         return None
     conditions = [{"product_group": {"$in": cfg["group_values"]}}]
     if cfg.get("main_category_values"):
-        conditions.append({"main_category": {"$in": cfg["main_category_values"]}})
+        # Case-insensitive — the DB stores mixed-case ('Materials', 'Tiles')
+        # while this filter must stay a superset of the frontend's
+        # .toLowerCase() comparison, or products silently disappear.
+        alt = "|".join(re.escape(v) for v in cfg["main_category_values"])
+        conditions.append({"main_category": {"$regex": f"^({alt})$", "$options": "i"}})
     if cfg.get("main_category_regex"):
         conditions.append({"main_category": {"$regex": cfg["main_category_regex"], "$options": "i"}})
     if cfg.get("subcat_regex"):

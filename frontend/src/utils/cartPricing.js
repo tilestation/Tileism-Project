@@ -98,6 +98,18 @@ export function getEffectivePrice(item, isTrade, accountTradeDiscount = 0) {
 }
 
 /**
+ * Same as getEffectivePrice but always VAT-INCLUSIVE — the actual amount
+ * that should be CHARGED (e.g. to Stripe), regardless of how the price is
+ * DISPLAYED to the viewer. getEffectivePrice strips VAT for trade users
+ * (ex-VAT display), so anything that charges money must add it back on,
+ * otherwise trade orders are undercharged by 20%.
+ */
+export function getEffectivePriceIncVat(item, isTrade, accountTradeDiscount = 0) {
+  const priced = getEffectivePrice(item, isTrade, accountTradeDiscount);
+  return isTrade ? Math.round(priced * 1.20 * 100) / 100 : priced;
+}
+
+/**
  * Total of all cart line items at the current effective price (sum of
  * effective_price × quantity). For non-trade users this equals the retail
  * inc-VAT product total; for trade users it equals the ex-VAT product total.

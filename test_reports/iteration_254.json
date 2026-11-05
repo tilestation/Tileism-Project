@@ -1,0 +1,46 @@
+{
+  "summary": "Tested Manager perf fix (?group= server filter + lazy light-index), Assign Category workflow, and Klarna/PayPal Express pricing fixes. Backend 19/21 pytest pass. Tiles Manager now loads in ~6s with no freeze (1059 rows, 794 series; JS thread stays responsive), and only fetches ?limit=3000&group=tiles. Materials(137)/Flooring(3)/Bathroom(36)/UFH(75)/Tools(0) each load in ~4s with correctly scoped requests. Search, Quick Edit modal open/close (0.4s), checkbox→Bulk bar, cross-Manager carry-over, and the 'Selected' panel for not-loaded products (name + 'open in Tools Manager' route from light-index) all work. light-index only fires once a selection exists. Supplier Products > Assign Category > Tools returned 200, toast 'Assigned 1 product(s)', product showed up in Tools Manager (then reverted). Express: retail basket with 10% volume tier → cart £511.99 = Klarna & PayPal session total £511.99 (sent price 36.00 effective, delivery 79.99 from default_fee). BUT for TRADE users express now charges ex-VAT: cart shows £506.39 inc VAT, PayPal Express session total = £421.99 (VAT £84.40 missing). Also default_fee=0 falls back to £49.99 in express, and the materials group filter drops 1 product (case-sensitive main_category match).",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "POST /api/shop/paypal-express/create-session and /api/shop/klarna-express/create-session (with TileCartPage.js handlers)", "issue": "Trade users get undercharged. getEffectivePrice(c, isTrade=true) returns the EX-VAT trade price, and the express endpoint charges subtotal + delivery with no VAT. Repro: trade.test login, 12 m² at £40 retail with tiers [10,20]/[0,10,20] and 5% trade discount → cart shows Total inc VAT £506.39, but the PayPal session total is £421.99 (sent price 28.5). The full £84.40 of VAT is missing. Fix: for trade users, send the inc-VAT price (effective*1.2) or add VAT on the server when the session belongs to a trade customer. Also make delivery match the cart's VAT handling.", "priority": "HIGH"}
+    ],
+    "minor": [
+      {"endpoint": "POST /api/shop/klarna-express & paypal-express create-session", "issue": "`float(delivery_cfg.get('default_fee', 49.99) or 49.99)`: the `or 49.99` turns a configured default_fee of 0 (free delivery) into £49.99. The cart page accepts 0 (it checks `default_fee >= 0`), so the cart shows £0 and express charges £49.99. Confirmed by test_zero_default_fee_respected. `free_threshold ... or 500` has the same falsy problem. Use an explicit None check instead."},
+      {"endpoint": "POST /api/shop/*-express/create-session", "issue": "The express total leaves out the mandatory per-item delivery charge (itemDeliveryCharge, from delivery_charge_required items) and the congestion and parcel rules that the cart and guest-checkout apply, so baskets containing such items will still differ from the cart total."},
+      {"endpoint": "GET /api/supplier-sync/products?group=materials (MANAGER_GROUP_FILTERS)", "issue": "main_category is matched with a case-sensitive `$in: ['materials']`/`['tiles']`/etc. The DB stores 'Materials'/'Tiles', but the frontend isMatch lowercases. Result: Canopy HE6000 (main_category='Materials', no product_group) showed in the Materials Manager before this change and is now missing. Use a case-insensitive regex such as ^materials$ with option i (same for tiles/flooring/bathroom)."},
+      {"endpoint": "POST /api/shop/*-express/create-session", "issue": "Still existing (not new): the server trusts the client-sent `price` (the comment says 'never trust frontend'). Sending the effective price from the client makes this more important. Prices and tier discounts should be re-derived server-side from product_id."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {"flow": "Trade user Klarna/PayPal Express from /shop/tile-cart", "issue": "The displayed total (inc VAT) is not what gets charged (ex VAT). See the backend critical issue.", "affected_selectors": ["[data-testid='paypal-express-btn']", "[data-testid='klarna-express-btn']", "[data-testid='total-inc-vat']"]}
+    ],
+    "design_issues": [
+      {"screen": "Tile cart", "issues": ["The top banner and the free-delivery note say 'over £499' while free_threshold is 500 (cosmetic, and the copy is hardcoded)."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_iter254_manager_group_and_express_pricing.py", "/app/test_reports/pytest/pytest_iter254.xml"],
+  "action_items": [
+    "HIGH: Fix the trade-user express undercharge. Include 20% VAT for trade baskets (send effective*1.2 or add VAT on the server) so the Stripe total equals the cart's total-inc-vat.",
+    "Replace the `or 49.99` / `or 500` fallbacks in both express endpoints with explicit None checks so default_fee=0 / free_threshold=0 are respected.",
+    "Make the main_category conditions in MANAGER_GROUP_FILTERS case-insensitive, so they are a true superset of the frontend isMatch (restores HE6000 in the Materials Manager).",
+    "Optional: add itemDeliveryCharge (mandatory per-item delivery) to the express total, or hide the express buttons when such items are in the basket."
+  ],
+  "critical_code_review_comments": [
+    "routes/shop.py express endpoints: a falsy fallback (`x or default`) silently overrides admin-configured 0 values.",
+    "TileCartPage express handlers send ex-VAT prices for trade users, while the backend has no VAT logic, so totals are wrong for every trade express order.",
+    "supplier_sync MANAGER_GROUP_FILTERS: `$in` on main_category is case-sensitive, but the DB has mixed-case values ('Tiles', 'Materials', 'Wall Tiles').",
+    "light-index: products without sku/supplier_code get key 'supplier|||undefined' because _id is not returned; the frontend key falls back to _id, so those won't resolve (edge case).",
+    "Manager pages still render all 1059 rows at once (no virtualisation). Load is acceptable now (~6s, responsive), but this is worth watching as the catalogue grows.",
+    "The double fetch of /products?group= on each Manager page is caused by React.StrictMode in dev only (not a prod bug).",
+    "Custom Managers still fetch limit=3000 without a group filter, which will silently truncate once the catalogue exceeds 3000 products."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter254_manager_group_and_express_pricing.py"],
+  "success_rate": {"backend": "90% (19/21)", "frontend": "90% (all Manager/bulk/assign flows pass; trade express total mismatch)"},
+  "seed_data_creation": "None persisted. During testing I temporarily changed checkout_settings (klarna/paypal enabled, free_threshold 500) and restored it from a backup. The current state is payments {} and delivery.default_fee=79.99, free_threshold=1000, which were the pre-existing values. Temporarily reassigned HE7018FSC to tools, then restored product_group=flooring in supplier_products and tiles (its updated_at was bumped). The pytest temporarily reassigns SKU 9405 and restores it. All TEST_ shop_orders were deleted.",
+  "retest_needed": true,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Run pytest with: cd /app/backend && python -m pytest tests/test_iter254_manager_group_and_express_pricing.py -p no:xdist -o addopts=''. The tests toggle checkout_settings via direct Mongo and restore it. Express buttons are hidden on the live site because payments.klarna_enabled/paypal_enabled are off; they must be enabled temporarily to test the UI. To exercise the trade express check: log in via POST /api/shop/auth/login as trade.test@tilestation.co.uk, then set localStorage tile_shop_token, tile_shop_customer and tilestation_cart (an item with retail_price_inc_vat, tier_thresholds, tier_discounts, trade_discount), and compare [data-testid=total-inc-vat] with the create-session response total. Not verified this round: the Stripe-side line items via Session.retrieve (proxy).",
+  "rca of the issue": "Trade VAT undercharge: cartPricing.getEffectivePrice strips VAT for trade (`priced/1.20`) for ex-VAT display. The cart adds VAT back separately (vatAmount), but the express payload uses only the per-item effective price, and shop.py express sums price*qty + delivery with no VAT step. Zero fee: `float(cfg.get('default_fee', 49.99) or 49.99)` treats 0 as falsy. Materials missing product: _build_group_or_filter uses `{'main_category': {'$in': ['materials']}}` against the stored value 'Materials'."
+}

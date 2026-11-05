@@ -17,6 +17,19 @@ Full-stack React + FastAPI + MongoDB e-commerce platform for tile/stone supplier
 - **Backend**: FastAPI, MongoDB (deployed on Railway)
 - **Deployment**: Railway (production), Emergent (preview)
 
+### [Nov 5, 2026] 🟢 Admin Tiles Manager browser freeze ("Page Unresponsive") FIXED + Express checkout pricing bugs FIXED — VERIFIED (testing_agent iteration_254, 2-pass; pytest 21/21)
+- Root cause of freeze: `ManagerPageShell.jsx` fetched ALL ~1600 supplier products (`limit=5000`, no server filter) on EVERY Manager page load, plus eagerly built a full-catalogue `allIndex` lookup every load, then ran heavy client-side filtering/grouping on the whole set.
+- Fix: new `?group=` param on `GET /api/supplier-sync/products` (`MANAGER_GROUP_FILTERS` + `_build_group_or_filter` in `routes/supplier_sync.py`) scopes each built-in Manager (tiles/materials/flooring/bathroom/underfloor_heating/tools) to only ITS OWN products server-side — superset-safe mirror of each Manager's client-side `isMatch()`. `allIndex` now lazy-loads from a new `GET /api/supplier-sync/products/light-index` endpoint only when a cross-category selection exists, not on every page load. Custom Managers (slug-based) unchanged.
+- User asked "why can't I just move selected products from All Products into Managers" — confirmed the existing "Assign Category" bulk action in Supplier Products already does exactly this (sets `product_group` via `bulk-assign-category`); no new UI needed, just surfaced/verified.
+- Also fixed (from iteration_253 pending backlog item "delivery fee and discount pricing bugs"):
+  - Express (Klarna/PayPal) delivery fee read a non-existent `standard_fee` settings key → always fell back to hardcoded £49.99 regardless of admin's configured `default_fee`. Now reads `default_fee` (same key the cart page reads).
+  - `x or default` falsy fallbacks meant an admin-configured `default_fee=0` (free delivery) or `free_threshold=0` was silently overridden — now uses explicit `is not None` checks.
+  - Express sent the RAW list price per item (ignoring tier/volume discounts and trade ex-VAT pricing) → now sends `getEffectivePriceIncVat()` (new helper in `cartPricing.js`) which applies tier+trade discount AND adds VAT back for trade customers, so the Stripe charge matches the cart's displayed "Total (inc. VAT)" exactly (closes a real undercharge bug found by testing_agent on retest).
+  - `MANAGER_GROUP_FILTERS` main_category matching was case-sensitive ('Materials' in DB vs lowercase compare) — silently dropped unclassified products from their Manager; now case-insensitive regex.
+- Known low-priority gap left unfixed (per testing_agent, affects a narrow edge case only): Express total still excludes mandatory per-item delivery charges / congestion zone / parcel-only rules that standard checkout applies — only relevant for baskets containing items flagged `delivery_charge_required` or `parcel_delivery`.
+- Files: `frontend/src/pages/admin/components/ManagerPageShell.jsx`, `backend/routes/supplier_sync.py`, `backend/routes/shop.py`, `frontend/src/pages/shop/TileCartPage.js`, `frontend/src/utils/cartPricing.js`.
+
+
 ### [Oct 23, 2026] 🔴 CRITICAL — Klarna/PayPal Express orders lost customer name, address & undercharged on fractional quantities — ROOT CAUSE FOUND & FIXED (pytest 8/8 + testing_agent 2-pass; NOT YET DEPLOYED to Railway production)
 Trigger: User found a real paid order (#E-1792764334, Klarna, £676.94) on production with no customer name, no delivery/billing address, and the line item literally showed the placeholder text "Product".
 Root causes (3 compounding bugs, all in the Klarna Express / PayPal Express "buy now" buttons on the cart page — the full checkout form at `/shop/checkout` was NOT affected):

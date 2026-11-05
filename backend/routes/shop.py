@@ -3355,8 +3355,10 @@ async def create_klarna_express_session(request: Request, data: KlarnaExpressReq
     # collects the address on Stripe's hosted page, after this fee is set.
     settings_doc = await db.website_settings.find_one({"key": "checkout_settings"}, {"_id": 0})
     delivery_cfg = (settings_doc or {}).get("value", {}).get("delivery", {})
-    free_threshold = float(delivery_cfg.get("free_threshold", 500) or 500)
-    standard_fee = float(delivery_cfg.get("default_fee", 49.99) or 49.99)
+    _ft = delivery_cfg.get("free_threshold")
+    free_threshold = float(_ft) if _ft is not None else 500.0
+    _fee = delivery_cfg.get("default_fee")
+    standard_fee = float(_fee) if _fee is not None else 49.99
     delivery_fee = 0.0 if subtotal >= free_threshold else standard_fee
     total = round(subtotal + delivery_fee, 2)
     
@@ -3509,8 +3511,10 @@ async def create_paypal_express_session(request: Request, data: PaypalExpressReq
     # page — see Klarna Express above for why zones aren't applied here).
     settings_doc = await db.website_settings.find_one({"key": "checkout_settings"}, {"_id": 0})
     delivery_cfg = (settings_doc or {}).get("value", {}).get("delivery", {})
-    free_threshold = float(delivery_cfg.get("free_threshold", 500) or 500)
-    standard_fee = float(delivery_cfg.get("default_fee", 49.99) or 49.99)
+    _ft = delivery_cfg.get("free_threshold")
+    free_threshold = float(_ft) if _ft is not None else 500.0
+    _fee = delivery_cfg.get("default_fee")
+    standard_fee = float(_fee) if _fee is not None else 49.99
     delivery_fee = 0.0 if subtotal >= free_threshold else standard_fee
     total = round(subtotal + delivery_fee, 2)
 
