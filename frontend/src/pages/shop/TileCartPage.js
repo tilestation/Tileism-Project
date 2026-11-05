@@ -135,7 +135,10 @@ const TileCartPage = () => {
         items: cart.map(c => ({
           product_id: c.id || c.slug || '',
           quantity: Number(c.quantity) || 0,
-          price: Number(c.price) || 0,
+          // Effective price (tier + trade discount applied) — matches what
+          // the cart total on this page actually shows, instead of the raw
+          // list price which overcharged/undercharged vs the displayed total.
+          price: getEffectivePrice(c, isTrade, tradeDiscount),
           name: c.display_name || c.product_name || c.name || c.title || 'Product',
           sku: c.sku || '',
           image: c.image || '',
@@ -175,7 +178,9 @@ const TileCartPage = () => {
         items: cart.map(c => ({
           product_id: c.id || c.slug || '',
           quantity: Number(c.quantity) || 0,
-          price: Number(c.price) || 0,
+          // Effective price (tier + trade discount applied) — see Klarna
+          // Express above for why this replaces the raw list price.
+          price: getEffectivePrice(c, isTrade, tradeDiscount),
           name: c.display_name || c.product_name || c.name || c.title || 'Product',
           sku: c.sku || '',
           image: c.image || '',

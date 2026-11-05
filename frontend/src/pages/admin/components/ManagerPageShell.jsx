@@ -81,6 +81,11 @@ import { useManagerConfig } from './managers/useManagerConfig';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL;
 
+// Built-in Managers whose products can be filtered server-side via ?group=.
+// Custom Managers (slug-based, arbitrary keyword predicates) aren't in this
+// set, so they keep the old "fetch everything, filter client-side" path.
+const KNOWN_MANAGER_GROUPS = new Set(['tiles', 'materials', 'flooring', 'bathroom', 'underfloor_heating', 'tools']);
+
 // Inline series editor cell — click the pencil, pick/type a series, Enter saves.
 // Saving updates supplier_products AND mirrors to tiles so the storefront card
 // regroups immediately. Existing series names are offered via a datalist.
@@ -384,23 +389,19 @@ const ManagerPageShell = ({
   const themeCls = THEME_MAP[theme] || THEME_MAP.orange;
 
   // ---- Fetch ----
+  // Built-in Managers fetch only THEIR OWN products via ?group= (server-side
+  // filtered) instead of the entire 2000+ product catalogue — this is what
+  // was freezing the browser. Custom Managers (arbitrary keyword predicates)
+  // keep fetching everything since their match logic isn't a known group.
   const [allIndex, setAllIndex] = useState(() => new Map());
   const fetchProducts = useCallback(async (silent) => {
     if (silent !== true) setLoading(true);
     try {
-      const res = await fetch(`${API_URL}/api/supplier-sync/products?limit=5000`);
+      const groupParam = KNOWN_MANAGER_GROUPS.has(categoryKey) ? `&group=${categoryKey}` : '';
+      const res = await fetch(`${API_URL}/api/supplier-sync/products?limit=3000${groupParam}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       const all = data.products || [];
-      // Light lookup of EVERY product (pre-category-filter) so the Selected
-      // panel can name + route items ticked in other categories.
-      const idx = new Map();
-      all.forEach(p => idx.set(getProductKey(p), {
-        name: productDisplayName(p),
-        image: (Array.isArray(p.images) ? p.images.filter(Boolean)[0] : null) || p.image || null,
-        product_group: p.product_group || null,
-      }));
-      setAllIndex(idx);
       const filtered = all.filter(isMatch);
       setProducts(filtered);
       setLastRefresh(new Date());
@@ -413,6 +414,26 @@ const ManagerPageShell = ({
 
   useEffect(() => { fetchProducts(); }, [fetchProducts]);
   const bulk = useManagerBulk({ products, onRefresh: fetchProducts, storageKey: categoryKey });
+
+  // Light cross-category index — loaded lazily, only once a selection exists,
+  // so the Bulk bar's "Selected" panel can name + route products ticked in a
+  // DIFFERENT Manager. Never fetched on a normal page load.
+  useEffect(() => {
+    if (bulk.selectedProducts.size === 0 || allIndex.size > 0) return;
+    fetch(`${API_URL}/api/supplier-sync/products/light-index`)
+      .then(res => (res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`))))
+      .then(data => {
+        const idx = new Map();
+        (data.index || []).forEach(p => idx.set(getProductKey(p), {
+          name: p.name || null,
+          image: p.image || null,
+          product_group: p.product_group || null,
+        }));
+        setAllIndex(idx);
+      })
+      .catch(() => { /* non-critical — Selected panel just shows fewer names */ });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bulk.selectedProducts.size, allIndex.size]);
 
   // Pricing hub — one modal for prices / sale, pallets & delivery (per item) and tier / trade discounts
   const pricingHubOpen = showBulkFields || showTierPricing;

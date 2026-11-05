@@ -4214,6 +4214,62 @@ def get_verona_products(skip: int = 0, limit: int = 50, search: Optional[str] = 
 
 
 
+
+# Manager group → broad Mongo $or filter, mirrors each Manager page's
+# client-side isMatch() predicate (see classifyProductToManager.js and the
+# individual *Manager.jsx files). Used by ?group= on /products to let each
+# Manager page fetch only ITS OWN products instead of the entire catalogue —
+# this is a superset-safe mirror (same or broader matches) of the frontend
+# predicates, so nothing that used to show up in a Manager disappears.
+MANAGER_GROUP_FILTERS = {
+    "tiles": {
+        "group_values": ["tiles"],
+        "main_category_values": ["tiles"],
+        "subcat_regex": "tile|mosaic|border",
+    },
+    "materials": {
+        "group_values": ["materials"],
+        "main_category_values": ["materials"],
+        "subcat_regex": "adhesive|grout|sealant|silicone|cleaning|cleaner|primer|levelling",
+    },
+    "flooring": {
+        "group_values": ["flooring"],
+        "main_category_values": ["flooring"],
+        "subcat_regex": "flooring|lvt|laminate|engineered|vinyl|luxury vinyl",
+    },
+    "bathroom": {
+        "group_values": ["bathroom"],
+        "main_category_values": ["bathroom"],
+        "subcat_regex": "bathroom|toilet|basin|bath|shower|tap|faucet|vanity|mirror|towel|radiator",
+    },
+    "underfloor_heating": {
+        "group_values": ["underfloor_heating", "ufh"],
+        "main_category_regex": "underfloor|ufh",
+        "subcat_regex": "underfloor|ufh|thermostat|heating.*mat|heating.*cable",
+    },
+    "tools": {
+        "group_values": ["tools"],
+        "main_category_regex": "tools|accessor",
+        "subcat_regex": "tool|cutter|trowel|spacer|leveller|mixer|bucket|sponge|scraper",
+    },
+}
+
+
+def _build_group_or_filter(group: str):
+    """Build the $or clause list for a Manager group, or None if unknown."""
+    cfg = MANAGER_GROUP_FILTERS.get(group)
+    if not cfg:
+        return None
+    conditions = [{"product_group": {"$in": cfg["group_values"]}}]
+    if cfg.get("main_category_values"):
+        conditions.append({"main_category": {"$in": cfg["main_category_values"]}})
+    if cfg.get("main_category_regex"):
+        conditions.append({"main_category": {"$regex": cfg["main_category_regex"], "$options": "i"}})
+    if cfg.get("subcat_regex"):
+        conditions.append({"sub_categories": {"$regex": cfg["subcat_regex"], "$options": "i"}})
+    return conditions
+
+
 @router.get("/products")
 def get_all_supplier_products(
     skip: int = 0, 
@@ -4221,7 +4277,8 @@ def get_all_supplier_products(
     supplier: Optional[str] = None,
     search: Optional[str] = None,
     new_only: Optional[bool] = False,
-    series: Optional[str] = None
+    series: Optional[str] = None,
+    group: Optional[str] = None,
 ):
     """
     Get products from all suppliers with optional filtering
@@ -4230,12 +4287,13 @@ def get_all_supplier_products(
         db = get_db()
         
         query = {}
+        and_conditions = []
         supplier = normalise_filter_value(supplier)
         if supplier:
             query["supplier"] = supplier
         if search:
             safe = re.escape(search.strip())
-            query["$or"] = [
+            and_conditions.append({"$or": [
                 {"name": {"$regex": safe, "$options": "i"}},
                 {"product_name": {"$regex": safe, "$options": "i"}},
                 {"sku": {"$regex": safe, "$options": "i"}},
@@ -4246,7 +4304,18 @@ def get_all_supplier_products(
                 {"series": {"$regex": safe, "$options": "i"}},
                 {"range_name": {"$regex": safe, "$options": "i"}},
                 {"original_series": {"$regex": safe, "$options": "i"}},
-            ]
+            ]})
+
+        # Manager group filter — scopes the result to one Manager page's
+        # products (tiles / materials / flooring / bathroom / underfloor_heating
+        # / tools) instead of the whole 2000+ product catalogue.
+        if group:
+            group_or = _build_group_or_filter(group.strip().lower())
+            if group_or:
+                and_conditions.append({"$or": group_or})
+
+        if and_conditions:
+            query["$and"] = and_conditions
         
         # Series filter — match `series` field exactly. Required so the
         # frontend dropdown ("Metallique (13)") returns ONLY those 13
@@ -4528,6 +4597,44 @@ def get_all_supplier_products(
         
     except Exception as e:
         logger.error(f"Error getting supplier products: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/products/light-index")
+def get_products_light_index():
+    """Minimal name/image/group lookup across EVERY supplier product.
+
+    Used by Manager pages to label products selected in a DIFFERENT Manager
+    (the Bulk bar's "Selected" cross-category panel) without paying the cost
+    of the full /products payload (70+ fields, live-tiles lookups, etc. per
+    row). Only called when a selection actually exists, so it never runs on
+    a normal page load.
+    """
+    try:
+        db = get_db()
+        cursor = db.supplier_products.find(
+            {},
+            {
+                "sku": 1, "supplier_code": 1, "supplier": 1, "product_group": 1,
+                "product_name": 1, "our_product_name": 1, "name": 1,
+                "images": 1, "image": 1,
+            },
+        )
+        index = []
+        for p in cursor:
+            images = p.get("images")
+            image = (images[0] if images else None) or p.get("image")
+            index.append({
+                "sku": p.get("sku"),
+                "supplier_code": p.get("supplier_code"),
+                "supplier": p.get("supplier"),
+                "product_group": p.get("product_group"),
+                "name": p.get("our_product_name") or p.get("product_name") or p.get("name"),
+                "image": image,
+            })
+        return {"index": index}
+    except Exception as e:
+        logger.error(f"Error getting products light index: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

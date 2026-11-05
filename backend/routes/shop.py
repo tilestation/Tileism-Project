@@ -3347,11 +3347,16 @@ async def create_klarna_express_session(request: Request, data: KlarnaExpressReq
     if not cleaned_items:
         raise HTTPException(status_code=400, detail="No valid items in basket")
     
-    # Default delivery: standard £49.99, waived at the store's free threshold
+    # Default delivery: store's configured flat fee, waived at the free
+    # threshold. Reads `default_fee` — the SAME key the cart page reads —
+    # not `standard_fee`, which doesn't exist in checkout_settings and was
+    # silently falling back to a hardcoded £49.99 that didn't match what the
+    # cart displayed. Postcode zones aren't applied here because Express
+    # collects the address on Stripe's hosted page, after this fee is set.
     settings_doc = await db.website_settings.find_one({"key": "checkout_settings"}, {"_id": 0})
     delivery_cfg = (settings_doc or {}).get("value", {}).get("delivery", {})
-    free_threshold = float(delivery_cfg.get("free_threshold", 1000) or 1000)
-    standard_fee = float(delivery_cfg.get("standard_fee", 49.99) or 49.99)
+    free_threshold = float(delivery_cfg.get("free_threshold", 500) or 500)
+    standard_fee = float(delivery_cfg.get("default_fee", 49.99) or 49.99)
     delivery_fee = 0.0 if subtotal >= free_threshold else standard_fee
     total = round(subtotal + delivery_fee, 2)
     
@@ -3500,11 +3505,12 @@ async def create_paypal_express_session(request: Request, data: PaypalExpressReq
     if not cleaned_items:
         raise HTTPException(status_code=400, detail="No valid items in basket")
 
-    # Default delivery: standard, waived at the store's free threshold
+    # Default delivery: store's configured flat fee (same key as the cart
+    # page — see Klarna Express above for why zones aren't applied here).
     settings_doc = await db.website_settings.find_one({"key": "checkout_settings"}, {"_id": 0})
     delivery_cfg = (settings_doc or {}).get("value", {}).get("delivery", {})
-    free_threshold = float(delivery_cfg.get("free_threshold", 1000) or 1000)
-    standard_fee = float(delivery_cfg.get("standard_fee", 49.99) or 49.99)
+    free_threshold = float(delivery_cfg.get("free_threshold", 500) or 500)
+    standard_fee = float(delivery_cfg.get("default_fee", 49.99) or 49.99)
     delivery_fee = 0.0 if subtotal >= free_threshold else standard_fee
     total = round(subtotal + delivery_fee, 2)
 
