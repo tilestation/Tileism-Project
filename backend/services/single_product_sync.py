@@ -509,6 +509,20 @@ async def sync_single_product(url: str, supplier: str = None) -> Dict[str, Any]:
                     {"url": url}
                 ]
             })
+
+            # Respect a manual admin edit (Quick Edit / Name Sanity) — don't
+            # let a re-scrape silently overwrite product_name/supplier_product_name
+            # for a product that already exists with a custom mapping.
+            if existing:
+                try:
+                    from services.custom_mappings import get_custom_mapping
+                    mapping = get_custom_mapping(db, final_supplier, existing.get('sku') or product.get('sku'))
+                except Exception:
+                    mapping = None
+                if mapping:
+                    product['product_name'] = mapping.get('custom_name') or product['product_name']
+                    if mapping.get('supplier_product_name'):
+                        product['supplier_product_name'] = mapping['supplier_product_name']
             
             # Store original source URLs for future change detection
             source_images = product.get('images', [])

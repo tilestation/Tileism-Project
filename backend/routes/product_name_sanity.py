@@ -145,12 +145,13 @@ def build_suggested_name(doc: dict) -> str:
     return " ".join(words_out).strip()
 
 
-def _supplier_original_name(doc: dict, ours: str) -> str:
-    """Supplier's own name: feed `name` when it differs from ours, else the preserved original."""
-    feed = str(doc.get("name") or "").strip()
-    if feed and feed != ours:
-        return feed
-    return str(doc.get("original_supplier_name") or doc.get("supplier_product_name") or feed or "").strip()
+def _supplier_original_name(doc: dict) -> str:
+    """The REAL stored supplier name field — same value shown on the Supplier
+    Products / Manager pages (`supplier_product_name`). Previously this guessed
+    by comparing the raw feed `name` against our display name, which could show
+    a value that didn't match what's actually saved, making it look like
+    "Supplier name" had changed when it hadn't — it just wasn't the same field."""
+    return str(doc.get("supplier_product_name") or doc.get("original_supplier_name") or doc.get("name") or "").strip()
 
 
 def _serialize_row(doc: dict, issues: List[str]) -> dict:
@@ -160,7 +161,7 @@ def _serialize_row(doc: dict, issues: List[str]) -> dict:
         "sku": doc.get("sku") or doc.get("supplier_code"),
         "supplier": doc.get("supplier"),
         "product_name": ours,
-        "supplier_name": _supplier_original_name(doc, ours),
+        "supplier_name": _supplier_original_name(doc),
         "color": _first(doc.get("color") or doc.get("colors")),
         "size": _first(doc.get("size") or doc.get("sizes")),
         "finish": _first(doc.get("finish") or doc.get("finishes")),
@@ -283,6 +284,10 @@ class ApplyItem(BaseModel):
     sku: str
     supplier: Optional[str] = None
     new_name: str = Field(min_length=3, max_length=250)
+    # Optional — lets the admin fix the Supplier Name (internal reference
+    # field, same one shown on Supplier Products / Managers) in the SAME
+    # save as the display name, instead of it being read-only here.
+    new_supplier_name: Optional[str] = Field(default=None, max_length=250)
 
 
 class ApplyRequest(BaseModel):
@@ -295,7 +300,8 @@ async def apply_new_names(
     current_user: dict = Depends(get_current_user),
 ):
     """Rename a batch of products with explicit new names. Frontend uses this after the admin
-    reviews the suggestion and optionally edits it."""
+    reviews the suggestion and optionally edits it. Can also update the Supplier Name field
+    (`new_supplier_name`) in the same call — both fields are independent, manual edits."""
     if not has_permission(current_user, "supplier_products"):
         raise HTTPException(403, "You need the Supplier Products permission to rename products")
 
@@ -310,22 +316,49 @@ async def apply_new_names(
             query = {"$and": [query, {"supplier": item.supplier}]}
 
         # IMPORTANT: `name` = the SUPPLIER's original product name — never touch it here.
-        # Renames from Name Sanity only change OUR storefront/display name fields.
+        # Renames from Name Sanity only change OUR storefront/display name fields,
+        # plus `supplier_product_name` when the admin explicitly edited it.
+        clean_name = item.new_name.strip()
         set_data = {
-            "product_name": item.new_name.strip(),
-            "our_product_name": item.new_name.strip(),
-            "display_name": item.new_name.strip(),
+            "product_name": clean_name,
+            "our_product_name": clean_name,
+            "display_name": clean_name,
             "updated_at": now,
             "product_name_fixed_by": current_user.get("email"),
         }
+        new_supplier_name = (item.new_supplier_name or "").strip() or None
+        if new_supplier_name:
+            set_data["supplier_product_name"] = new_supplier_name
 
+        doc = await db.supplier_products.find_one(query, {"name": 1, "supplier": 1})
         res = await db.supplier_products.update_one(query, {"$set": set_data})
         if res.matched_count == 0:
             failed.append({"sku": item.sku, "reason": "not_found"})
             continue
-        # Mirror to `tiles` (website tile listings) and `products` (EPOS + general products).
-        # Best-effort — a missing SKU in either collection is fine.
-        clean_name = item.new_name.strip()
+
+        # Protect BOTH manual edits from being clobbered by a later automated
+        # sync/scrape refresh — those paths check `custom_mappings` first
+        # (see services/custom_mappings.py). Written directly here (not via
+        # the sync helper) because this router uses the async Motor client.
+        try:
+            mapping_set = {
+                "supplier": item.supplier or (doc or {}).get("supplier"),
+                "sku": item.sku,
+                "original_name": (doc or {}).get("name") or clean_name,
+                "custom_name": clean_name,
+                "updated_at": now.isoformat(),
+                "updated_by": current_user.get("email"),
+            }
+            if new_supplier_name:
+                mapping_set["supplier_product_name"] = new_supplier_name
+            await db.custom_mappings.update_one(
+                {"supplier": mapping_set["supplier"], "sku": item.sku},
+                {"$set": mapping_set, "$setOnInsert": {"created_at": now.isoformat(), "created_by": current_user.get("email")}},
+                upsert=True,
+            )
+        except Exception:
+            pass
+
         try:
             # display_name is what serialize_tile_for_shop shows on the storefront —
             # it MUST be updated together with name or the old (pre-rename) name keeps showing.
@@ -338,7 +371,11 @@ async def apply_new_names(
         try:
             await db.products.update_many(
                 {"sku": item.sku},
-                {"$set": {"name": clean_name, "product_name": clean_name, "updated_at": now}},
+                {"$set": {
+                    "name": clean_name, "product_name": clean_name,
+                    **({"supplier_product_name": new_supplier_name} if new_supplier_name else {}),
+                    "updated_at": now,
+                }},
             )
         except Exception:
             pass
@@ -1009,7 +1046,7 @@ async def series_products_for_rename(
         finish = _extract_finish(remainder) or _clean_attr(_first(doc.get("finish") or doc.get("finishes"))).title()
 
         feed_name = str(doc.get("name") or "").strip()
-        supplier_name = _supplier_original_name(doc, name)
+        supplier_name = _supplier_original_name(doc)
 
         parts = {"color": color, "size": size, "finish": finish}
         rows.append({
