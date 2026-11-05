@@ -197,7 +197,9 @@ async def sanity_report(
             and_conditions.append({"supplier": {"$in": [None, ""]}})
             and_conditions.append({"$or": [{"supplier_name": {"$exists": False}}, {"supplier_name": {"$in": [None, ""]}}]})
         else:
-            and_conditions.append({"supplier": supplier})
+            # `supplier_counts` (below) already buckets by `supplier || supplier_name`,
+            # so the filter must match either field too or picking that option returns 0 rows.
+            and_conditions.append({"$or": [{"supplier": supplier}, {"supplier_name": supplier}]})
     filt: dict = {"$and": and_conditions}
 
     issue_counts: dict[str, int] = {}
@@ -292,7 +294,9 @@ async def sanity_report_for_selection(
 class ApplyItem(BaseModel):
     sku: str
     supplier: Optional[str] = None
-    new_name: str = Field(min_length=3, max_length=250)
+    # Optional now — omit when ONLY the Supplier Name changed, so a
+    # supplier-only edit never touches product_name/display_name/tiles.
+    new_name: Optional[str] = Field(default=None, min_length=3, max_length=250)
     # Optional — lets the admin fix the Supplier Name (internal reference
     # field, same one shown on Supplier Products / Managers) in the SAME
     # save as the display name, instead of it being read-only here.
@@ -322,20 +326,27 @@ async def apply_new_names(
     for item in payload.items:
         query: dict = {"$or": [{"sku": item.sku}, {"supplier_code": item.sku}]}
         if item.supplier:
-            query = {"$and": [query, {"supplier": item.supplier}]}
+            # Report rows expose `supplier || supplier_name`, so match either field.
+            query = {"$and": [query, {"$or": [{"supplier": item.supplier}, {"supplier_name": item.supplier}]}]}
+
+        new_supplier_name = (item.new_supplier_name or "").strip() or None
+        clean_name = (item.new_name or "").strip() or None
+        if not clean_name and not new_supplier_name:
+            failed.append({"sku": item.sku, "reason": "nothing_to_save"})
+            continue
 
         # IMPORTANT: `name` = the SUPPLIER's original product name — never touch it here.
-        # Renames from Name Sanity only change OUR storefront/display name fields,
-        # plus `supplier_product_name` when the admin explicitly edited it.
-        clean_name = item.new_name.strip()
-        set_data = {
-            "product_name": clean_name,
-            "our_product_name": clean_name,
-            "display_name": clean_name,
-            "updated_at": now,
-            "product_name_fixed_by": current_user.get("email"),
-        }
-        new_supplier_name = (item.new_supplier_name or "").strip() or None
+        # Only touch OUR display-name fields when the admin actually edited the
+        # name — a supplier-only edit must NEVER rewrite product_name/tiles/products,
+        # otherwise a stale/corrupted display name gets re-saved as if it were new.
+        set_data = {"updated_at": now}
+        if clean_name:
+            set_data.update({
+                "product_name": clean_name,
+                "our_product_name": clean_name,
+                "display_name": clean_name,
+                "product_name_fixed_by": current_user.get("email"),
+            })
         if new_supplier_name:
             set_data["supplier_product_name"] = new_supplier_name
 
@@ -358,11 +369,12 @@ async def apply_new_names(
             mapping_set = {
                 "supplier": resolved_supplier,
                 "sku": item.sku,
-                "original_name": (doc or {}).get("name") or clean_name,
-                "custom_name": clean_name,
                 "updated_at": now.isoformat(),
                 "updated_by": current_user.get("email"),
             }
+            if clean_name:
+                mapping_set["original_name"] = (doc or {}).get("name") or clean_name
+                mapping_set["custom_name"] = clean_name
             if new_supplier_name:
                 mapping_set["supplier_product_name"] = new_supplier_name
             await db.custom_mappings.update_one(
@@ -373,24 +385,24 @@ async def apply_new_names(
         except Exception:
             pass
 
+        if clean_name:
+            try:
+                # display_name is what serialize_tile_for_shop shows on the storefront —
+                # it MUST be updated together with name or the old (pre-rename) name keeps showing.
+                await db.tiles.update_one(
+                    {"sku": item.sku},
+                    {"$set": {"name": clean_name, "display_name": clean_name, "website_name": clean_name, "updated_at": now}},
+                )
+            except Exception:
+                pass
         try:
-            # display_name is what serialize_tile_for_shop shows on the storefront —
-            # it MUST be updated together with name or the old (pre-rename) name keeps showing.
-            await db.tiles.update_one(
-                {"sku": item.sku},
-                {"$set": {"name": clean_name, "display_name": clean_name, "website_name": clean_name, "updated_at": now}},
-            )
-        except Exception:
-            pass
-        try:
-            await db.products.update_many(
-                {"sku": item.sku},
-                {"$set": {
-                    "name": clean_name, "product_name": clean_name,
-                    **({"supplier_product_name": new_supplier_name} if new_supplier_name else {}),
-                    "updated_at": now,
-                }},
-            )
+            products_set = {"updated_at": now}
+            if clean_name:
+                products_set["name"] = clean_name
+                products_set["product_name"] = clean_name
+            if new_supplier_name:
+                products_set["supplier_product_name"] = new_supplier_name
+            await db.products.update_many({"sku": item.sku}, {"$set": products_set})
         except Exception:
             pass
         ok += 1

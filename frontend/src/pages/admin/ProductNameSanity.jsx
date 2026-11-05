@@ -92,7 +92,7 @@ const ProductNameSanity = () => {
         body: JSON.stringify({ items: [{
           sku: row.sku,
           supplier: row.supplier,
-          new_name: nameChanged ? newName : row.product_name,
+          new_name: nameChanged ? newName : undefined,
           new_supplier_name: supplierChanged ? newSupplierName : undefined,
         }] }),
       });
@@ -122,7 +122,7 @@ const ProductNameSanity = () => {
       return {
         sku: row.sku,
         supplier: row.supplier,
-        new_name: nameChanged ? newName : row.product_name,
+        new_name: nameChanged ? newName : undefined,
         new_supplier_name: supplierChanged ? newSupplierName : undefined,
       };
     })

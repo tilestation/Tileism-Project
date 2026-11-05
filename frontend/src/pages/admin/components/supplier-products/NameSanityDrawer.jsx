@@ -132,7 +132,7 @@ const NameSanityDrawer = ({ open, onClose, defaultSupplier = '', onRenamed, sele
         body: JSON.stringify({ items: [{
           sku: row.sku,
           supplier: row.supplier,
-          new_name: nameChanged ? newName : row.product_name,
+          new_name: nameChanged ? newName : undefined,
           new_supplier_name: supplierChanged ? newSupplierName : undefined,
         }] }),
       });
@@ -162,7 +162,7 @@ const NameSanityDrawer = ({ open, onClose, defaultSupplier = '', onRenamed, sele
       return {
         sku: row.sku,
         supplier: row.supplier,
-        new_name: nameChanged ? newName : row.product_name,
+        new_name: nameChanged ? newName : undefined,
         new_supplier_name: supplierChanged ? newSupplierName : undefined,
       };
     })

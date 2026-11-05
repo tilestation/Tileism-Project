@@ -1,0 +1,41 @@
+{
+  "summary": "Tested the NameSanityDrawer (opened from /admin/supplier-products) and the storefront Collection Detail H1 fix. The drawer's Supplier name column is now an editable Input with the right pre-filled value, in both unscoped and scoped ('N selected') mode. CRITICAL bug found and fixed: every Save in the drawer for 355POL6060 failed with toast 'Failed to save 355POL6060: not_found'. This was the real reason the user's edits did not save. Root cause: the drawer (and the standalone page) send supplier=row.supplier, and the report fills that from supplier || supplier_name. /apply then filtered on {supplier: X} only, so 322 of 1584 supplier_products that only have supplier_name could never be saved. One-line backend fix applied in routes/product_name_sanity.py. After the fix: name-only, supplier-only, both-fields and 'Save all edited' (3 mixed rows, toast 'Saved 3 names') all saved correctly, checked via GET /api/supplier-sync/products. Drawer regression passed: Rescan, Fix ALL-CAPS, Wand2, Skip, search, Sync to EPOS confirm (dismissed, not run), Locate, Sweep all ghosts (994 rows; edit, select, adopt and purge buttons enabled, purge confirm dismissed, not run), Series Rename tab, Close. Storefront: H1 equals the selected product's display_name on Dolomite Onyx, 800x800 Invisible Brushed Oiled Versailles and TestSeries. The H1 updates when you change size, the product-full-name amber box is gone, the SEO tab title is unchanged, gallery and Add to Cart work, and there were no page errors.",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "POST /api/product-name-sanity/apply", "issue": "FIXED BY TESTING AGENT. When item.supplier was sent (the drawer and the standalone page always send row.supplier), the query required {supplier: X}. Docs with only supplier_name (322/1584, e.g. all Ceramica Impex) returned failed:[{reason:'not_found'}], so every Save failed. Changed the filter to {$or:[{supplier:X},{supplier_name:X}]}.", "priority": "CRITICAL"}
+    ],
+    "minor": [
+      {"endpoint": "POST /api/product-name-sanity/apply", "issue": "A supplier-only edit is not fully independent. new_name falls back to row.product_name, which /report builds as our_product_name||display_name||product_name. /apply then writes that to supplier_products.product_name, tiles.name/display_name/website_name and products.name, and upserts a custom_mapping. Reproduced on SKU 4405: product_name '4405 Relief Super White 20x25 Grey 60x60' and tiles.display_name were overwritten with 'Laminate Premium Oak' after editing only the supplier name (restored afterwards). Suggest: make new_name optional and skip the name $set, tiles, products and mapping custom_name when only new_supplier_name changes."},
+      {"endpoint": "GET /api/product-name-sanity/report?supplier=X", "issue": "The supplier filter (line ~200) uses {supplier: X} only, and supplier_counts (line ~278) uses doc.supplier only. Products with only supplier_name are missing from supplier-filtered scans and counted as 'unknown'."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "SupplierProducts table row checkbox", "issue": "Row selection checkboxes have no data-testid", "selector": "table tbody input[type=checkbox]", "priority": "LOW"}
+    ],
+    "integration_issues": [
+      {"flow": "Storefront supplier-name leak (residual)", "issue": "The H1 is fixed, but the breadcrumb (CollectionDetailPage.js ~line 2103) and the auto-generated description (`const series = decodedSeriesName`, ~lines 2352/3687) still show the raw series string. On production collections whose series holds supplier wording (e.g. 'Makrana Breccia Blanco Polished Marble Effect Tile 300x600'), that text will still appear on the page. No such series exists in the preview DB, so this could not be reproduced visually here.", "affected_selectors": ["nav breadcrumb span.text-gray-900"]}
+    ],
+    "design_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_name_sanity_drawer.py", "/app/backend/tests/test_name_sanity_supplier_field.py", "/app/test_reports/pytest/pytest_results_256.xml"],
+  "action_items": [
+    "Review and keep the testing agent's fix in routes/product_name_sanity.py apply_new_names (supplier OR supplier_name match). Without it the drawer and the standalone page cannot save ~20% of products.",
+    "Make supplier-only saves truly independent: do not rewrite product_name, tiles or products names when only new_supplier_name changed.",
+    "Apply the same supplier || supplier_name matching to the /report supplier filter and supplier_counts.",
+    "Decide whether the storefront breadcrumb and description should also use display_name instead of the raw series (residual supplier-wording leak).",
+    "Data note: several Ceramica Impex SKUs (4405, 5225, 5445) have our_product_name/display_name 'Laminate Premium Oak' and finish 'NEW_FINISH_VALUE'. This looks like leftover pollution from earlier tests in preview. Dolomite Onyx Bianco 60x120cm has display_name '...Polished' but finish Matt."
+  ],
+  "critical_code_review_comments": [
+    "NameSanityDrawer.jsx: applyOne and saveAllEdited follow the same pattern as the standalone page. Empty supplier input correctly disables Save.",
+    "SupplierProducts.js passes selectedSkus as a new array on every render. loadReport depends on it, so any parent re-render while the drawer is open refetches and wipes unsaved edits (setSuggestedEdits({}) and setSupplierEdits({})). Edits did stay for 8s in testing, but polling or another parent state change would lose them. Memoize selectedSkus.",
+    "NameSanityDrawer.jsx is 1091 lines and should be split (ghost sweep / locate panel / flagged table)."
+  ],
+  "updated_files": ["/app/backend/routes/product_name_sanity.py", "/app/backend/tests/test_name_sanity_drawer.py"],
+  "success_rate": {"backend": "100% (15/15 after fix; drawer saves were 0% before fix)", "frontend": "100% of tested drawer and storefront flows after backend fix"},
+  "seed_data_creation": "None. 355POL6060, 4405 and 5225 were snapshotted and restored exactly (supplier_products, tiles, custom_mappings). No TEST_ data remains.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Drawer: /admin/supplier-products, then data-testid open-name-sanity-btn. 355POL6060 is the first row in the unscoped scan. Log in via the API (POST /api/auth/login) and set localStorage token/user/auth_last_verified; UI login typing was flaky. Scoped mode: check visible table tbody checkboxes, which gives a 'N selected' badge. Run: REACT_APP_BACKEND_URL=... plus MONGO_URL/DB_NAME from backend/.env, then pytest tests/test_name_sanity_drawer.py tests/test_name_sanity_supplier_field.py. Storefront collections used: Dolomite Onyx, 800x800 Invisible Brushed Oiled Versailles, TestSeries.",
+  "rca of the issue": "User report 'still can't save supplier names in Name Sanity'. Reproduced: drawer Save gave toast 'Failed to save 355POL6060: not_found' for name-only, supplier-only and both. The UI change was correct, but the request includes supplier='Ceramica Impex', which comes from the doc's supplier_name because there is no supplier field. /apply ANDed {supplier:'Ceramica Impex'}, which matched 0 docs. Previous pytest (iteration 255) never sent a supplier key, so it missed this. Fix: match supplier OR supplier_name. Verified in the UI and with the new regression test test_name_sanity_drawer.py."
+}
