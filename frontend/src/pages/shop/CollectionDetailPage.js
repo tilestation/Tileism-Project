@@ -2460,81 +2460,73 @@ const CollectionDetailPage = () => {
           <div className="space-y-5 min-w-0">
             {/* Title & SKU */}
             <div>
-              <h1 className="text-2xl md:text-3xl font-bold text-gray-900 uppercase tracking-wide">
-                {decodedSeriesName}
-              </h1>
-              {/* Show complete product name from actual product data */}
-              {selectedProduct && (selectedProduct.display_name || selectedProduct.name) && (() => {
-                const rawName = selectedProduct.display_name || selectedProduct.name || '';
-                const rawSize = selectedProduct.size || '';
-                // Tile dimensions are often expressed in two interchangeable ways
-                // (e.g. "30x60cm" and "600x300x7mm"). Build every alias of the size so
-                // a size already present in the name in EITHER format is detected.
-                const buildSizeAliases = (sz) => {
-                  if (!sz) return [];
-                  const aliases = new Set();
-                  const lower = sz.toLowerCase().replace(/\s/g, '');
-                  aliases.add(lower);
-                  const m = lower.match(/^(\d+(?:\.\d+)?)x(\d+(?:\.\d+)?)(?:x[\d./]+(?:mm|cm)?)?(mm|cm)?$/);
-                  if (m) {
-                    const [, a, b, unit] = m;
-                    const na = Number(a), nb = Number(b);
-                    const storedUnit = unit || 'mm';
-                    aliases.add(`${na}x${nb}`);
-                    aliases.add(`${na}x${nb}${storedUnit}`);
-                    aliases.add(`${nb}x${na}`);
-                    aliases.add(`${nb}x${na}${storedUnit}`);
-                    if (storedUnit === 'mm' && na >= 100 && nb >= 100) {
-                      const ca = na / 10, cb = nb / 10;
-                      aliases.add(`${ca}x${cb}cm`);
-                      aliases.add(`${cb}x${ca}cm`);
-                    }
-                    if (storedUnit === 'cm') {
-                      const ma = na * 10, mb = nb * 10;
-                      aliases.add(`${ma}x${mb}mm`);
-                      aliases.add(`${mb}x${ma}mm`);
-                    }
-                  }
-                  return [...aliases];
-                };
-
-                // Clean the name at render-time. Some products have BOTH sizes baked
-                // into display_name (e.g. "Costa Stone Bianco 30x60cm Matt 600x300x7mm").
-                // If the cm and mm forms of the same dimension both appear in the string,
-                // strip the trailing mm token so the banner shows one clean size.
-                const cleanName = (n) => {
-                  if (!n) return n;
-                  // Trailing 3-dim mm token: " 600x300x7mm" or " 600x300x14/3mm"
-                  const trailingMmMatch = n.match(/\s+(\d+)x(\d+)(?:x[\d./]+(?:mm)?)(?:\s*mm)?\s*$/i);
-                  if (trailingMmMatch) {
-                    const [full, a, b] = trailingMmMatch;
-                    const na = Number(a), nb = Number(b);
-                    if (na >= 100 && nb >= 100) {
-                      const ca = na / 10, cb = nb / 10;
-                      const lower = n.toLowerCase();
-                      const cmForms = [`${ca}x${cb}cm`, `${cb}x${ca}cm`, `${ca}x${cb}`, `${cb}x${ca}`];
-                      // Only strip if the cm form is ALSO present earlier in the name
-                      if (cmForms.some(f => lower.slice(0, lower.length - full.length).includes(f))) {
-                        return n.slice(0, n.length - full.length).trim();
+              <h1 className="text-2xl md:text-3xl font-bold text-gray-900 uppercase tracking-wide" data-testid="product-detail-title">
+                {(() => {
+                  // Always show OUR product name (display_name) here — never the
+                  // raw series/supplier wording. Falls back to the series name
+                  // only while the specific product hasn't loaded yet.
+                  const rawName = (selectedProduct?.display_name || selectedProduct?.name || decodedSeriesName || '').trim();
+                  const rawSize = selectedProduct?.size || '';
+                  // Tile dimensions are often expressed in two interchangeable ways
+                  // (e.g. "30x60cm" and "600x300x7mm"). Build every alias of the size so
+                  // a size already present in the name in EITHER format is detected.
+                  const buildSizeAliases = (sz) => {
+                    if (!sz) return [];
+                    const aliases = new Set();
+                    const lower = sz.toLowerCase().replace(/\s/g, '');
+                    aliases.add(lower);
+                    const m = lower.match(/^(\d+(?:\.\d+)?)x(\d+(?:\.\d+)?)(?:x[\d./]+(?:mm|cm)?)?(mm|cm)?$/);
+                    if (m) {
+                      const [, a, b, unit] = m;
+                      const na = Number(a), nb = Number(b);
+                      const storedUnit = unit || 'mm';
+                      aliases.add(`${na}x${nb}`);
+                      aliases.add(`${na}x${nb}${storedUnit}`);
+                      aliases.add(`${nb}x${na}`);
+                      aliases.add(`${nb}x${na}${storedUnit}`);
+                      if (storedUnit === 'mm' && na >= 100 && nb >= 100) {
+                        const ca = na / 10, cb = nb / 10;
+                        aliases.add(`${ca}x${cb}cm`);
+                        aliases.add(`${cb}x${ca}cm`);
+                      }
+                      if (storedUnit === 'cm') {
+                        const ma = na * 10, mb = nb * 10;
+                        aliases.add(`${ma}x${mb}mm`);
+                        aliases.add(`${mb}x${ma}mm`);
                       }
                     }
-                  }
-                  return n;
-                };
+                    return [...aliases];
+                  };
 
-                const fullName = cleanName(rawName);
-                const aliases = buildSizeAliases(rawSize);
-                const lowerName = fullName.toLowerCase().replace(/\s/g, '');
-                const sizeAlreadyInName = aliases.some(a => lowerName.includes(a));
-                return (
-                  <p className="text-lg font-semibold text-gray-800 mt-2 bg-amber-50 px-3 py-2 rounded-lg border border-amber-200" data-testid="product-full-name">
-                    {fullName}
-                    {rawSize && !sizeAlreadyInName && (
-                      <span className="text-gray-500 font-normal"> — {rawSize}</span>
-                    )}
-                  </p>
-                );
-              })()}
+                  // Clean the name at render-time. Some products have BOTH sizes baked
+                  // into display_name (e.g. "Costa Stone Bianco 30x60cm Matt 600x300x7mm").
+                  // If the cm and mm forms of the same dimension both appear in the string,
+                  // strip the trailing mm token so the title shows one clean size.
+                  const cleanName = (n) => {
+                    if (!n) return n;
+                    const trailingMmMatch = n.match(/\s+(\d+)x(\d+)(?:x[\d./]+(?:mm)?)(?:\s*mm)?\s*$/i);
+                    if (trailingMmMatch) {
+                      const [full, a, b] = trailingMmMatch;
+                      const na = Number(a), nb = Number(b);
+                      if (na >= 100 && nb >= 100) {
+                        const ca = na / 10, cb = nb / 10;
+                        const lower = n.toLowerCase();
+                        const cmForms = [`${ca}x${cb}cm`, `${cb}x${ca}cm`, `${ca}x${cb}`, `${cb}x${ca}`];
+                        if (cmForms.some(f => lower.slice(0, lower.length - full.length).includes(f))) {
+                          return n.slice(0, n.length - full.length).trim();
+                        }
+                      }
+                    }
+                    return n;
+                  };
+
+                  const fullName = cleanName(rawName);
+                  const aliases = buildSizeAliases(rawSize);
+                  const lowerName = fullName.toLowerCase().replace(/\s/g, '');
+                  const sizeAlreadyInName = aliases.some(a => lowerName.includes(a));
+                  return rawSize && !sizeAlreadyInName ? `${fullName} — ${rawSize}` : fullName;
+                })()}
+              </h1>
               {selectedProduct?.made_in && (
                 <div className="inline-flex items-center gap-2 mt-3 px-3 py-1.5 rounded-full bg-gradient-to-r from-gray-50 to-gray-100 border border-gray-200 shadow-sm" data-testid="product-detail-made-in">
                   <img 

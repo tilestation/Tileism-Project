@@ -16,7 +16,7 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import { toast } from 'sonner';
 import {
-  ShieldCheck, AlertTriangle, RefreshCw, Save, X, Filter, Search, Wand2, Send, MapPin, Trash2, Ghost, Layers, Copy, CaseLower,
+  ShieldCheck, AlertTriangle, RefreshCw, Save, X, Filter, Search, Wand2, Send, MapPin, Trash2, Ghost, Layers, CaseLower,
 } from 'lucide-react';
 import { Button } from '../../../../components/ui/button';
 import { Input } from '../../../../components/ui/input';
@@ -42,6 +42,7 @@ const NameSanityDrawer = ({ open, onClose, defaultSupplier = '', onRenamed, sele
   const [running, setRunning] = useState(false);
   const [rowSaving, setRowSaving] = useState({});
   const [suggestedEdits, setSuggestedEdits] = useState({});
+  const [supplierEdits, setSupplierEdits] = useState({});     // { sku: 'new supplier name typed by admin' }
   const [supplierFilter, setSupplierFilter] = useState(defaultSupplier || '');
   const [issueFilter, setIssueFilter] = useState('');
   const [limit, setLimit] = useState(200);
@@ -94,6 +95,7 @@ const NameSanityDrawer = ({ open, onClose, defaultSupplier = '', onRenamed, sele
       const data = await res.json();
       setReport(data);
       setSuggestedEdits({});
+      setSupplierEdits({});
     } catch (err) {
       toast.error(`Failed to load report: ${err.message}`);
     } finally {
@@ -115,7 +117,10 @@ const NameSanityDrawer = ({ open, onClose, defaultSupplier = '', onRenamed, sele
 
   const applyOne = async (row, override) => {
     const newName = (override ?? suggestedEdits[row.sku] ?? row.product_name).trim();
-    if (!newName || newName === row.product_name) {
+    const newSupplierName = (supplierEdits[row.sku] ?? row.supplier_name ?? '').trim();
+    const nameChanged = newName && newName !== row.product_name;
+    const supplierChanged = newSupplierName && newSupplierName !== (row.supplier_name || '');
+    if (!nameChanged && !supplierChanged) {
       toast.info('Nothing to change');
       return;
     }
@@ -124,16 +129,21 @@ const NameSanityDrawer = ({ open, onClose, defaultSupplier = '', onRenamed, sele
       const res = await fetch(`${API_URL}/api/product-name-sanity/apply`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...authHeaders() },
-        body: JSON.stringify({ items: [{ sku: row.sku, supplier: row.supplier, new_name: newName }] }),
+        body: JSON.stringify({ items: [{
+          sku: row.sku,
+          supplier: row.supplier,
+          new_name: nameChanged ? newName : row.product_name,
+          new_supplier_name: supplierChanged ? newSupplierName : undefined,
+        }] }),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       if (data.failed?.length) throw new Error(data.failed[0].reason || 'unknown');
-      toast.success(`Renamed ${row.sku} → "${newName}"`);
+      toast.success(`Saved ${row.sku}`);
       setReport(prev => ({ ...prev, rows: prev.rows.filter(r => r.sku !== row.sku), total_flagged: prev.total_flagged - 1 }));
       onRenamed?.();
     } catch (err) {
-      toast.error(`Failed to rename ${row.sku}: ${err.message}`);
+      toast.error(`Failed to save ${row.sku}: ${err.message}`);
     } finally {
       setRowSaving(prev => { const next = { ...prev }; delete next[row.sku]; return next; });
     }
@@ -143,10 +153,18 @@ const NameSanityDrawer = ({ open, onClose, defaultSupplier = '', onRenamed, sele
   const editedItems = report.rows
     .map(row => {
       const edit = suggestedEdits[row.sku];
-      if (edit === undefined) return null;
-      const newName = edit.trim();
-      if (!newName || newName.length < 3 || newName === row.product_name) return null;
-      return { sku: row.sku, supplier: row.supplier, new_name: newName };
+      const supplierEdit = supplierEdits[row.sku];
+      const newName = edit !== undefined ? edit.trim() : row.product_name;
+      const newSupplierName = supplierEdit !== undefined ? supplierEdit.trim() : (row.supplier_name || '');
+      const nameChanged = edit !== undefined && newName && newName.length >= 3 && newName !== row.product_name;
+      const supplierChanged = supplierEdit !== undefined && newSupplierName && newSupplierName !== (row.supplier_name || '');
+      if (!nameChanged && !supplierChanged) return null;
+      return {
+        sku: row.sku,
+        supplier: row.supplier,
+        new_name: nameChanged ? newName : row.product_name,
+        new_supplier_name: supplierChanged ? newSupplierName : undefined,
+      };
     })
     .filter(Boolean);
 
@@ -166,6 +184,7 @@ const NameSanityDrawer = ({ open, onClose, defaultSupplier = '', onRenamed, sele
       toast.success(`Saved ${data.updated} name${data.updated === 1 ? '' : 's'}${failedSkus.size ? ` — ${failedSkus.size} failed` : ''}`);
       setReport(prev => ({ ...prev, rows: prev.rows.filter(r => !savedSkus.has(r.sku)), total_flagged: prev.total_flagged - savedSkus.size }));
       setSuggestedEdits(prev => { const next = { ...prev }; savedSkus.forEach(s => delete next[s]); return next; });
+      setSupplierEdits(prev => { const next = { ...prev }; savedSkus.forEach(s => delete next[s]); return next; });
       onRenamed?.();
     } catch (err) {
       toast.error(`Bulk save failed: ${err.message}`);
@@ -929,7 +948,7 @@ const NameSanityDrawer = ({ open, onClose, defaultSupplier = '', onRenamed, sele
                   <tr className="text-left text-gray-500">
                     <th className="px-3 py-2 font-medium w-24">SKU</th>
                     <th className="px-3 py-2 font-medium">Current name</th>
-                    <th className="px-3 py-2 font-medium text-sky-700">Supplier name</th>
+                    <th className="px-3 py-2 font-medium text-sky-700 min-w-[220px]">Supplier name</th>
                     <th className="px-3 py-2 font-medium w-56">Issues</th>
                     <th className="px-3 py-2 font-medium w-48">Fields</th>
                     <th className="px-3 py-2 font-medium min-w-[320px]">New name (edit &amp; save)</th>
@@ -940,7 +959,12 @@ const NameSanityDrawer = ({ open, onClose, defaultSupplier = '', onRenamed, sele
                   {visibleRows.map(row => {
                     const busy = !!rowSaving[row.sku];
                     const currentEdit = suggestedEdits[row.sku] ?? row.product_name;
-                    const willChange = currentEdit && currentEdit !== row.product_name;
+                    const currentSupplierEdit = supplierEdits[row.sku] ?? row.supplier_name ?? '';
+                    const nameWillChange = currentEdit && currentEdit !== row.product_name;
+                    // Clearing the field isn't a save-able change — the backend
+                    // ignores an empty supplier name, so match that here too.
+                    const supplierWillChange = currentSupplierEdit.trim() !== '' && currentSupplierEdit !== (row.supplier_name || '');
+                    const willChange = nameWillChange || supplierWillChange;
                     return (
                       <tr key={row.sku} className={busy ? 'opacity-50' : ''} data-testid={`pns-row-${row.sku}`}>
                         <td className="px-3 py-2 font-mono text-[11px] text-slate-600 align-top">
@@ -950,24 +974,14 @@ const NameSanityDrawer = ({ open, onClose, defaultSupplier = '', onRenamed, sele
                         <td className="px-3 py-2 text-slate-800 align-top">
                           {row.product_name || <span className="text-gray-300">— empty —</span>}
                         </td>
-                        <td className="px-3 py-2 align-top" data-testid={`pns-suppliername-${row.sku}`}>
-                          {row.supplier_name && row.supplier_name !== row.product_name ? (
-                            <div className="flex items-start gap-1.5">
-                              <span className="text-sky-800/70 italic">{row.supplier_name}</span>
-                              <button
-                                onClick={() => setSuggestedEdits(prev => ({ ...prev, [row.sku]: row.supplier_name }))}
-                                className="flex-shrink-0 mt-0.5 text-sky-500 hover:text-sky-700"
-                                title="Copy supplier name into New Name so you can edit it"
-                                data-testid={`pns-use-supplier-${row.sku}`}
-                              >
-                                <Copy className="w-3 h-3" />
-                              </button>
-                            </div>
-                          ) : row.supplier_name ? (
-                            <span className="text-gray-300">same as ours</span>
-                          ) : (
-                            <span className="text-gray-300">—</span>
-                          )}
+                        <td className="px-3 py-2 align-top min-w-[220px]" data-testid={`pns-suppliername-${row.sku}`}>
+                          <Input
+                            value={currentSupplierEdit}
+                            onChange={(e) => setSupplierEdits(prev => ({ ...prev, [row.sku]: e.target.value }))}
+                            placeholder="Supplier name…"
+                            className="h-8 text-xs"
+                            data-testid={`pns-supplier-input-${row.sku}`}
+                          />
                         </td>
                         <td className="px-3 py-2 align-top">
                           <div className="flex flex-wrap gap-1">
