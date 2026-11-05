@@ -1519,7 +1519,8 @@ export default function SupplierProducts() {
           return p;
         }));
         toast.success(result.message);
-        setSelectedProducts(new Set());
+        // Keep the selection — the admin usually checks the fixed products
+        // right after, not re-search for them.
       } else {
         const error = await response.json();
         toast.error(error.detail || 'Failed to fix draft status');
@@ -1673,7 +1674,10 @@ export default function SupplierProducts() {
   // Clear persisted state when modal is closed intentionally (via Cancel or Apply)
   const clearPersistedState = useCallback(() => {
     try {
-      localStorage.removeItem(STORAGE_KEYS.selectedProducts);
+      // Deliberately does NOT remove STORAGE_KEYS.selectedProducts — the admin's
+      // ticked products should survive closing/saving this modal, not force a
+      // re-search. Selection is cleared explicitly only for destructive actions
+      // (e.g. permanent delete) where the products no longer exist to select.
       localStorage.removeItem(STORAGE_KEYS.showBulkCategoryModal);
       localStorage.removeItem(STORAGE_KEYS.bulkCategorySelections);
     } catch (e) {
@@ -4534,7 +4538,8 @@ export default function SupplierProducts() {
         }
         
         setShowBulkCategoryModal(false);
-        setSelectedProducts(new Set());
+        // Keep selection — the admin stays on the same filtered view with the
+        // same products ticked instead of having to re-search for them.
         setBulkCategorySelections({
           material: '', finish: '', type: '', edge: '', slip_rating: '', suitability: '', thickness: '', underfloor_heating: '',
           cost_price: '', list_price: '', made_in: '', main_category: '', sub_categories: [],
@@ -5985,7 +5990,7 @@ export default function SupplierProducts() {
       }
       
       setShowBulkEditModal(false);
-      setSelectedProducts(new Set());
+      // Keep selection — admin stays on the same filtered view/products.
       fetchProducts();
     } catch (error) {
       toast.error('Failed to bulk update products');
@@ -6109,7 +6114,8 @@ export default function SupplierProducts() {
         is_active: false
       });
       toast.success(`Archived ${response.data.updated_count} products`);
-      setSelectedProducts(new Set());
+      // Keep selection — matches Manager pages' bulk archive, which also
+      // leaves the ticked products selected after the action.
       fetchProducts();
     } catch (error) {
       toast.error('Failed to archive products');
@@ -6170,7 +6176,8 @@ export default function SupplierProducts() {
         toast.success(`Updated ${result.updated_count || skus.length} products${result.custom_mappings_created ? ` (${result.custom_mappings_created} custom mappings saved)` : ''}`);
         setShowBulkRenameModal(false);
         setBulkRenameForm({ currentSeriesName: '', newSeriesName: '', insertText: '', insertPosition: 'after_series', customInsertIndex: 1, addCmToSize: false, previewProducts: [], wordReplacements: [], supplierProductName: '', currentSupplierProductName: '', supplierNameReplacements: [], wordsToDelete: [] });
-        setSelectedProducts(new Set());
+        // Keep selection — admin stays on the same filtered view with the
+        // same products ticked instead of having to re-search for them.
         fetchProducts();
       } else {
         // Show specific error based on status code
@@ -15142,7 +15149,7 @@ export default function SupplierProducts() {
                         setShowBulkRenameModal(false);
                         setEditingProductSku(null);
                         fetchProducts();
-                        setSelectedProducts(new Set());
+                        // Keep selection — see Bulk Rename above.
                       } else {
                         // Show specific error based on status code
                         if (response.status === 401) {
