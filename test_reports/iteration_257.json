@@ -1,0 +1,36 @@
+{
+  "summary": "Selection-persistence-after-save fix on /admin/supplier-products tested in the UI (Playwright, desktop, logged in as super_admin admin@test.com). I selected 4 products (keys unknown|||4405, 5225, 5445, 9405). All write requests (POST/PUT/PATCH/DELETE) were mocked with page.route returning 200, so no catalogue data changed. After a successful save, the selection badge stayed at 4 and localStorage kept the 4 keys for every action: Change Supplier (Bulk Edit), Archive (confirm accepted), Stock dropdown, Mark Not For Sale (unpublish), Set Series (prompt), Assign Category, £ Prices, Fix Draft, Apply Sale %, Bulk Rename in Template mode, Bulk Rename in Advanced mode (insert text), and the Bulk Category Editor save (Save Now, then Dry Run confirm, then Apply Changes confirm; this made 4 bulk-update-unified calls, the modal stayed open showing 'All 4 products saved successfully', and the badge stayed at 4). Closing the Bulk Category Editor with Cancel kept the selection. Regressions: reloading the page restored all 4 selected products (7 checkboxes ticked, including series headers). Deselect all (X) cleared the selection to 0 and removed the localStorage key. Bulk Delete (Delete Selected, mocked) still cleared the selection to 0. The selection fix works as intended. One existing bug outside this fix was confirmed with a real API call (see backend_issues).",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "PUT /api/products/bulk-update (used by Quick Actions 'Change Supplier' Bulk Edit modal and 'Archive')", "issue": "Existing bug, not caused by this change. The frontend sends selection keys in the form getProductKey(p) = 'supplier|||sku' (for example 'unknown|||4405') as product_ids. The backend looks these up in db.products by {id}, so nothing ever matches. Confirmed with curl: {\"message\":\"Updated 0 products\",\"updated_count\":0,\"error_count\":2,\"errors\":[{\"id\":\"unknown|||4405\",\"error\":\"Not found\"}...]}. Archive and Change Supplier Bulk Edit therefore never change any supplier product. Users see 'Archived 0 products' or 'Updated 0 products' plus an 'N products failed' warning.", "priority": "HIGH"}
+    ],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "BulkSaleModal (Apply Sale %)", "issue": "Clicking 'Apply to N Products' with no labels and no discount selected makes no API call but still shows the success toast 'Updated N products'. It should be disabled or show a validation error.", "selector": "[data-testid='apply-sale-labels-btn']", "priority": "LOW"}
+    ],
+    "integration_issues": [
+      {"flow": "Change Supplier / Archive bulk actions", "issue": "Sends composite 'supplier|||sku' keys to an endpoint that expects db.products UUIDs, so 0 products are updated (see backend_issues). Selection persistence works, but the save itself does nothing.", "affected_selectors": ["[data-testid='qa-change-supplier']", "[data-testid='apply-bulk-edit-btn']", "[data-testid='qa-archive']"]}
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [],
+  "action_items": [
+    "HIGH (existing bug): make handleBulkEdit and handleBulkArchive in SupplierProducts.js work on supplier products. Map the selected keys to {sku, supplier} and call a supplier-sync endpoint (for example bulk-update-unified with is_active / stock), or have /api/products/bulk-update accept 'supplier|||sku' keys. Today they always update 0 products.",
+    "LOW: block or validate a no-op Apply in BulkSaleModal so it does not show a false 'Updated N products' toast."
+  ],
+  "critical_code_review_comments": [
+    "SupplierProducts.js is about 17,000 lines and should be split into modules.",
+    "Unused helper clearAllSelections (around line 258) removes the keys 'supplierProducts_selectedProducts' and 'supplierProducts_productSubSelection'. STORAGE_KEYS.selectedProducts is actually 'supplier_products_selected', so the helper is dead code with a mismatched key. Remove it or fix the key.",
+    "Bulk Category Editor Cancel sends DELETE /api/bulk-edit-tools/draft?user=admin, which discards the server draft. This is existing behaviour; check it is intended.",
+    "handleBulkSetStock and other fetch calls send no Authorization header (only Content-Type)."
+  ],
+  "updated_files": ["/app/tests/sp_helpers.py (placeholder note only)"],
+  "success_rate": {"backend": "N/A (frontend task; 1 existing backend bug confirmed via curl)", "frontend": "100% of the requested selection-persistence checks passed (16/16)"},
+  "seed_data_creation": "None. All write requests were mocked in the browser, and the single real curl call used non-matching composite IDs, so 0 records were updated.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Helpers used: count the Quick Actions badge via [data-testid=quick-actions-bar] div.rounded-full. Select products by clicking 'table tbody input[type=checkbox]' and keeping only clicks that change the count by +1 (series header checkboxes select groups). Selection lives in localStorage key 'supplier_products_selected'. Bulk Category Editor save path: [data-testid=apply-btn], then [data-testid=dry-run-confirm-btn], then the 'Confirm & Apply' button in the Apply Changes dialog. Mock writes with page.route('**/api/**') to avoid changing catalogue data.",
+  "rca of the issue": "Selection fix verified. Separately, Archive and Change Supplier are broken at the root because the selection keys ('supplier|||sku') do not match db.products.id in PUT /api/products/bulk-update."
+}
