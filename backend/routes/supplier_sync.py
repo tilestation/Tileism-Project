@@ -4302,7 +4302,21 @@ def get_all_supplier_products(
         if skus:
             sku_list = [s.strip() for s in skus.split(",") if s.strip()]
             if sku_list:
-                and_conditions.append({"$or": [{"sku": {"$in": sku_list}}, {"supplier_code": {"$in": sku_list}}]})
+                or_clause = [{"sku": {"$in": sku_list}}, {"supplier_code": {"$in": sku_list}}]
+                # ~128 supplier_products have neither sku nor supplier_code —
+                # the frontend's selection key falls back to `_id` for those,
+                # so match on it too or they silently vanish from this view.
+                from bson import ObjectId
+                from bson.errors import InvalidId
+                object_ids = []
+                for s in sku_list:
+                    try:
+                        object_ids.append(ObjectId(s))
+                    except InvalidId:
+                        pass
+                if object_ids:
+                    or_clause.append({"_id": {"$in": object_ids}})
+                and_conditions.append({"$or": or_clause})
                 limit = max(limit, len(sku_list))
         if search:
             safe = re.escape(search.strip())

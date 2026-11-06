@@ -164,6 +164,13 @@ export default function SupplierProducts() {
     }
     return new Set();
   });
+  // Nothing left to view (deselected everything, or unchecked the last row) —
+  // drop back to normal browsing instead of showing a stuck empty table.
+  useEffect(() => {
+    if (viewingSelectedOnly && selectedProducts.size === 0) {
+      setViewingSelectedOnly(false);
+    }
+  }, [viewingSelectedOnly, selectedProducts.size]);
   
   // NEW: Sub-selection for granular attribute assignment within selected products
   // When applying specs/filters, sub-selected products get the chosen value, 
@@ -2313,6 +2320,15 @@ export default function SupplierProducts() {
   };
 
   // Fetch products based on supplier filter
+  // Stable primitive (not a new Set reference) so ticking a checkbox in NORMAL
+  // mode never re-triggers fetchProducts/its effects. Only changes while
+  // "View selected" is actually ON, which is the one case where the fetched
+  // SKUs must track the live selection.
+  const selectedSkusKey = useMemo(() => {
+    if (!viewingSelectedOnly) return '';
+    return [...selectedProducts].map(k => k.split('|||').slice(1).join('|||')).filter(Boolean).sort().join(',');
+  }, [viewingSelectedOnly, selectedProducts]);
+
   const fetchProducts = useCallback(async (silent) => {
     if (silent !== true) setLoading(true);
     try {
@@ -2320,7 +2336,7 @@ export default function SupplierProducts() {
       if (viewingSelectedOnly) {
         // Exact fetch of the selected SKUs — ignores page/search/series/supplier
         // so the full selection is always visible together, however it was built.
-        const skus = [...selectedProducts].map(k => k.split('|||')[1]).filter(Boolean);
+        const skus = selectedSkusKey ? selectedSkusKey.split(',') : [];
         if (skus.length === 0) {
           setProducts([]);
           setTotalProducts(0);
@@ -2377,7 +2393,7 @@ export default function SupplierProducts() {
       setLoading(false);
     }
     return null;
-  }, [currentPage, selectedSupplier, searchTerm, showNewOnly, productsPerPage, seriesFilter, viewingSelectedOnly, selectedProducts]);
+  }, [currentPage, selectedSupplier, searchTerm, showNewOnly, productsPerPage, seriesFilter, viewingSelectedOnly, selectedSkusKey]);
 
   // Fetch stats for all suppliers
   const fetchStats = async () => {

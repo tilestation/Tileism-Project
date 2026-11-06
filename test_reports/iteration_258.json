@@ -1,0 +1,43 @@
+{
+  "summary": "Tested the 'View selected' / persist-visible-list-across-refresh feature on /admin/supplier-products (frontend via Playwright + backend skus= param via pytest). CORE FIX WORKS for products that have a SKU/supplier_code: search 'white' -> ticked 5 -> clicked qa-toggle-view-selected -> it turns green ('Viewing selected'), the green banner shows 'Showing only your 5 selected products', search input is disabled, pagination is hidden, and the table shows EXACTLY those 5 SKUs (4405, 5225, 5445, 9405, 9602N). After a full page.reload() the toggle is still green, the banner is still there and the SAME 5 SKUs show straight away, all ticked. Unticking a row in this mode removes it and the count updates (5->4). 'Back to browsing' ends the mode: search works again, pagination comes back, the selection is kept and you return to the page you were on (tested from page 2). Bulk modals open with the full selection in this mode: Apply Sale % (5 products), Bulk Rename/Edit Series Names (5 products, all previewed), Change Supplier/Bulk Edit (5 selected), Apply Description/Bulk Category Editor (5 selected). Normal-mode checks also pass: search 'splendour', Next/Previous paging and checkbox ticks. Found 1 HIGH bug (products with no SKU never show in View selected), 1 MEDIUM UX issue (Deselect all leaves the page stuck in an empty 'View selected' mode) and 1 performance regression (every checkbox tick reloads the whole product list).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET /api/supplier-sync/products?skus=", "issue": "Matches only sku/supplier_code. The frontend sends getProductKey's fallback (`p._id`) for the 128 supplier_products that have no sku AND no supplier_code (e.g. 'Agora Marfil 50x25' _id 6a7a18be74752553dd6ffb70, 'Alaska Brillo 60x30'). skus=<_id> returns 0 rows. 9 of these products are on page 1 of the default listing."},
+      {"endpoint": "GET /api/supplier-sync/products?skus=", "issue": "Ignores supplier. The selection key is supplier|||sku but only the sku part is sent, so a SKU that exists twice (DB has 1 such case: GS-D8322 x2) shows both rows."},
+      {"endpoint": "GET /api/supplier-sync/products?series=", "issue": "PRE-EXISTING, not from this change: the series dropdown option 'Opaco (75)' returns 0 products. The backend matches the `series` field exactly, but the dropdown names come from a different field/derivation (getSeriesName / allSeriesOptions). No doc has series='Opaco' or range_name='Opaco'."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "View selected mode (fetchProducts ~L2320)", "issue": "Selected products with no SKU/supplier_code NEVER appear. Reproduced in the UI: search 'Agora Marfil', tick it (stored key 'splendour|||6a7a18be74752553dd6ffb70'), click View selected -> banner says '1 selected product' but the table shows 'No products found'. This is exactly the user's complaint for those products.", "selector": "[data-testid='qa-toggle-view-selected']", "priority": "HIGH"},
+      {"component": "Deselect all while View selected is ON", "issue": "Reported as asked: the mode does NOT exit by itself. localStorage supplierProducts_viewingSelectedOnly stays 'true', the banner reads 'Showing only your 0 selected products', search stays disabled, the table says 'No products found' and the Quick Actions bar (which holds the toggle) disappears. The only way out is the banner's 'Back to browsing' button. The state also survives a reload. Suggest auto-setting viewingSelectedOnly=false when selectedProducts.size becomes 0.", "selector": "[data-testid='qa-deselect-all']", "priority": "MEDIUM"}
+    ],
+    "integration_issues": [
+      {"flow": "Normal-mode checkbox selection (performance regression)", "issue": "`selectedProducts` was added to fetchProducts' useCallback deps (L2380), and the useEffect at ~L6347 depends on [fetchProducts]. So EVERY checkbox tick, even with View selected OFF, refetches /supplier-sync/products, /supplier-sync/stats, /tiles/pricing/tiers, /website-admin/category-groups and /website-admin/categories/by-group, and calls setLoading(true). Measured: 4 ticks -> 4 product-list refetches, and 1 tick -> 5 API calls. Ticks still register and the scroll position held in testing, but this is wasted load on a 1500+ product page and may flash the loading state. Fix: only include selectedProducts in deps when viewingSelectedOnly is true (e.g. a memoised selectedSkusKey that is '' when the mode is off), and split fetchStats/tiers/category groups into a mount-only effect.", "affected_selectors": ["tbody input[type=checkbox]"]}
+    ],
+    "design_issues": [
+      {"screen": "/admin/supplier-products row checkboxes", "issues": ["Row checkboxes (L8852) and group-header checkboxes have no data-testid."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_supplier_products_skus_filter.py", "/app/test_reports/pytest/pytest_skus.xml"],
+  "action_items": [
+    "HIGH: make View selected work for products with no sku/supplier_code. Either send the _id and let the backend also match ObjectId(_id) in the skus filter, or send the full supplier|||code keys and resolve them on the backend.",
+    "MEDIUM: auto-exit View selected when the selection becomes empty (Deselect all / untick the last item / clearAllSelections).",
+    "MEDIUM (perf): stop the product-list + stats + tiers + category refetch on every checkbox tick in normal mode. Only depend on selectedProducts while viewingSelectedOnly is true, and move fetchStats/fetchTierPricingConfig/fetchCategoryGroups to a mount-only effect.",
+    "LOW: in the skus fetch, also scope by supplier (or filter on the frontend by getProductKey) so a SKU shared by two products doesn't add extra rows.",
+    "LOW/pre-existing: series dropdown 'Opaco (75)' returns 0. Align the backend `series` match with how the dropdown names are built."
+  ],
+  "critical_code_review_comments": [
+    "SupplierProducts.js is 17,112 lines. It badly needs splitting (QuickActionsBar, the filter card and fetch hooks could be separate modules).",
+    "fetchProducts deps now include selectedProducts (a Set that is rebuilt on every tick). This causes whole-page refetches in normal mode.",
+    "Bulk Rename preview (and other modals that use products.filter(selected)) only sees products on the current page in normal mode. View selected actually fixes this because all selected products are loaded, so this mode is now the reliable way to run bulk actions on a selection spread across pages.",
+    "Backend skus branch: an empty skus value ('?skus=') falls back to the normal paginated listing. That is harmless because the frontend guards against an empty list."
+  ],
+  "updated_files": ["/app/backend/tests/test_supplier_products_skus_filter.py"],
+  "success_rate": {"backend": "100% (9 passed, 1 skipped: no product with a distinct supplier_code); the no-SKU gap was found outside the suite", "frontend": "~85% (core reload persistence and toggle/banner/exit/bulk-modals pass; no-SKU products fail; deselect-all leaves the page stuck in an empty mode)"},
+  "seed_data_creation": "None. No data was changed; only localStorage selection state.",
+  "retest_needed": true,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Login: admin@test.com/admin123 at /admin/login. localStorage keys: supplierProducts_selectedProducts (array of 'supplier|||sku'; supplier is 'unknown' when null), supplierProducts_selectedSupplier (''), supplierProducts_viewingSelectedOnly. You can seed the selection by setting these before loading /admin/supplier-products. Good SKUs with a code: 4405, 5225, 5445, 9405, 9602N (supplier null), splendour 401290/401280. No-SKU product for the bug: 'Agora Marfil 50x25' (_id 6a7a18be74752553dd6ffb70). The Bulk Rename modal does not close on Escape; use its Cancel/X button. Row checkboxes: 'tbody tr:has([data-testid^=\"product-name-\"]) input[type=checkbox]'."
+}
