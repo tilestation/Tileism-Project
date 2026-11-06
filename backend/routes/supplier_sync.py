@@ -4283,6 +4283,7 @@ def get_all_supplier_products(
     new_only: Optional[bool] = False,
     series: Optional[str] = None,
     group: Optional[str] = None,
+    skus: Optional[str] = None,
 ):
     """
     Get products from all suppliers with optional filtering
@@ -4295,6 +4296,14 @@ def get_all_supplier_products(
         supplier = normalise_filter_value(supplier)
         if supplier:
             query["supplier"] = supplier
+        # Fetch an EXACT set of products by SKU, ignoring page/search/series —
+        # used by "View selected only" so a saved selection is always visible
+        # regardless of which page/filter it was originally found through.
+        if skus:
+            sku_list = [s.strip() for s in skus.split(",") if s.strip()]
+            if sku_list:
+                and_conditions.append({"$or": [{"sku": {"$in": sku_list}}, {"supplier_code": {"$in": sku_list}}]})
+                limit = max(limit, len(sku_list))
         if search:
             safe = re.escape(search.strip())
             and_conditions.append({"$or": [

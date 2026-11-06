@@ -122,6 +122,15 @@ export default function SupplierProducts() {
   });
   const [currentPage, setCurrentPage] = useState(1);
   const [totalProducts, setTotalProducts] = useState(0);
+  // "View selected only" — shows an EXACT fetch of the currently selected
+  // products regardless of search/series/page, and persists across a
+  // refresh, so a saved selection is never buried back in the full catalogue.
+  const [viewingSelectedOnly, setViewingSelectedOnly] = useState(() => {
+    try { return localStorage.getItem('supplierProducts_viewingSelectedOnly') === 'true'; } catch (e) { return false; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem('supplierProducts_viewingSelectedOnly', viewingSelectedOnly ? 'true' : 'false'); } catch (e) { /* noop */ }
+  }, [viewingSelectedOnly]);
   const [stats, setStats] = useState({});
   const [supplierStats, setSupplierStats] = useState({ withPrices: 0, inStock: 0, outOfStock: 0 });
   const [showAddModal, setShowAddModal] = useState(false);
@@ -2307,25 +2316,38 @@ export default function SupplierProducts() {
   const fetchProducts = useCallback(async (silent) => {
     if (silent !== true) setLoading(true);
     try {
-      const skip = (currentPage - 1) * productsPerPage;
-      let url = `${API_URL}/api/supplier-sync/products?skip=${skip}&limit=${productsPerPage}`;
-      
-      if (selectedSupplier !== 'all') {
-        url += `&supplier=${encodeURIComponent(selectedSupplier)}`;
-      }
-      if (searchTerm) {
-        url += `&search=${encodeURIComponent(searchTerm)}`;
-      }
-      if (showNewOnly) {
-        url += `&new_only=true`;
-      }
-      // Apply series filter at the DB layer — without this, the local
-      // filter would only see the current 50-product page and could
-      // return zero matches even when 13 products exist for the series
-      // (just on later pages). Critical when "All Suppliers" is selected
-      // and the catalogue is 1700+ products long.
-      if (seriesFilter) {
-        url += `&series=${encodeURIComponent(seriesFilter)}`;
+      let url;
+      if (viewingSelectedOnly) {
+        // Exact fetch of the selected SKUs — ignores page/search/series/supplier
+        // so the full selection is always visible together, however it was built.
+        const skus = [...selectedProducts].map(k => k.split('|||')[1]).filter(Boolean);
+        if (skus.length === 0) {
+          setProducts([]);
+          setTotalProducts(0);
+          return [];
+        }
+        url = `${API_URL}/api/supplier-sync/products?skus=${encodeURIComponent(skus.join(','))}&limit=${skus.length}`;
+      } else {
+        const skip = (currentPage - 1) * productsPerPage;
+        url = `${API_URL}/api/supplier-sync/products?skip=${skip}&limit=${productsPerPage}`;
+
+        if (selectedSupplier !== 'all') {
+          url += `&supplier=${encodeURIComponent(selectedSupplier)}`;
+        }
+        if (searchTerm) {
+          url += `&search=${encodeURIComponent(searchTerm)}`;
+        }
+        if (showNewOnly) {
+          url += `&new_only=true`;
+        }
+        // Apply series filter at the DB layer — without this, the local
+        // filter would only see the current 50-product page and could
+        // return zero matches even when 13 products exist for the series
+        // (just on later pages). Critical when "All Suppliers" is selected
+        // and the catalogue is 1700+ products long.
+        if (seriesFilter) {
+          url += `&series=${encodeURIComponent(seriesFilter)}`;
+        }
       }
 
       const response = await fetch(url);
@@ -2333,7 +2355,7 @@ export default function SupplierProducts() {
         const data = await response.json();
         const fetchedProducts = data.products || [];
         setProducts(fetchedProducts);
-        setTotalProducts(data.total || 0);
+        setTotalProducts(viewingSelectedOnly ? fetchedProducts.length : (data.total || 0));
         
         // Count new products
         const newCount = fetchedProducts.filter(isNewProduct).length;
@@ -2355,7 +2377,7 @@ export default function SupplierProducts() {
       setLoading(false);
     }
     return null;
-  }, [currentPage, selectedSupplier, searchTerm, showNewOnly, productsPerPage, seriesFilter]);
+  }, [currentPage, selectedSupplier, searchTerm, showNewOnly, productsPerPage, seriesFilter, viewingSelectedOnly, selectedProducts]);
 
   // Fetch stats for all suppliers
   const fetchStats = async () => {
@@ -6804,6 +6826,8 @@ export default function SupplierProducts() {
 
   // Filter products by status (moved up for use in toggleSelectAll)
   const filteredProducts = (() => {
+    // Viewing an exact selection already fetched by SKU — show it as-is.
+    if (viewingSelectedOnly) return products;
     // First, apply status filter
     let filtered = products.filter(p => {
       if (!statusFilter) return true;
@@ -8489,6 +8513,16 @@ export default function SupplierProducts() {
       </div>
 
       {/* Search and Filters */}
+      {viewingSelectedOnly && (
+        <div className="flex items-center justify-between gap-3 bg-emerald-50 border border-emerald-200 rounded-lg px-4 py-2.5" data-testid="viewing-selected-banner">
+          <span className="text-sm text-emerald-800 font-medium">
+            Showing only your {selectedProducts.size} selected product{selectedProducts.size === 1 ? '' : 's'} — search/filters below are paused.
+          </span>
+          <Button variant="outline" size="sm" onClick={() => setViewingSelectedOnly(false)} data-testid="exit-viewing-selected">
+            Back to browsing
+          </Button>
+        </div>
+      )}
       <Card>
         <CardContent className="pt-4">
           <div className="flex flex-col lg:flex-row gap-4">
@@ -8499,6 +8533,7 @@ export default function SupplierProducts() {
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="pl-10"
+                disabled={viewingSelectedOnly}
                 data-testid="search-input"
               />
             </div>
@@ -9463,7 +9498,7 @@ export default function SupplierProducts() {
                   </select>
                 </div>
               </div>
-              {totalPages > 1 && (
+              {totalPages > 1 && !viewingSelectedOnly && (
                 <div className="flex gap-2">
                   <Button
                     variant="outline"
@@ -16836,6 +16871,20 @@ export default function SupplierProducts() {
               <span className="text-[13px] font-medium text-white/90 whitespace-nowrap">
                 product{selectedProducts.size === 1 ? '' : 's'} selected
               </span>
+              <button
+                type="button"
+                data-testid="qa-toggle-view-selected"
+                onClick={() => setViewingSelectedOnly(v => !v)}
+                className={`flex items-center gap-1 px-2 py-1 rounded-md text-[12px] font-medium transition-all ${
+                  viewingSelectedOnly ? 'bg-emerald-500 text-white' : 'bg-white/10 text-white/80 hover:bg-white/20'
+                }`}
+                title={viewingSelectedOnly
+                  ? 'Showing ONLY your selected products — click to go back to browsing/searching'
+                  : 'Show ONLY the selected products — keeps them together, survives a refresh, no re-searching'}
+              >
+                <Eye className="w-3 h-3" />
+                {viewingSelectedOnly ? 'Viewing selected' : 'View selected'}
+              </button>
             </div>
 
             {/* Action buttons */}
